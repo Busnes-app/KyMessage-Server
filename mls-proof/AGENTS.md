@@ -70,6 +70,15 @@ retains the manual wire harness. Root owns product decisions and research in `do
   ciphertext only. Server acceptance is not a read receipt. Lock clears visible
   history, drafts, fingerprints and the in-memory connection/passphrase; the OIDC
   cookie remains until the separate suite sign-out action.
+- Automatic receive checks wait 10 seconds between completed operations in an unlocked,
+  visible, online chat tab with a selected room and no pending send. Serialize
+  polls with foreground actions; failures back off to 20/40/60 seconds. Polls
+  process verified events only: no automatic resend, key approval or membership
+  mutation. Drafts/focus survive checks; lock remains available during reads.
+- Disconnect aborts in-flight delivery requests; each has a ten-second deadline
+  including its cookie-account check. Guard late UI results with the local view
+  generation so locking cannot be undone by a completed async render. Page exit
+  locks locally; session failure on a poll uses the existing SessionError lock.
 - Reuse vendored `web/src/ky-ui/tokens.css` without modifying shared tokens. The
   prototype follows the OS theme until its own saved appearance choice exists.
 

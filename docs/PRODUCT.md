@@ -22,8 +22,9 @@ encrypted conversation history and durable send retries. Its OIDC mode exercises
 existing suite callback, cookie/CSRF transport and authenticated account-bound unlock
 using a disposable local issuer. Pre-join package renewal preserves verified device
 identity and delayed Welcomes. Explicit reinvitation/rejoin preserves earlier local
-history and verifies a new membership generation before resuming chat. Automatic
-replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
+history and verifies a new membership generation before resuming chat. The chat tab
+also polls verified delivery while visible and online, with failure backoff and
+cancellation on lock. Automatic replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 
 ## Promise and audience

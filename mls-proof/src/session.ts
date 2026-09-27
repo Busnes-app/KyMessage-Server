@@ -4,8 +4,8 @@ import { object, text, accountID } from './delivery-wire';
 export { secureFetch };
 export class SessionError extends Error {}
 
-export async function signedInAccount() {
-  const response = await fetch('/api/auth/me', {credentials:'same-origin',cache:'no-store',redirect:'error'});
+export async function signedInAccount(signal?: AbortSignal) {
+  const response = await fetch('/api/auth/me', {signal,credentials:'same-origin',cache:'no-store',redirect:'error'});
   if (!response.ok) throw new SessionError('Sign in again to connect this device.');
   const raw: unknown = await response.json();
   const value = object(raw);

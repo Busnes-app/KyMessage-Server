@@ -114,6 +114,13 @@ test('suite redirect and signed callback bind cookie-authenticated devices, chat
     await unlock(alice.page);
     await expect(alice.page.locator('#messages')).toContainText(secret);
     expect(await alice.page.locator('#own-fingerprint').innerText()).toBe(alice.fingerprint);
+    await alice.page.clock.install();
+    await alice.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await alice.context.clearCookies();
+    await alice.page.clock.runFor(10_000);
+    await expect(alice.page.locator('#workspace')).toBeHidden();
+    await expect(alice.page.locator('#messages')).toBeEmpty();
+    await expect(alice.page.getByRole('status')).toContainText('changed or expired');
   } finally { await alice.context.close(); await bob.context.close(); }
 });
 

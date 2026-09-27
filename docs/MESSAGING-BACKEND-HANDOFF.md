@@ -21,34 +21,37 @@ The proof remains outside the embedded React app and Docker.
 
 ## This slice
 
-Explicit `delivery.rejoin()` and the UI's Accept reinvitation action require a
-new invitation/newer membership generation and no unresolved send/commit. Fresh
-join material preserves the enrolled signing identity. The old ratchet, cursor and
-local transcript stay intact until a Welcome authenticates the expected generation,
-a newer epoch and a later history floor. Sends/commits are blocked while waiting.
-A lost invitation acceptance response reconciles against active membership on retry.
+The isolated chat UI now polls the selected room after 10 seconds between completed
+operations while unlocked, visible and online, with no pending send. One poll shares
+the existing action serialization; failed checks back off to 20/40/60 seconds.
+Manual actions remain available between checks. Polling only processes the existing
+verified event stream; it never resends uncertain ciphertext or approves keys.
+Drafts and typing focus survive background checks. Each tab polls independently.
 
-Unused join packages now survive a successful join inside the encrypted vault:
-a newer package can remain unclaimed after an older Welcome is used, and the server
-can offer that unused package on a later rejoin. Remove only the consumed package;
-keep the existing 16-retained-package bound. Never reuse a consumed init key. This
-corrects the prior checkpoint's discard-all rule. Previously discarded secrets
-cannot be recovered by upgrading an old experimental vault.
+Delivery requests have a ten-second deadline covering the cookie-account check and
+messaging request. Disconnect aborts in-flight delivery. Lock stays available during
+reads; a view-generation check stops late async renders from revealing a cleared
+view. Page exit locks locally. Cookie session loss on a poll uses the existing
+SessionError lock and preserves encrypted state. Hidden/offline tabs, tabs without
+a room and tabs with pending sends wait until their next network operation to
+detect session changes. This is foreground polling, not WebSockets or mobile push.
 
-Earlier local history remains visible; messages during removal are not downloaded.
-The UI handles refreshing/unlocking while removed or reinvited and explains the
-boundary. There is no device reapproval or automatic history reset.
+Previous lifecycle work remains: pre-join renewal, explicit reinvitation/rejoin,
+new-generation Welcome validation, preserved earlier local history, bounded unused
+join material and no access to messages sent during removal. Pending outbound work
+blocks rejoin. Consumed join keys are removed; unused published keys remain in the
+encrypted vault because the server may offer them later.
 
 ## Verification
 
 This slice: proof typecheck/build passed; HTTP/UI browser suite passed 21 cases with
-one intentional duplicate cross-engine skip; OIDC suite passed all 4 cases.
-Four new rejoin cases cover removal with/without an intervening commit, unresolved
-outbox refusal, lost invitation acceptance, reload, stable fingerprint, stale floor
-rejection, preserved history and chat after rejoin. Two use the real reinvitation
-button. Renewal tests additionally rejoin using a retained unused package after a
-delayed Welcome. Both Chromium and Firefox passed. `git diff --check` passed;
-fixture and preview processes stopped normally.
+one intentional duplicate cross-engine skip; OIDC suite passed all 4 cases. The
+chat regressions now exercise automatic receipt, a failed-read backoff, unchanged
+draft/focus, offline pause, no overlapping reads and lock during a held response.
+The OIDC regression also expires the session and checks that an automatic poll
+locks the view and clears visible history. Both Chromium and Firefox passed.
+Existing lifecycle/rejoin, exact pending retry and key-binding regressions passed.
+`git diff --check` passed. No server code, database contract or dependency changed.
 
 Earlier checkpoint evidence: 16 manual browser cases passed; Go API/SSO/auth race
 suite passed on SQLite. Prior backend work also passed full store/API PostgreSQL 17
@@ -56,7 +59,7 @@ checks. Those were not rerun for this proof-only change. No new dependencies.
 
 ## Next and limits
 
-Automatic delivery, room switching, removal/reset UX, retention and restore rollback
+WebSocket/push delivery, room switching, removal/reset UX, retention and restore rollback
 reconciliation remain open. Rejoin covers removal followed by reinvitation of the
 same still-approved device; it does not recover revoked devices, retention gaps,
 lost keys, interrupted rejoin followed by another removal, or rolled-back state.
@@ -78,6 +81,6 @@ changes are detected on network requests. Sign-out cannot erase copied secrets.
 
 DOX: updated `mls-proof/AGENTS.md`, proof run instructions and product evidence.
 Root and server/API/store/auth/web contracts intentionally remain unchanged because
-this slice changes only the isolated client's rejoin lifecycle. Child indexes
+this slice changes only isolated client polling and cancellation. Child indexes
 remain valid. Mirror this exact checkpoint through myslop-handoff to the existing
 `kymessages-product-definition` folder before closeout.

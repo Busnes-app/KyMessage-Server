@@ -27,31 +27,56 @@ function line(tag: 'li' | 'p' | 'strong' | 'small', value: string) {
 }
 let busy = false;
 let opened = false;
+let backgroundWork = false;
+let viewGeneration = 0;
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+let pollDelay = 10_000;
+function stopPolling() { clearTimeout(pollTimer); pollTimer = undefined; }
+function schedulePoll() {
+  stopPolling();
+  if (!opened || document.hidden || !navigator.onLine) return;
+  pollTimer = setTimeout(() => {
+    if (busy || !snapshot?.room || snapshot.pending) { schedulePoll(); return; }
+    void action(async () => { await delivery.sync(); },'',true);
+  },pollDelay);
+}
+for (const event of ['visibilitychange','online','offline']) {
+  (event === 'visibilitychange' ? document : window).addEventListener(event,schedulePoll);
+}
 let snapshot: Awaited<ReturnType<typeof delivery.status>> | null = null;
 let devices: Awaited<ReturnType<typeof delivery.accountDevices>> = [];
 let rooms: Awaited<ReturnType<typeof delivery.rooms>> = [];
 
 function controls() {
   document.querySelectorAll('button, input, textarea, select').forEach(node => {
-    if (node instanceof HTMLButtonElement || node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) node.disabled = busy;
+    if (node instanceof HTMLButtonElement || node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) node.disabled = busy && (!backgroundWork || node instanceof HTMLButtonElement);
   });
   const activeRoom = rooms.some(room => room.id === snapshot?.room && room.membership === 'active');
   button('send').disabled = !activeRoom || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
-  field('message').disabled = button('send').disabled;
+  field('message').disabled = !backgroundWork && button('send').disabled;
+  button('lock').disabled = false;
   button('commit').disabled = !activeRoom || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
   button('publish').disabled = busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
   button('rejoin').disabled = busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
 }
-async function action(task: () => Promise<void>, success: string) {
+async function action(task: () => Promise<void>, success: string, background = false) {
   if (busy) return;
+  const generation = viewGeneration;
+  stopPolling();
   busy = true;
+  backgroundWork = background;
   controls();
-  element('notice').textContent = 'Working…';
+  if (!background) element('notice').textContent = 'Working…';
   try {
     await task();
+    if (generation !== viewGeneration) return;
     if (opened) await render();
-    element('notice').textContent = success;
+    if (generation !== viewGeneration) return;
+    pollDelay = 10_000;
+    if (opened && background) element('poll-state').textContent = 'Automatic checks active.';
+    else if (!background) element('notice').textContent = success;
   } catch (error) {
+    if (generation !== viewGeneration) return;
     if (error instanceof SessionError) {
       lockLocal();
       element('access-form').hidden = cookieMode;
@@ -62,11 +87,18 @@ async function action(task: () => Promise<void>, success: string) {
     if (opened) {
       try { await render(); } catch { /* Keep the original failure visible. */ }
     }
-    element('notice').textContent = error instanceof Error ? error.message : 'The operation failed. Try again.';
+    if (generation !== viewGeneration && !(error instanceof SessionError)) return;
+    const message = error instanceof Error ? error.message : 'The operation failed. Try again.';
+    if (background && opened) {
+      pollDelay = Math.min(pollDelay*2,60_000);
+      element('poll-state').textContent = `Automatic check failed; retrying in ${pollDelay/1000}s. ${message}`;
+    } else if (!background || error instanceof SessionError) element('notice').textContent = message;
   } finally {
     busy = false;
+    backgroundWork = false;
     controls();
-    if (!opened) field('password').focus();
+    schedulePoll();
+    if (!opened && !background) field('password').focus();
   }
 }
 function form(id: string, task: (event: SubmitEvent) => Promise<void>, success: string) {
@@ -88,21 +120,31 @@ function options(id: string, items: {id:string;label:string}[]) {
   if (items.some(x => x.id === previous)) select.value = previous;
 }
 async function directory() {
+  const generation = viewGeneration;
   const peers = await delivery.directory();
+  if (!opened || generation !== viewGeneration) return;
   element('peers').replaceChildren(...peers.map(x => line('li',`${x.user_id} · ${x.id} · ${x.approved ? 'Verified locally' : 'Needs verification'}`)));
   // Deliberately do not fill the approval field from the server's own fingerprint.
   options('peer-device',peers.filter(x => !x.approved).map(x => ({id:x.id,label:`${x.user_id} · ${x.id}`})));
 }
 async function refresh() {
-  devices = await delivery.accountDevices();
+  const generation = viewGeneration;
+  const listing = await delivery.accountDevices();
   const current = await delivery.status();
+  if (!opened || generation !== viewGeneration) return;
+  devices = listing;
   const own = devices.find(x => x.id === current.device);
-  rooms = own?.status === 'approved' ? await delivery.rooms() : [];
+  const available = own?.status === 'approved' ? await delivery.rooms() : [];
+  if (!opened || generation !== viewGeneration) return;
+  rooms = available;
   if (current.room && own?.status === 'approved' && rooms.some(room => room.id === current.room && room.membership === 'active')) await directory();
   else element('peers').replaceChildren();
 }
 async function render() {
-  snapshot = await delivery.status();
+  const generation = viewGeneration;
+  const current = await delivery.status();
+  if (!opened || generation !== viewGeneration) return;
+  snapshot = current;
   const s = snapshot;
   element('access').hidden = true;
   element('workspace').hidden = false;
@@ -178,20 +220,29 @@ form('access-form',async event => {
   }
 },'Test device connected.');
 function lockLocal() {
+  viewGeneration++;
+  stopPolling();
   proof.lock(); delivery.disconnect(); opened = false; snapshot = null; devices = []; rooms = [];
-  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state']) element(id).replaceChildren();
+  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state']) element(id).replaceChildren();
   for (const id of ['message','password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]);
   element('workspace').hidden = true; element('access').hidden = false;
 }
-click('lock',async () => { lockLocal(); },'Device locked. Unlock with the original account and local passphrase.');
-click('sign-out',async () => {
+button('lock').addEventListener('click',() => {
+  lockLocal(); controls(); field('password').focus();
+  element('notice').textContent = 'Device locked. Unlock with the original account and local passphrase.';
+});
+window.addEventListener('pagehide',lockLocal);
+button('sign-out').addEventListener('click',() => {
+  if (busy) return;
   lockLocal();
-  element('access-form').hidden = true;
-  const response = await secureFetch('/api/auth/logout',{method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error'});
-  if (!response.ok) throw new Error('Device locked, but suite sign-out failed. Try signing out again.');
-  element('suite-account').textContent = 'Signed out. Sign in again to unlock this device.';
-},'Signed out of suite. Local encrypted history remains on this browser.');
+  void action(async () => {
+    element('access-form').hidden = true;
+    const response = await secureFetch('/api/auth/logout',{method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error'});
+    if (!response.ok) throw new Error('Device locked, but suite sign-out failed. Try signing out again.');
+    element('suite-account').textContent = 'Signed out. Sign in again to unlock this device.';
+  },'Signed out of suite. Local encrypted history remains on this browser.');
+});
 click('refresh',refresh,'Rooms and devices refreshed.');
 form('create-form',async () => { await delivery.createRoom(field('room-name').value.trim()); await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');

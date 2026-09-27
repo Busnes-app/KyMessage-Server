@@ -17,6 +17,7 @@ import { signedInAccount, secureFetch, SessionError } from './session';
 
 // Experiment-specific GroupInfo extension, authenticated by MLS for Welcome joins.
 const bindingExtension = 0xff01;
+let connectionAbort = new AbortController();
 let session: {kind:'bearer'; token:string} | {kind:'cookie'; identity:string} | null = null;
 const hex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 const hash = async (bytes: Uint8Array<ArrayBuffer>) => hex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
@@ -24,11 +25,12 @@ const hash = async (bytes: Uint8Array<ArrayBuffer>) => hex(new Uint8Array(await 
 async function request(path: string, token: string, method = 'GET', body?: unknown) {
   if (!session) throw new Error('Connect a disposable SSO session');
   const auth = session;
-  if (auth.kind === 'cookie' && (await signedInAccount())?.id !== auth.identity) throw new SessionError('The signed-in account changed or expired. Sign in again, then unlock its device.');
+  const signal = AbortSignal.any([connectionAbort.signal,AbortSignal.timeout(10_000)]);
+  if (auth.kind === 'cookie' && (await signedInAccount(signal))?.id !== auth.identity) throw new SessionError('The signed-in account changed or expired. Sign in again, then unlock its device.');
   const headers = new Headers({'X-KyMessages-Device':token,'Content-Type':'application/json'});
   if (auth.kind === 'bearer') headers.set('Authorization','Bearer ' + auth.token);
   const response = await (auth.kind === 'cookie' ? secureFetch : fetch)('/api/messaging' + path, {
-    method, credentials: auth.kind === 'cookie' ? 'same-origin' : 'omit', cache:'no-store', redirect: 'error', headers,
+    signal, method, credentials: auth.kind === 'cookie' ? 'same-origin' : 'omit', cache:'no-store', redirect: 'error', headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (auth.kind === 'cookie' && response.status === 401) throw new SessionError('Your session expired. Sign in again, then unlock this device.');
@@ -103,9 +105,9 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
 }
 
 export const delivery = {
-  connect(value: string) { session = {kind:'bearer',token:value}; },
-  connectCookie(identity: string) { session = {kind:'cookie',identity}; },
-  disconnect() { session = null; },
+  connect(value: string) { connectionAbort.abort(); connectionAbort = new AbortController(); session = {kind:'bearer',token:value}; },
+  connectCookie(identity: string) { connectionAbort.abort(); connectionAbort = new AbortController(); session = {kind:'cookie',identity}; },
+  disconnect() { session = null; connectionAbort.abort(); },
   async rooms() {
     return transaction(async (_r,d) => array((await api('/rooms',d.token)).rooms, item => {
       const room = object(item);

@@ -53,10 +53,11 @@
               <form id="verify-form"><label for="peer-device">Room device</label><select id="peer-device" required></select><label>Fingerprint from your teammate <input id="peer-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button>Verify teammate</button></form>
             </details>
           </div>
+          <p id="poll-state" class="hint">Automatic checks start after unlock.</p>
           <ol id="messages" aria-label="Conversation"></ol>
           <div id="pending" hidden><p id="pending-text"></p><button id="retry">Retry pending delivery</button></div>
           <form id="send-form"><label>Message <textarea id="message" rows="3" maxlength="4096" required placeholder="Write a test message…"></textarea></label><button id="send">Send encrypted message</button></form>
-          <p class="hint">Server acceptance is not a read receipt. Use “Check for messages” to receive new messages in this prototype.</p>
+          <p class="hint">Server acceptance is not a read receipt. New messages are checked every 10 seconds while this tab is visible and online. Pending sends require an explicit retry.</p>
         </section>
       </div>
       <section class="card fingerprint"><h2>This browser's fingerprint</h2><p>Share this through a separate trusted channel so teammates can verify your device.</p><code id="own-fingerprint"></code></section>

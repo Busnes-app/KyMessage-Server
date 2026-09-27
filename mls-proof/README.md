@@ -78,13 +78,25 @@ The encrypted vault survives. The theme follows
 OS appearance until a local Light/Dark choice is saved. The UI does not export the
 manual harness's `window.proof` or `window.delivery` test surfaces.
 
+The unlocked chat tab checks the selected room automatically, waiting 10 seconds
+between completed operations. Checks pause while hidden, offline, or waiting on an explicit send retry.
+Failed checks back off to 20, 40 and at most 60 seconds; a successful action restores
+the 10-second interval. Drafts and typing focus remain intact. Manual checks still
+work. This is foreground HTTP polling, not WebSocket delivery or background push.
+Each tab polls independently; the server's shared account rate limit still applies.
+
+Delivery requests have a ten-second deadline. Lock aborts in-flight delivery and
+clears the view; late results cannot reopen it. Cookie session loss detected by a
+poll locks the UI without discarding encrypted state. Hidden/offline tabs and tabs
+with pending sends detect session loss on their next network operation.
+
 The prototype owns one room per browser profile. **Prepare to join** retries an
 unexpired publication or renews an expired one with fresh join keys and the same
 verified device identity. It retains up to 16 older packages for delayed Welcomes;
 checking messages completes a join and removes the consumed package. Unused
 packages remain encrypted because the server may offer them on a later rejoin. It does not
 support room switching, deployed identity integration, identity reset,
-membership-removal controls or automatic message polling. Start with fresh
+membership-removal controls. Start with fresh
 profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
 
