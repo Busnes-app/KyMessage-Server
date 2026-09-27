@@ -3,6 +3,10 @@
 This folder is the server-base starting point for KyMessages. The user-selected
 first-release priority is small teams and encrypted text chat.
 
+- Continue the encrypted-chat first-release plan in `docs/FIRST-RELEASE-PLAN.md`
+  through implementation and verification; commit each completed slice and before
+  every unavoidable break. Report unmet release gates explicitly.
+
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before messaging implementation or product
   scope changes; it records proposed defaults and acceptance gates, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
