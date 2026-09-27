@@ -81,11 +81,20 @@ manual harness's `window.proof` or `window.delivery` test surfaces.
 The prototype owns one room per browser profile. **Prepare to join** retries an
 unexpired publication or renews an expired one with fresh join keys and the same
 verified device identity. It retains up to 16 older packages for delayed Welcomes;
-checking messages completes a join and clears that retained material. It does not
+checking messages completes a join and removes the consumed package. Unused
+packages remain encrypted because the server may offer them on a later rejoin. It does not
 support room switching, deployed identity integration, identity reset,
 membership-removal controls or automatic message polling. Start with fresh
 profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
+
+After removal and a new invitation, **Accept reinvitation** prepares this same
+approved device for a new membership generation. An existing member applies the
+membership change; **Check messages** verifies the new Welcome. Earlier local
+history remains, but messages sent while removed are unavailable. Pending outbound
+work blocks rejoin rather than being silently discarded. Sends remain disabled
+until the new Welcome is verified. A lost invitation response can be retried after
+reload. This cannot reapprove a revoked device or recover a retention gap.
 
 `npm run test:delivery -- --project=chromium --project=firefox` includes DOM-driven
 chat and same-account device-approval tests alongside the protocol tests. Screenshots
@@ -260,13 +269,17 @@ deduplication, lost invitation acknowledgements, second-browser room admission,
 wrong passphrases, lock clearing, mobile overflow and saved themes.
 
 Six renewal cases (three per engine) cover expired cached allocations, lost claims,
-publication acknowledgement loss, reload and delayed Welcomes after renewal.
+publication acknowledgement loss, reload and delayed Welcomes after renewal,
+including subsequent rejoin using an unused retained package. Four rejoin cases
+exercise generation changes with/without an intervening removal commit, lost
+acceptance responses, unresolved-outbox refusal, stale history-floor rejection,
+identity preservation and encrypted chat across the gap. Two also use the actual
+Accept reinvitation button and verify disabled sending while waiting.
 
 This remains a one-room/profile proof that publishes only pre-join material and
 cannot use that published material to initialize a different group. Its interactive
 fixture UI, including OIDC mode, is not a deployed product client. It has no automatic pool
-replenishment, signing-key rotation, expired-offline
-rejoin, history reset or restore reconciliation. A stale-roster rejection without a winning commit deliberately
+replenishment, signing-key rotation, retention-gap recovery, history reset or restore reconciliation. A stale-roster rejection without a winning commit deliberately
 leaves the client waiting; room-creation response loss can leave an unused room.
 The transcript starts with new sends/receives; older proof inboxes are not backfilled.
 The adapter validates list capacity before persisting its connection record; a full

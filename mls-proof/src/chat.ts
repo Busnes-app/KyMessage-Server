@@ -35,10 +35,12 @@ function controls() {
   document.querySelectorAll('button, input, textarea, select').forEach(node => {
     if (node instanceof HTMLButtonElement || node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) node.disabled = busy;
   });
-  button('send').disabled = busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending;
+  const activeRoom = rooms.some(room => room.id === snapshot?.room && room.membership === 'active');
+  button('send').disabled = !activeRoom || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
   field('message').disabled = button('send').disabled;
-  button('commit').disabled = busy || snapshot?.epoch === null || snapshot?.pending === true;
-  button('publish').disabled = busy || snapshot?.epoch !== null;
+  button('commit').disabled = !activeRoom || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
+  button('publish').disabled = busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
+  button('rejoin').disabled = busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
 }
 async function action(task: () => Promise<void>, success: string) {
   if (busy) return;
@@ -96,7 +98,8 @@ async function refresh() {
   const current = await delivery.status();
   const own = devices.find(x => x.id === current.device);
   rooms = own?.status === 'approved' ? await delivery.rooms() : [];
-  if (current.room && own?.status === 'approved') await directory();
+  if (current.room && own?.status === 'approved' && rooms.some(room => room.id === current.room && room.membership === 'active')) await directory();
+  else element('peers').replaceChildren();
 }
 async function render() {
   snapshot = await delivery.status();
@@ -130,6 +133,9 @@ async function render() {
   element('room-state').textContent = own?.status !== 'approved'
     ? 'This browser needs approval from an existing device. Compare its fingerprint there, then refresh.'
     : s.room === null ? 'Create a room, or accept an invitation from a teammate.'
+    : room?.membership === 'invited' && s.epoch !== null ? 'You have a new invitation. Accept reinvitation to receive future messages; earlier local history remains.'
+    : !room ? 'Room access was removed. Earlier local history remains; a new invitation is required.'
+    : s.rejoining ? 'Rejoining: prepare to join, then wait for a new verified Welcome. Earlier local history stays; messages during removal are unavailable.'
     : s.epoch === null ? 'Waiting for an existing member to add this verified device. Prepare to join, then check for messages.'
     : s.epoch === '0' ? 'Apply verified membership to activate this room.'
     : 'Room unlocked. Check for messages to catch up before sending.';
@@ -191,6 +197,7 @@ form('create-form',async () => { await delivery.createRoom(field('room-name').va
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');
 form('verify-form',async () => { await delivery.approveDevice(field('peer-device').value,field('peer-fingerprint').value.trim()); field('peer-fingerprint').value = ''; await directory(); },'Teammate verified locally.');
 form('account-approval-form',async () => { await delivery.approveAccountDevice(field('pending-device').value,field('account-fingerprint').value.trim()); field('account-fingerprint').value = ''; await refresh(); },'Own device approved. Refresh on that browser.');
+click('rejoin',async () => { await delivery.rejoin(); await delivery.publishKeyPackage(); await refresh(); },'Reinvitation accepted. Ask an existing member to apply verified membership; earlier local history is preserved.');
 click('publish',async () => { await delivery.publishKeyPackage(); },'Ready to join. Ask an existing member to verify this device and apply membership.');
 click('sync',async () => { await delivery.sync(); await refresh(); },'Messages checked.');
 click('commit',async () => { await delivery.stageCommit(); await delivery.submit(); await delivery.sync(); await refresh(); },'Verified membership applied.');

@@ -58,6 +58,7 @@ export function connection(value: unknown) {
     roster: d.roster === null ? null : roster(d.roster),
     publication: publication === null ? null : {payload:text(publication.payload),expires_at:integer(publication.expires_at)},
     joinPackages,
+    rejoinGeneration: d.rejoinGeneration === undefined || d.rejoinGeneration === null ? null : integer(d.rejoinGeneration),
     claims: d.claims === undefined ? [] : array(d.claims,item => {
       const c = object(item);
       return {device:text(c.device),generation:integer(c.generation),request_id:text(c.request_id),payload:c.payload === null ? null : text(c.payload),expires_at:integer(c.expires_at)};

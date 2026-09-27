@@ -277,5 +277,93 @@ for (const mode of ['cached','lost','welcome']) test(`join package renewal prese
     await alice.page.evaluate(() => window.delivery.stageSend('Renewed join works'));
     await accept(alice.page);
     expect((await bob.page.evaluate(() => window.delivery.sync())).inbox).toEqual(['Renewed join works']);
+    if (mode === 'welcome') {
+      // The unused newer package is still in the server pool after the older
+      // Welcome joins. Its retained keys must remain usable for a later rejoin.
+      await alice.page.evaluate(user => window.delivery.removeMember(user),bob.user);
+      await alice.page.evaluate(() => window.delivery.stageCommit());
+      await accept(alice.page);
+      await alice.page.evaluate(user => window.delivery.invite(user),bob.user);
+      await bob.page.evaluate(() => window.delivery.rejoin());
+      await bob.page.evaluate(() => window.delivery.publishKeyPackage());
+      await alice.page.evaluate(() => window.delivery.stageCommit());
+      await accept(alice.page);
+      await reload(bob.page,bob.session);
+      await bob.page.evaluate(() => window.delivery.sync());
+      await bob.page.evaluate(() => window.delivery.stageSend('Unused package rejoin works'));
+      await accept(bob.page);
+      expect((await alice.page.evaluate(() => window.delivery.sync())).inbox).toEqual(['Unused package rejoin works']);
+    }
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+for (const removeCommit of [false,true]) test(`explicit rejoin preserves history with removal commit ${removeCommit}`,async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    await expect(bob.page.evaluate(() => window.delivery.rejoin())).rejects.toThrow('newer membership generation');
+    await bob.page.evaluate(() => window.delivery.stageSend('Kept before removal'));
+    await expect(bob.page.evaluate(() => window.delivery.rejoin())).rejects.toThrow('Resolve pending');
+    await accept(bob.page);
+    await alice.page.evaluate(() => window.delivery.sync());
+    const before = await bob.page.evaluate(() => window.delivery.status());
+    await alice.page.evaluate(user => window.delivery.removeMember(user),bob.user);
+    await expect(bob.page.evaluate(() => window.delivery.rejoin())).rejects.toThrow('invitation is required');
+    if (removeCommit) {
+      await alice.page.evaluate(() => window.delivery.stageCommit());
+      await accept(alice.page);
+      await alice.page.evaluate(() => window.delivery.stageSend('Unavailable during removal'));
+      await accept(alice.page);
+    }
+    await alice.page.evaluate(user => window.delivery.invite(user),bob.user);
+    await bob.page.route('**/rooms/*/join',async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    },{times:1});
+    await expect(bob.page.evaluate(() => window.delivery.rejoin())).rejects.toThrow();
+    expect(await bob.page.evaluate(() => window.delivery.status())).toEqual(before);
+    if (removeCommit) {
+      await bob.page.goto('/chat.html');
+      await bob.page.getByLabel('Test account',{exact:true}).fill(bob.user);
+      await bob.page.getByLabel('Local passphrase').fill(password);
+      await bob.page.getByRole('button',{name:'Unlock existing device',exact:true}).click();
+      await expect(bob.page.getByRole('status')).toContainText('Test device connected');
+      await bob.page.getByRole('button',{name:'Accept reinvitation',exact:true}).click();
+      await expect(bob.page.getByRole('status')).toContainText('Reinvitation accepted');
+      await expect(bob.page.locator('#room-state')).toContainText('Earlier local history stays');
+      await expect(bob.page.locator('#send')).toBeDisabled();
+      await bob.page.goto('/');
+    }
+    await reload(bob.page,bob.session);
+    await bob.page.evaluate(() => window.delivery.rejoin());
+    await bob.page.evaluate(() => window.delivery.publishKeyPackage());
+    await reload(bob.page,bob.session);
+    const waiting = await bob.page.evaluate(() => window.delivery.status());
+    expect(waiting.rejoining).toBe(true);
+    expect(waiting.epoch).toBe(before.epoch);
+    expect(waiting.cursor).toBe(before.cursor);
+    expect(waiting.messages).toEqual(before.messages);
+    expect(await bob.page.evaluate(() => window.delivery.ownFingerprint())).toBe(bob.fingerprint);
+    await expect(bob.page.evaluate(() => window.delivery.stageSend('Too early'))).rejects.toThrow('Resolve pending');
+    await alice.page.evaluate(() => window.delivery.stageCommit());
+    await accept(alice.page);
+    await bob.page.route('**/events?after=*',async route => {
+      const response = await route.fetch();
+      const body = object(await response.json());
+      if (!Array.isArray(body.events)) throw new Error('Expected events');
+      body.start_sequence = before.cursor;
+      object(body.events[0]).sequence = before.cursor;
+      await route.fulfill({response,json:body});
+    },{times:1});
+    await expect(bob.page.evaluate(() => window.delivery.sync())).rejects.toThrow('history or generation mismatch');
+    expect(await bob.page.evaluate(() => window.delivery.status())).toEqual(waiting);
+    await bob.page.evaluate(() => window.delivery.sync());
+    expect((await bob.page.evaluate(() => window.delivery.status())).rejoining).toBe(false);
+    await alice.page.evaluate(() => window.delivery.stageSend('Available after rejoin'));
+    await accept(alice.page);
+    expect((await bob.page.evaluate(() => window.delivery.sync())).inbox).toEqual(['Available after rejoin']);
+    expect((await bob.page.evaluate(() => window.delivery.status())).messages.map(m => m.text)).toEqual(['Kept before removal','Available after rejoin']);
+    await bob.page.evaluate(() => window.delivery.stageSend('Rejoined reply'));
+    await accept(bob.page);
+    expect((await alice.page.evaluate(() => window.delivery.sync())).inbox).toEqual(['Kept before removal','Rejoined reply']);
   } finally { await alice.context.close(); await bob.context.close(); }
 });

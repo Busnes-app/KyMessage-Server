@@ -21,9 +21,10 @@ test-account setup, device approval, invitations, independent fingerprint verifi
 encrypted conversation history and durable send retries. Its OIDC mode exercises the
 existing suite callback, cookie/CSRF transport and authenticated account-bound unlock
 using a disposable local issuer. Pre-join package renewal preserves verified device
-identity and delayed Welcomes; removed-device rejoin and automatic replenishment
-remain open, alongside live KyIdentity deployment and reviewed product client
-integration. This is not production E2EE.
+identity and delayed Welcomes. Explicit reinvitation/rejoin preserves earlier local
+history and verifies a new membership generation before resuming chat. Automatic
+replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
+product client integration remain open. This is not production E2EE.
 
 ## Promise and audience
 

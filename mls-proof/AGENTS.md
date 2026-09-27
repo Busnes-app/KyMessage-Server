@@ -40,9 +40,16 @@ retains the manual wire harness. Root owns product decisions and research in `do
   directory alone cannot pin a key. The one-room proof renews an expired unused
   join package with fresh init/HPKE keys and the same enrolled signing key. Retain
   at most 16 prior packages inside the encrypted connection record for delayed
-  Welcomes; match exactly one MLS KeyPackageRef and discard all join secrets only
-  with a verified, durable join. Never use published material to initialize a group.
-  Renewal is pre-join only; removed-device rejoin remains a separate open contract.
+  Welcomes; match exactly one MLS KeyPackageRef and discard its consumed secrets
+  with the verified, durable join. Retain unmatched unused packages for later
+  allocation; the server can still offer them on rejoin. Never use published
+  material to initialize a group.
+- Explicit rejoin requires a newer membership generation after reinvitation and
+  no unresolved outbox/commit. Keep old ratchet, cursor and transcript while fresh
+  join material is published. Block sends/commits until a Welcome authenticates
+  the expected generation and a newer epoch/history floor. Replace the ratchet
+  atomically with that verified join; preserve earlier local history. This does
+  not recover revoked devices, retention gaps or rolled-back stores.
 - Keep fixture proxying opt-in with `MLS_PROOF_DELIVERY=1`; the normal manual
   harness stays offline. Production `web/` and authentication semantics remain untouched.
 - `?auth=oidc` reads the immutable account ID from `/api/auth/me` before local setup

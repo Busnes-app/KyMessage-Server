@@ -89,7 +89,7 @@ async function checkMetadata(r: DeviceRecord, d: Connection, e: Event, m: Metada
   pinned(r,m.devices);
 }
 async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'application' | 'commit'): Promise<Metadata> {
-  if (!d.room || !d.device || d.pending || r.awaitingCommit || r.pending || r.outbox.length) throw new Error('Resolve pending delivery first');
+  if (!d.room || !d.device || d.pending || d.rejoinGeneration !== null || r.awaitingCommit || r.pending || r.outbox.length) throw new Error('Resolve pending delivery first');
   const v = await api(roomPath(d) + '/delivery', d.token);
   const devices = roster(v.devices);
   const epoch = integer(v.epoch);
@@ -185,6 +185,33 @@ export const delivery = {
       else if (selected?.membership !== 'active') throw new Error('Room not available to this account');
     });
   },
+  async rejoin() {
+    return transaction(async (r,d) => {
+      if (!r.state || !d.room || !d.device) throw new Error('Rejoin requires an existing room');
+      if (d.pending || r.pending || r.outbox.length || r.awaitingCommit) throw new Error('Resolve pending delivery before rejoining');
+      if (d.rejoinGeneration !== null) return;
+      const previous = d.roster?.find(x => x.id === d.device);
+      if (!previous) throw new Error('Missing verified membership generation');
+      const rooms = array((await api('/rooms',d.token)).rooms,object);
+      const selected = rooms.find(x => x.id === d.room);
+      if (selected?.membership === 'invited') await api(roomPath(d) + '/join',d.token,'POST');
+      else if (selected?.membership !== 'active') throw new Error('A new room invitation is required');
+      const directory = await api(roomPath(d) + '/delivery',d.token);
+      const own = roster(directory.devices).find(x => x.id === d.device);
+      const old = keyPackage(r.keyPackage);
+      if (!own || own.user_id !== r.identity || own.public_key !== base64(old.leafNode.signaturePublicKey) || own.generation <= previous.generation) throw new Error('Rejoin requires a newer membership generation');
+      const now = Math.floor(Date.now()/1000);
+      const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
+        {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
+        {signKey:state(r).signaturePrivateKey,publicKey:old.leafNode.signaturePublicKey},await suite);
+      r.keyPackage = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:fresh.publicPackage}));
+      r.keys = {initPrivateKey:base64(fresh.privatePackage.initPrivateKey),hpkePrivateKey:base64(fresh.privatePackage.hpkePrivateKey),signaturePrivateKey:base64(fresh.privatePackage.signaturePrivateKey)};
+      Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
+      d.publication = null;
+      d.rejoinGeneration = own.generation;
+      // Keep the old ratchet, cursor and history until a verified Welcome replaces it.
+    });
+  },
   async invite(user_id: string) { return transaction(async (_r,d) => { await api(roomPath(d) + '/members',d.token,'POST',{user_id}); }); },
   async removeMember(user: string) { return transaction(async (_r,d) => { await api(roomPath(d) + '/members/' + encodeURIComponent(user),d.token,'DELETE'); }); },
   async ownFingerprint() { return run(r => hash(unbase64(pinFor(r.keyPackage).key))); },
@@ -204,7 +231,7 @@ export const delivery = {
   },
   async publishKeyPackage() {
     await transaction(async (r,d) => {
-      if (r.state || !r.keys) throw new Error('KeyPackage already consumed');
+      if ((r.state && d.rejoinGeneration === null) || !r.keys) throw new Error('KeyPackage already consumed');
       if (d.publication && d.publication.expires_at*1000 <= Date.now()) {
         // Expiry prevents new allocation, but an earlier claim may already have
         // produced a Welcome. Keep its private join material until a verified join.
@@ -344,7 +371,7 @@ export const delivery = {
       const events = array(page.events,event);
       const floor = integer(page.start_sequence);
       for (const e of events) {
-        const joining = r.state === null;
+        const joining = r.state === null || d.rejoinGeneration !== null;
         if (e.sequence !== (joining ? floor : r.cursor+1)) throw new Error('Delivery sequence gap');
         const msg = decode(e.payload,decodeMlsMessage);
         if (msg.wireformat !== 'mls_private_message') throw new Error('Expected private MLS wire');
@@ -354,6 +381,10 @@ export const delivery = {
         if (decoder.decode(msg.privateMessage.groupId) !== d.room || msg.privateMessage.epoch !== BigInt(m.epoch) || msg.privateMessage.contentType !== e.kind) throw new Error('MLS wire metadata mismatch');
         if (joining) {
           if (!d.room || e.kind !== 'commit' || !e.welcome) throw new Error('Expected initial Welcome');
+          if (d.rejoinGeneration !== null) {
+            const own = m.devices.find(x => x.id === d.device);
+            if (!own || own.generation !== d.rejoinGeneration || e.sequence <= r.cursor || BigInt(e.epoch) <= state(r).groupContext.epoch) throw new Error('Rejoin history or generation mismatch');
+          }
           const welcome = decode(e.welcome,decodeMlsMessage);
           if (welcome.wireformat !== 'mls_welcome') throw new Error('Expected MLS Welcome');
           const cs = await suite;
@@ -381,8 +412,13 @@ export const delivery = {
           senderMatches(current,info.signer,e.device_id,m.devices);
           groupMatches(current,d.room,e.epoch,m.devices);
           r.state = base64(encodeGroupState(current)); r.keys = null;
-          d.joinPackages = [];
+          // A newer unclaimed package can still be offered on a later rejoin.
+          // Retain unused material only; never retain the package just consumed.
+          d.joinPackages = candidates.filter(candidate => candidate !== keys).map(candidate => ({
+            payload:candidate.payload,initPrivateKey:base64(candidate.initPrivateKey),hpkePrivateKey:base64(candidate.hpkePrivateKey),signaturePrivateKey:base64(candidate.signaturePrivateKey),
+          }));
           d.publication = null;
+          d.rejoinGeneration = null;
         } else if (e.device_id === d.device) {
           if (!d.pending) throw new Error('Own event has no durable outbox');
           const body = object(JSON.parse(d.pending.request));
@@ -428,6 +464,6 @@ export const delivery = {
       return {cursor:r.cursor,inbox:r.inbox};
     });
   },
-  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
+  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
 };
 declare global { interface Window { delivery: typeof delivery } }
