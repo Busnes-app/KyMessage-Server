@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KyMessages · Chat prototype</title>
+  <link rel="stylesheet" href="/src/chat.css">
+  <script type="module" src="/src/chat.ts"></script>
+</head>
+<body>
+  <header><div><span class="eyebrow">Busnes.app · Small tools. Considered carefully.</span><h1>KyMessages</h1></div>
+    <div><label for="theme">Appearance</label><select id="theme"><option value="system">System</option><option value="busnes-light">Light</option><option value="busnes-dark">Dark</option></select></div>
+  </header>
+  <main>
+    <p class="notice">Local chat prototype · Use disposable accounts and messages. This demo uses an unaudited MLS library and a test sign-in service. It is not ready for private team use.</p>
+    <p id="notice" role="status" aria-live="polite">Start a test account, or unlock this browser's existing device.</p>
+    <section id="access" class="card">
+      <h2>Your browser is your device</h2>
+      <div id="suite-access" hidden><p id="suite-account">Sign in with your suite identity before creating or unlocking this browser's device.</p><a id="oidc-login" href="/api/sso/kysignon/login">Sign in with suite identity</a><button id="sign-out" class="secondary">Sign out of suite</button></div>
+      <p>A passphrase protects this browser's local keys and history. Clearing site storage or losing the passphrase loses them. One account and one room per browser profile. Locking clears this tab; other open tabs stay unlocked.</p>
+      <form id="access-form">
+        <label id="account-label">Test account <input id="account" required pattern="[a-z][a-z0-9\-]{0,31}" maxlength="32" autocomplete="off" placeholder="alice"></label>
+        <label>Local passphrase <input id="password" type="password" required minlength="16" maxlength="1024" autocomplete="off"></label>
+        <p class="hint">At least 16 characters. This passphrase stays in your browser; it is not an account password.</p>
+        <button type="submit" name="mode" value="create">Create test device</button>
+        <button type="submit" name="mode" value="unlock" class="secondary">Unlock existing device</button>
+      </form>
+    </section>
+    <div id="workspace" hidden>
+      <div class="toolbar"><p id="signed-in"></p><button id="lock" class="secondary">Lock and disconnect</button></div>
+      <div class="layout">
+        <aside class="card">
+          <h2>Rooms</h2><p class="hint">Room names and membership are visible to the server.</p>
+          <button id="refresh" class="secondary">Refresh rooms and devices</button>
+          <ul id="rooms"></ul>
+          <form id="create-form"><label>New room name <input id="room-name" required maxlength="120"></label><button>Create room</button></form>
+          <details><summary>Your devices</summary><p>Your first device is approved automatically. Approve another browser only after comparing its fingerprint independently.</p><ul id="account-devices"></ul>
+            <form id="account-approval-form"><label for="pending-device">Pending device</label><select id="pending-device" required></select><label>Fingerprint from that browser <input id="account-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button>Approve own device</button></form>
+          </details>
+        </aside>
+        <section class="card conversation">
+          <h2 id="room-title">A quieter place to talk</h2>
+          <p id="room-state">Create a room, or accept an invitation from a teammate.</p>
+          <div id="room-tools" hidden>
+            <button id="sync" class="secondary">Check for messages</button>
+            <button id="commit" class="secondary">Apply verified membership</button>
+            <button id="publish" class="secondary">Prepare to join</button>
+            <p class="hint">To add someone: invite their account, have them accept and prepare to join, compare fingerprints on both browsers, then apply verified membership from an existing member's browser.</p>
+            <form id="invite-form"><label>Teammate's account ID <input id="invite-account" required maxlength="64" autocomplete="off"></label><button>Invite teammate</button></form>
+            <details open><summary>Verify room devices</summary><p>Ask your teammate for the fingerprint shown in their own browser, using a separate trusted channel. The server's directory alone cannot verify them.</p>
+              <ul id="peers"></ul>
+              <form id="verify-form"><label for="peer-device">Room device</label><select id="peer-device" required></select><label>Fingerprint from your teammate <input id="peer-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button>Verify teammate</button></form>
+            </details>
+          </div>
+          <ol id="messages" aria-label="Conversation"></ol>
+          <div id="pending" hidden><p id="pending-text"></p><button id="retry">Retry pending delivery</button></div>
+          <form id="send-form"><label>Message <textarea id="message" rows="3" maxlength="4096" required placeholder="Write a test message…"></textarea></label><button id="send">Send encrypted message</button></form>
+          <p class="hint">Server acceptance is not a read receipt. Use “Check for messages” to receive new messages in this prototype.</p>
+        </section>
+      </div>
+      <section class="card fingerprint"><h2>This browser's fingerprint</h2><p>Share this through a separate trusted channel so teammates can verify your device.</p><code id="own-fingerprint"></code></section>
+    </div>
+  </main>
+</body>
+</html>

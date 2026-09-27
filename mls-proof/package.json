@@ -1,0 +1,22 @@
+{
+  "name": "kymessages-mls-proof",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4178 --strictPort",
+    "test": "playwright test",
+    "test:delivery": "playwright test -c playwright.delivery.config.mjs",
+    "test:oidc": "playwright test -c playwright.oidc.config.mjs"
+  },
+  "dependencies": {
+    "ts-mls": "1.6.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.1"
+  }
+}

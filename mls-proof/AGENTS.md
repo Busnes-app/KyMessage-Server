@@ -1,0 +1,88 @@
+# Purpose
+
+Isolated browser feasibility experiment for KyMessages MLS messaging. This is not
+part of the embedded web application or a production messaging implementation.
+
+## Ownership
+
+Owns the proof client, browser lifecycle tests, pinned experiment dependencies and
+local build output. `chat.html` owns the interactive HTTP prototype; `index.html`
+retains the manual wire harness. Root owns product decisions and research in `docs/`.
+
+## Local Contracts
+
+- Use the selected MLS library for wire encoding and cryptography; never substitute
+  a home-grown protocol. Keep experiment dependencies out of `web/` and the Go binary.
+- Use disposable identities and synthetic messages only. The manual suite relays
+  KeyPackages and messages in the test driver. The HTTP suite exchanges only
+  fingerprints out of band; browsers publish/claim packages and send encrypted
+  traffic through the real Go API.
+- Persist each device's state separately. Any serialization of access to one device
+  must reflect the real invariant that its ratchet can have only one current state.
+- Persist ratchet, outbox, history and cursor in one encrypted IndexedDB record;
+  release outbound bytes and received plaintext only after transaction completion.
+- A discarded private commit requires applying a winning commit before further
+  sends or commits. Retry a pending transport submission with identical wire bytes.
+- Document failed gates and security limitations alongside successful checks.
+- `delivery.ts` binds MLS credentials/signature keys to enrolled accounts and
+  independently pinned roster keys. Keep the room ID, event ID, sender, epoch and
+  roster in authenticated MLS metadata; Welcome joins validate the signed GroupInfo
+  binding extension as well as its signer. This experimental profile is not a
+  published interoperability contract.
+- Persist the delivery token, enrollment challenge, pending request and staged
+  state inside the device vault. Fixture bearer sessions remain memory-only; OIDC
+  sessions use the existing HttpOnly cookie and `web/src/api.ts` CSRF helper, never
+  tokens in JavaScript storage. Acknowledgement alone
+  does not advance the cursor: ordered, verified event processing does.
+- Persist KeyPackage publication parameters and claim request IDs before networking.
+  Cache claimed bytes before creating an MLS commit; a lost response retries the
+  same claim. `approveDevice` requires an independently obtained fingerprint; the
+  directory alone cannot pin a key. The one-room proof publishes only its unused
+  join KeyPackage and cannot use a published package to initialize another group.
+- Keep fixture proxying opt-in with `MLS_PROOF_DELIVERY=1`; the normal manual
+  harness stays offline. Production `web/` and authentication semantics remain untouched.
+- `?auth=oidc` reads the immutable account ID from `/api/auth/me` before local setup
+  or unlock. Cookie-mode messaging requests recheck that account; session loss or
+  mismatch locks the UI. The encrypted vault and pending ciphertext remain intact.
+  Lock is local to this tab; suite sign-out separately revokes the server session.
+- Use exact account IDs of 1–64 UTF-8 bytes without controls or malformed surrogates.
+  Match Go roster JSON field order and escaping, including `<`, `>`, `&`, U+2028/2029.
+  The OIDC return hint in sessionStorage is a boolean fixed-path navigation hint,
+  never a credential or arbitrary redirect URL.
+- The chat prototype uses DOM text nodes for messages and requires a fingerprint
+  obtained from the peer's own browser. Never populate verification from discovery.
+  Same-account device approval and local room-key verification are separate actions.
+  Room selection reconciles an already-active membership after a lost join response
+  and lets an approved second browser request admission to an existing account room.
+- Persist sent/received transcript entries and pending send text only inside the
+  encrypted vault, atomically with cursor/outbox changes. The wire request contains
+  ciphertext only. Server acceptance is not a read receipt. Lock clears visible
+  history, drafts, fingerprints and the in-memory connection/passphrase; the OIDC
+  cookie remains until the separate suite sign-out action.
+- Reuse vendored `web/src/ky-ui/tokens.css` without modifying shared tokens. The
+  prototype follows the OS theme until its own saved appearance choice exists.
+
+## Work Guidance
+
+- Keep the proof small enough to discard after the library decision.
+- Apply root boundary discipline and TypeScript skill instructions to the harness.
+
+## Verification
+
+- `npm ci`, `npm run build`, and `npm test` from this directory.
+- Browser installation on a supported Linux host:
+  `npx playwright install --with-deps chromium firefox webkit`.
+- `npm test -- --project=chromium --project=firefox` runs the verified host subset;
+  WebKit requires the system dependencies listed in `README.md` on this machine.
+- `npm run test:delivery -- --project=chromium --project=firefox` starts a disposable
+  Go fixture and tests HTTP delivery, conflict recovery, key binding, removal,
+  Chromium/Firefox interoperability and DOM-driven chat/device approval. The
+  cross-engine case runs once in Chromium. UI screenshots go to `test-results/`.
+- `npm run test:oidc -- --project=chromium --project=firefox` exercises discovery,
+  PKCE, signed callbacks, cookies/CSRF, account binding, reauthentication and pending
+  send recovery against a disposable issuer. It is not live KyIdentity evidence.
+
+## Child DOX Index
+
+- [server/AGENTS.md](server/AGENTS.md): Build-tagged loopback Go API fixture,
+  synthetic sessions and local OIDC issuer; excluded from production.

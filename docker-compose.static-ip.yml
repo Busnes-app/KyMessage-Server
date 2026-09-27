@@ -1,0 +1,12 @@
+# Append this file to COMPOSE_FILE in .env; see README.md for setup.
+services:
+  app:
+    networks:
+      default:
+        ipv4_address: ${KY_CONTAINER_IP:?Set KY_CONTAINER_IP in .env}
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${KY_NETWORK_SUBNET:?Set KY_NETWORK_SUBNET in .env}

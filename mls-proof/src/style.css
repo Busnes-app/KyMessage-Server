@@ -1,0 +1,10 @@
+:root { font-family: system-ui, sans-serif; color: #182326; background: #f8f6f0; line-height: 1.5; }
+main { max-width: 58rem; margin: 2rem auto; padding: 0 1rem; }
+fieldset { margin: 1rem 0; border: 1px solid #666; }
+label { display: block; margin: .8rem 0; }
+input, textarea { display: block; box-sizing: border-box; width: 100%; padding: .6rem; color: inherit; background: #fff; border: 1px solid #666; font: inherit; }
+textarea { font-family: monospace; }
+button { margin: .3rem; padding: .6rem .8rem; background: #182326; color: #f8f6f0; border: 2px solid transparent; cursor: pointer; }
+button:disabled { opacity: .6; }
+:focus-visible { outline: 3px solid #a43e11; outline-offset: 3px; }
+#status { font-weight: bold; overflow-wrap: anywhere; }

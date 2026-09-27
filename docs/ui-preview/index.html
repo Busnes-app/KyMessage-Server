@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ky UI template gallery</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f8f6f0;
+      --surface: #ffffff;
+      --surface-2: #f2efe7;
+      --ink: #182326;
+      --muted: #566461;
+      --line: rgba(24, 35, 38, .20);
+      --accent: #a93312;
+      --accent-soft: #fbf0ec;
+      --good: #166534;
+      --warn: #8a4b08;
+      --shadow: 0 1rem 3rem rgba(24, 35, 38, .10);
+    }
+    [data-mode="dark"] {
+      color-scheme: dark;
+      --bg: #182326;
+      --surface: #1f2b2e;
+      --surface-2: #263437;
+      --ink: #f2efe8;
+      --muted: #b3bcb8;
+      --line: rgba(242, 239, 232, .23);
+      --accent: #f5865f;
+      --accent-soft: #3a2a27;
+      --good: #86efac;
+      --warn: #f6c56f;
+      --shadow: 0 1rem 3rem rgba(0, 0, 0, .25);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 1rem/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    .page { max-width: 92rem; margin: 0 auto; padding: 2rem clamp(1rem, 3vw, 3rem) 4rem; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 3rem; }
+    .brand { display: flex; align-items: center; gap: .75rem; font-weight: 800; letter-spacing: -.02em; }
+    .stamp { display: grid; place-items: center; width: 2.2rem; height: 2.2rem; border: .18rem solid var(--accent); color: var(--accent); border-radius: .65rem; font-weight: 900; }
+    .toolbar { display: flex; align-items: center; gap: .6rem; }
+    .toolbar button, .toolbar select, .tab {
+      border: 1px solid var(--line); border-radius: .65rem; background: var(--surface); color: var(--ink); padding: .55rem .8rem;
+    }
+    .toolbar button:hover, .toolbar button:focus-visible, .tab:hover, .tab:focus-visible { border-color: var(--accent); }
+    .eyebrow { margin: 0 0 .4rem; color: var(--accent); font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 18ch; font-size: clamp(2.2rem, 5vw, 4.5rem); line-height: .98; letter-spacing: -.06em; margin-bottom: 1rem; }
+    .intro { max-width: 60ch; color: var(--muted); font-size: 1.1rem; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(18rem, .9fr); gap: 2rem; align-items: end; margin-bottom: 2rem; }
+    .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+    .principle { border-top: 2px solid var(--accent); padding-top: .7rem; color: var(--muted); font-size: .9rem; }
+    .principle strong { display: block; color: var(--ink); }
+    .tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 2rem 0 1rem; }
+    .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+    [data-mode="dark"] .tab[aria-selected="true"], [data-mode="dark"] .button { color: #182326; }
+    .template { display: none; }
+    .template.active { display: block; }
+    .template-head { display: flex; justify-content: space-between; align-items: end; gap: 1rem; margin: 2rem 0 1rem; }
+    .template-head h2 { margin-bottom: .25rem; font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -.04em; }
+    .template-head p { color: var(--muted); margin-bottom: 0; }
+    .template-number { color: var(--accent); font: 700 1rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .demo { background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; box-shadow: var(--shadow); overflow: hidden; }
+    .demo-chrome { display: flex; gap: .4rem; align-items: center; padding: .7rem 1rem; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+    .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--line); }
+    .demo-label { margin-left: auto; color: var(--muted); font-size: .75rem; }
+    .mock { display: grid; grid-template-columns: 13rem minmax(0, 1fr); min-height: 28rem; }
+    .mock-nav { padding: 1rem .75rem; background: var(--surface-2); border-right: 1px solid var(--line); }
+    .mock-product { display: flex; align-items: center; gap: .5rem; padding: .45rem .6rem 1.25rem; font-weight: 800; }
+    .mini-stamp { display: grid; place-items: center; width: 1.45rem; height: 1.45rem; border-radius: .35rem; background: var(--accent); color: #fff; font-size: .7rem; font-weight: 900; }
+    .mock-nav h4 { margin: 1rem .6rem .35rem; color: var(--muted); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; }
+    .mock-nav a { display: block; padding: .48rem .6rem; border-radius: .45rem; color: var(--muted); text-decoration: none; font-size: .88rem; }
+    .mock-nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+    .mock-main { padding: clamp(1rem, 3vw, 2rem); min-width: 0; }
+    .mock-top { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: 1.25rem; }
+    .mock-top h3 { margin-bottom: .2rem; font-size: 1.35rem; letter-spacing: -.03em; }
+    .muted { color: var(--muted); }
+    .button { display: inline-flex; align-items: center; gap: .35rem; border: 0; border-radius: .5rem; background: var(--accent); color: #fff; padding: .55rem .8rem; font-weight: 700; }
+    .button.secondary { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+    .card { border: 1px solid var(--line); border-radius: .65rem; padding: 1rem; background: var(--surface); }
+    .card h4 { margin: 0 0 .25rem; font-size: .95rem; }
+    .metric { font-size: 1.8rem; font-weight: 800; letter-spacing: -.05em; }
+    .status { display: inline-flex; align-items: center; gap: .3rem; color: var(--good); font-size: .78rem; font-weight: 700; }
+    .status.warn { color: var(--warn); }
+    .table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .table th, .table td { padding: .7rem .5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .table th { color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    .pill { display: inline-block; border-radius: 99rem; background: var(--accent-soft); color: var(--accent); padding: .15rem .5rem; font-size: .72rem; font-weight: 700; }
+    .split { display: grid; grid-template-columns: minmax(10rem, .65fr) minmax(0, 1.35fr); gap: 1rem; }
+    .list { border: 1px solid var(--line); border-radius: .65rem; overflow: hidden; }
+    .list-item { display: block; padding: .75rem; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+    .list-item:last-child { border-bottom: 0; }
+    .list-item.selected { background: var(--accent-soft); }
+    .list-item strong, .list-item small { display: block; }
+    .list-item small { color: var(--muted); }
+    .detail { border: 1px solid var(--line); border-radius: .65rem; padding: 1.1rem; }
+    .detail h4 { margin-bottom: .2rem; font-size: 1.2rem; }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+    .console { display: grid; gap: 1rem; }
+    .filters { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .filters input, .filters select { min-width: 10rem; border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .7rem; background: var(--surface); color: var(--ink); }
+    .settings { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: 1.25rem; }
+    .settings-nav a { display: block; padding: .5rem .65rem; color: var(--muted); text-decoration: none; border-radius: .4rem; }
+    .settings-nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+    .form-section { border-bottom: 1px solid var(--line); padding-bottom: 1rem; margin-bottom: 1rem; }
+    .form-section:last-child { border-bottom: 0; margin-bottom: 0; }
+    .form-section h4 { margin-bottom: .2rem; }
+    .form-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: .7rem; margin-top: .8rem; }
+    .field label { display: block; color: var(--muted); font-size: .76rem; font-weight: 700; margin-bottom: .25rem; }
+    .field input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; padding: .55rem .65rem; background: var(--bg); color: var(--ink); }
+    .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: .4rem; padding: .75rem 1rem; color: var(--ink); }
+    .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+    @media (max-width: 48rem) {
+      .hero { grid-template-columns: 1fr; }
+      .principles, .cards { grid-template-columns: 1fr; }
+      .topbar, .template-head, .mock-top { align-items: flex-start; flex-direction: column; }
+      .mock { grid-template-columns: 1fr; }
+      .mock-nav { border-right: 0; border-bottom: 1px solid var(--line); }
+      .mock-nav a { display: inline-block; margin: .15rem; }
+      .mock-nav h4 { display: none; }
+      .split, .settings, .form-row { grid-template-columns: 1fr; }
+      .table { min-width: 38rem; }
+      .table-wrap { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="brand"><span class="stamp" aria-hidden="true">K</span><span>Ky UI template gallery</span></div>
+      <div class="toolbar">
+        <label for="mode" class="muted">Preview</label>
+        <select id="mode" aria-label="Preview theme">
+          <option value="light">Busnes Light</option>
+          <option value="dark">Busnes Dark</option>
+        </select>
+      </div>
+    </header>
+
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <p class="eyebrow">Five reusable patterns</p>
+        <h1 id="title">A calmer way to run the Ky suite.</h1>
+        <p class="intro">Offline examples for product shells that can serve personal tools, infrastructure consoles, and security administration without making every application feel the same.</p>
+      </div>
+      <div class="principles" aria-label="Design principles">
+        <div class="principle"><strong>One shell</strong>Consistent product switching, search, account, and theme controls.</div>
+        <div class="principle"><strong>One vocabulary</strong>Overview, resources, activity, administration, settings.</div>
+        <div class="principle"><strong>Progressive depth</strong>Simple defaults; technical detail appears only when needed.</div>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="Template examples" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" aria-controls="template-1" data-template="template-1">1 · Workspace</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="template-2" data-template="template-2">2 · Resource browser</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="template-3" data-template="template-3">3 · Operations</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="template-4" data-template="template-4">4 · Status dashboard</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="template-5" data-template="template-5">5 · Settings canvas</button>
+    </nav>
+
+    <section id="template-1" class="template active" role="tabpanel">
+      <div class="template-head"><div><span class="template-number">01 / 05</span><h2>Workspace shell</h2><p>A persistent sidebar for products people use every day.</p></div><p class="muted">KyPost · KyVault · KyDNS</p></div>
+      <div class="demo">
+        <div class="demo-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="demo-label">KyPost · Inbox</span></div>
+        <div class="mock">
+          <aside class="mock-nav"><div class="mock-product"><span class="mini-stamp">K</span> KyPost</div><a class="active" href="#">Inbox <span class="muted">24</span></a><a href="#">Drafts</a><a href="#">Sent</a><a href="#">Contacts</a><h4>Workspace</h4><a href="#">Security</a><a href="#">Settings</a><h4>Other Ky apps</h4><a href="#">KyVault ↗</a><a href="#">KyNotes ↗</a></aside>
+          <div class="mock-main"><div class="mock-top"><div><h3>Inbox</h3><p class="muted">Your encrypted mail, in one focused workspace.</p></div><button class="button">＋ Compose</button></div><div class="cards"><div class="card"><h4>Unread</h4><div class="metric">24</div><span class="status">● All caught up</span></div><div class="card"><h4>Protected</h4><div class="metric">18</div><span class="status">● PGP ready</span></div><div class="card"><h4>Devices</h4><div class="metric">3</div><span class="status">● In sync</span></div></div><div class="card" style="margin-top: .75rem"><h4>Recent messages</h4><table class="table"><tbody><tr><td><strong>KyRecovery</strong><br><span class="muted">Backup receipt confirmed</span></td><td class="muted">9:42 AM</td></tr><tr><td><strong>Yoshi</strong><br><span class="muted">A note about the new launch</span></td><td class="muted">Yesterday</td></tr></tbody></table></div></div>
+        </div>
+      </div>
+      <p class="footer"><strong>Other applications:</strong> KyVault replaces Inbox with folders and entries; KyDNS replaces it with Services and Records; KyNotes replaces it with notebooks and recent notes.</p>
+    </section>
+
+    <section id="template-2" class="template" role="tabpanel">
+      <div class="template-head"><div><span class="template-number">02 / 05</span><h2>Resource browser</h2><p>A list-and-detail view for records, content, and history.</p></div><p class="muted">KyVault · KyMark · KyNotes</p></div>
+      <div class="demo"><div class="demo-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="demo-label">KyVault · Entries</span></div><div class="mock"><aside class="mock-nav"><div class="mock-product"><span class="mini-stamp">K</span> KyVault</div><a class="active" href="#">All Items</a><a href="#">Favorites</a><a href="#">Recently used</a><h4>Folders</h4><a href="#">Personal</a><a href="#">Work</a><a href="#">Servers</a><a href="#">Recycle Bin</a></aside><div class="mock-main"><div class="mock-top"><div><h3>All Items</h3><p class="muted">Select an entry to inspect it without leaving the list.</p></div><button class="button">＋ New entry</button></div><div class="split"><div class="list"><a class="list-item selected" href="#"><strong>KyRecovery</strong><small>recovery.internal</small></a><a class="list-item" href="#"><strong>Production DNS</strong><small>kydns.home.arpa</small></a><a class="list-item" href="#"><strong>Mail relay</strong><small>smtp.example.net</small></a><a class="list-item" href="#"><strong>Cloud storage</strong><small>storage.example.net</small></a></div><article class="detail"><span class="pill">Servers</span><h4>KyRecovery</h4><p class="muted">Recovery service credentials</p><div class="form-row"><div class="field"><label>Username</label><input value="operator" readonly></div><div class="field"><label>Password</label><input value="••••••••••••" readonly></div></div><div class="callout" style="margin-top: 1rem">This entry has 4 historical versions. Protected fields remain hidden until revealed.</div><div class="detail-actions"><button class="button">Reveal protected fields</button><button class="button secondary">Entry history</button></div></article></div></div></div></div>
+      <p class="footer"><strong>Other applications:</strong> KyMark uses the left pane for bookmarks and the detail pane for URL metadata; KyNotes uses it for notes and attachments; KyPost uses it for messages and reading.</p>
+    </section>
+
+    <section id="template-3" class="template" role="tabpanel">
+      <div class="template-head"><div><span class="template-number">03 / 05</span><h2>Operations console</h2><p>Filters, status, tables, and actions for administrators.</p></div><p class="muted">KyIdentity · KyForge · KyRecovery</p></div>
+      <div class="demo"><div class="demo-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="demo-label">KyIdentity · Audit log</span></div><div class="mock"><aside class="mock-nav"><div class="mock-product"><span class="mini-stamp">K</span> KyIdentity</div><a href="#">Overview</a><h4>Administration</h4><a href="#">Users</a><a href="#">Applications</a><a href="#">Provisioning</a><a class="active" href="#">Audit log</a><h4>System</h4><a href="#">Backup</a><a href="#">Settings</a></aside><div class="mock-main"><div class="mock-top"><div><h3>Audit log</h3><p class="muted">Searchable, exportable activity across the identity system.</p></div><button class="button secondary">Export</button></div><div class="console"><div class="cards"><div class="card"><h4>Events today</h4><div class="metric">1,284</div></div><div class="card"><h4>Failures</h4><div class="metric">7</div><span class="status warn">● Review needed</span></div><div class="card"><h4>Live stream</h4><div class="metric">On</div><span class="status">● Refreshing</span></div></div><div class="filters"><input aria-label="Search audit events" placeholder="Search actor or target"><select aria-label="Filter outcome"><option>Any outcome</option><option>Success</option><option>Failure</option></select><button class="button secondary">More filters</button></div><div class="table-wrap"><table class="table"><thead><tr><th scope="col">Time</th><th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Outcome</th></tr></thead><tbody><tr><td>10:04:22</td><td>admin</td><td>application.updated</td><td><span class="pill">Success</span></td></tr><tr><td>09:58:11</td><td>scim-worker</td><td>user.provisioned</td><td><span class="pill">Success</span></td></tr><tr><td>09:52:40</td><td>unknown</td><td>auth.login</td><td><span class="status warn">● Failure</span></td></tr></tbody></table></div></div></div></div></div>
+      <p class="footer"><strong>Other applications:</strong> KyForge uses work queues and approval actions; KyRecovery uses paired services and capsule receipts; KyDNS uses service health, replication lag, and DHCP leases.</p>
+    </section>
+
+    <section id="template-4" class="template" role="tabpanel">
+      <div class="template-head"><div><span class="template-number">04 / 05</span><h2>Status dashboard</h2><p>A low-stress landing page that answers “what needs attention?”</p></div><p class="muted">KyDNS · KyNotes · KyYard</p></div>
+      <div class="demo"><div class="demo-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="demo-label">KyDNS · Overview</span></div><div class="mock"><aside class="mock-nav"><div class="mock-product"><span class="mini-stamp">K</span> KyDNS</div><a class="active" href="#">Overview</a><a href="#">Services</a><a href="#">DNS records</a><a href="#">DHCP</a><h4>Operations</h4><a href="#">Replication</a><a href="#">Backups</a><a href="#">Settings</a></aside><div class="mock-main"><div class="mock-top"><div><h3>Good morning, Yoshi</h3><p class="muted">Your private service directory is healthy.</p></div><button class="button">＋ Add service</button></div><div class="cards"><div class="card"><h4>Services</h4><div class="metric">18</div><span class="status">● 18 healthy</span></div><div class="card"><h4>Replication</h4><div class="metric">42 ms</div><span class="status">● Within target</span></div><div class="card"><h4>Backup</h4><div class="metric">3h ago</div><span class="status">● Up to date</span></div></div><div class="card" style="margin-top: .75rem"><h4>Needs attention</h4><table class="table"><tbody><tr><td><strong>webmail</strong><br><span class="muted">Health check timeout</span></td><td><span class="status warn">Warning</span></td><td><button class="button secondary">Inspect</button></td></tr><tr><td><strong>DHCP</strong><br><span class="muted">Service is disabled</span></td><td><span class="pill">Info</span></td><td><button class="button secondary">Configure</button></td></tr></tbody></table></div></div></div></div>
+      <p class="footer"><strong>Other applications:</strong> KyNotes uses cards for backup freshness and blob mirror state; KyYard uses them for SCIM, SSO, database, and recovery readiness; KyMark uses them for device sync and audit-chain health.</p>
+    </section>
+
+    <section id="template-5" class="template" role="tabpanel">
+      <div class="template-head"><div><span class="template-number">05 / 05</span><h2>Settings canvas</h2><p>Predictable settings navigation with one focused form at a time.</p></div><p class="muted">KyRecovery · KyPost · KyDNS</p></div>
+      <div class="demo"><div class="demo-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="demo-label">KyRecovery · Backup settings</span></div><div class="mock"><aside class="mock-nav"><div class="mock-product"><span class="mini-stamp">K</span> KyRecovery</div><a href="#">Overview</a><a href="#">Capsules</a><a href="#">Audit ledger</a><h4>Configuration</h4><a class="active" href="#">Recovery key</a><a href="#">Pairing</a><a href="#">Retention</a><h4>Account</h4><a href="#">Appearance</a><a href="#">Security</a></aside><div class="mock-main"><div class="mock-top"><div><h3>Recovery key</h3><p class="muted">The key pinned by this recovery store.</p></div><button class="button">Save changes</button></div><div class="settings"><nav class="settings-nav" aria-label="Settings sections"><a class="active" href="#">Recovery key</a><a href="#">Pairing</a><a href="#">Retention</a><a href="#">Notifications</a></nav><div><div class="form-section"><h4>Custodian topology</h4><p class="muted">Choose how many shares are required to restore a capsule.</p><div class="form-row"><div class="field"><label for="threshold">Required shares</label><input id="threshold" value="3" readonly></div><div class="field"><label for="total">Total shares</label><input id="total" value="5" readonly></div></div></div><div class="form-section"><h4>Key fingerprint</h4><p class="muted">Compare this value with the ceremony page before pairing products.</p><div class="callout"><code>sha256: 9a4e…71c2</code></div></div><div class="form-section"><h4>Pairing status</h4><p><span class="status">● Ceremony complete</span> <span class="muted">· 6 products paired</span></p></div></div></div></div></div></div>
+      <p class="footer"><strong>Other applications:</strong> KyPost uses the canvas for appearance, mail, security, and automation; KyDNS uses it for upstreams, ACLs, DHCP, and replication; KyVault uses it for device access and the offline vault key.</p>
+    </section>
+
+    <footer class="footer"><strong>Suggested foundation:</strong> use the Workspace shell globally, then compose the Resource browser, Operations console, Status dashboard, and Settings canvas inside it. The examples are intentionally content-first so new Ky applications can add navigation and records without inventing a new visual system.</footer>
+  </main>
+  <script>
+    const root = document.documentElement;
+    const mode = document.querySelector('#mode');
+    mode.addEventListener('change', () => root.dataset.mode = mode.value);
+    document.querySelectorAll('[data-template]').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('[data-template]').forEach((item) => item.setAttribute('aria-selected', String(item === tab)));
+        document.querySelectorAll('.template').forEach((panel) => panel.classList.toggle('active', panel.id === tab.dataset.template));
+      });
+    });
+  </script>
+</body>
+</html>
