@@ -176,6 +176,28 @@ and loss of the final room state has an explicit new-room outcome. Include lost
 acknowledgements and restored older server metadata in the recovery drill. Until
 these gates pass, expose guidance rather than a reset button or administrative bypass.
 
+Fresh-authentication evidence (2026-09-27): the suite SSO adapter now has separate
+reauthentication URL/exchange methods. They request `prompt=login` and `max_age=0`,
+then verify a signed integer `auth_time`, the same subject, state and nonce, and
+the ordinary signature/issuer/audience/expiry checks. Authentication must be at or
+after the server-owned request start, no later than token issuance or local now;
+the request expires after five minutes. Missing evidence fails closed. Normal login
+remains compatible with tokens that omit `auth_time`. This follows the distinction
+between authentication and token issuance in
+[OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html#IDToken) and its
+[maximum authentication age request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
+
+The sibling `KyIdentity-server` at clean commit `47447e7` supports these parameters;
+its authorization interaction, silent/age and authentication-evidence tests passed
+locally. Signed test tokens exercise the consumer's acceptance/rejection rules.
+This is component evidence, not an end-to-end reset or a deployed issuer check.
+Before wiring reset, persist and consume the request once, bind it to the original
+live session and replacement key/generation, and recheck those bindings on callback.
+The timestamp has one-second resolution, so it alone cannot prove the identity
+provider honored this particular interactive request. Test parameter tampering
+against the deployed issuer, preserve the required authentication policy there,
+and verify clock alignment; the consumer intentionally gives no clock-skew grace.
+
 #### Retention and server backups
 
 Proposed default: 30-day server ciphertext retention, with 24-hour and 7-day room

@@ -44,6 +44,9 @@ func TestOAuthAuthorizationURLUsesDiscoveryAndPKCE(t *testing.T) {
 	if parsed.Path != "/authorize" || query.Get("state") != "state" || query.Get("nonce") != "nonce" || query.Get("code_challenge_method") != "S256" || query.Get("code_challenge") == "" {
 		t.Fatalf("unexpected authorization URL: %s", authURL)
 	}
+	if query.Has("max_age") || query.Has("prompt") {
+		t.Fatal("ordinary login unexpectedly forces reauthentication")
+	}
 }
 
 func TestKySignOnWebhookSync(t *testing.T) {

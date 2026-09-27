@@ -6,7 +6,7 @@ The folder now has Git metadata. Initial checkpoint `f36cfde` records the scaffo
 product definition, authenticated messaging API and isolated browser prototype.
 Origin is `https://github.com/Busnes-app/KyMessage-Server.git`; GitHub redirected the
 former Yoshiofthewire URL and the local remote now uses the canonical address.
-Verified checkpoints through device-revocation commit `b5c6e2c` were pushed.
+Verified checkpoints through recovery-guidance commit `63e6b6f` were pushed.
 No product deployment occurred. Generated TypeScript state and inherited
 `.superpowers/` review scratch are ignored; embedded `web/dist` is tracked.
 
@@ -24,45 +24,54 @@ The proof remains outside the embedded React app and Docker.
 
 ## This slice
 
-Defined the proposed last-device-loss contract in `docs/PRODUCT.md`: fresh
-interactive suite authentication and replacement-key proof; atomic, idempotent
-identity-generation reset; revocation of old/pending devices; visible identity
-change; fresh room invitations and independent fingerprint comparison; future-only
-history; and a new-room outcome when the owner or final usable group state is lost.
-This is a proposed contract with explicit acceptance gates, not an enabled reset API.
+`internal/sso/reauthentication.go` adds a separate suite reauthentication URL and
+code verifier. Requests send `prompt=login` and `max_age=0`. The verifier checks
+callback state, the original subject and nonce, signed integer `auth_time`, and the
+normal OIDC signature/issuer/audience/expiry. Authentication must occur at or after
+request start, no later than issuance/local now. Requests expire after five minutes,
+checked both before and after exchange. There is no iat fallback or clock-skew grace;
+timestamps compare at Unix-second precision. Ordinary login stays unchanged.
 
-The isolated chat UI now keeps generic recovery help available before unlock. It
-explains how to preserve browser data, approve a replacement from an accessible
-approved browser, and revoke lost devices from a pending replacement. Account
-banners distinguish the only approved device, a replacement needing approval, and
-no remaining approved devices. Approval status does not prove keys are accessible.
-Account-specific text clears on lock. No data deletion or approval bypass was added.
+These methods are component primitives, not an HTTP reset grant. Their request is
+server-owned state; the future consumer must store it once, bind it to the original
+live session and exact action/replacement key/identity generation, recheck bindings,
+and atomically consume it. No HTTP reauthentication route, reset mutation or device
+approval bypass was added. OIDC timestamps alone do not prove that this particular
+interactive request was honored, especially within the same second; deployed issuer
+policy and parameter-tampering tests remain necessary.
+
+Read-only inspection of sibling `KyIdentity-server` at clean commit `47447e7` found
+support for forced interactions and authentication evidence. Its local request,
+interaction, silent/age and signed-evidence tests passed. No files in that repo were
+changed. This does not prove the behavior of a deployed issuer or a complete reset.
+The product document links the OIDC primary source and records the evidence/limits.
 
 ## Verification
 
-Proof typecheck/build passed. All eight chat UI cases passed across Chromium and
-Firefox (six existing cases plus two new lost-browser drills); all four OIDC cases
-passed. The new drill closes the only approved browser, enrolls a pending replacement,
-revokes the lost browser through the real API and verifies the replacement stays
-pending. Existing cases verify each recovery banner transition and clearing on lock.
-Mobile overflow assertions passed and the Chromium mobile screenshot was inspected.
-`git diff --check` passed. No server API, cryptography or dependency changed; the
-unchanged protocol-only suite was not repeated locally for this guidance slice.
+- `go test -race ./internal/sso -count=1`: passed, including 21 signed-token cases,
+  malformed/expired request rejection and ordinary-login compatibility.
+- `go test -race ./internal/api -run 'TestMessaging|Test.*SSO|Test.*OIDC' -count=1`:
+  passed. `go vet ./internal/sso` passed.
+- All four Chromium/Firefox OIDC browser cases passed against the real suite callback.
+- Sibling tests: `TestAuthenticationRequest`, `TestAuthorizationInteraction`,
+  `TestAuthorizationSilentAndAge`, `TestAuthorizationPreservesAuthenticationEvidence`
+  passed; the sibling worktree remains clean.
+- No dependency, storage schema, HTTP API or UI changed. Unchanged MLS-only suites
+  were not repeated locally. `git diff --check` passed.
 
-GitHub CI for device-revocation commit `b5c6e2c` passed in full:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36355716547
-That run includes SQLite/PostgreSQL race suites, production browser tests, smoke,
-Docker, vulnerability checks and the MLS job (manual, HTTP/UI and OIDC). Image
-publish/promote were intentionally skipped. Check the current head's own run before
-treating that earlier green result as evidence for the recovery-guidance slice.
+Previous pushed guidance commit `63e6b6f` CI was still running at the last check:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36356605290
+The earlier `b5c6e2c` run passed in full. Check each current head's own CI before
+claiming all jobs passed. KyMessages image publishing remains disabled.
 
 ## Next and limits
 
-Next recovery step: prove the suite issuer's fresh-authentication binding before
-implementing reset, then introduce identity generations through storage, API and
-client verification under the product contract. The current OIDC fixture proves
-login/callback/CSRF, not reset-grade reauthentication. Reset must not reuse ordinary
-first-device approval or administrator privileges.
+Next recovery step: a single-use server-side reauthentication transaction bound to
+the original live suite session, replacement key and current identity generation,
+with a callback that rejects mismatched/expired/replayed bindings. Use the new SSO
+methods; ordinary login/session creation is not step-up evidence. Prove this with
+session changes and parameter tampering, then wire atomic identity generation reset
+under `docs/PRODUCT.md`. Keep reset disabled until the entire contract holds.
 
 WebSocket/push delivery, room switching, identity reset, retention and restore rollback
 reconciliation remain open. Rejoin covers removal followed by reinvitation of the
@@ -84,8 +93,7 @@ Other recovery gaps: stale-roster conflict without a winning commit, lost room
 creation acknowledgement, session changes during unfinished enrollment. Account
 changes are detected on network requests. Sign-out cannot erase copied secrets.
 
-DOX: updated `mls-proof/AGENTS.md`, proof run instructions and product evidence.
-Root/server/API/store/auth/web contracts intentionally remain unchanged because
-this slice only explains their existing authorization and delivery contracts. Child indexes
-remain valid. Mirror this exact checkpoint through myslop-handoff to the existing
-`kymessages-product-definition` folder before closeout.
+DOX: updated `internal/sso/AGENTS.md` and product evidence. Root/API/store/auth/web
+and proof contracts intentionally remain unchanged: no routes, session behavior,
+schemas or browser workflow changed. Child indexes remain valid. Mirror this exact
+checkpoint through myslop-handoff to `kymessages-product-definition` before closeout.

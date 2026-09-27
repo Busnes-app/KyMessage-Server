@@ -11,6 +11,15 @@ Owns the application adapters around OAuth/OIDC login, KySignOn HMAC-SHA256 sign
 - PKCE with `S256` is enforced on all OAuth/OIDC authorization requests.
 - ID tokens require provider signature, issuer, audience, expiry, and one-time nonce verification before claims are trusted.
 - OAuth discovery, authorization URLs, PKCE parameters, code exchange, and token verification are delegated to `golang.org/x/oauth2` and `coreos/go-oidc`; application code only maps verified claims.
+- Suite reauthentication uses `BuildReauthenticationURL` (`prompt=login`, `max_age=0`)
+  and `ExchangeReauthenticationCode`: same subject/state/nonce, signed integer
+  `auth_time` at or after request start, not after token issuance or local now, and
+  a request younger than five minutes. No `iat` fallback or clock-skew allowance;
+  comparisons use Unix seconds. Ordinary login does not require `auth_time`.
+- `ReauthenticationRequest` is server-owned state. A future route must bind it to
+  the originating live session and exact action/key/generation, check those bindings
+  again at completion, and atomically consume it once. The verifier is not a reset
+  grant; no HTTP reauthentication or identity-reset route is enabled yet.
 - SAML assertion parsing is not implemented locally; metadata XML uses `encoding/xml` and no ACS route is exposed until a maintained SAML service-provider library is configured.
 - Directory webhook timestamps are accepted only within five minutes; status or role changes revoke the user's sessions.
 
