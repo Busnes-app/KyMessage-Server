@@ -24,6 +24,8 @@ import (
 const messagingDeviceHeader = "X-KyMessages-Device"
 
 func (s *Server) messagingRoutes() {
+	s.mux.HandleFunc("POST /api/messaging/devices/{device}/recovery-auth", s.requireMessaging(s.handleMessagingRecoveryAuth))
+	s.mux.HandleFunc("GET /api/messaging/recovery-auth/callback", s.requireMessaging(s.handleMessagingRecoveryAuthCallback))
 	s.mux.HandleFunc("POST /api/messaging/devices/key-packages", s.requireMessaging(s.handleMessagingPublishKeyPackage))
 	s.mux.HandleFunc("POST /api/messaging/rooms/{room}/key-packages/claim", s.requireMessaging(s.handleMessagingClaimKeyPackage))
 	s.mux.HandleFunc("GET /api/messaging/rooms/{room}/delivery", s.requireMessaging(s.handleMessagingDelivery))

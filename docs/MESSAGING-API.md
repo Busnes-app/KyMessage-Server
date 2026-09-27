@@ -79,6 +79,40 @@ Device responses expose `id`, `user_id`, `name`, `public_key`, `fingerprint`
 (SHA-256 hex of raw public-key bytes), `status`, `approved_by`, `created_at`.
 They omit token hashes, challenges and enrollment-session bindings.
 
+## Recovery authentication (reset remains disabled)
+
+The two recovery-auth routes prove a single fresh authentication for a pending
+replacement. They do not approve it, change identity, transfer history or issue a
+reusable reset grant. Their success audit must never be used as reset authority.
+No prototype UI initiates this flow yet. Register the exact
+`/api/messaging/recovery-auth/callback` URL with the suite issuer before testing it.
+
+Initiation requires `{}`, a canonical device UUID, the pending device's credential,
+and a live suite session; browser CSRF and the messaging rate limit apply. Migration
+8 stores only hashed random state plus an encrypted OIDC request under a dedicated
+key derived from the server encryption key. The record binds the original session,
+account/subject, pending device/public key and sorted account device-registry digest.
+It expires after five minutes. There are at most four outstanding requests per
+account; starting a new one prunes that account's expired records. Session deletion
+cascades its requests. Device registry changes invalidate existing snapshots, even
+if unrelated to the target; this deliberately conservative rule precedes identity
+generations and must remain fail-closed when reset is added.
+
+Callback requires one canonical 64-character state and one nonempty code of at most
+4096 bytes. It uses the original suite session, without a device token or a new login
+session. Validate stored bindings before the OIDC exchange; require fresh signed
+`auth_time`, matching subject and nonce; then recheck the live session, target and
+registry while atomically deleting the request and auditing completion. OIDC calls
+run outside database transactions. Concurrent completions have one winner. Expiry,
+logout, account changes, revocation and registry changes cannot become an approval.
+
+Invalid callbacks return 400; missing/different/expired original bindings return
+403; changed registry returns 409; failed signed authentication or corrupt sealed
+state returns 401. Discovery failure returns 502. A lost success acknowledgement
+cannot replay: start a new authentication request. Beginning and completing audit
+`messaging.recovery_auth_started` and `messaging.recovery_auth_completed` using the
+target device ID, without tokens, verifier, nonce, raw state or plaintext keys.
+
 ## Routes
 
 All paths below start with `/api/messaging`. Successful mutations return 200
@@ -91,6 +125,8 @@ unless marked 201. All routes require the suite session described above.
 | POST `/devices/{device}/verify` | `{signature}` → `{device}` | Original enrollment session and signature |
 | POST `/devices/{device}/approve` | `{approved:true}` | Approved device of same account; target pending |
 | DELETE `/devices/{device}` | `{revoked:true}` | Own non-revoked device |
+| POST `/devices/{device}/recovery-auth` | `{}` → 201 `{authorization_url,expires_at,identity_reset_available:false}` | Own pending device credential and original live suite session |
+| GET `/recovery-auth/callback?state=…&code=…` | `{reauthenticated:true,device_id,identity_reset_available:false}` | Original suite session; fresh signed OIDC evidence and unchanged device registry |
 | POST `/devices/key-packages` | `{payload,expires_at}` → `{package_id,expires_at}` | Approved publishing device |
 | POST `/rooms` | `{name}` → 201 room | Approved device |
 | GET `/rooms?offset=0` | `{rooms:[...]}` | Approved device; own invited/active memberships only |

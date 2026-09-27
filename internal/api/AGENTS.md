@@ -9,6 +9,13 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 ## Local Contracts
 - `/api/messaging/` routes use `requireMessaging`: suite OIDC only (persisted provider `kysignon`, no local password), live session, matching browser Origin and account rate limits. Existing cookie CSRF applies. `X-KyMessages-Device` supplements the session for approval and room operations; enrollment, listing and revoking one's own devices need only the suite session.
 - `messaging_handlers.go` owns bounded JSON parsing, Ed25519 enrollment challenges and public DTOs. `store.Messaging()` rechecks authorization transactionally. Follow `docs/MESSAGING-API.md` at the repository root for the wire contract; never expose device token hashes or session bindings in device listings.
+- `messaging_recovery.go` owns recovery-authentication initiation and callback.
+  Initiation requires the target pending device's token; callback keeps the original
+  suite session and never issues another. Seal server-owned OIDC state with the
+  `messaging-recovery-auth` derived key. Check saved account/session/device/subject,
+  callback/state and creation time before exchange; the store rechecks bindings and
+  atomically consumes after verification. Responses explicitly keep identity reset
+  unavailable; success is an audit result, not a future reset grant.
 - `messaging_delivery.go` adds device-gated room state and event append/read routes. Canonicalize and bound base64 envelopes at the HTTP boundary; responses expose only the caller's Welcome. A successful append acknowledges durable opaque storage, not cryptographic validation or recipient delivery.
 - `messaging_key_packages.go` accepts device-authenticated publication (canonical base64, 16 KiB decoded, expiry within seven days) and room-authorized POST claims. The store derives the publishing device from its credential; JSON cannot choose an owner. MLS parsing, credential/key binding and signed lifetime validation remain client responsibilities.
 - POST `/api/auth/change-password` accepts a restricted local session, current password and a different policy-valid new password. Browser CSRF and per-IP/account limits apply. Success revokes all sessions and requires sign-in again; flagged sessions get `password_change_required` on protected routes and public-only settings.

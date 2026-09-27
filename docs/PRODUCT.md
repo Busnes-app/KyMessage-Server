@@ -191,8 +191,12 @@ The sibling `KyIdentity-server` at clean commit `47447e7` supports these paramet
 its authorization interaction, silent/age and authentication-evidence tests passed
 locally. Signed test tokens exercise the consumer's acceptance/rejection rules.
 This is component evidence, not an end-to-end reset or a deployed issuer check.
-Before wiring reset, persist and consume the request once, bind it to the original
-live session and replacement key/generation, and recheck those bindings on callback.
+The recovery-authentication API now persists sealed requests, binds the original live
+session, pending replacement key and account device-registry snapshot, and consumes
+a successful request once after rechecking those bindings. It returns authentication
+status only: the replacement stays pending and reset remains unavailable. Identity
+generations and an atomic reset mutation remain required before wiring reset.
+The wire and retry contract is in [MESSAGING-API.md](MESSAGING-API.md#recovery-authentication-reset-remains-disabled).
 The timestamp has one-second resolution, so it alone cannot prove the identity
 provider honored this particular interactive request. Test parameter tampering
 against the deployed issuer, preserve the required authentication policy there,

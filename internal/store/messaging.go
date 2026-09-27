@@ -45,6 +45,9 @@ type MessagingRoom struct {
 type MessagingMember struct{ UserID, Status string }
 
 type MessagingStore interface {
+	BeginRecoveryAuthentication(context.Context, MessagingActor, MessagingRecoveryAuthentication) error
+	RecoveryAuthentication(context.Context, MessagingActor, string) (MessagingRecoveryAuthentication, error)
+	CompleteRecoveryAuthentication(context.Context, MessagingActor, string, string) error
 	EnrollDevice(context.Context, MessagingActor, MessagingEnrollment) error
 	VerifyDevice(context.Context, MessagingActor, string, []byte) (*MessagingDevice, error)
 	ListDevices(context.Context, MessagingActor) ([]MessagingDevice, error)
