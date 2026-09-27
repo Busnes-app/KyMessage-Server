@@ -103,3 +103,24 @@ CREATE TABLE messaging_key_packages (
 CREATE INDEX messaging_key_packages_available ON messaging_key_packages(device_id, expires_at);
 CREATE UNIQUE INDEX messaging_key_packages_claim ON messaging_key_packages(claimant_device, claim_id) WHERE claim_id <> '';
 `
+
+const messagingIdentitySchema = `
+CREATE TABLE messaging_identities (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    generation BIGINT NOT NULL DEFAULT 1 CHECK(generation > 0)
+);
+INSERT INTO messaging_identities (user_id) SELECT DISTINCT user_id FROM messaging_devices;
+ALTER TABLE messaging_devices ADD COLUMN identity_generation BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE messaging_rooms ADD COLUMN owner_identity_generation BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE messaging_members ADD COLUMN identity_generation BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE messaging_recovery_auth ADD COLUMN identity_generation BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE messaging_recovery_auth ADD COLUMN reset_confirmed INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE messaging_reset_receipts (
+    state_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_hash TEXT NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    identity_generation BIGINT NOT NULL,
+    completed_at BIGINT NOT NULL
+);
+`

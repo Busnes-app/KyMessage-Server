@@ -221,6 +221,7 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 6, Name: "messaging_delivery", SQLite: messagingDeliverySchema, Postgres: messagingDeliverySchema},
 	{Version: 7, Name: "messaging_key_packages", SQLite: messagingKeyPackageSchema, Postgres: messagingKeyPackageSchema},
 	{Version: 8, Name: "messaging_recovery_auth", SQLite: messagingRecoveryAuthSchema, Postgres: messagingRecoveryAuthSchema},
+	{Version: 9, Name: "messaging_identity_generations", SQLite: messagingIdentitySchema, Postgres: messagingIdentitySchema},
 }
 
 // Run executes all pending migrations for the specified database driver.

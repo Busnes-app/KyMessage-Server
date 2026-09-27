@@ -14,8 +14,8 @@ import (
 // These are delivery-service declarations, not proof of MLS transcript validity.
 // Receiving clients must authenticate/decrypt MLS and check its roster and epoch.
 type MessagingRosterDevice struct {
-	ID, UserID, PublicKey string
-	Generation            int64
+	ID, UserID, PublicKey          string
+	Generation, IdentityGeneration int64
 }
 type MessagingDeliveryState struct {
 	Epoch, Sequence int64
@@ -61,14 +61,14 @@ func (m *messagingStore) deliveryState(ctx context.Context, tx *sql.Tx, actor Me
 	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT epoch, sequence, roster_hash, owner_id, retained_bytes FROM messaging_rooms WHERE id = ?`), room).Scan(&state.Epoch, &state.Sequence, &committed, &owner, &retained); err != nil {
 		return state, "", 0, err
 	}
-	rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT d.id, d.user_id, d.public_key, m.generation FROM messaging_devices d JOIN messaging_members m ON m.user_id = d.user_id JOIN users u ON u.id = d.user_id WHERE m.room_id = ? AND m.status = 'active' AND d.status = 'approved' AND u.status = 'active' AND u.sso_provider = 'kysignon' AND u.sso_subject <> '' AND u.password_hash = '' AND u.must_change_password = ? ORDER BY d.id`), room, false)
+	rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT d.id, d.user_id, d.public_key, m.generation, d.identity_generation FROM messaging_devices d JOIN messaging_members m ON m.user_id = d.user_id JOIN users u ON u.id = d.user_id WHERE m.room_id = ? AND m.status = 'active' AND m.identity_generation = d.identity_generation AND d.status = 'approved' AND u.status = 'active' AND u.sso_provider = 'kysignon' AND u.sso_subject <> '' AND u.password_hash = '' AND u.must_change_password = ? ORDER BY d.id`), room, false)
 	if err != nil {
 		return state, "", 0, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var d MessagingRosterDevice
-		if err := rows.Scan(&d.ID, &d.UserID, &d.PublicKey, &d.Generation); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.PublicKey, &d.Generation, &d.IdentityGeneration); err != nil {
 			return state, "", 0, err
 		}
 		state.Devices = append(state.Devices, d)
@@ -81,7 +81,7 @@ func (m *messagingStore) deliveryState(ctx context.Context, tx *sql.Tx, actor Me
 	wire, err := json.Marshal(struct {
 		Domain, Room string
 		Devices      []MessagingRosterDevice
-	}{"KyMessages roster v1", room, state.Devices})
+	}{"KyMessages roster v2", room, state.Devices})
 	if err != nil {
 		return state, "", 0, err
 	}

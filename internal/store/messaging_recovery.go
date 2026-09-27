@@ -15,12 +15,14 @@ import (
 // Device, subject and registry bindings are derived by Begin, never client claims.
 type MessagingRecoveryAuthentication struct {
 	StateHash, DeviceID, PublicKey, Subject, RegistryHash, SealedRequest string
-	CreatedAt, ExpiresAt                                                 int64
+	CreatedAt, ExpiresAt, IdentityGeneration                             int64
+	ResetConfirmed                                                       bool
 }
 
 func (m *messagingStore) recoveryBindings(ctx context.Context, tx *sql.Tx, actor MessagingActor, target string) (string, string, string, error) {
 	var subject, publicKey string
-	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT sso_subject FROM users WHERE id = ?`), actor.UserID).Scan(&subject); err != nil {
+	var generation int64
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT u.sso_subject, i.generation FROM users u JOIN messaging_identities i ON i.user_id = u.id WHERE u.id = ?`), actor.UserID).Scan(&subject, &generation); err != nil {
 		return "", "", "", err
 	}
 	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT public_key FROM messaging_devices WHERE id = ? AND user_id = ? AND status = 'pending'`), target, actor.UserID).Scan(&publicKey); err != nil {
@@ -35,6 +37,9 @@ func (m *messagingStore) recoveryBindings(ctx context.Context, tx *sql.Tx, actor
 	}
 	defer rows.Close()
 	hash := sha256.New()
+	if err := json.NewEncoder(hash).Encode(generation); err != nil {
+		return "", "", "", err
+	}
 	for rows.Next() {
 		var item [3]string
 		if err := rows.Scan(&item[0], &item[1], &item[2]); err != nil {
@@ -56,7 +61,7 @@ func (m *messagingStore) BeginRecoveryAuthentication(ctx context.Context, actor 
 	return m.transaction(ctx, actor, false, func(tx *sql.Tx, _ string) error {
 		// A pending device has proved its key at enrollment, but cannot approve itself.
 		var target string
-		err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT id FROM messaging_devices WHERE id = ? AND user_id = ? AND token_hash = ? AND status = 'pending'`), r.DeviceID, actor.UserID, actor.DeviceTokenHash).Scan(&target)
+		err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT id, identity_generation FROM messaging_devices WHERE id = ? AND user_id = ? AND token_hash = ? AND status = 'pending'`), r.DeviceID, actor.UserID, actor.DeviceTokenHash).Scan(&target, &r.IdentityGeneration)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrMessagingDenied
 		}
@@ -77,7 +82,11 @@ func (m *messagingStore) BeginRecoveryAuthentication(ctx context.Context, actor 
 		if count >= 4 {
 			return ErrMessagingLimit
 		}
-		res, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_recovery_auth (state_hash,user_id,session_hash,device_id,public_key,subject,registry_hash,sealed_request,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (state_hash) DO NOTHING`), r.StateHash, actor.UserID, actor.SessionHash, target, key, subject, registry, r.SealedRequest, r.CreatedAt, r.ExpiresAt)
+		confirmed := 0
+		if r.ResetConfirmed {
+			confirmed = 1
+		}
+		res, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_recovery_auth (state_hash,user_id,session_hash,device_id,public_key,subject,registry_hash,sealed_request,created_at,expires_at,identity_generation,reset_confirmed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (state_hash) DO NOTHING`), r.StateHash, actor.UserID, actor.SessionHash, target, key, subject, registry, r.SealedRequest, r.CreatedAt, r.ExpiresAt, r.IdentityGeneration, confirmed)
 		if err := messagingChanged(res, err); err != nil {
 			return err
 		}
@@ -88,7 +97,7 @@ func (m *messagingStore) BeginRecoveryAuthentication(ctx context.Context, actor 
 func (m *messagingStore) recoveryAuthentication(ctx context.Context, tx *sql.Tx, actor MessagingActor, stateHash string) (MessagingRecoveryAuthentication, error) {
 	var r MessagingRecoveryAuthentication
 	r.StateHash = stateHash
-	err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT device_id,public_key,subject,registry_hash,sealed_request,created_at,expires_at FROM messaging_recovery_auth WHERE state_hash = ? AND user_id = ? AND session_hash = ? AND expires_at > ?`), stateHash, actor.UserID, actor.SessionHash, time.Now().Unix()).Scan(&r.DeviceID, &r.PublicKey, &r.Subject, &r.RegistryHash, &r.SealedRequest, &r.CreatedAt, &r.ExpiresAt)
+	err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT device_id,public_key,subject,registry_hash,sealed_request,created_at,expires_at,identity_generation,reset_confirmed FROM messaging_recovery_auth WHERE state_hash = ? AND user_id = ? AND session_hash = ? AND expires_at > ?`), stateHash, actor.UserID, actor.SessionHash, time.Now().Unix()).Scan(&r.DeviceID, &r.PublicKey, &r.Subject, &r.RegistryHash, &r.SealedRequest, &r.CreatedAt, &r.ExpiresAt, &r.IdentityGeneration, &r.ResetConfirmed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrMessagingDenied
 	}
@@ -127,7 +136,7 @@ func (m *messagingStore) CompleteRecoveryAuthentication(ctx context.Context, act
 		if err != nil {
 			return err
 		}
-		if verifiedSubject != r.Subject {
+		if verifiedSubject != r.Subject || r.ResetConfirmed {
 			return ErrMessagingDenied
 		}
 		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`DELETE FROM messaging_recovery_auth WHERE state_hash = ?`), stateHash)); err != nil {

@@ -142,7 +142,7 @@ async function directory() {
   if (!opened || generation !== viewGeneration) return;
   roomPaused = current.paused;
   const peers = current.peers;
-  element('peers').replaceChildren(...peers.map(x => line('li',`${x.user_id} · ${x.id} · ${x.approved ? 'Verified locally' : 'Needs verification'}`)));
+  element('peers').replaceChildren(...peers.map(x => line('li',`${x.user_id} · Identity ${x.identity_generation} · ${x.id} · ${x.approved ? 'Verified locally' : 'Needs verification'}`)));
   // Deliberately do not fill the approval field from the server's own fingerprint.
   options('peer-device',peers.filter(x => !x.approved).map(x => ({id:x.id,label:`${x.user_id} · ${x.id}`})));
 }

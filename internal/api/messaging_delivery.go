@@ -17,7 +17,7 @@ func (s *Server) handleMessagingDelivery(w http.ResponseWriter, r *http.Request,
 	}
 	devices := make([]map[string]any, 0, len(state.Devices))
 	for _, d := range state.Devices {
-		devices = append(devices, map[string]any{"id": d.ID, "user_id": d.UserID, "public_key": d.PublicKey, "generation": d.Generation})
+		devices = append(devices, map[string]any{"id": d.ID, "user_id": d.UserID, "public_key": d.PublicKey, "generation": d.Generation, "identity_generation": d.IdentityGeneration})
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"epoch": state.Epoch, "sequence": state.Sequence, "roster_hash": state.RosterHash, "paused": state.Paused, "devices": devices})
 }

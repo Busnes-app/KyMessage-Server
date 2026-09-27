@@ -26,9 +26,11 @@ retains the manual wire harness. Root owns product decisions and research in `do
 - Document failed gates and security limitations alongside successful checks.
 - `delivery.ts` binds MLS credentials/signature keys to enrolled accounts and
   independently pinned roster keys. Keep the room ID, event ID, sender, epoch and
-  roster in authenticated MLS metadata; Welcome joins validate the signed GroupInfo
+  roster and identity generation in authenticated MLS metadata; Welcome joins validate the signed GroupInfo
   binding extension as well as its signer. This experimental profile is not a
-  published interoperability contract.
+  published interoperability contract. Emit roster/metadata v2; legacy v1 events
+  retain their original hash profile and imply identity generation 1. Fingerprint
+  pins include the identity generation, so resets require independent verification.
 - Persist the delivery token, enrollment challenge, pending request and staged
   state inside the device vault. Fixture bearer sessions remain memory-only; OIDC
   sessions use the existing HttpOnly cookie and `web/src/api.ts` CSRF helper, never

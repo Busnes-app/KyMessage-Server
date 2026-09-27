@@ -67,13 +67,13 @@ function privateKeys(r: DeviceRecord) {
 }
 function pinned(r: DeviceRecord, devices: Roster) {
   for (const d of devices) {
-    if (!r.pins.some(p => p.identity === d.user_id && p.key === d.public_key)) throw new Error('Unpinned roster identity/key');
+    if (!r.pins.some(p => p.identity === d.user_id && p.key === d.public_key && p.identityGeneration === d.identity_generation)) throw new Error('Unpinned roster identity/key');
   }
 }
-async function rosterHash(room: string, devices: Roster) {
+async function rosterHash(room: string, devices: Roster, legacy = false) {
   // Match Go encoding/json's fixed struct field order and HTML-safe escaping.
   // Device IDs are server UUIDs; account IDs remain exact UTF-8, never normalized.
-  const json = JSON.stringify({ Domain: 'KyMessages roster v1', Room: room, Devices: [...devices].sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map(d => ({ ID: d.id, UserID: d.user_id, PublicKey: d.public_key, Generation: d.generation })) });
+  const json = JSON.stringify({ Domain: legacy ? 'KyMessages roster v1' : 'KyMessages roster v2', Room: room, Devices: [...devices].sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map(d => ({ ID: d.id, UserID: d.user_id, PublicKey: d.public_key, Generation: d.generation, ...(legacy ? {} : {IdentityGeneration:d.identity_generation}) })) });
   return hash(encoder.encode(json.replace(/[<>&\u2028\u2029]/g,char => '\\u' + char.charCodeAt(0).toString(16).padStart(4,'0'))));
 }
 function groupMatches(current: ClientState, room: string, epoch: number, devices: Roster) {
@@ -87,7 +87,7 @@ function senderMatches(current: ClientState, index: number, sender: string, devi
   if (!d || leaf?.nodeType !== 'leaf' || base64(leaf.leaf.signaturePublicKey) !== d.public_key || leaf.leaf.credential.credentialType !== 'basic' || decoder.decode(leaf.leaf.credential.identity) !== d.user_id) throw new Error('MLS sender mismatch');
 }
 async function checkMetadata(r: DeviceRecord, d: Connection, e: Event, m: Metadata) {
-  if (m.room !== d.room || m.id !== e.id || m.device_id !== e.device_id || m.kind !== e.kind || m.epoch + (m.kind === 'commit' ? 1 : 0) !== e.epoch || m.roster_hash !== e.roster_hash || await rosterHash(m.room,m.devices) !== m.roster_hash) throw new Error('Authenticated delivery metadata mismatch');
+  if (m.room !== d.room || m.id !== e.id || m.device_id !== e.device_id || m.kind !== e.kind || m.epoch + (m.kind === 'commit' ? 1 : 0) !== e.epoch || m.roster_hash !== e.roster_hash || await rosterHash(m.room,m.devices,m.domain === 'KyMessages MLS proof delivery v1') !== m.roster_hash) throw new Error('Authenticated delivery metadata mismatch');
   pinned(r,m.devices);
 }
 async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'application' | 'commit'): Promise<Metadata> {
@@ -101,7 +101,7 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
   pinned(r,devices);
   const roster_hash = text(v.roster_hash);
   if (await rosterHash(d.room,devices) !== roster_hash) throw new Error('Directory roster hash mismatch');
-  return { domain: 'KyMessages MLS proof delivery v1', room: d.room, id: crypto.randomUUID(), device_id: d.device, kind, epoch, roster_hash, devices };
+  return { domain: 'KyMessages MLS proof delivery v2', room: d.room, id: crypto.randomUUID(), device_id: d.device, kind, epoch, roster_hash, devices };
 }
 
 export const delivery = {
@@ -119,7 +119,7 @@ export const delivery = {
     return transaction(async (_r,d) => array((await api('/devices',d.token)).devices, item => {
       const device = object(item);
       if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'revoked') throw new Error('Invalid device status');
-      return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint)};
+      return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint),identity_generation:integer(device.identity_generation)};
     }));
   },
   async revokeAccountDevice(id: string) {
@@ -143,7 +143,7 @@ export const delivery = {
       const own = pinFor(r.keyPackage);
       const listing = await api('/devices',d.token);
       const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'revoked'));
-      if (existing) { d.device = text(existing.id); d.challenge = null; return; }
+      if (existing) { d.device = text(existing.id); d.challenge = null; const pin = r.pins.find(p => p.identity === r.identity && p.key === own.key); if (pin) pin.identityGeneration = integer(existing.identity_generation); return; }
       if (d.challenge) {
         const saved: unknown = JSON.parse(decoder.decode(unbase64(d.challenge)));
         if (integer(object(saved).ExpiresAt) * 1000 > Date.now()) return;
@@ -237,7 +237,7 @@ export const delivery = {
     return transaction(async (_r,d) => {
       const current = await api(roomPath(d) + '/delivery',d.token);
       if (typeof current.paused !== 'boolean') throw new Error('Invalid room pause state');
-      const peers = await Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key)})));
+      const peers = await Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,identity_generation:device.identity_generation,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key && p.identityGeneration === device.identity_generation)})));
       return {peers,paused:current.paused};
     });
   },
@@ -246,7 +246,7 @@ export const delivery = {
       const current = await api(roomPath(d) + '/delivery',d.token);
       const target = roster(current.devices).find(x => x.id === device);
       if (!target || await hash(unbase64(target.public_key)) !== expectedFingerprint) throw new Error('Device fingerprint mismatch');
-      if (!r.pins.some(p => p.identity === target.user_id && p.key === target.public_key)) r.pins.push({identity:target.user_id,key:target.public_key});
+      if (!r.pins.some(p => p.identity === target.user_id && p.key === target.public_key && p.identityGeneration === target.identity_generation)) r.pins.push({identity:target.user_id,key:target.public_key,identityGeneration:target.identity_generation});
     });
   },
   async publishKeyPackage() {

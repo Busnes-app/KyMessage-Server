@@ -76,8 +76,30 @@ and history-loss workflow remains to be built. A live suite session can revoke
 its own lost device without possessing that device token.
 
 Device responses expose `id`, `user_id`, `name`, `public_key`, `fingerprint`
-(SHA-256 hex of raw public-key bytes), `status`, `approved_by`, `created_at`.
+(SHA-256 hex of raw public-key bytes), `status`, `approved_by`, `created_at`, `identity_generation`.
 They omit token hashes, challenges and enrollment-session bindings.
+
+## Identity generations
+
+Migration 9 assigns a monotonically increasing messaging identity generation per
+account. Device listings and delivery rosters expose `identity_generation`. Room
+ownership and invitations bind the generation that received them; acceptance and
+listing reject a stale invitation. Device reset cannot silently inherit ownership.
+
+The store's reset transaction requires explicit confirmed recovery state and fresh
+verified subject, then increments the generation, approves the replacement, revokes
+all other devices, expires unclaimed KeyPackages and removes old memberships. It
+keeps device/package tombstones and records a session-bound idempotent receipt.
+Affected rooms pause until surviving MLS clients commit removal. There is no HTTP
+reset mutation yet: the current callback still only authenticates the request.
+
+The server roster hash is now `KyMessages roster v2`; its device struct field order
+is `ID`, `UserID`, `PublicKey`, `Generation`, `IdentityGeneration`. The isolated
+client emits `KyMessages MLS proof delivery v2` authenticated metadata and retains
+v1 verification for already accepted historical events (implicit identity generation
+1). Generation-sensitive local pins require a new independent fingerprint approval.
+Unaccepted old v1 outboxes may require conflict recovery; this is a prototype protocol
+transition, not a supported production upgrade promise.
 
 ## Recovery authentication (reset remains disabled)
 
@@ -95,8 +117,8 @@ account/subject, pending device/public key and sorted account device-registry di
 It expires after five minutes. There are at most four outstanding requests per
 account; starting a new one prunes that account's expired records. Session deletion
 cascades its requests. Device registry changes invalidate existing snapshots, even
-if unrelated to the target; this deliberately conservative rule precedes identity
-generations and must remain fail-closed when reset is added.
+if unrelated to the target; this deliberately conservative rule supplements identity
+generation binding and remains fail-closed during reset.
 
 Callback requires one canonical 64-character state and one nonempty code of at most
 4096 bytes. It uses the original suite session, without a device token or a new login

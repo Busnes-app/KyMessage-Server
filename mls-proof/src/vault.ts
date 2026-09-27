@@ -56,7 +56,9 @@ export function parseRecord(value: unknown) {
     },
     pins: list(r.pins, item => {
       const pin = object(item);
-      return { identity: string(pin.identity), key: string(pin.key) };
+      const identityGeneration = pin.identityGeneration === undefined ? 1 : pin.identityGeneration;
+      if (typeof identityGeneration !== 'number' || !Number.isSafeInteger(identityGeneration) || identityGeneration < 1) throw new Error('Invalid identity generation');
+      return { identity: string(pin.identity), key: string(pin.key), identityGeneration };
     }),
     state: nullableString(r.state),
     pending: pending === null ? null : {

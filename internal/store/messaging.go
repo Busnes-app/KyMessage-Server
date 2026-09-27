@@ -27,7 +27,7 @@ type MessagingActor struct {
 
 type MessagingDevice struct {
 	ID, UserID, Name, PublicKey, Status, ApprovedBy string
-	CreatedAt                                       int64
+	CreatedAt, IdentityGeneration                   int64
 }
 
 type MessagingEnrollment struct {
@@ -48,6 +48,8 @@ type MessagingStore interface {
 	BeginRecoveryAuthentication(context.Context, MessagingActor, MessagingRecoveryAuthentication) error
 	RecoveryAuthentication(context.Context, MessagingActor, string) (MessagingRecoveryAuthentication, error)
 	CompleteRecoveryAuthentication(context.Context, MessagingActor, string, string) error
+	ResetIdentity(context.Context, MessagingActor, string, string) (MessagingResetReceipt, error)
+	ResetReceipt(context.Context, MessagingActor, string) (MessagingResetReceipt, error)
 	EnrollDevice(context.Context, MessagingActor, MessagingEnrollment) error
 	VerifyDevice(context.Context, MessagingActor, string, []byte) (*MessagingDevice, error)
 	ListDevices(context.Context, MessagingActor) ([]MessagingDevice, error)
@@ -137,6 +139,13 @@ func messagingChanged(result sql.Result, err error) error {
 
 func (m *messagingStore) EnrollDevice(ctx context.Context, actor MessagingActor, enrollment MessagingEnrollment) error {
 	return m.transaction(ctx, actor, false, func(tx *sql.Tx, _ string) error {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_identities (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING`), actor.UserID); err != nil {
+			return err
+		}
+		var identityGeneration int64
+		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT generation FROM messaging_identities WHERE user_id = ?`), actor.UserID).Scan(&identityGeneration); err != nil {
+			return err
+		}
 		// Only never-verified expired requests are disposable. Verified/revoked keys
 		// remain tombstones so losing all devices cannot reset the first-device rule.
 		if _, err := tx.ExecContext(ctx, m.store.rebind(`DELETE FROM messaging_devices WHERE user_id = ? AND verified_at IS NULL AND expires_at <= ?`), actor.UserID, time.Now().Unix()); err != nil {
@@ -152,7 +161,7 @@ func (m *messagingStore) EnrollDevice(ctx context.Context, actor MessagingActor,
 			return ErrMessagingLimit
 		}
 		d := enrollment.Device
-		_, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_devices (id, user_id, name, public_key, status, challenge, enrollment_session, expires_at, created_at, token_hash) VALUES (?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?)`), d.ID, actor.UserID, d.Name, d.PublicKey, enrollment.Challenge, actor.SessionHash, enrollment.ExpiresAt, d.CreatedAt, enrollment.TokenHash)
+		_, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_devices (id, user_id, name, public_key, status, challenge, enrollment_session, expires_at, created_at, token_hash, identity_generation) VALUES (?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?)`), d.ID, actor.UserID, d.Name, d.PublicKey, enrollment.Challenge, actor.SessionHash, enrollment.ExpiresAt, d.CreatedAt, enrollment.TokenHash, identityGeneration)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "duplicate key") {
 				return ErrMessagingConflict
@@ -163,11 +172,11 @@ func (m *messagingStore) EnrollDevice(ctx context.Context, actor MessagingActor,
 	})
 }
 
-const deviceColumns = `id, user_id, name, public_key, status, approved_by, created_at`
+const deviceColumns = `id, user_id, name, public_key, status, approved_by, created_at, identity_generation`
 
 func scanMessagingDevice(row interface{ Scan(...any) error }) (*MessagingDevice, error) {
 	var d MessagingDevice
-	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.Status, &d.ApprovedBy, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.Status, &d.ApprovedBy, &d.CreatedAt, &d.IdentityGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -262,10 +271,10 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 		if count >= 100 {
 			return ErrMessagingLimit
 		}
-		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_rooms (id, name, owner_id, created_at) VALUES (?, ?, ?, ?)`), room.ID, room.Name, actor.UserID, room.CreatedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_rooms (id, name, owner_id, created_at, owner_identity_generation) VALUES (?, ?, ?, ?, (SELECT generation FROM messaging_identities WHERE user_id = ?))`), room.ID, room.Name, actor.UserID, room.CreatedAt, actor.UserID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status) VALUES (?, ?, 'active')`), room.ID, actor.UserID); err != nil {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status, identity_generation) VALUES (?, ?, 'active', (SELECT generation FROM messaging_identities WHERE user_id = ?))`), room.ID, actor.UserID, actor.UserID); err != nil {
 			return err
 		}
 		return m.audit(ctx, tx, actor, "messaging.room_created", room.ID, "")
@@ -275,7 +284,7 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 func (m *messagingStore) ListRooms(ctx context.Context, actor MessagingActor, offset int) ([]MessagingRoom, error) {
 	rooms := []MessagingRoom{}
 	err := m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
-		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT r.id, r.name, r.owner_id, r.created_at, m.status FROM messaging_rooms r JOIN messaging_members m ON m.room_id = r.id WHERE m.user_id = ? AND m.status IN ('invited', 'active') ORDER BY r.created_at, r.id LIMIT 100 OFFSET ?`), actor.UserID, offset)
+		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT r.id, r.name, r.owner_id, r.created_at, m.status FROM messaging_rooms r JOIN messaging_members m ON m.room_id = r.id WHERE m.user_id = ? AND m.identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = m.user_id) AND m.status IN ('invited', 'active') ORDER BY r.created_at, r.id LIMIT 100 OFFSET ?`), actor.UserID, offset)
 		if err != nil {
 			return err
 		}
@@ -295,7 +304,7 @@ func (m *messagingStore) ListRooms(ctx context.Context, actor MessagingActor, of
 // Room mutations serialize on the room row AFTER the acting account row. They
 // never take a second account write lock, avoiding cross-invitation deadlocks.
 func (m *messagingStore) ownRoom(ctx context.Context, tx *sql.Tx, actor MessagingActor, room string) error {
-	return messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_rooms SET id = id WHERE id = ? AND owner_id = ?`), room, actor.UserID))
+	return messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_rooms SET id = id WHERE id = ? AND owner_id = ? AND owner_identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = ?)`), room, actor.UserID, actor.UserID))
 }
 
 func (m *messagingStore) InviteMember(ctx context.Context, actor MessagingActor, room, user string) error {
@@ -317,7 +326,7 @@ func (m *messagingStore) InviteMember(ctx context.Context, actor MessagingActor,
 		if count >= 100 {
 			return ErrMessagingLimit
 		}
-		result, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status) VALUES (?, ?, 'invited') ON CONFLICT (room_id, user_id) DO UPDATE SET status = 'invited' WHERE messaging_members.status = 'removed'`), room, user)
+		result, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status, identity_generation) VALUES (?, ?, 'invited', COALESCE((SELECT generation FROM messaging_identities WHERE user_id = ?), 1)) ON CONFLICT (room_id, user_id) DO UPDATE SET status = 'invited', identity_generation = excluded.identity_generation WHERE messaging_members.status = 'removed' OR messaging_members.identity_generation <> excluded.identity_generation`), room, user, user)
 		if err := messagingChanged(result, err); err != nil {
 			return err
 		}
@@ -330,7 +339,7 @@ func (m *messagingStore) AcceptInvite(ctx context.Context, actor MessagingActor,
 		if err := m.lockDeliveryRoom(ctx, tx, room); err != nil {
 			return err
 		}
-		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_members SET status = 'active', generation = generation + 1 WHERE room_id = ? AND user_id = ? AND status = 'invited'`), room, actor.UserID)); err != nil {
+		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_members SET status = 'active', generation = generation + 1 WHERE room_id = ? AND user_id = ? AND status = 'invited' AND identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = messaging_members.user_id)`), room, actor.UserID)); err != nil {
 			return err
 		}
 		return m.audit(ctx, tx, actor, "messaging.member_joined", room, "")

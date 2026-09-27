@@ -42,7 +42,7 @@ export function keyPackage(wire: string) {
 export function pinFor(wire: string) {
   const leaf = keyPackage(wire).leafNode;
   if (leaf.credential.credentialType !== 'basic') throw new Error('Expected basic credential');
-  return { identity: decoder.decode(leaf.credential.identity), key: base64(leaf.signaturePublicKey) };
+  return { identity: decoder.decode(leaf.credential.identity), key: base64(leaf.signaturePublicKey), identityGeneration: 1 };
 }
 
 export function config(record: DeviceRecord): ClientConfig {

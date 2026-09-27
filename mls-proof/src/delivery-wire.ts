@@ -24,7 +24,7 @@ export function array<T>(value: unknown, parse: (item: unknown) => T): T[] {
 export function roster(value: unknown) {
   const devices = array(value, item => {
     const d = object(item);
-    return { id: text(d.id), user_id: accountID(d.user_id), public_key: text(d.public_key), generation: integer(d.generation) };
+    return { id: text(d.id), user_id: accountID(d.user_id), public_key: text(d.public_key), generation: integer(d.generation), identity_generation: d.identity_generation === undefined ? 1 : integer(d.identity_generation) };
   });
   if (new Set(devices.map(d => d.id)).size !== devices.length || new Set(devices.map(d => d.public_key)).size !== devices.length) throw new Error('Duplicate roster device');
   return devices;
@@ -32,7 +32,7 @@ export function roster(value: unknown) {
 export type Roster = ReturnType<typeof roster>;
 export function metadata(value: unknown) {
   const m = object(value);
-  if (m.domain !== 'KyMessages MLS proof delivery v1' || (m.kind !== 'application' && m.kind !== 'commit')) throw new Error('Invalid delivery metadata');
+  if ((m.domain !== 'KyMessages MLS proof delivery v1' && m.domain !== 'KyMessages MLS proof delivery v2') || (m.kind !== 'application' && m.kind !== 'commit')) throw new Error('Invalid delivery metadata');
   return { domain: m.domain, room: text(m.room), id: text(m.id), device_id: text(m.device_id), kind: m.kind, epoch: integer(m.epoch), roster_hash: text(m.roster_hash), devices: roster(m.devices) };
 }
 export type Metadata = ReturnType<typeof metadata>;

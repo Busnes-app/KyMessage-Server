@@ -134,7 +134,7 @@ func (s *Server) messagingError(w http.ResponseWriter, err error) {
 func deviceView(d store.MessagingDevice) map[string]any {
 	key, _ := base64.StdEncoding.DecodeString(d.PublicKey)
 	fingerprint := sha256.Sum256(key)
-	return map[string]any{"id": d.ID, "user_id": d.UserID, "name": d.Name, "public_key": d.PublicKey, "fingerprint": hex.EncodeToString(fingerprint[:]), "status": d.Status, "approved_by": d.ApprovedBy, "created_at": d.CreatedAt}
+	return map[string]any{"id": d.ID, "user_id": d.UserID, "name": d.Name, "public_key": d.PublicKey, "fingerprint": hex.EncodeToString(fingerprint[:]), "status": d.Status, "approved_by": d.ApprovedBy, "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration}
 }
 
 func (s *Server) handleMessagingEnroll(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
