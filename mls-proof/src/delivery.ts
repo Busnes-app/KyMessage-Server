@@ -12,7 +12,7 @@ import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { run, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
 import { base64, unbase64, type DeviceRecord } from './vault';
-import { object, text, integer, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
+import { object, text, accountID, integer, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
 
 // Experiment-specific GroupInfo extension, authenticated by MLS for Welcome joins.
@@ -215,12 +215,26 @@ export const delivery = {
     });
   },
   async invite(user_id: string) { return transaction(async (_r,d) => { await api(roomPath(d) + '/members',d.token,'POST',{user_id}); }); },
-  async removeMember(user: string) { return transaction(async (_r,d) => { await api(roomPath(d) + '/members/' + encodeURIComponent(user),d.token,'DELETE'); }); },
+  async members() {
+    return transaction(async (_r,d) => array((await api(roomPath(d) + '/members',d.token)).members,item => {
+      const member = object(item);
+      if (member.status !== 'active' && member.status !== 'invited') throw new Error('Invalid member status');
+      return {id:accountID(member.user_id),status:member.status};
+    }));
+  },
+  async removeMember(user: string) {
+    return transaction(async (r,d) => {
+      if (d.pending || r.pending || r.outbox.length || r.awaitingCommit || d.rejoinGeneration !== null) throw new Error('Resolve pending delivery before removing a member');
+      await api(roomPath(d) + '/members/' + encodeURIComponent(user),d.token,'DELETE');
+    });
+  },
   async ownFingerprint() { return run(r => hash(unbase64(pinFor(r.keyPackage).key))); },
   async directory() {
     return transaction(async (_r,d) => {
       const current = await api(roomPath(d) + '/delivery',d.token);
-      return Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key)})));
+      if (typeof current.paused !== 'boolean') throw new Error('Invalid room pause state');
+      const peers = await Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key)})));
+      return {peers,paused:current.paused};
     });
   },
   async approveDevice(device: string, expectedFingerprint: string) {

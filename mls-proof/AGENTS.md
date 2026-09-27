@@ -65,6 +65,14 @@ retains the manual wire harness. Root owns product decisions and research in `do
   Same-account device approval and local room-key verification are separate actions.
   Room selection reconciles an already-active membership after a lost join response
   and lets an approved second browser request admission to an existing account room.
+- Room member lists include invited and active accounts. Only the room owner sees
+  removal controls; the server independently enforces ownership and forbids owner
+  self-removal. Native confirmation names the account and explains the boundary:
+  access revocation is immediate, encryption changes require a verified commit,
+  and downloaded history cannot be recalled. Refuse removal with unresolved local
+  outbound state. Refresh after the attempt, including a lost response, so the
+  visible roster and server pause state determine the next action. Invitations
+  can be revoked without a rekey when the eligible roster is unchanged.
 - Persist sent/received transcript entries and pending send text only inside the
   encrypted vault, atomically with cursor/outbox changes. The wire request contains
   ciphertext only. Server acceptance is not a read receipt. Lock clears visible

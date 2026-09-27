@@ -48,6 +48,9 @@
             <button id="publish" class="secondary">Prepare to join</button>
             <p class="hint">To add someone: invite their account, have them accept and prepare to join, compare fingerprints on both browsers, then apply verified membership from an existing member's browser. If preparation expires before you join, use Prepare to join again.</p>
             <form id="invite-form"><label>Teammate's account ID <input id="invite-account" required maxlength="64" autocomplete="off"></label><button>Invite teammate</button></form>
+            <details open><summary>Room members</summary><ul id="members"></ul>
+              <form id="remove-form" hidden><label for="remove-member">Member to remove</label><select id="remove-member" required></select><button id="remove">Remove member</button></form>
+            </details>
             <details open><summary>Verify room devices</summary><p>Ask your teammate for the fingerprint shown in their own browser, using a separate trusted channel. The server's directory alone cannot verify them.</p>
               <ul id="peers"></ul>
               <form id="verify-form"><label for="peer-device">Room device</label><select id="peer-device" required></select><label>Fingerprint from your teammate <input id="peer-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button>Verify teammate</button></form>

@@ -94,11 +94,19 @@ The prototype owns one room per browser profile. **Prepare to join** retries an
 unexpired publication or renews an expired one with fresh join keys and the same
 verified device identity. It retains up to 16 older packages for delayed Welcomes;
 checking messages completes a join and removes the consumed package. Unused
-packages remain encrypted because the server may offer them on a later rejoin. It does not
-support room switching, deployed identity integration, identity reset,
-membership-removal controls. Start with fresh
-profiles when the disposable fixture database is restarted. Preserve existing
+packages remain encrypted because the server may offer them on a later rejoin. It
+does not support room switching, deployed identity integration or identity reset.
+Start with fresh profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
+
+Room owners can select an invited or active account under **Room members** and
+choose **Remove member**. Confirmation explains that server access ends immediately,
+earlier downloaded messages remain, and an active roster change requires **Apply
+verified membership** before sending resumes. The UI refreshes even after a lost
+removal response and shows the server's pause state. An unused invitation can be
+revoked without a cryptographic change. Owners cannot remove themselves, and
+unresolved outbound state blocks removal. Other members have no removal controls;
+the API enforces ownership independently.
 
 After removal and a new invitation, **Accept reinvitation** prepares this same
 approved device for a new membership generation. An existing member applies the
@@ -227,7 +235,9 @@ Joining browsers call `publishKeyPackage()`; the committer's `stageCommit()` cla
 the missing devices' packages through the API. Public packages, commits, Welcome
 messages and application ciphertext all travel through the Go API.
 
-`directory()` exposes device IDs, account IDs and displayed fingerprints.
+`directory()` returns `{peers,paused}`: device IDs, account IDs, displayed
+fingerprints and the server's send-pause state. `members()` lists invited and
+active accounts.
 `approveDevice(id, expectedFingerprint)` requires a fingerprint independently
 obtained from that peer's `ownFingerprint()`; copying the directory's own value
 back into approval would not verify the directory. This local pin does not grant

@@ -37,7 +37,7 @@ function schedulePoll() {
   if (!opened || document.hidden || !navigator.onLine) return;
   pollTimer = setTimeout(() => {
     if (busy || !snapshot?.room || snapshot.pending) { schedulePoll(); return; }
-    void action(async () => { await delivery.sync(); },'',true);
+    void action(async () => { await delivery.sync(); if (roomPaused) await directory(); },'',true);
   },pollDelay);
 }
 for (const event of ['visibilitychange','online','offline']) {
@@ -45,6 +45,8 @@ for (const event of ['visibilitychange','online','offline']) {
 }
 let snapshot: Awaited<ReturnType<typeof delivery.status>> | null = null;
 let devices: Awaited<ReturnType<typeof delivery.accountDevices>> = [];
+let members: Awaited<ReturnType<typeof delivery.members>> = [];
+let roomPaused = false;
 let rooms: Awaited<ReturnType<typeof delivery.rooms>> = [];
 
 function controls() {
@@ -52,11 +54,12 @@ function controls() {
     if (node instanceof HTMLButtonElement || node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) node.disabled = busy && (!backgroundWork || node instanceof HTMLButtonElement);
   });
   const activeRoom = rooms.some(room => room.id === snapshot?.room && room.membership === 'active');
-  button('send').disabled = !activeRoom || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
+  button('send').disabled = !activeRoom || roomPaused || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
   field('message').disabled = !backgroundWork && button('send').disabled;
   button('lock').disabled = false;
   button('commit').disabled = !activeRoom || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
   button('publish').disabled = busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
+  button('remove').disabled = busy || snapshot?.pending === true || snapshot?.rejoining === true;
   button('rejoin').disabled = busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
 }
 async function action(task: () => Promise<void>, success: string, background = false) {
@@ -112,17 +115,19 @@ function form(id: string, task: (event: SubmitEvent) => Promise<void>, success: 
 function click(id: string, task: () => Promise<void>, success: string) {
   button(id).addEventListener('click', () => { void action(task,success); });
 }
-function options(id: string, items: {id:string;label:string}[]) {
+function options(id: string, items: {id:string;label:string}[], placeholder = 'Choose a device') {
   const select = field(id);
   if (!(select instanceof HTMLSelectElement)) throw new Error('Missing select');
   const previous = select.value;
-  select.replaceChildren(new Option('Choose a device',''),...items.map(x => new Option(x.label,x.id)));
+  select.replaceChildren(new Option(placeholder,''),...items.map(x => new Option(x.label,x.id)));
   if (items.some(x => x.id === previous)) select.value = previous;
 }
 async function directory() {
   const generation = viewGeneration;
-  const peers = await delivery.directory();
+  const current = await delivery.directory();
   if (!opened || generation !== viewGeneration) return;
+  roomPaused = current.paused;
+  const peers = current.peers;
   element('peers').replaceChildren(...peers.map(x => line('li',`${x.user_id} · ${x.id} · ${x.approved ? 'Verified locally' : 'Needs verification'}`)));
   // Deliberately do not fill the approval field from the server's own fingerprint.
   options('peer-device',peers.filter(x => !x.approved).map(x => ({id:x.id,label:`${x.user_id} · ${x.id}`})));
@@ -137,8 +142,12 @@ async function refresh() {
   const available = own?.status === 'approved' ? await delivery.rooms() : [];
   if (!opened || generation !== viewGeneration) return;
   rooms = available;
-  if (current.room && own?.status === 'approved' && rooms.some(room => room.id === current.room && room.membership === 'active')) await directory();
-  else element('peers').replaceChildren();
+  if (current.room && own?.status === 'approved' && rooms.some(room => room.id === current.room && room.membership === 'active')) {
+    const listing = await delivery.members();
+    if (!opened || generation !== viewGeneration) return;
+    members = listing;
+    await directory();
+  } else { members = []; roomPaused = false; element('peers').replaceChildren(); }
 }
 async function render() {
   const generation = viewGeneration;
@@ -172,6 +181,9 @@ async function render() {
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? 'A quieter place to talk';
   element('invite-form').hidden = room?.owner !== s.identity;
+  element('remove-form').hidden = room?.owner !== s.identity;
+  options('remove-member',members.filter(member => member.id !== s.identity).map(member => ({id:member.id,label:`${member.id} · ${member.status}`})),'Choose a member');
+  element('members').replaceChildren(...members.map(member => line('li',`${member.id} · ${member.status}`)));
   element('room-state').textContent = own?.status !== 'approved'
     ? 'This browser needs approval from an existing device. Compare its fingerprint there, then refresh.'
     : s.room === null ? 'Create a room, or accept an invitation from a teammate.'
@@ -179,6 +191,7 @@ async function render() {
     : !room ? 'Room access was removed. Earlier local history remains; a new invitation is required.'
     : s.rejoining ? 'Rejoining: prepare to join, then wait for a new verified Welcome. Earlier local history stays; messages during removal are unavailable.'
     : s.epoch === null ? 'Waiting for an existing member to add this verified device. Prepare to join, then check for messages.'
+    : roomPaused ? 'Membership changed. Apply verified membership before sending more messages.'
     : s.epoch === '0' ? 'Apply verified membership to activate this room.'
     : 'Room unlocked. Check for messages to catch up before sending.';
   element('messages').replaceChildren(...s.messages.map(m => {
@@ -222,10 +235,10 @@ form('access-form',async event => {
 function lockLocal() {
   viewGeneration++;
   stopPolling();
-  proof.lock(); delivery.disconnect(); opened = false; snapshot = null; devices = []; rooms = [];
-  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state']) element(id).replaceChildren();
+  proof.lock(); delivery.disconnect(); opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
+  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members']) element(id).replaceChildren();
   for (const id of ['message','password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
-  options('peer-device',[]); options('pending-device',[]);
+  options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member');
   element('workspace').hidden = true; element('access').hidden = false;
 }
 button('lock').addEventListener('click',() => {
@@ -246,6 +259,11 @@ button('sign-out').addEventListener('click',() => {
 click('refresh',refresh,'Rooms and devices refreshed.');
 form('create-form',async () => { await delivery.createRoom(field('room-name').value.trim()); await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');
+form('remove-form',async () => {
+  const target = field('remove-member').value;
+  if (!confirm(`Remove ${target} from this room? Their server access ends immediately. Apply verified membership afterward to update encryption. Earlier downloaded messages cannot be recalled.`)) throw new Error('Removal cancelled.');
+  try { await delivery.removeMember(target); } finally { await refresh(); }
+},'Member removed. If sending is paused, apply verified membership.');
 form('verify-form',async () => { await delivery.approveDevice(field('peer-device').value,field('peer-fingerprint').value.trim()); field('peer-fingerprint').value = ''; await directory(); },'Teammate verified locally.');
 form('account-approval-form',async () => { await delivery.approveAccountDevice(field('pending-device').value,field('account-fingerprint').value.trim()); field('account-fingerprint').value = ''; await refresh(); },'Own device approved. Refresh on that browser.');
 click('rejoin',async () => { await delivery.rejoin(); await delivery.publishKeyPackage(); await refresh(); },'Reinvitation accepted. Ask an existing member to apply verified membership; earlier local history is preserved.');

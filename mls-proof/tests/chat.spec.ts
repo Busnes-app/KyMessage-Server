@@ -193,3 +193,74 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     await expect(first.page.locator('#messages')).toContainText('Hello from my approved second browser');
   } finally { await first.context.close(); await second.context.close(); }
 });
+
+test('owner removal confirms, reconciles lost replies and requires rekey before sending',async ({browser}) => {
+  const ownerName = 'remove-owner-' + crypto.randomUUID().slice(0,8);
+  const memberName = 'remove-member-' + crypto.randomUUID().slice(0,8);
+  const owner = await start(browser,ownerName);
+  const member = await start(browser,memberName);
+  try {
+    await owner.page.getByLabel('New room name').fill('Removal room');
+    await click(owner.page,'Create room','Room created');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    const invite = async () => {
+      await owner.page.getByLabel("Teammate's account ID").fill(memberName);
+      await click(owner.page,'Invite teammate','Invitation sent');
+      await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    };
+    await invite();
+    await owner.page.getByLabel('Member to remove').selectOption(memberName);
+    owner.page.once('dialog',dialog => dialog.dismiss());
+    await click(owner.page,'Remove member','Removal cancelled');
+    await expect(owner.page.locator('#members')).toContainText(memberName);
+    // Revoke a pending invitation: no group key change is needed yet.
+    owner.page.once('dialog',dialog => dialog.accept());
+    await click(owner.page,'Remove member','Member removed');
+    await expect(owner.page.locator('#members')).not.toContainText(memberName);
+    await expect(owner.page.locator('#send')).toBeEnabled();
+    await invite();
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(member.page,'Accept Removal room','Room selected');
+    await click(member.page,'Prepare to join','Ready to join');
+    await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await verify(owner.page,memberName,member.fingerprint);
+    await verify(member.page,ownerName,owner.fingerprint);
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await click(member.page,'Check for messages','Messages checked');
+    await expect(member.page.locator('#remove-form')).toBeHidden();
+    await expect(owner.page.locator('#remove-member option')).toHaveCount(2);
+    await owner.page.getByLabel('Message',{exact:true}).fill('Earlier local history');
+    await click(owner.page,'Send encrypted message','Message accepted by server');
+    await click(member.page,'Check for messages','Messages checked');
+    await owner.page.getByLabel('Member to remove').selectOption(memberName);
+    await owner.page.route('**/members/*',async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    },{times:1});
+    owner.page.once('dialog',dialog => dialog.accept());
+    await owner.page.getByRole('button',{name:'Remove member',exact:true}).click();
+    await expect(owner.page.getByRole('status')).not.toHaveText('Working…');
+    await expect(owner.page.locator('#members')).not.toContainText(memberName);
+    await expect(owner.page.locator('#room-state')).toContainText('Membership changed');
+    await expect(owner.page.locator('#send')).toBeDisabled();
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(member.page.locator('#room-state')).toContainText('access was removed');
+    await expect(member.page.locator('#messages')).toContainText('Earlier local history');
+    await expect(member.page.locator('#send')).toBeDisabled();
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await owner.page.getByLabel('Message',{exact:true}).fill('While removed');
+    await click(owner.page,'Send encrypted message','Message accepted by server');
+    await click(member.page,'Check for messages','HTTP 404');
+    await expect(member.page.locator('#messages')).not.toContainText('While removed');
+    await invite();
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(member.page,'Accept reinvitation','Reinvitation accepted');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await click(member.page,'Check for messages','Messages checked');
+    await member.page.getByLabel('Message',{exact:true}).fill('Returned after removal');
+    await click(member.page,'Send encrypted message','Message accepted by server');
+    await click(owner.page,'Check for messages','Messages checked');
+    await expect(owner.page.locator('#messages')).toContainText('Returned after removal');
+    await expect(member.page.locator('#messages')).not.toContainText('While removed');
+  } finally { await owner.context.close(); await member.context.close(); }
+});

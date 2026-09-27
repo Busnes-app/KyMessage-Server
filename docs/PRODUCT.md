@@ -24,7 +24,8 @@ using a disposable local issuer. Pre-join package renewal preserves verified dev
 identity and delayed Welcomes. Explicit reinvitation/rejoin preserves earlier local
 history and verifies a new membership generation before resuming chat. The chat tab
 also polls verified delivery while visible and online, with failure backoff and
-cancellation on lock. Automatic replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
+cancellation on lock. Owner-only removal controls expose invitation revocation,
+immediate server access removal and the required encryption update before sending. Automatic replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 
 ## Promise and audience
