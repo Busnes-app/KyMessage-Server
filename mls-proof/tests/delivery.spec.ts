@@ -211,3 +211,71 @@ test('Chromium and Firefox exchange concurrent sends after enrollment acknowledg
     expect((await alice.page.evaluate(() => window.delivery.status())).epoch).toBe('2');
   } finally { await alice.context.close(); await bob.context.close(); await other.close(); }
 });
+
+for (const mode of ['cached','lost','welcome']) test(`join package renewal preserves identity after ${mode} claim`,async ({browser}) => {
+  const alice = await device(browser,'renew-alice');
+  const bob = await device(browser,'renew-bob');
+  try {
+    const room = await alice.page.evaluate(() => window.delivery.createRoom('Renewal'));
+    await alice.page.evaluate(user => window.delivery.invite(user),bob.user);
+    await bob.page.evaluate(room => window.delivery.selectRoom(room),room);
+    await alice.page.evaluate(({id,fingerprint}) => window.delivery.approveDevice(id,fingerprint),{id:bob.id,fingerprint:bob.fingerprint});
+    await bob.page.evaluate(({id,fingerprint}) => window.delivery.approveDevice(id,fingerprint),{id:alice.id,fingerprint:alice.fingerprint});
+    // Use the browser clock to request a real, short server allocation lifetime.
+    const expiry = Math.floor(Date.now()/1000)+10;
+    await bob.page.clock.setFixedTime((expiry-3600)*1000);
+    const first = await bob.page.evaluate(() => window.delivery.publishKeyPackage());
+    const claims: string[] = [];
+    alice.page.on('request',request => { if (request.url().endsWith('/key-packages/claim')) claims.push(request.postData() ?? ''); });
+    if (mode === 'lost') {
+      await alice.page.route('**/key-packages/claim',async route => {
+        expect((await route.fetch()).status()).toBe(200);
+        await route.abort('failed');
+      },{times:1});
+      await expect(alice.page.evaluate(() => window.delivery.stageCommit())).rejects.toThrow();
+    } else if (mode === 'cached') {
+      let reads = 0;
+      await alice.page.route('**/rooms/*/delivery',async route => {
+        // Save the claim, then interrupt before an MLS commit is staged.
+        if (++reads === 2) await route.abort('failed'); else await route.continue();
+      });
+      await expect(alice.page.evaluate(() => window.delivery.stageCommit())).rejects.toThrow();
+      await alice.page.unroute('**/rooms/*/delivery');
+    } else {
+      await alice.page.evaluate(() => window.delivery.stageCommit());
+      await accept(alice.page);
+    }
+    await expect.poll(() => Date.now(),{timeout:15000}).toBeGreaterThanOrEqual(expiry*1000);
+    await bob.page.clock.setFixedTime(Date.now());
+    const publications: string[] = [];
+    bob.page.on('request',request => { if (request.url().endsWith('/devices/key-packages')) publications.push(request.postData() ?? ''); });
+    await bob.page.route('**/devices/key-packages',async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    },{times:1});
+    await expect(bob.page.evaluate(() => window.delivery.publishKeyPackage())).rejects.toThrow();
+    await reload(bob.page,bob.session);
+    const fresh = await bob.page.evaluate(() => window.delivery.publishKeyPackage());
+    expect(fresh).not.toBe(first);
+    expect(publications).toHaveLength(2);
+    expect(publications[0]).toBe(publications[1]);
+    expect(await bob.page.evaluate(() => window.delivery.ownFingerprint())).toBe(bob.fingerprint);
+    if (mode !== 'welcome') {
+      await reload(alice.page,alice.session);
+      if (mode === 'lost') {
+        await expect(alice.page.evaluate(() => window.delivery.stageCommit())).rejects.toThrow('Previous claim is no longer usable');
+        expect(claims[0]).toBe(claims[1]);
+        await reload(alice.page,alice.session);
+      }
+      await alice.page.evaluate(() => window.delivery.stageCommit());
+      expect(claims).toHaveLength(mode === 'lost' ? 3 : 2);
+      expect(claims[0]).not.toBe(claims.at(-1));
+      await accept(alice.page);
+    }
+    await bob.page.evaluate(() => window.delivery.sync());
+    await expect(bob.page.evaluate(() => window.delivery.publishKeyPackage())).rejects.toThrow('already consumed');
+    await alice.page.evaluate(() => window.delivery.stageSend('Renewed join works'));
+    await accept(alice.page);
+    expect((await bob.page.evaluate(() => window.delivery.sync())).inbox).toEqual(['Renewed join works']);
+  } finally { await alice.context.close(); await bob.context.close(); }
+});

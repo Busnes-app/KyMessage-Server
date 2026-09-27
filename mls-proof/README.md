@@ -78,9 +78,12 @@ The encrypted vault survives. The theme follows
 OS appearance until a local Light/Dark choice is saved. The UI does not export the
 manual harness's `window.proof` or `window.delivery` test surfaces.
 
-The prototype owns one room and one join package per browser profile. It does not
-support expired join-package renewal, room switching, deployed identity integration, identity
-reset, membership-removal controls or automatic message polling. Start with fresh
+The prototype owns one room per browser profile. **Prepare to join** retries an
+unexpired publication or renews an expired one with fresh join keys and the same
+verified device identity. It retains up to 16 older packages for delayed Welcomes;
+checking messages completes a join and clears that retained material. It does not
+support room switching, deployed identity integration, identity reset,
+membership-removal controls or automatic message polling. Start with fresh
 profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
 
@@ -210,7 +213,14 @@ back into approval would not verify the directory. This local pin does not grant
 the server's separate approval of a new device belonging to the same account.
 Publication parameters and claim request IDs are saved before networking. Lost
 publication/claim responses retry the same operation; claimed packages never return
-to the pool. Cached packages are validated against their digest, device, identity,
+to the pool. An expired cached claim gets a new durable request ID. A lost claim
+response retains its ID until an explicit server 409 marks it unusable; the next
+membership attempt uses a fresh ID. Other failures preserve the original request.
+Renewal retains old private join material inside the encrypted vault because a
+Welcome may already exist. Welcome processing matches exactly one retained MLS
+KeyPackageRef before full signature, tree and metadata validation. Renewed packages
+have a seven-day signed MLS lifetime and a one-hour HTTP allocation lifetime.
+These are proof defaults, not the product retention policy. Cached packages are validated against their digest, device, identity,
 signature key and MLS signature before creating a commit. The server also bounds
 expiry and pool size; details are in [the API contract](../docs/MESSAGING-API.md).
 
@@ -249,10 +259,13 @@ keyboard sending, plaintext-safe rendering, pending retry across reload, history
 deduplication, lost invitation acknowledgements, second-browser room admission,
 wrong passphrases, lock clearing, mobile overflow and saved themes.
 
-This remains a one-room/profile proof that publishes one unused join package and
-cannot use that published package to initialize a different group. Its interactive
-fixture UI, including OIDC mode, is not a deployed product client. It has no pool
-replenishment/key rotation, expired-offline
+Six renewal cases (three per engine) cover expired cached allocations, lost claims,
+publication acknowledgement loss, reload and delayed Welcomes after renewal.
+
+This remains a one-room/profile proof that publishes only pre-join material and
+cannot use that published material to initialize a different group. Its interactive
+fixture UI, including OIDC mode, is not a deployed product client. It has no automatic pool
+replenishment, signing-key rotation, expired-offline
 rejoin, history reset or restore reconciliation. A stale-roster rejection without a winning commit deliberately
 leaves the client waiting; room-creation response loss can leave an unused room.
 The transcript starts with new sends/receives; older proof inboxes are not backfilled.

@@ -6,7 +6,8 @@ import { decodeMlsMessage, encodeMlsMessage } from 'ts-mls/message.js';
 import { processPrivateMessage } from 'ts-mls/processMessages.js';
 import { unprotectPrivateMessage } from 'ts-mls/messageProtection.js';
 import { emptyPskIndex } from 'ts-mls/pskIndex.js';
-import { verifyKeyPackage, makeKeyPackageRef } from 'ts-mls/keyPackage.js';
+import { verifyKeyPackage, makeKeyPackageRef, generateKeyPackageWithKey } from 'ts-mls/keyPackage.js';
+import { defaultCapabilities } from 'ts-mls/defaultCapabilities.js';
 import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { run, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
@@ -204,6 +205,21 @@ export const delivery = {
   async publishKeyPackage() {
     await transaction(async (r,d) => {
       if (r.state || !r.keys) throw new Error('KeyPackage already consumed');
+      if (d.publication && d.publication.expires_at*1000 <= Date.now()) {
+        // Expiry prevents new allocation, but an earlier claim may already have
+        // produced a Welcome. Keep its private join material until a verified join.
+        if (d.joinPackages.length >= 16) throw new Error('Pending join package limit reached; check messages before renewing');
+        const old = keyPackage(r.keyPackage);
+        const now = Math.floor(Date.now()/1000);
+        const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
+          {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
+          {signKey:unbase64(r.keys.signaturePrivateKey),publicKey:old.leafNode.signaturePublicKey},await suite);
+        d.joinPackages.push({payload:r.keyPackage,...r.keys});
+        r.keyPackage = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:fresh.publicPackage}));
+        r.keys = {initPrivateKey:base64(fresh.privatePackage.initPrivateKey),hpkePrivateKey:base64(fresh.privatePackage.hpkePrivateKey),signaturePrivateKey:base64(fresh.privatePackage.signaturePrivateKey)};
+        Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
+        d.publication = null;
+      }
       if (!d.publication) d.publication = {payload:r.keyPackage,expires_at:Math.floor(Date.now()/1000)+3600};
     });
     return transaction(async (_r,d) => {
@@ -225,23 +241,39 @@ export const delivery = {
         return !exists || (old !== undefined && old.generation !== target.generation);
       });
       for (const target of targets) {
-        if (!d.claims.some(c => c.device === target.id && c.generation === target.generation)) d.claims.push({device:target.id,generation:target.generation,request_id:crypto.randomUUID(),payload:null,expires_at:0});
+        const previous = d.claims.find(c => c.device === target.id && c.generation === target.generation);
+        if (previous?.payload && previous.expires_at*1000 <= Date.now()) {
+          previous.request_id = crypto.randomUUID();
+          previous.payload = null;
+          previous.expires_at = 0;
+        }
+        if (!previous) d.claims.push({device:target.id,generation:target.generation,request_id:crypto.randomUUID(),payload:null,expires_at:0});
       }
       return targets;
     });
     for (const target of targets) {
-      await transaction(async (r,d) => {
+      const retryClaim = await transaction(async (r,d) => {
         const claim = d.claims.find(c => c.device === target.id && c.generation === target.generation);
         if (!claim) throw new Error('Missing durable claim');
         if (claim.payload) return;
         pinned(r,[target]);
-        const value = await api(roomPath(d) + '/key-packages/claim',d.token,'POST',{device_id:target.id,request_id:claim.request_id});
+        const response = await request(roomPath(d) + '/key-packages/claim',d.token,'POST',{device_id:target.id,request_id:claim.request_id});
+        if (response.status === 409) {
+          // A lost allocation response can leave expiry unknown. Only an explicit
+          // server conflict retires that request; network failures keep its ID.
+          claim.request_id = crypto.randomUUID();
+          return true;
+        }
+        if (response.status !== 200) throw new Error(`Delivery HTTP ${response.status}: ${text(object(response.value).error)}`);
+        const value = object(response.value);
         const wire = text(value.payload);
         const pin = pinFor(wire);
         if (text(value.device_id) !== target.id || text(value.package_id) !== await hash(unbase64(wire)) || integer(value.expires_at)*1000 <= Date.now() || pin.identity !== target.user_id || pin.key !== target.public_key || !await verifyKeyPackage(keyPackage(wire),(await suite).signature)) throw new Error('Invalid bound KeyPackage response');
         claim.payload = wire;
         claim.expires_at = integer(value.expires_at);
+        return false;
       });
+      if (retryClaim) throw new Error('Previous claim is no longer usable; retry membership with a fresh join package');
     }
     return transaction(async (r,d) => {
       const m = await currentMetadata(r,d,'commit');
@@ -324,9 +356,18 @@ export const delivery = {
           if (!d.room || e.kind !== 'commit' || !e.welcome) throw new Error('Expected initial Welcome');
           const welcome = decode(e.welcome,decodeMlsMessage);
           if (welcome.wireformat !== 'mls_welcome') throw new Error('Expected MLS Welcome');
-          const keys = privateKeys(r);
           const cs = await suite;
-          const kp = keyPackage(r.keyPackage);
+          const candidates = [{payload:r.keyPackage,...privateKeys(r)}, ...d.joinPackages.map(saved => ({
+            payload:saved.payload,initPrivateKey:unbase64(saved.initPrivateKey),hpkePrivateKey:unbase64(saved.hpkePrivateKey),signaturePrivateKey:unbase64(saved.signaturePrivateKey),
+          }))];
+          const matches = [];
+          for (const candidate of candidates) {
+            const ref = base64(await makeKeyPackageRef(keyPackage(candidate.payload),cs.hash));
+            if (welcome.welcome.secrets.some(secret => base64(secret.newMember) === ref)) matches.push(candidate);
+          }
+          if (matches.length !== 1 || !matches[0]) throw new Error('Welcome must match exactly one retained join package');
+          const keys = matches[0];
+          const kp = keyPackage(keys.payload);
           // Use library decoders to expose the GroupInfo signer; joinGroup performs
           // its complete signature, tree and confirmation validation independently.
           const secrets = await decryptGroupSecrets(await cs.hpke.importPrivateKey(keys.initPrivateKey),await makeKeyPackageRef(kp,cs.hash),welcome.welcome,cs.hpke);
@@ -340,6 +381,8 @@ export const delivery = {
           senderMatches(current,info.signer,e.device_id,m.devices);
           groupMatches(current,d.room,e.epoch,m.devices);
           r.state = base64(encodeGroupState(current)); r.keys = null;
+          d.joinPackages = [];
+          d.publication = null;
         } else if (e.device_id === d.device) {
           if (!d.pending) throw new Error('Own event has no durable outbox');
           const body = object(JSON.parse(d.pending.request));

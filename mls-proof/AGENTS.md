@@ -36,9 +36,13 @@ retains the manual wire harness. Root owns product decisions and research in `do
   does not advance the cursor: ordered, verified event processing does.
 - Persist KeyPackage publication parameters and claim request IDs before networking.
   Cache claimed bytes before creating an MLS commit; a lost response retries the
-  same claim. `approveDevice` requires an independently obtained fingerprint; the
-  directory alone cannot pin a key. The one-room proof publishes only its unused
-  join KeyPackage and cannot use a published package to initialize another group.
+  same claim until a cached expiry or explicit HTTP 409 retires it. `approveDevice` requires an independently obtained fingerprint; the
+  directory alone cannot pin a key. The one-room proof renews an expired unused
+  join package with fresh init/HPKE keys and the same enrolled signing key. Retain
+  at most 16 prior packages inside the encrypted connection record for delayed
+  Welcomes; match exactly one MLS KeyPackageRef and discard all join secrets only
+  with a verified, durable join. Never use published material to initialize a group.
+  Renewal is pre-join only; removed-device rejoin remains a separate open contract.
 - Keep fixture proxying opt-in with `MLS_PROOF_DELIVERY=1`; the normal manual
   harness stays offline. Production `web/` and authentication semantics remain untouched.
 - `?auth=oidc` reads the immutable account ID from `/api/auth/me` before local setup
@@ -77,7 +81,9 @@ retains the manual wire harness. Root owns product decisions and research in `do
 - `npm run test:delivery -- --project=chromium --project=firefox` starts a disposable
   Go fixture and tests HTTP delivery, conflict recovery, key binding, removal,
   Chromium/Firefox interoperability and DOM-driven chat/device approval. The
-  cross-engine case runs once in Chromium. UI screenshots go to `test-results/`.
+  cross-engine case runs once in Chromium. Renewal cases exercise real server
+  expiry, cached/lost claims, identical publication retry and delayed Welcomes.
+  UI screenshots go to `test-results/`.
 - `npm run test:oidc -- --project=chromium --project=firefox` exercises discovery,
   PKCE, signed callbacks, cookies/CSRF, account binding, reauthentication and pending
   send recovery against a disposable issuer. It is not live KyIdentity evidence.

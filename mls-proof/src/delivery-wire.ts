@@ -46,12 +46,18 @@ export function connection(value: unknown) {
   const d = object(value);
   const p = d.pending === null ? null : object(d.pending);
   const publication = d.publication === undefined || d.publication === null ? null : object(d.publication);
+  const joinPackages = d.joinPackages === undefined ? [] : array(d.joinPackages,item => {
+    const saved = object(item);
+    return {payload:text(saved.payload),initPrivateKey:text(saved.initPrivateKey),hpkePrivateKey:text(saved.hpkePrivateKey),signaturePrivateKey:text(saved.signaturePrivateKey)};
+  });
+  if (joinPackages.length > 16) throw new Error('Too many retained join packages');
   return {
     device: d.device === null ? null : text(d.device), token: text(d.token),
     challenge: d.challenge === undefined || d.challenge === null ? null : text(d.challenge),
     room: d.room === null ? null : text(d.room),
     roster: d.roster === null ? null : roster(d.roster),
     publication: publication === null ? null : {payload:text(publication.payload),expires_at:integer(publication.expires_at)},
+    joinPackages,
     claims: d.claims === undefined ? [] : array(d.claims,item => {
       const c = object(item);
       return {device:text(c.device),generation:integer(c.generation),request_id:text(c.request_id),payload:c.payload === null ? null : text(c.payload),expires_at:integer(c.expires_at)};

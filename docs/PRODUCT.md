@@ -20,8 +20,10 @@ has bounds and one-time allocation. An isolated clickable prototype now covers
 test-account setup, device approval, invitations, independent fingerprint verification,
 encrypted conversation history and durable send retries. Its OIDC mode exercises the
 existing suite callback, cookie/CSRF transport and authenticated account-bound unlock
-using a disposable local issuer. Live KyIdentity deployment, rotation/replenishment
-and reviewed product client integration remain open; this is not production E2EE.
+using a disposable local issuer. Pre-join package renewal preserves verified device
+identity and delayed Welcomes; removed-device rejoin and automatic replenishment
+remain open, alongside live KyIdentity deployment and reviewed product client
+integration. This is not production E2EE.
 
 ## Promise and audience
 
