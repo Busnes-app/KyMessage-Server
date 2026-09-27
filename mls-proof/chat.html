@@ -35,7 +35,9 @@
           <ul id="rooms"></ul>
           <form id="create-form"><label>New room name <input id="room-name" required maxlength="120"></label><button>Create room</button></form>
           <details><summary>Your devices</summary><p>Your first device is approved automatically. Approve another browser only after comparing its fingerprint independently.</p><ul id="account-devices"></ul>
-            <form id="account-approval-form"><label for="pending-device">Pending device</label><select id="pending-device" required></select><label>Fingerprint from that browser <input id="account-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button>Approve own device</button></form>
+            <form id="account-approval-form"><label for="pending-device">Pending device</label><select id="pending-device" required></select><label>Fingerprint from that browser <input id="account-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button id="approve-own">Approve own device</button></form>
+            <form id="account-revocation-form"><label for="revoke-device">Device to revoke</label><select id="revoke-device" required></select><button>Revoke device</button></form>
+            <p class="hint">Revocation ends server access. Room members must update encryption; downloaded messages remain. Keep an approved browser to approve replacements.</p>
           </details>
         </aside>
         <section class="card conversation">

@@ -34,10 +34,18 @@ let pollDelay = 10_000;
 function stopPolling() { clearTimeout(pollTimer); pollTimer = undefined; }
 function schedulePoll() {
   stopPolling();
-  if (!opened || document.hidden || !navigator.onLine) return;
+  if (!opened || document.hidden || !navigator.onLine || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') return;
   pollTimer = setTimeout(() => {
     if (busy || !snapshot?.room || snapshot.pending) { schedulePoll(); return; }
-    void action(async () => { await delivery.sync(); if (roomPaused) await directory(); },'',true);
+    void action(async () => {
+      try { await delivery.sync(); if (roomPaused) await directory(); }
+      catch (error) {
+        if (!(error instanceof SessionError)) {
+          try { await refresh(); } catch (refreshError) { if (refreshError instanceof SessionError) throw refreshError; }
+        }
+        throw error;
+      }
+    },'',true);
   },pollDelay);
 }
 for (const event of ['visibilitychange','online','offline']) {
@@ -53,14 +61,18 @@ function controls() {
   document.querySelectorAll('button, input, textarea, select').forEach(node => {
     if (node instanceof HTMLButtonElement || node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) node.disabled = busy && (!backgroundWork || node instanceof HTMLButtonElement);
   });
+  const approved = devices.find(device => device.id === snapshot?.device)?.status === 'approved';
   const activeRoom = rooms.some(room => room.id === snapshot?.room && room.membership === 'active');
   button('send').disabled = !activeRoom || roomPaused || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
   field('message').disabled = !backgroundWork && button('send').disabled;
   button('lock').disabled = false;
   button('commit').disabled = !activeRoom || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
-  button('publish').disabled = busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
+  button('publish').disabled = !approved || busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
+  button('sync').disabled = !approved || busy;
+  button('retry').disabled = !approved || busy;
+  button('approve-own').disabled = !approved || busy;
   button('remove').disabled = busy || snapshot?.pending === true || snapshot?.rejoining === true;
-  button('rejoin').disabled = busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
+  button('rejoin').disabled = !approved || busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
 }
 async function action(task: () => Promise<void>, success: string, background = false) {
   if (busy) return;
@@ -92,7 +104,9 @@ async function action(task: () => Promise<void>, success: string, background = f
     }
     if (generation !== viewGeneration && !(error instanceof SessionError)) return;
     const message = error instanceof Error ? error.message : 'The operation failed. Try again.';
-    if (background && opened) {
+    if (background && opened && devices.find(device => device.id === snapshot?.device)?.status === 'revoked') {
+      element('poll-state').textContent = 'Automatic checks stopped: device revoked.';
+    } else if (background && opened) {
       pollDelay = Math.min(pollDelay*2,60_000);
       element('poll-state').textContent = `Automatic check failed; retrying in ${pollDelay/1000}s. ${message}`;
     } else if (!background || error instanceof SessionError) element('notice').textContent = message;
@@ -160,6 +174,7 @@ async function render() {
   const own = devices.find(x => x.id === s.device);
   element('signed-in').textContent = `${s.identity} · Device ${own?.status ?? 'unknown'}`;
   element('account-devices').replaceChildren(...devices.map(x => line('li',`${x.id} · ${x.status}`)));
+  options('revoke-device',devices.filter(device => device.status !== 'revoked').map(device => ({id:device.id,label:`${device.id}${device.id === s.device ? ' · This browser' : ''} · ${device.status}`})),'Choose a device to revoke');
   options('pending-device',devices.filter(x => x.status === 'pending').map(x => ({id:x.id,label:x.id})));
   const list = element('rooms');
   list.replaceChildren();
@@ -184,7 +199,9 @@ async function render() {
   element('remove-form').hidden = room?.owner !== s.identity;
   options('remove-member',members.filter(member => member.id !== s.identity).map(member => ({id:member.id,label:`${member.id} · ${member.status}`})),'Choose a member');
   element('members').replaceChildren(...members.map(member => line('li',`${member.id} · ${member.status}`)));
-  element('room-state').textContent = own?.status !== 'approved'
+  element('room-state').textContent = own?.status === 'revoked'
+    ? 'This messaging device was revoked. Earlier local history remains readable here; sending, receiving and re-enrollment are disabled. Another approved device is needed to approve a replacement.'
+    : own?.status !== 'approved'
     ? 'This browser needs approval from an existing device. Compare its fingerprint there, then refresh.'
     : s.room === null ? 'Create a room, or accept an invitation from a teammate.'
     : room?.membership === 'invited' && s.epoch !== null ? 'You have a new invitation. Accept reinvitation to receive future messages; earlier local history remains.'
@@ -238,7 +255,7 @@ function lockLocal() {
   proof.lock(); delivery.disconnect(); opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
   for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members']) element(id).replaceChildren();
   for (const id of ['message','password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
-  options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member');
+  options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
   element('workspace').hidden = true; element('access').hidden = false;
 }
 button('lock').addEventListener('click',() => {
@@ -265,6 +282,14 @@ form('remove-form',async () => {
   try { await delivery.removeMember(target); } finally { await refresh(); }
 },'Member removed. If sending is paused, apply verified membership.');
 form('verify-form',async () => { await delivery.approveDevice(field('peer-device').value,field('peer-fingerprint').value.trim()); field('peer-fingerprint').value = ''; await directory(); },'Teammate verified locally.');
+form('account-revocation-form',async () => {
+  const id = field('revoke-device').value;
+  const target = devices.find(device => device.id === id);
+  if (!target) throw new Error('Refresh devices before revoking');
+  const current = id === snapshot?.device ? ' This is your current browser; it will retain local history but lose messaging access.' : '';
+  if (!confirm(`Revoke device ${id} (${target.status})?${current} Remaining room members must update encryption. Previously downloaded messages cannot be erased. Revoking every approved device prevents automatic approval of a replacement; identity reset is not implemented.`)) throw new Error('Revocation cancelled.');
+  try { await delivery.revokeAccountDevice(id); } finally { await refresh(); }
+},'Device revoked. Remaining room members must apply verified membership where sending is paused.');
 form('account-approval-form',async () => { await delivery.approveAccountDevice(field('pending-device').value,field('account-fingerprint').value.trim()); field('account-fingerprint').value = ''; await refresh(); },'Own device approved. Refresh on that browser.');
 click('rejoin',async () => { await delivery.rejoin(); await delivery.publishKeyPackage(); await refresh(); },'Reinvitation accepted. Ask an existing member to apply verified membership; earlier local history is preserved.');
 click('publish',async () => { await delivery.publishKeyPackage(); },'Ready to join. Ask an existing member to verify this device and apply membership.');

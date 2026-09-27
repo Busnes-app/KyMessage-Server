@@ -108,6 +108,14 @@ revoked without a cryptographic change. Owners cannot remove themselves, and
 unresolved outbound state blocks removal. Other members have no removal controls;
 the API enforces ownership independently.
 
+**Your devices** offers **Revoke device** for another browser or this one. Confirmation
+warns that downloaded history remains and affected rooms need a verified membership
+update. The device list refreshes even after a lost response. A revoked browser stops
+automatic checks once detected; unlocking it again shows existing local history
+without attempting enrollment. Sending and receiving remain disabled. Revoking the
+last approved device leaves new browsers pending; identity reset is not implemented.
+A live account session can still revoke devices even with unresolved local ciphertext.
+
 After removal and a new invitation, **Accept reinvitation** prepares this same
 approved device for a new membership generation. An existing member applies the
 membership change; **Check messages** verifies the new Welcome. Earlier local
@@ -288,7 +296,10 @@ WebKit and independent MLS-library interoperability remain unverified. The addit
 four UI cases (two per engine) verify the visible invitation/chat/approval flow,
 keyboard sending, plaintext-safe rendering, pending retry across reload, history
 deduplication, lost invitation acknowledgements, second-browser room admission,
-wrong passphrases, lock clearing, mobile overflow and saved themes.
+wrong passphrases, lock clearing, mobile overflow and saved themes. The own-device
+cases also cover cancelled revocation, lost revocation replies, automatic detection,
+read-only history after reload, current-browser revocation and a replacement staying
+pending after the last approved device is revoked.
 
 Six renewal cases (three per engine) cover expired cached allocations, lost claims,
 publication acknowledgement loss, reload and delayed Welcomes after renewal,

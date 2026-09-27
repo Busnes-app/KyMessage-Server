@@ -65,6 +65,11 @@ retains the manual wire harness. Root owns product decisions and research in `do
   Same-account device approval and local room-key verification are separate actions.
   Room selection reconciles an already-active membership after a lost join response
   and lets an approved second browser request admission to an existing account room.
+- Account device revocation uses the existing live-session API, including when local
+  outbound state is unresolved. Confirm the target and last-approved-device risk;
+  refresh after lost responses. Revoked keys reopen local history without enrollment,
+  stop automatic checks and cannot send or receive. Retain the server tombstone: a
+  replacement needs an existing approved device; identity reset is not implemented.
 - Room member lists include invited and active accounts. Only the room owner sees
   removal controls; the server independently enforces ownership and forbids owner
   self-removal. Native confirmation names the account and explains the boundary:

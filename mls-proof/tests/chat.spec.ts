@@ -191,6 +191,57 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     await click(second.page,'Send encrypted message','Message accepted by server');
     await click(first.page,'Check for messages','Messages checked');
     await expect(first.page.locator('#messages')).toContainText('Hello from my approved second browser');
+    await first.page.getByLabel('Device to revoke').selectOption(id);
+    first.page.once('dialog',dialog => dialog.dismiss());
+    await click(first.page,'Revoke device','Revocation cancelled');
+    await expect(first.page.locator('#account-devices li').filter({hasText:id})).toContainText('approved');
+    await first.page.route('**/api/messaging/devices/*',async route => {
+      if (route.request().method() !== 'DELETE') return route.continue();
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    },{times:1});
+    first.page.once('dialog',dialog => dialog.accept());
+    await first.page.getByRole('button',{name:'Revoke device',exact:true}).click();
+    await expect(first.page.getByRole('status')).not.toHaveText('Working…');
+    await expect(first.page.locator('#account-devices li').filter({hasText:id})).toContainText('revoked');
+    await expect(first.page.locator('#send')).toBeDisabled();
+    await second.page.clock.install();
+    await second.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await second.page.clock.runFor(10_000);
+    await expect(second.page.locator('#room-state')).toContainText('device was revoked');
+    await expect(second.page.locator('#poll-state')).toContainText('checks stopped');
+    await expect(second.page.locator('#send')).toBeDisabled();
+    await expect(second.page.locator('#sync')).toBeDisabled();
+    await expect(second.page.locator('#messages')).toContainText('Hello from my approved second browser');
+    await click(first.page,'Apply verified membership','Verified membership applied');
+    await first.page.getByLabel('Message',{exact:true}).fill('After device revocation');
+    await click(first.page,'Send encrypted message','Message accepted by server');
+    await second.page.reload();
+    let enrollments = 0;
+    second.page.on('request',request => { if (request.method() === 'POST' && request.url().endsWith('/api/messaging/devices')) enrollments++; });
+    await unlock(second.page,name);
+    expect(enrollments).toBe(0);
+    await expect(second.page.locator('#signed-in')).toContainText('revoked');
+    await expect(second.page.locator('#messages')).not.toContainText('After device revocation');
+    await expect(second.page.locator('#messages')).toContainText('Hello from my approved second browser');
+    // Revoking the last approved device leaves the account's bootstrap tombstone.
+    const current = await first.page.locator('#revoke-device option').filter({hasText:'This browser'}).getAttribute('value');
+    if (!current) throw new Error('Missing current browser option');
+    await first.page.getByLabel('Device to revoke').selectOption(current);
+    first.page.once('dialog',async dialog => {
+      expect(dialog.message()).toContain('current browser');
+      expect(dialog.message()).toContain('identity reset is not implemented');
+      await dialog.accept();
+    });
+    await click(first.page,'Revoke device','Device revoked');
+    await expect(first.page.locator('#room-state')).toContainText('device was revoked');
+    const replacement = await start(browser,name);
+    try {
+      await expect(replacement.page.locator('#signed-in')).toContainText('pending');
+      await expect(replacement.page.locator('#room-state')).toContainText('needs approval');
+      await expect(replacement.page.locator('#approve-own')).toBeDisabled();
+    } finally { await replacement.context.close(); }
+
   } finally { await first.context.close(); await second.context.close(); }
 });
 

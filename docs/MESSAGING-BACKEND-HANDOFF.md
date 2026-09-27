@@ -6,7 +6,7 @@ The folder now has Git metadata. Initial checkpoint `f36cfde` records the scaffo
 product definition, authenticated messaging API and isolated browser prototype.
 Origin is `https://github.com/Busnes-app/KyMessage-Server.git`; GitHub redirected the
 former Yoshiofthewire URL and the local remote now uses the canonical address.
-Verified checkpoints through `83757d7` and the CI correction `01bdfd0` were pushed.
+Verified checkpoints through member-removal commit `2d24b28` were pushed.
 No product deployment occurred. Generated TypeScript state and inherited
 `.superpowers/` review scratch are ignored; embedded `web/dist` is tracked.
 
@@ -24,49 +24,34 @@ The proof remains outside the embedded React app and Docker.
 
 ## This slice
 
-The existing checkpoint was pushed. Its first CI run failed the inherited
-server-base image-coordinate assertion. `01bdfd0` scopes that assertion and image
-publication/promotion to `Busnes-app/ky-server-base`, keeping KyMessages outside
-production publishing until its identity/release gates close. A new CI job builds
-the isolated proof and runs manual, HTTP/UI and OIDC suites on Chromium/Firefox.
-README and root DOX document this split. The base Compose coordinates remain scaffold.
+The isolated chat UI offers account device revocation, including this browser.
+Native confirmation names the target and explains downloaded history, the required
+room encryption update and the risk of revoking the last approved device. A live
+suite session remains sufficient even with unresolved local outbound ciphertext.
+The UI refreshes after attempts, including lost responses, to show actual status.
 
-The isolated chat UI lists invited and active room accounts. Only owners see the
-member-removal form, with a native confirmation naming the target and explaining
-that server access is revoked immediately, encryption needs a verified membership
-commit, and downloaded messages cannot be recalled. API authorization still owns
-access control; owner self-removal is excluded by both UI and server.
-
-Removal refuses unresolved local outbound/commit state. The UI refreshes in a
-finally block, including after a lost removal response, so the current member list
-and server pause flag expose what actually happened. Sending is disabled while
-paused; Apply verified membership performs the existing MLS transition. Unused
-invitations can be revoked without a rekey. Reinvitation/rejoin preserves earlier
-local history and excludes messages sent during removal.
-
-`delivery.members()` validates account IDs and invited/active status. The proof's
-`directory()` now returns `{peers,paused}`; chat is its only code caller. Automatic
-polling refreshes a previously paused directory after successful event processing
-so a received membership commit can unblock the composer.
+A denied background delivery check refreshes account devices. When revocation is
+observed, automatic checks stop and messaging controls disable. Unlocking a revoked
+browser matches its existing account/key tombstone without enrollment, retaining
+read-only local history. Revoking every approved device leaves replacements pending;
+identity reset is not implemented. The API and server enforcement are unchanged.
 
 ## Verification
 
-This slice: proof typecheck/build passed; HTTP/UI browser suite passed 23 cases with
-one intentional duplicate cross-engine skip; OIDC suite passed all 4 cases. The two
-new removal cases cover native cancellation, invited-member revocation without an
-unnecessary rekey, owner-only controls, lost removal acknowledgement, the send
-pause, cryptographic removal, preserved earlier history and reinvitation/rejoin
-without messages sent during removal. Chromium and Firefox both passed.
-`git diff --check` passed. Fixtures stopped normally. No dependency or server API
-changed in the removal slice.
+Proof typecheck/build passed. The full HTTP/UI suite passed 23 cases with one
+intentional duplicate cross-engine skip; all 4 OIDC cases passed. Chromium and
+Firefox both cover cancelled revocation, a lost successful revocation response,
+automatic revocation detection, read-only history after reload without enrollment,
+current-browser revocation and a replacement staying pending after the last
+approved device is revoked. `git diff --check` passed. Fixtures stopped normally.
+No dependency or server API changed.
 
-GitHub CI for `01bdfd0` passed in full:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36354569810
+GitHub CI for the previous member-removal commit `2d24b28` passed in full:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36355022705
 That run includes SQLite/PostgreSQL race suites, production browser tests, smoke,
-Docker, vulnerability checks and the new MLS job (manual, HTTP/UI and OIDC). Image
-publish/promote were intentionally skipped. The removal commit is validated
-locally as above; its fresh push gets its own CI run. Check the current head's run
-before treating the earlier green run as evidence for a newer commit.
+Docker, vulnerability checks and the MLS job (manual, HTTP/UI and OIDC). Image
+publish/promote were intentionally skipped. Check the current head's own run before
+treating that earlier green result as evidence for this revocation slice.
 
 ## Next and limits
 
@@ -90,8 +75,8 @@ Other recovery gaps: stale-roster conflict without a winning commit, lost room
 creation acknowledgement, session changes during unfinished enrollment. Account
 changes are detected on network requests. Sign-out cannot erase copied secrets.
 
-DOX: updated root CI/publishing guidance, `mls-proof/AGENTS.md`, proof run instructions,
-README and product evidence. Server/API/store/auth/web contracts intentionally remain
-unchanged because removal uses their existing authorization and delivery contracts. Child indexes
+DOX: updated `mls-proof/AGENTS.md`, proof run instructions and product evidence.
+Root/server/API/store/auth/web contracts intentionally remain unchanged because
+revocation uses their existing authorization and delivery contracts. Child indexes
 remain valid. Mirror this exact checkpoint through myslop-handoff to the existing
 `kymessages-product-definition` folder before closeout.

@@ -118,8 +118,12 @@ export const delivery = {
   async accountDevices() {
     return transaction(async (_r,d) => array((await api('/devices',d.token)).devices, item => {
       const device = object(item);
-      return {id:text(device.id),status:text(device.status),fingerprint:text(device.fingerprint)};
+      if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'revoked') throw new Error('Invalid device status');
+      return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint)};
     }));
+  },
+  async revokeAccountDevice(id: string) {
+    return transaction(async (_r,d) => { await api('/devices/' + encodeURIComponent(id),d.token,'DELETE'); });
   },
   async approveAccountDevice(id: string, fingerprint: string) {
     return transaction(async (_r,d) => {
@@ -138,7 +142,7 @@ export const delivery = {
     await transaction(async (r,d) => {
       const own = pinFor(r.keyPackage);
       const listing = await api('/devices',d.token);
-      const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending'));
+      const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'revoked'));
       if (existing) { d.device = text(existing.id); d.challenge = null; return; }
       if (d.challenge) {
         const saved: unknown = JSON.parse(decoder.decode(unbase64(d.challenge)));
