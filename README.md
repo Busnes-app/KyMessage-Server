@@ -26,8 +26,11 @@ The base supplies a Go service, React UI, identity/session handling, SQLite and
 PostgreSQL storage, device pairing, and sealed recovery integration. KyMessages
 will reuse these facilities. The current recovery collector supports SQLite only.
 
-The existing Compose and publishing settings name the base product. Treat them as
-scaffold configuration until the product-identity milestone is complete. The product
+The existing Compose settings name the base product. Treat them as scaffold
+configuration until the product-identity milestone is complete. This repository's
+CI runs the server checks and isolated MLS browser suites; image publication and
+the upstream image-coordinate check run only in `Busnes-app/ky-server-base`.
+KyMessages images are not automatically published while production integration is open. The product
 definition describes intended behavior, not current encryption or chat capabilities.
 
 ## Upgrading after the Busnes-app owner move

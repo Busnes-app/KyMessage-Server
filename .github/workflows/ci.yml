@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: image and attestation coordinates match this repository
+        if: github.repository == 'Busnes-app/ky-server-base'
         run: |
           set -euo pipefail
           img="ghcr.io/${GITHUB_REPOSITORY,,}"
@@ -156,6 +157,40 @@ jobs:
         run: npm audit --audit-level=high
         working-directory: web
 
+  messaging-proof:
+    name: Isolated MLS browser proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mls-proof/package-lock.json
+      - run: npm ci
+        working-directory: mls-proof
+      - run: npm run build
+        working-directory: mls-proof
+      - run: npx playwright install --with-deps chromium firefox
+        working-directory: mls-proof
+      - run: npm test -- --project=chromium --project=firefox
+        working-directory: mls-proof
+      - run: npm run test:delivery -- --project=chromium --project=firefox
+        working-directory: mls-proof
+      - run: npm run test:oidc -- --project=chromium --project=firefox
+        working-directory: mls-proof
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: messaging-proof-results
+          path: mls-proof/test-results/
+
   browser:
     name: Browser regressions (production server)
     runs-on: ubuntu-latest
@@ -239,11 +274,11 @@ jobs:
 
       # Hand the exact image the checks above ran against to the publish job,
       # so what gets pushed is what was tested, never a second build.
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      - if: github.repository == 'Busnes-app/ky-server-base' && github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           set -euo pipefail
           docker save ky_server_base:ci | gzip > tested-image.tar.gz
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      - if: github.repository == 'Busnes-app/ky-server-base' && github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tested-image
@@ -256,7 +291,7 @@ jobs:
   # never reach this job or write a package.
   publish:
     needs: [go, postgres, web, browser, security, smoke, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.repository == 'Busnes-app/ky-server-base' && github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     # No concurrency group here on purpose: GitHub cancels a *pending* job when a
     # newer one queues into the same group, which would leave that commit with no
@@ -319,7 +354,7 @@ jobs:
   # by digest and the result is asserted, so :latest is the attested manifest.
   promote:
     needs: publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.repository == 'Busnes-app/ky-server-base' && github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     concurrency:
       group: promote-master
