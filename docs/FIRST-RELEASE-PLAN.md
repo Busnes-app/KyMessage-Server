@@ -11,12 +11,13 @@ prototype test is not production approval.
 
 ## Execution order and exit checks
 
-1. **Device recovery — in progress.** Fresh-auth verifier and durable, single-use
-   session/device-bound authentication callback are implemented and tested on SQLite
-   and PostgreSQL. Remaining: identity generations; atomic reset and idempotent
-   receipts; original-key revocation; room eligibility reset; explicit confirmation;
-   independent verification of replacement identities; browser loss/rejoin drills.
-2. **Durable conversations — open.** Isolated proof has verified opaque delivery,
+1. **Device recovery — implemented in the isolated prototype; release gates open.**
+   Identity generations, atomic confirmed reset, idempotent receipts, prior-device
+   and package revocation, generation-bound invitations/ownership, peer notices and
+   independent replacement verification are implemented. SQLite/PostgreSQL race
+   tests and Chromium/Firefox reset/rejoin drills pass. The default-off server gate
+   still needs deployed issuer assurance and restore/rollback evidence.
+2. **Durable conversations — in progress.** Isolated proof has verified opaque delivery,
    encrypted local history, outbox retry and one-room rejoin. Remaining: multiple
    rooms/DMs per account, bounded room storage, safe Markdown, visible trust changes
    and a defined production unlock/local-data lifecycle.
@@ -46,8 +47,10 @@ prototype test is not production approval.
 - Chromium/Firefox proof exchange, reload/crash/outbox recovery, concurrent commits,
   removal/reinvitation, device-loss guidance and ordinary suite OIDC cookie/CSRF flow.
 - Recovery-auth state sealed at rest; original-session binding, expiry and concurrent
-  single-use completion tested on SQLite and PostgreSQL. It grants no reset yet.
-- CI green through `30ac61d`; current implementation remains a server scaffold plus
+  single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
+  reset/rejoin tests cover future-only access, original-session preservation and
+  generation-2 enrollment.
+- CI green through `ad21d59`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required

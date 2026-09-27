@@ -17,6 +17,11 @@ export function integer(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Expected nonnegative integer');
   return value;
 }
+export function identityGeneration(value: unknown): number {
+  const generation = integer(value);
+  if (generation === 0) throw new Error('Expected positive identity generation');
+  return generation;
+}
 export function array<T>(value: unknown, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value) || value.length > 256) throw new Error('Expected bounded array');
   return value.map(parse);
@@ -24,7 +29,7 @@ export function array<T>(value: unknown, parse: (item: unknown) => T): T[] {
 export function roster(value: unknown) {
   const devices = array(value, item => {
     const d = object(item);
-    return { id: text(d.id), user_id: accountID(d.user_id), public_key: text(d.public_key), generation: integer(d.generation), identity_generation: d.identity_generation === undefined ? 1 : integer(d.identity_generation) };
+    return { id: text(d.id), user_id: accountID(d.user_id), public_key: text(d.public_key), generation: integer(d.generation), identity_generation: d.identity_generation === undefined ? 1 : identityGeneration(d.identity_generation) };
   });
   if (new Set(devices.map(d => d.id)).size !== devices.length || new Set(devices.map(d => d.public_key)).size !== devices.length) throw new Error('Duplicate roster device');
   return devices;

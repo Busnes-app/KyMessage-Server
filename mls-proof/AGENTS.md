@@ -71,11 +71,15 @@ retains the manual wire harness. Root owns product decisions and research in `do
   outbound state is unresolved. Confirm the target and last-approved-device risk;
   refresh after lost responses. Revoked keys reopen local history without enrollment,
   stop automatic checks and cannot send or receive. Retain the server tombstone: a
-  replacement needs an existing approved device; identity reset is not implemented.
+  replacement needs an existing approved device or the separately gated identity-reset flow.
 - Recovery help remains available before unlock. Account-specific guidance uses
   the refreshed device list and clears on lock; approval never implies that a
   device is accessible. Follow `docs/PRODUCT.md`'s last-device-loss contract before
-  adding reset. Preserve local data and keep replacements pending in the proof.
+  changing reset. In OIDC mode a pending replacement without room state can confirm
+  reset, authenticate freshly and return to unlock the same vault. The fixture enables
+  the default-off server gate, not production deployment. Preserve old browser data;
+  reset inherits no rooms or ownership. Room notices are labeled server reports, and
+  replacement generation/fingerprint verification remains independent.
 - Room member lists include invited and active accounts. Only the room owner sees
   removal controls; the server independently enforces ownership and forbids owner
   self-removal. Native confirmation names the account and explains the boundary:

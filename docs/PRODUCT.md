@@ -27,8 +27,8 @@ also polls verified delivery while visible and online, with failure backoff and
 cancellation on lock. Owner-only removal controls expose invitation revocation,
 immediate server access removal and the required encryption update before sending.
 Account device revocation preserves local history without silently re-enrolling
-revoked keys; losing every approved device requires an identity-reset flow that is
-not implemented. Automatic replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
+revoked keys. The OIDC prototype exercises confirmed identity reset and fresh
+fingerprint verification; deployed reset stays disabled pending issuer assurance. Automatic replenishment, retention-gap recovery, live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 
 ## Promise and audience
@@ -132,18 +132,18 @@ reduce browser risk but cannot remove that trust boundary.
 
 #### Losing every approved device
 
-Proposed v1 contract; reset is not implemented. The prototype now provides recovery
+V1 recovery contract, exercised in the isolated OIDC prototype. It provides recovery
 help before unlock and reports when only one or no approved device remains. Approval
 status does not prove the device is accessible: an offline or lost browser can still
 be listed as approved. Never infer key loss from absence or inactivity alone.
 
 With a usable approved device, use ordinary fingerprint-checked approval and revoke
-lost devices. Without one, the current prototype permits revocation through a live
-account session, but a replacement stays pending. Preserve surviving browser data;
+lost devices. Without one, a live account session permits revocation; a replacement stays pending
+until a confirmed, freshly authenticated identity reset or existing-device approval. Preserve surviving browser data;
 an account-password reset or server restore cannot recover the local passphrase,
 MLS secrets or message history. Local history already readable remains readable.
 
-The future **Start a new messaging identity** flow must:
+The **Reset messaging identity** flow must:
 
 1. Require fresh interactive suite authentication, proof of the replacement key,
    and explicit confirmation of lost history and changed identity. Bind a single-use
@@ -173,8 +173,8 @@ requests cannot reset twice; old and pending devices cannot send, fetch or appro
 stale packages and identity pins cannot admit the replacement; returning peers see
 the identity change before sending; replacement history excludes the prior identity;
 and loss of the final room state has an explicit new-room outcome. Include lost
-acknowledgements and restored older server metadata in the recovery drill. Until
-these gates pass, expose guidance rather than a reset button or administrative bypass.
+acknowledgements and restored older server metadata in the recovery drill. The isolated fixture exercises reset; deployments keep its default-off gate disabled
+until deployed issuer and restore/rollback evidence pass. There is no administrative bypass.
 
 Fresh-authentication evidence (2026-09-27): the suite SSO adapter now has separate
 reauthentication URL/exchange methods. They request `prompt=login` and `max_age=0`,
@@ -190,13 +190,15 @@ between authentication and token issuance in
 The sibling `KyIdentity-server` at clean commit `47447e7` supports these parameters;
 its authorization interaction, silent/age and authentication-evidence tests passed
 locally. Signed test tokens exercise the consumer's acceptance/rejection rules.
-This is component evidence, not an end-to-end reset or a deployed issuer check.
-The recovery-authentication API now persists sealed requests, binds the original live
-session, pending replacement key and account device-registry snapshot, and consumes
-a successful request once after rechecking those bindings. It returns authentication
-status only: the replacement stays pending and reset remains unavailable. Identity
-generations and an atomic reset mutation remain required before wiring reset.
-The wire and retry contract is in [MESSAGING-API.md](MESSAGING-API.md#recovery-authentication-reset-remains-disabled).
+This remains component evidence, not a deployed issuer check. The recovery API binds
+sealed requests to the original session, pending replacement key, registry snapshot,
+reset intent and identity generation. Its atomic reset revokes prior devices and
+packages, removes room eligibility and ownership authority, and records an idempotent
+receipt. Generation-bound MLS metadata and local pins require new verification.
+The Chromium/Firefox OIDC fixture drill covers confirmation cancellation, fresh form
+interaction, unchanged session, old-device revocation, retained readable local history,
+room removal, reinvitation, independent verification and future-only message access.
+The wire and retry contract is in [MESSAGING-API.md](MESSAGING-API.md#recovery-authentication-and-identity-reset).
 The timestamp has one-second resolution, so it alone cannot prove the identity
 provider honored this particular interactive request. Test parameter tampering
 against the deployed issuer, preserve the required authentication policy there,

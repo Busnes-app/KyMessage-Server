@@ -95,7 +95,7 @@ unexpired publication or renews an expired one with fresh join keys and the same
 verified device identity. It retains up to 16 older packages for delayed Welcomes;
 checking messages completes a join and removes the consumed package. Unused
 packages remain encrypted because the server may offer them on a later rejoin. It
-does not support room switching, deployed identity integration or identity reset.
+does not support room switching or deployed identity integration.
 Start with fresh profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
 
@@ -113,16 +113,21 @@ warns that downloaded history remains and affected rooms need a verified members
 update. The device list refreshes even after a lost response. A revoked browser stops
 automatic checks once detected; unlocking it again shows existing local history
 without attempting enrollment. Sending and receiving remain disabled. Revoking the
-last approved device leaves new browsers pending; identity reset is not implemented.
+last approved device leaves new browsers pending. In OIDC fixture mode, a pending
+replacement can choose **Reset messaging identity**, confirm loss of room access and
+ownership, and authenticate again with the same account. Unlock afterward: the same
+local key becomes the next identity generation. Every earlier device is revoked;
+teammates must reinvite and independently verify the replacement for future traffic.
+The normal server defaults `KY_MESSAGING_IDENTITY_RESET_ENABLED` off until the deployed
+issuer's fresh-authentication behavior and recovery callback are verified.
 A live account session can still revoke devices even with unresolved local ciphertext.
 
 **Lost a browser or its passphrase?** remains available before unlock. It explains
 replacement approval, revoking lost devices from a pending replacement and the
 limits of server backups. The account banner distinguishes the only approved device,
 a replacement needing approval, and an account with no approved devices. Approval
-status cannot tell whether a listed browser is still accessible. The proposed reset
-contract and acceptance gates live in [the product definition](../docs/PRODUCT.md#losing-every-approved-device);
-the prototype provides guidance, not a reset action.
+status cannot tell whether a listed browser is still accessible. The reset contract
+and remaining deployment gates live in [the product definition](../docs/PRODUCT.md#losing-every-approved-device).
 
 After removal and a new invitation, **Accept reinvitation** prepares this same
 approved device for a new membership generation. An existing member applies the

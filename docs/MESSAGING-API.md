@@ -71,8 +71,8 @@ whose challenge response was lost can expire before a fresh enrollment is attemp
 
 Device states are `unverified`, `pending`, `approved`, `revoked`. Revocation clears
 the credential and keeps a verified-device tombstone. Revoking every device does
-**not** permit another automatic first-device approval. An explicit identity-reset
-and history-loss workflow remains to be built. A live suite session can revoke
+**not** permit another automatic first-device approval. The explicitly confirmed identity-reset
+flow below is separately gated by fresh suite authentication. A live suite session can revoke
 its own lost device without possessing that device token.
 
 Device responses expose `id`, `user_id`, `name`, `public_key`, `fingerprint`
@@ -90,8 +90,8 @@ The store's reset transaction requires explicit confirmed recovery state and fre
 verified subject, then increments the generation, approves the replacement, revokes
 all other devices, expires unclaimed KeyPackages and removes old memberships. It
 keeps device/package tombstones and records a session-bound idempotent receipt.
-Affected rooms pause until surviving MLS clients commit removal. There is no HTTP
-reset mutation yet: the current callback still only authenticates the request.
+Affected rooms pause until surviving MLS clients commit removal. The callback applies reset only for a confirmed reset request with the operator
+opt-in enabled; ordinary authentication completion never grants reset authority.
 
 The server roster hash is now `KyMessages roster v2`; its device struct field order
 is `ID`, `UserID`, `PublicKey`, `Generation`, `IdentityGeneration`. The isolated
@@ -101,15 +101,16 @@ v1 verification for already accepted historical events (implicit identity genera
 Unaccepted old v1 outboxes may require conflict recovery; this is a prototype protocol
 transition, not a supported production upgrade promise.
 
-## Recovery authentication (reset remains disabled)
+## Recovery authentication and identity reset
 
-The two recovery-auth routes prove a single fresh authentication for a pending
-replacement. They do not approve it, change identity, transfer history or issue a
-reusable reset grant. Their success audit must never be used as reset authority.
-No prototype UI initiates this flow yet. Register the exact
-`/api/messaging/recovery-auth/callback` URL with the suite issuer before testing it.
+The recovery-auth routes default to authentication-only. Explicit
+`{confirm_identity_reset:true}` requests reset; the server refuses it unless
+`KY_MESSAGING_IDENTITY_RESET_ENABLED=true` (default false). Register the exact
+`/api/messaging/recovery-auth/callback` URL and verify deployed issuer interaction,
+parameter tampering and clock alignment before enabling it. This opt-in is not
+production approval of the experimental MLS client.
 
-Initiation requires `{}`, a canonical device UUID, the pending device's credential,
+Initiation requires a canonical device UUID, the pending device's credential,
 and a live suite session; browser CSRF and the messaging rate limit apply. Migration
 8 stores only hashed random state plus an encrypted OIDC request under a dedicated
 key derived from the server encryption key. The record binds the original session,
@@ -125,15 +126,22 @@ Callback requires one canonical 64-character state and one nonempty code of at m
 session. Validate stored bindings before the OIDC exchange; require fresh signed
 `auth_time`, matching subject and nonce; then recheck the live session, target and
 registry while atomically deleting the request and auditing completion. OIDC calls
-run outside database transactions. Concurrent completions have one winner. Expiry,
+run outside database transactions. Confirmed reset calls the atomic generation/reset transaction instead; authentication-only
+completion cannot consume a confirmed reset request. Disabling the opt-in while a
+request is outstanding prevents its reset. Concurrent mutations have one winner. Expiry,
 logout, account changes, revocation and registry changes cannot become an approval.
 
 Invalid callbacks return 400; missing/different/expired original bindings return
 403; changed registry returns 409; failed signed authentication or corrupt sealed
-state returns 401. Discovery failure returns 502. A lost success acknowledgement
-cannot replay: start a new authentication request. Beginning and completing audit
+state returns 401. Discovery failure returns 502. A lost authentication-only acknowledgement requires a new request. A completed
+reset returns its persisted receipt to the same still-live original session on
+callback retry, without exchanging the consumed code or mutating again. Receipt
+replay works even after disabling further resets. Browser HTML callbacks redirect
+to `/`; JSON callbacks return `{identity_reset:true,receipt:{device_id,identity_generation,completed_at}}`.
+No return URL or session is issued by recovery. Beginning and completing audit
 `messaging.recovery_auth_started` and `messaging.recovery_auth_completed` using the
-target device ID, without tokens, verifier, nonce, raw state or plaintext keys.
+target device ID. Reset audits `messaging.identity_reset` with old/new generation
+and fingerprint. Audits never contain tokens, verifier, nonce, raw state or plaintext keys.
 
 ## Routes
 
@@ -147,12 +155,12 @@ unless marked 201. All routes require the suite session described above.
 | POST `/devices/{device}/verify` | `{signature}` → `{device}` | Original enrollment session and signature |
 | POST `/devices/{device}/approve` | `{approved:true}` | Approved device of same account; target pending |
 | DELETE `/devices/{device}` | `{revoked:true}` | Own non-revoked device |
-| POST `/devices/{device}/recovery-auth` | `{}` → 201 `{authorization_url,expires_at,identity_reset_available:false}` | Own pending device credential and original live suite session |
-| GET `/recovery-auth/callback?state=…&code=…` | `{reauthenticated:true,device_id,identity_reset_available:false}` | Original suite session; fresh signed OIDC evidence and unchanged device registry |
+| POST `/devices/{device}/recovery-auth` | `{confirm_identity_reset?:boolean}` → 201 `{authorization_url,expires_at,identity_reset_available,reset_requested}` | Own pending device credential and original live suite session |
+| GET `/recovery-auth/callback?state=…&code=…` | Authentication result or reset receipt above | Original suite session; fresh signed OIDC evidence and unchanged device registry |
 | POST `/devices/key-packages` | `{payload,expires_at}` → `{package_id,expires_at}` | Approved publishing device |
 | POST `/rooms` | `{name}` → 201 room | Approved device |
 | GET `/rooms?offset=0` | `{rooms:[...]}` | Approved device; own invited/active memberships only |
-| GET `/rooms/{room}/members` | `{members:[{user_id,status}]}` | Approved device and active membership |
+| GET `/rooms/{room}/members` | `{members:[{user_id,status,identity_generation,current_identity_generation}]}` | Approved device and active membership |
 | POST `/rooms/{room}/members` | `{user_id}` → `{invited:true}` | Approved device and room ownership |
 | POST `/rooms/{room}/join` | `{joined:true}` | Approved device and own pending invitation |
 | DELETE `/rooms/{room}/members/{user}` | `{removed:true}` | Approved device and room ownership; owner cannot remove self |
@@ -160,6 +168,12 @@ unless marked 201. All routes require the suite session described above.
 | POST `/rooms/{room}/events` | Event envelope → `{sequence,epoch}` | Approved device, active membership and current epoch eligibility |
 | GET `/rooms/{room}/events?after=0` | `{events:[...],next,start_sequence}` | Approved device included in accepted epoch and current membership generation |
 | POST `/rooms/{room}/key-packages/claim` | `{device_id,request_id}` → `{package_id,device_id,payload,expires_at}` | Eligible existing epoch device, or room owner before epoch 1; target eligible for addition |
+
+Member listings include active/invited accounts and reset identities still represented
+in the committed epoch. A removed identity's notice disappears after its removal
+commit. These are server-reported changes, never proof of a replacement key; clients
+must independently verify its fingerprint. Current plus committed rosters bound the
+listing, rather than retaining an unbounded history of departed accounts.
 
 Room objects expose `id`, `name`, `owner_id`, `created_at`, `membership`.
 All timestamps are Unix seconds. Room names, device names, keys and memberships
@@ -169,7 +183,8 @@ Membership progresses `invited` → `active` → `removed`. The owner starts act
 Invitations target existing active suite-only accounts; acceptance is explicit.
 Removed members can be reinvited while below the current capacity limit. Invited
 members see the room in their own list but cannot fetch its roster until joining.
-The roster contains invited and active members, not removed members.
+The member list includes invited and active accounts, plus the bounded reset notices
+described above; removed accounts never regain access through a notice.
 
 Membership/device changes pause application appends until a commit declares the
 current roster. These remain **server ACL and delivery transitions**: clients must

@@ -12,7 +12,7 @@ import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { run, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
 import { base64, unbase64, type DeviceRecord } from './vault';
-import { object, text, accountID, integer, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
+import { object, text, accountID, integer, identityGeneration, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
 
 // Experiment-specific GroupInfo extension, authenticated by MLS for Welcome joins.
@@ -119,8 +119,16 @@ export const delivery = {
     return transaction(async (_r,d) => array((await api('/devices',d.token)).devices, item => {
       const device = object(item);
       if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'revoked') throw new Error('Invalid device status');
-      return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint),identity_generation:integer(device.identity_generation)};
+      return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint),identity_generation:identityGeneration(device.identity_generation)};
     }));
+  },
+  async startIdentityReset() {
+    if (session?.kind !== 'cookie') throw new Error('Identity reset requires suite sign-in');
+    return transaction(async (r,d) => {
+      if (!d.device || d.room || r.state || d.pending) throw new Error('Use a pending replacement in a separate browser profile');
+      const result = await api('/devices/' + encodeURIComponent(d.device) + '/recovery-auth',d.token,'POST',{confirm_identity_reset:true});
+      return text(result.authorization_url);
+    });
   },
   async revokeAccountDevice(id: string) {
     return transaction(async (_r,d) => { await api('/devices/' + encodeURIComponent(id),d.token,'DELETE'); });
@@ -143,7 +151,7 @@ export const delivery = {
       const own = pinFor(r.keyPackage);
       const listing = await api('/devices',d.token);
       const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'revoked'));
-      if (existing) { d.device = text(existing.id); d.challenge = null; const pin = r.pins.find(p => p.identity === r.identity && p.key === own.key); if (pin) pin.identityGeneration = integer(existing.identity_generation); return; }
+      if (existing) { d.device = text(existing.id); d.challenge = null; const pin = r.pins.find(p => p.identity === r.identity && p.key === own.key); if (pin) pin.identityGeneration = identityGeneration(existing.identity_generation); return; }
       if (d.challenge) {
         const saved: unknown = JSON.parse(decoder.decode(unbase64(d.challenge)));
         if (integer(object(saved).ExpiresAt) * 1000 > Date.now()) return;
@@ -165,7 +173,9 @@ export const delivery = {
       const c = object(parsed);
       if (c.Domain !== 'KyMessages enrollment v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== d.device || c.PublicKey !== own.key || c.TokenHash !== await hash(encoder.encode(d.token)) || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Enrollment binding mismatch');
       const signature = base64(await (await suite).signature.sign(privateKeys(r).signaturePrivateKey,bytes));
-      await api('/devices/' + encodeURIComponent(d.device) + '/verify',d.token,'POST',{signature});
+      const verified = object((await api('/devices/' + encodeURIComponent(d.device) + '/verify',d.token,'POST',{signature})).device);
+      const pin = r.pins.find(p => p.identity === r.identity && p.key === own.key);
+      if (pin) pin.identityGeneration = identityGeneration(verified.identity_generation);
       d.challenge = null;
       return d.device;
     });
@@ -222,8 +232,8 @@ export const delivery = {
   async members() {
     return transaction(async (_r,d) => array((await api(roomPath(d) + '/members',d.token)).members,item => {
       const member = object(item);
-      if (member.status !== 'active' && member.status !== 'invited') throw new Error('Invalid member status');
-      return {id:accountID(member.user_id),status:member.status};
+      if (member.status !== 'active' && member.status !== 'invited' && member.status !== 'removed') throw new Error('Invalid member status');
+      return {id:accountID(member.user_id),status:member.status,identityGeneration:identityGeneration(member.identity_generation),currentIdentityGeneration:identityGeneration(member.current_identity_generation)};
     }));
   },
   async removeMember(user: string) {

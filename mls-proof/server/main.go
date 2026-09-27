@@ -50,6 +50,7 @@ func serve() error {
 	cfg.Security.CookieDomain = ""
 	cfg.SSO.KySignOnIssuer = "" // Never inherit a live issuer from the operator's environment.
 	oidcMode := os.Getenv("MLS_PROOF_OIDC") == "1"
+	cfg.Messaging.IdentityResetEnabled = oidcMode
 	if oidcMode {
 		issuer, err := newProofIssuer()
 		if err != nil {

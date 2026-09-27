@@ -23,6 +23,7 @@ import (
 const oidcClient = "mls-proof-client"
 const oidcSecret = "disposable-local-issuer-secret"
 const oidcRedirect = "http://127.0.0.1:4178/api/sso/kysignon/callback"
+const recoveryRedirect = "http://127.0.0.1:4178/api/messaging/recovery-auth/callback"
 
 // A test issuer, not an identity service: names are selected without passwords.
 // The product still performs its real discovery, PKCE exchange and ID-token checks.
@@ -32,8 +33,9 @@ func newProofIssuer() (*httptest.Server, error) {
 		return nil, err
 	}
 	type authorization struct {
-		subject, challenge, nonce string
-		expires                   time.Time
+		subject, challenge, nonce, redirect string
+		authenticatedAt                     int64
+		expires                             time.Time
 	}
 	// Each code owns one immutable record. LoadAndDelete consumes it once.
 	var codes sync.Map
@@ -51,7 +53,7 @@ func newProofIssuer() (*httptest.Server, error) {
 	})
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("client_id") != oidcClient || q.Get("redirect_uri") != oidcRedirect || q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || q.Get("state") == "" || q.Get("nonce") == "" {
+		if q.Get("client_id") != oidcClient || (q.Get("redirect_uri") != oidcRedirect && q.Get("redirect_uri") != recoveryRedirect) || q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || q.Get("state") == "" || q.Get("nonce") == "" {
 			http.Error(w, "invalid proof authorization request", 400)
 			return
 		}
@@ -69,8 +71,8 @@ func newProofIssuer() (*httptest.Server, error) {
 			return
 		}
 		code := kycrypto.RandomHex(32)
-		codes.Store(code, authorization{r.PostForm.Get("subject"), q.Get("code_challenge"), q.Get("nonce"), time.Now().Add(2 * time.Minute)})
-		http.Redirect(w, r, oidcRedirect+"?"+url.Values{"code": {code}, "state": {q.Get("state")}}.Encode(), http.StatusSeeOther)
+		codes.Store(code, authorization{subject: r.PostForm.Get("subject"), challenge: q.Get("code_challenge"), nonce: q.Get("nonce"), redirect: q.Get("redirect_uri"), authenticatedAt: time.Now().Unix(), expires: time.Now().Add(2 * time.Minute)})
+		http.Redirect(w, r, q.Get("redirect_uri")+"?"+url.Values{"code": {code}, "state": {q.Get("state")}}.Encode(), http.StatusSeeOther)
 	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		client, secret, ok := r.BasicAuth()
@@ -81,7 +83,7 @@ func newProofIssuer() (*httptest.Server, error) {
 		if !ok {
 			client, secret = r.Form.Get("client_id"), r.Form.Get("client_secret")
 		}
-		if client != oidcClient || secret != oidcSecret || r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("redirect_uri") != oidcRedirect {
+		if client != oidcClient || secret != oidcSecret || r.Form.Get("grant_type") != "authorization_code" {
 			http.Error(w, "invalid client or redirect", 401)
 			return
 		}
@@ -92,11 +94,11 @@ func newProofIssuer() (*httptest.Server, error) {
 		}
 		a := value.(authorization)
 		challenge := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
-		if time.Now().After(a.expires) || base64.RawURLEncoding.EncodeToString(challenge[:]) != a.challenge {
+		if r.Form.Get("redirect_uri") != a.redirect || time.Now().After(a.expires) || base64.RawURLEncoding.EncodeToString(challenge[:]) != a.challenge {
 			http.Error(w, "expired code or invalid PKCE", 400)
 			return
 		}
-		claims, err := json.Marshal(map[string]any{"iss": issuer, "aud": oidcClient, "sub": a.subject, "nonce": a.nonce, "iat": time.Now().Unix(), "exp": time.Now().Add(5 * time.Minute).Unix(), "preferred_username": a.subject, "name": "Test " + a.subject})
+		claims, err := json.Marshal(map[string]any{"iss": issuer, "aud": oidcClient, "sub": a.subject, "nonce": a.nonce, "iat": time.Now().Unix(), "auth_time": a.authenticatedAt, "exp": time.Now().Add(5 * time.Minute).Unix(), "preferred_username": a.subject, "name": "Test " + a.subject})
 		if err != nil {
 			http.Error(w, "claims failed", 500)
 			return

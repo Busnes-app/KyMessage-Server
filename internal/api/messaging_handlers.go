@@ -276,9 +276,9 @@ func (s *Server) handleMessagingMembers(w http.ResponseWriter, r *http.Request, 
 		s.messagingError(w, err)
 		return
 	}
-	views := make([]map[string]string, 0, len(members))
+	views := make([]map[string]any, 0, len(members))
 	for _, member := range members {
-		views = append(views, map[string]string{"user_id": member.UserID, "status": member.Status})
+		views = append(views, map[string]any{"user_id": member.UserID, "status": member.Status, "identity_generation": member.IdentityGeneration, "current_identity_generation": member.CurrentIdentityGeneration})
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"members": views})
 }

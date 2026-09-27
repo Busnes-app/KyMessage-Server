@@ -20,7 +20,9 @@ fixture process lifetime.
   account; this is deliberately not authentication and must remain loopback-only.
 - The issuer accepts disposable names without passwords. It signs short-lived
   RS256 ID tokens, validates the fixed callback/client and S256 verifier, and
-  consumes authorization codes once. Its signing key and code records live only
+  consumes authorization codes once. Ordinary login and recovery use separate fixed
+  callbacks bound into each code. `auth_time` records the explicit fixture form POST,
+  never token issuance. Only OIDC fixture mode enables the reset gate. Its signing key and code records live only
   for the fixture process. Never inherit a live issuer from the host environment.
 - Cookie Secure is disabled and CookieDomain cleared only for the loopback fixture.
   Production cookie configuration and auth handlers retain their normal behavior.

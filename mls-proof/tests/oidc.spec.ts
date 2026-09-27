@@ -145,3 +145,96 @@ test('the real callback rejects altered nonce and PKCE before creating a session
     } finally { await context.close(); }
   }
 });
+
+test('confirmed identity reset revokes old browsers and rejoins only future verified traffic',async ({browser}) => {
+  test.setTimeout(60_000);
+  const subject = 'reset-' + crypto.randomUUID().slice(0,8);
+  const lost = await open(browser,subject);
+  const owner = await open(browser,'owner-' + crypto.randomUUID().slice(0,8));
+  const replacement = await open(browser,subject);
+  try {
+    await owner.page.getByLabel('New room name').fill('Recovery team');
+    await click(owner.page,'Create room','Room created');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await owner.page.getByLabel("Teammate's account ID").fill(lost.id);
+    await click(owner.page,'Invite teammate','Invitation sent');
+    await click(lost.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(lost.page,'Accept Recovery team','Room selected');
+    await click(lost.page,'Prepare to join','Ready to join');
+    await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await verify(owner.page,lost.id,lost.fingerprint);
+    await verify(lost.page,owner.id,owner.fingerprint);
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await click(lost.page,'Check for messages','Messages checked');
+    await owner.page.getByLabel('Message',{exact:true}).fill('Before the identity reset');
+    await click(owner.page,'Send encrypted message','Message accepted');
+    await click(lost.page,'Check for messages','Messages checked');
+    const sessionBefore = (await replacement.context.cookies()).find(c => c.name === 'ky_session')?.value;
+    replacement.page.once('dialog',dialog => dialog.dismiss());
+    await click(replacement.page,'Reset messaging identity','Identity reset cancelled');
+    await expect(replacement.page.locator('#signed-in')).toContainText('pending');
+    replacement.page.once('dialog',dialog => dialog.accept());
+    await replacement.page.getByRole('button',{name:'Reset messaging identity',exact:true}).click();
+    await expect(replacement.page.getByLabel('Test identity')).toBeVisible();
+    const auth = new URL(replacement.page.url());
+    expect(auth.searchParams.get('prompt')).toBe('login');
+    expect(auth.searchParams.get('max_age')).toBe('0');
+    await replacement.page.getByLabel('Test identity').fill(subject);
+    await replacement.page.getByRole('button',{name:'Continue to KyMessages'}).click();
+    await replacement.page.waitForURL('**/chat.html?auth=oidc');
+    expect((await replacement.context.cookies()).find(c => c.name === 'ky_session')?.value).toBe(sessionBefore);
+    await unlock(replacement.page);
+    await expect(replacement.page.locator('#signed-in')).toContainText('approved · Identity 2');
+    await expect(replacement.page.locator('#rooms')).toBeEmpty();
+    await click(lost.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(lost.page.locator('#signed-in')).toContainText('revoked');
+    await expect(lost.page.locator('#messages')).toContainText('Before the identity reset');
+    await expect(lost.page.locator('#send')).toBeDisabled();
+    await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(owner.page.locator('#send')).toBeDisabled();
+    await expect(owner.page.locator('#members')).toContainText('identity changed from 1 to 2');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await owner.page.getByLabel("Teammate's account ID").fill(lost.id);
+    await click(owner.page,'Invite teammate','Invitation sent');
+    await click(replacement.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(replacement.page,'Accept Recovery team','Room selected');
+    await click(replacement.page,'Prepare to join','Ready to join');
+    await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(owner.page.locator('#peers')).toContainText('Identity 2');
+    await click(owner.page,'Apply verified membership','Unpinned roster identity/key');
+    await verify(owner.page,replacement.id,replacement.fingerprint);
+    await verify(replacement.page,owner.id,owner.fingerprint);
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await click(replacement.page,'Check for messages','Messages checked');
+    await owner.page.getByLabel('Message',{exact:true}).fill('After independent verification');
+    await click(owner.page,'Send encrypted message','Message accepted');
+    await click(replacement.page,'Check for messages','Messages checked');
+    await expect(replacement.page.locator('#messages')).toContainText('After independent verification');
+    await expect(replacement.page.locator('#messages')).not.toContainText('Before the identity reset');
+    // A later browser enrolls directly into generation 2, without needing reload
+    // to repair a generation-1 local self pin.
+    const extra = await open(browser,subject);
+    try {
+      await click(replacement.page,'Refresh rooms and devices','Rooms and devices refreshed');
+      await replacement.page.getByText('Your devices',{exact:true}).click();
+      const target = await replacement.page.locator('#pending-device option:not([value=""])').first().getAttribute('value');
+      if (!target) throw new Error('Missing generation-2 pending device');
+      await replacement.page.getByLabel('Pending device',{exact:true}).selectOption(target);
+      await replacement.page.getByLabel('Fingerprint from that browser').fill(extra.fingerprint);
+      await click(replacement.page,'Approve own device','Own device approved');
+      await click(extra.page,'Refresh rooms and devices','Rooms and devices refreshed');
+      await extra.page.getByText('Your devices',{exact:true}).click();
+      const prior = await extra.page.locator('#revoke-device option').filter({hasText:'approved'}).filter({hasNotText:'This browser'}).getAttribute('value');
+      if (!prior) throw new Error('Missing prior replacement');
+      await extra.page.getByLabel('Device to revoke').selectOption(prior);
+      extra.page.once('dialog',dialog => dialog.accept());
+      await click(extra.page,'Revoke device','Device revoked');
+      await extra.page.getByLabel('New room name').fill('New identity room');
+      await click(extra.page,'Create room','Room created');
+      await click(extra.page,'Apply verified membership','Verified membership applied');
+    } finally { await extra.context.close(); }
+
+  } finally {
+    await Promise.all([lost.context.close(),owner.context.close(),replacement.context.close()]);
+  }
+});

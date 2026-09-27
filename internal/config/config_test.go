@@ -133,3 +133,17 @@ func TestBackupKeepBelowOneIsRefused(t *testing.T) {
 		t.Fatalf("want KY_BACKUP_KEEP error, got %v", err)
 	}
 }
+
+func TestMessagingIdentityResetOptIn(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	for _, value := range []string{"", "false", "true"} {
+		t.Setenv("KY_MESSAGING_IDENTITY_RESET_ENABLED", value)
+		cfg, err := config.LoadFromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Messaging.IdentityResetEnabled != (value == "true") {
+			t.Fatalf("reset opt-in %q", value)
+		}
+	}
+}

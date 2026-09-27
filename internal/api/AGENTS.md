@@ -14,8 +14,11 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   suite session and never issues another. Seal server-owned OIDC state with the
   `messaging-recovery-auth` derived key. Check saved account/session/device/subject,
   callback/state and creation time before exchange; the store rechecks bindings and
-  atomically consumes after verification. Responses explicitly keep identity reset
-  unavailable; success is an audit result, not a future reset grant.
+  atomically consumes after verification. Explicit `confirm_identity_reset` binds the reset intent in both sealed state and
+  the store; the default-off config gate is checked at initiation and callback.
+  Reset consumes fresh authentication in the atomic reset transaction. Its session-bound
+  receipt supports callback retry without another mutation; HTML success redirects
+  only to `/`. Authentication-only success never becomes a later reset grant.
 - `messaging_delivery.go` adds device-gated room state and event append/read routes. Canonicalize and bound base64 envelopes at the HTTP boundary; responses expose only the caller's Welcome. A successful append acknowledges durable opaque storage, not cryptographic validation or recipient delivery.
 - `messaging_key_packages.go` accepts device-authenticated publication (canonical base64, 16 KiB decoded, expiry within seven days) and room-authorized POST claims. The store derives the publishing device from its credential; JSON cannot choose an owner. MLS parsing, credential/key binding and signed lifetime validation remain client responsibilities.
 - POST `/api/auth/change-password` accepts a restricted local session, current password and a different policy-valid new password. Browser CSRF and per-IP/account limits apply. Success revokes all sessions and requires sign-in again; flagged sessions get `password_change_required` on protected routes and public-only settings.

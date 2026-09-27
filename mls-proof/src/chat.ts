@@ -174,15 +174,16 @@ async function render() {
   const own = devices.find(x => x.id === s.device);
   const approvedCount = devices.filter(device => device.status === 'approved').length;
   const recovery = approvedCount === 0
-    ? 'No approved devices remain on this account. This prototype cannot approve a replacement. Keep any surviving browser data; identity reset is not implemented. See recovery help below.'
+    ? 'No approved devices remain. Keep any surviving browser data. A pending replacement can request an identity reset through suite sign-in when the operator enables it. See recovery help below.'
     : own?.status !== 'approved'
-    ? 'Use an accessible approved browser to approve a replacement after comparing its fingerprint. If none can be used, this prototype cannot restore messaging access. See recovery help below.'
+    ? 'Use an accessible approved browser to approve a replacement after comparing its fingerprint. If none can be used, identity reset requires fresh suite authentication and new room invitations. See recovery help below.'
     : approvedCount === 1
     ? 'This is your only approved device. Approve another browser before losing access to this one. A replacement receives future messages, not earlier history.'
     : '';
   element('device-recovery').textContent = recovery;
   element('device-recovery').hidden = recovery === '';
-  element('signed-in').textContent = `${s.identity} · Device ${own?.status ?? 'unknown'}`;
+  element('identity-reset').hidden = !cookieMode || own?.status !== 'pending' || s.room !== null;
+  element('signed-in').textContent = `${s.identity} · Device ${own?.status ?? 'unknown'} · Identity ${own?.identity_generation ?? 'unknown'}`;
   element('account-devices').replaceChildren(...devices.map(x => line('li',`${x.id} · ${x.status}`)));
   options('revoke-device',devices.filter(device => device.status !== 'revoked').map(device => ({id:device.id,label:`${device.id}${device.id === s.device ? ' · This browser' : ''} · ${device.status}`})),'Choose a device to revoke');
   options('pending-device',devices.filter(x => x.status === 'pending').map(x => ({id:x.id,label:x.id})));
@@ -207,8 +208,8 @@ async function render() {
   element('room-title').textContent = room?.name ?? 'A quieter place to talk';
   element('invite-form').hidden = room?.owner !== s.identity;
   element('remove-form').hidden = room?.owner !== s.identity;
-  options('remove-member',members.filter(member => member.id !== s.identity).map(member => ({id:member.id,label:`${member.id} · ${member.status}`})),'Choose a member');
-  element('members').replaceChildren(...members.map(member => line('li',`${member.id} · ${member.status}`)));
+  options('remove-member',members.filter(member => member.id !== s.identity && member.status !== 'removed').map(member => ({id:member.id,label:`${member.id} · ${member.status}`})),'Choose a member');
+  element('members').replaceChildren(...members.map(member => line('li',`${member.id} · ${member.status}${member.identityGeneration !== member.currentIdentityGeneration ? ` · Server reports identity changed from ${member.identityGeneration} to ${member.currentIdentityGeneration}. New invitation and independent fingerprint verification required.` : ''}`)));
   element('room-state').textContent = own?.status === 'revoked'
     ? 'This messaging device was revoked. Earlier local history remains readable here; sending, receiving and re-enrollment are disabled. Another approved device is needed to approve a replacement.'
     : own?.status !== 'approved'
@@ -283,6 +284,15 @@ button('sign-out').addEventListener('click',() => {
     element('suite-account').textContent = 'Signed out. Sign in again to unlock this device.';
   },'Signed out of suite. Local encrypted history remains on this browser.');
 });
+click('identity-reset',async () => {
+  if (!confirm('Reset your messaging identity using this browser? Every earlier device will be revoked. You lose old room membership and ownership; teammates must reinvite you and independently verify this fingerprint. Earlier messages and lost keys cannot be recovered. Continue to fresh suite authentication?')) throw new Error('Identity reset cancelled.');
+  const generation = viewGeneration;
+  const url = await delivery.startIdentityReset();
+  if (generation !== viewGeneration) return;
+  sessionStorage.setItem('kymessages-oidc-return','1');
+  lockLocal();
+  location.assign(url);
+},'Continue with fresh suite authentication.');
 click('refresh',refresh,'Rooms and devices refreshed.');
 form('create-form',async () => { await delivery.createRoom(field('room-name').value.trim()); await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');
@@ -297,7 +307,7 @@ form('account-revocation-form',async () => {
   const target = devices.find(device => device.id === id);
   if (!target) throw new Error('Refresh devices before revoking');
   const current = id === snapshot?.device ? ' This is your current browser; it will retain local history but lose messaging access.' : '';
-  if (!confirm(`Revoke device ${id} (${target.status})?${current} Remaining room members must update encryption. Previously downloaded messages cannot be erased. Revoking every approved device prevents automatic approval of a replacement; identity reset is not implemented.`)) throw new Error('Revocation cancelled.');
+  if (!confirm(`Revoke device ${id} (${target.status})?${current} Remaining room members must update encryption. Previously downloaded messages cannot be erased. Revoking every approved device prevents automatic approval of a replacement; identity reset requires fresh suite authentication and loses old room access and ownership.`)) throw new Error('Revocation cancelled.');
   try { await delivery.revokeAccountDevice(id); } finally { await refresh(); }
 },'Device revoked. Remaining room members must apply verified membership where sending is paused.');
 form('account-approval-form',async () => { await delivery.approveAccountDevice(field('pending-device').value,field('account-fingerprint').value.trim()); field('account-fingerprint').value = ''; await refresh(); },'Own device approved. Refresh on that browser.');

@@ -42,7 +42,10 @@ type MessagingRoom struct {
 	CreatedAt                     int64
 }
 
-type MessagingMember struct{ UserID, Status string }
+type MessagingMember struct {
+	UserID, Status                                string
+	IdentityGeneration, CurrentIdentityGeneration int64
+}
 
 type MessagingStore interface {
 	BeginRecoveryAuthentication(context.Context, MessagingActor, MessagingRecoveryAuthentication) error
@@ -368,14 +371,14 @@ func (m *messagingStore) ListMembers(ctx context.Context, actor MessagingActor, 
 		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_members SET status = status WHERE room_id = ? AND user_id = ? AND status = 'active'`), room, actor.UserID)); err != nil {
 			return err
 		}
-		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT user_id, status FROM messaging_members WHERE room_id = ? AND status <> 'removed' ORDER BY user_id`), room)
+		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT m.user_id, m.status, m.identity_generation, COALESCE(i.generation, 1) FROM messaging_members m LEFT JOIN messaging_identities i ON i.user_id = m.user_id WHERE m.room_id = ? AND (m.status <> 'removed' OR (m.identity_generation <> i.generation AND EXISTS (SELECT 1 FROM messaging_epoch_devices e JOIN messaging_devices d ON d.id = e.device_id WHERE e.room_id = m.room_id AND d.user_id = m.user_id))) ORDER BY m.user_id`), room)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var member MessagingMember
-			if err := rows.Scan(&member.UserID, &member.Status); err != nil {
+			if err := rows.Scan(&member.UserID, &member.Status, &member.IdentityGeneration, &member.CurrentIdentityGeneration); err != nil {
 				return err
 			}
 			members = append(members, member)
