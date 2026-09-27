@@ -116,6 +116,14 @@ without attempting enrollment. Sending and receiving remain disabled. Revoking t
 last approved device leaves new browsers pending; identity reset is not implemented.
 A live account session can still revoke devices even with unresolved local ciphertext.
 
+**Lost a browser or its passphrase?** remains available before unlock. It explains
+replacement approval, revoking lost devices from a pending replacement and the
+limits of server backups. The account banner distinguishes the only approved device,
+a replacement needing approval, and an account with no approved devices. Approval
+status cannot tell whether a listed browser is still accessible. The proposed reset
+contract and acceptance gates live in [the product definition](../docs/PRODUCT.md#losing-every-approved-device);
+the prototype provides guidance, not a reset action.
+
 After removal and a new invitation, **Accept reinvitation** prepares this same
 approved device for a new membership generation. An existing member applies the
 membership change; **Check messages** verifies the new Welcome. Earlier local
@@ -299,7 +307,10 @@ deduplication, lost invitation acknowledgements, second-browser room admission,
 wrong passphrases, lock clearing, mobile overflow and saved themes. The own-device
 cases also cover cancelled revocation, lost revocation replies, automatic detection,
 read-only history after reload, current-browser revocation and a replacement staying
-pending after the last approved device is revoked.
+pending after the last approved device is revoked. Two lost-browser cases prove a
+pending replacement can revoke its inaccessible predecessor without gaining
+approval. Two owner-removal cases cover invitation cancellation, active-member
+removal, lost responses and the required encryption update.
 
 Six renewal cases (three per engine) cover expired cached allocations, lost claims,
 publication acknowledgement loss, reload and delayed Welcomes after renewal,

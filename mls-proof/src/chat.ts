@@ -172,6 +172,16 @@ async function render() {
   element('access').hidden = true;
   element('workspace').hidden = false;
   const own = devices.find(x => x.id === s.device);
+  const approvedCount = devices.filter(device => device.status === 'approved').length;
+  const recovery = approvedCount === 0
+    ? 'No approved devices remain on this account. This prototype cannot approve a replacement. Keep any surviving browser data; identity reset is not implemented. See recovery help below.'
+    : own?.status !== 'approved'
+    ? 'Use an accessible approved browser to approve a replacement after comparing its fingerprint. If none can be used, this prototype cannot restore messaging access. See recovery help below.'
+    : approvedCount === 1
+    ? 'This is your only approved device. Approve another browser before losing access to this one. A replacement receives future messages, not earlier history.'
+    : '';
+  element('device-recovery').textContent = recovery;
+  element('device-recovery').hidden = recovery === '';
   element('signed-in').textContent = `${s.identity} · Device ${own?.status ?? 'unknown'}`;
   element('account-devices').replaceChildren(...devices.map(x => line('li',`${x.id} · ${x.status}`)));
   options('revoke-device',devices.filter(device => device.status !== 'revoked').map(device => ({id:device.id,label:`${device.id}${device.id === s.device ? ' · This browser' : ''} · ${device.status}`})),'Choose a device to revoke');
@@ -253,7 +263,7 @@ function lockLocal() {
   viewGeneration++;
   stopPolling();
   proof.lock(); delivery.disconnect(); opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
-  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members']) element(id).replaceChildren();
+  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery']) element(id).replaceChildren();
   for (const id of ['message','password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
   element('workspace').hidden = true; element('access').hidden = false;

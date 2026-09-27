@@ -144,6 +144,10 @@ test('clickable chat: verified invitation, ciphertext retry, durable history, lo
     expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await alice.page.screenshot({path:`test-results/chat-${test.info().project.name}-mobile-dark.png`,fullPage:true});
     await click(alice.page,'Lock and disconnect','Device locked');
+    await expect(alice.page.locator('#device-recovery')).toBeEmpty();
+    await alice.page.getByText('Lost a browser or its passphrase?',{exact:true}).click();
+    await expect(alice.page.locator('#recovery-help')).toContainText('restoring a server backup cannot recover');
+    await expect(alice.page.locator('#recovery-help')).toContainText('Keep any surviving browser data');
     await expect(alice.page.locator('#messages')).toBeEmpty();
     await expect(alice.page.locator('#own-fingerprint')).toBeEmpty();
     await expect(alice.page.getByLabel('Local passphrase')).toHaveValue('');
@@ -158,15 +162,38 @@ test('clickable chat: verified invitation, ciphertext retry, durable history, lo
   } finally { await alice.context.close(); await bob.context.close(); }
 });
 
+test('a pending replacement can revoke a lost browser without gaining approval',async ({browser}) => {
+  const name = 'ui-lost-' + crypto.randomUUID().slice(0,8);
+  const lost = await start(browser,name);
+  await lost.context.close();
+  const replacement = await start(browser,name);
+  try {
+    await expect(replacement.page.locator('#device-recovery')).toContainText('If none can be used');
+    await replacement.page.getByText('Your devices',{exact:true}).click();
+    const target = await replacement.page.locator('#revoke-device option').filter({hasText:'approved'}).getAttribute('value');
+    if (!target) throw new Error('Missing lost approved device');
+    await replacement.page.getByLabel('Device to revoke').selectOption(target);
+    replacement.page.once('dialog',dialog => dialog.accept());
+    await click(replacement.page,'Revoke device','Device revoked');
+    await expect(replacement.page.locator('#account-devices li').filter({hasText:target})).toContainText('revoked');
+    await expect(replacement.page.locator('#device-recovery')).toContainText('No approved devices remain');
+    await expect(replacement.page.locator('#signed-in')).toContainText('pending');
+    await expect(replacement.page.locator('#approve-own')).toBeDisabled();
+    await expect(replacement.page.locator('#create-form')).toBeHidden();
+  } finally { await replacement.context.close(); }
+});
+
 test('a second browser needs fingerprint-checked approval from its existing device',async ({browser}) => {
   const name = 'ui-device-' + crypto.randomUUID().slice(0,8);
   const first = await start(browser,name);
+  await expect(first.page.locator('#device-recovery')).toContainText('only approved device');
   await first.page.getByLabel('New room name').fill('Shared account room');
   await click(first.page,'Create room','Room created');
   await click(first.page,'Apply verified membership','Verified membership applied');
   const second = await start(browser,name);
   try {
     await expect(second.page.locator('#room-state')).toContainText('needs approval');
+    await expect(second.page.locator('#device-recovery')).toContainText('accessible approved browser');
     await expect(second.page.locator('#create-form')).toBeHidden();
     await click(first.page,'Refresh rooms and devices','Rooms and devices refreshed');
     await first.page.getByText('Your devices',{exact:true}).click();
@@ -179,6 +206,8 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     await click(first.page,'Approve own device','Own device approved');
     await click(second.page,'Refresh rooms and devices','Rooms and devices refreshed');
     await expect(second.page.locator('#signed-in')).toContainText('Device approved');
+    await expect(second.page.locator('#device-recovery')).toBeHidden();
+    await expect(first.page.locator('#device-recovery')).toBeHidden();
     await expect(second.page.locator('#create-form')).toBeVisible();
     await click(second.page,'Open Shared account room','Room selected');
     await click(second.page,'Prepare to join','Ready to join');
@@ -209,6 +238,8 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     await second.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await second.page.clock.runFor(10_000);
     await expect(second.page.locator('#room-state')).toContainText('device was revoked');
+    await expect(second.page.locator('#device-recovery')).toContainText('accessible approved browser');
+    await expect(first.page.locator('#device-recovery')).toContainText('only approved device');
     await expect(second.page.locator('#poll-state')).toContainText('checks stopped');
     await expect(second.page.locator('#send')).toBeDisabled();
     await expect(second.page.locator('#sync')).toBeDisabled();
@@ -235,10 +266,12 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     });
     await click(first.page,'Revoke device','Device revoked');
     await expect(first.page.locator('#room-state')).toContainText('device was revoked');
+    await expect(first.page.locator('#device-recovery')).toContainText('No approved devices remain');
     const replacement = await start(browser,name);
     try {
       await expect(replacement.page.locator('#signed-in')).toContainText('pending');
       await expect(replacement.page.locator('#room-state')).toContainText('needs approval');
+      await expect(replacement.page.locator('#device-recovery')).toContainText('cannot approve a replacement');
       await expect(replacement.page.locator('#approve-own')).toBeDisabled();
     } finally { await replacement.context.close(); }
 

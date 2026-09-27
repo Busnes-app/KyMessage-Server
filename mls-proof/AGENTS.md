@@ -70,6 +70,10 @@ retains the manual wire harness. Root owns product decisions and research in `do
   refresh after lost responses. Revoked keys reopen local history without enrollment,
   stop automatic checks and cannot send or receive. Retain the server tombstone: a
   replacement needs an existing approved device; identity reset is not implemented.
+- Recovery help remains available before unlock. Account-specific guidance uses
+  the refreshed device list and clears on lock; approval never implies that a
+  device is accessible. Follow `docs/PRODUCT.md`'s last-device-loss contract before
+  adding reset. Preserve local data and keep replacements pending in the proof.
 - Room member lists include invited and active accounts. Only the room owner sees
   removal controls; the server independently enforces ownership and forbids owner
   self-removal. Native confirmation names the account and explains the boundary:

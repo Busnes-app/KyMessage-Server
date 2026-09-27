@@ -6,7 +6,7 @@ The folder now has Git metadata. Initial checkpoint `f36cfde` records the scaffo
 product definition, authenticated messaging API and isolated browser prototype.
 Origin is `https://github.com/Busnes-app/KyMessage-Server.git`; GitHub redirected the
 former Yoshiofthewire URL and the local remote now uses the canonical address.
-Verified checkpoints through member-removal commit `2d24b28` were pushed.
+Verified checkpoints through device-revocation commit `b5c6e2c` were pushed.
 No product deployment occurred. Generated TypeScript state and inherited
 `.superpowers/` review scratch are ignored; embedded `web/dist` is tracked.
 
@@ -24,38 +24,47 @@ The proof remains outside the embedded React app and Docker.
 
 ## This slice
 
-The isolated chat UI offers account device revocation, including this browser.
-Native confirmation names the target and explains downloaded history, the required
-room encryption update and the risk of revoking the last approved device. A live
-suite session remains sufficient even with unresolved local outbound ciphertext.
-The UI refreshes after attempts, including lost responses, to show actual status.
+Defined the proposed last-device-loss contract in `docs/PRODUCT.md`: fresh
+interactive suite authentication and replacement-key proof; atomic, idempotent
+identity-generation reset; revocation of old/pending devices; visible identity
+change; fresh room invitations and independent fingerprint comparison; future-only
+history; and a new-room outcome when the owner or final usable group state is lost.
+This is a proposed contract with explicit acceptance gates, not an enabled reset API.
 
-A denied background delivery check refreshes account devices. When revocation is
-observed, automatic checks stop and messaging controls disable. Unlocking a revoked
-browser matches its existing account/key tombstone without enrollment, retaining
-read-only local history. Revoking every approved device leaves replacements pending;
-identity reset is not implemented. The API and server enforcement are unchanged.
+The isolated chat UI now keeps generic recovery help available before unlock. It
+explains how to preserve browser data, approve a replacement from an accessible
+approved browser, and revoke lost devices from a pending replacement. Account
+banners distinguish the only approved device, a replacement needing approval, and
+no remaining approved devices. Approval status does not prove keys are accessible.
+Account-specific text clears on lock. No data deletion or approval bypass was added.
 
 ## Verification
 
-Proof typecheck/build passed. The full HTTP/UI suite passed 23 cases with one
-intentional duplicate cross-engine skip; all 4 OIDC cases passed. Chromium and
-Firefox both cover cancelled revocation, a lost successful revocation response,
-automatic revocation detection, read-only history after reload without enrollment,
-current-browser revocation and a replacement staying pending after the last
-approved device is revoked. `git diff --check` passed. Fixtures stopped normally.
-No dependency or server API changed.
+Proof typecheck/build passed. All eight chat UI cases passed across Chromium and
+Firefox (six existing cases plus two new lost-browser drills); all four OIDC cases
+passed. The new drill closes the only approved browser, enrolls a pending replacement,
+revokes the lost browser through the real API and verifies the replacement stays
+pending. Existing cases verify each recovery banner transition and clearing on lock.
+Mobile overflow assertions passed and the Chromium mobile screenshot was inspected.
+`git diff --check` passed. No server API, cryptography or dependency changed; the
+unchanged protocol-only suite was not repeated locally for this guidance slice.
 
-GitHub CI for the previous member-removal commit `2d24b28` passed in full:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36355022705
+GitHub CI for device-revocation commit `b5c6e2c` passed in full:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36355716547
 That run includes SQLite/PostgreSQL race suites, production browser tests, smoke,
 Docker, vulnerability checks and the MLS job (manual, HTTP/UI and OIDC). Image
 publish/promote were intentionally skipped. Check the current head's own run before
-treating that earlier green result as evidence for this revocation slice.
+treating that earlier green result as evidence for the recovery-guidance slice.
 
 ## Next and limits
 
-WebSocket/push delivery, room switching, device reset UX, retention and restore rollback
+Next recovery step: prove the suite issuer's fresh-authentication binding before
+implementing reset, then introduce identity generations through storage, API and
+client verification under the product contract. The current OIDC fixture proves
+login/callback/CSRF, not reset-grade reauthentication. Reset must not reuse ordinary
+first-device approval or administrator privileges.
+
+WebSocket/push delivery, room switching, identity reset, retention and restore rollback
 reconciliation remain open. Rejoin covers removal followed by reinvitation of the
 same still-approved device; it does not recover revoked devices, retention gaps,
 lost keys, interrupted rejoin followed by another removal, or rolled-back state.
@@ -77,6 +86,6 @@ changes are detected on network requests. Sign-out cannot erase copied secrets.
 
 DOX: updated `mls-proof/AGENTS.md`, proof run instructions and product evidence.
 Root/server/API/store/auth/web contracts intentionally remain unchanged because
-revocation uses their existing authorization and delivery contracts. Child indexes
+this slice only explains their existing authorization and delivery contracts. Child indexes
 remain valid. Mirror this exact checkpoint through myslop-handoff to the existing
 `kymessages-product-definition` folder before closeout.

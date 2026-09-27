@@ -130,6 +130,54 @@ reduce browser risk but cannot remove that trust boundary.
 
 ### Retention and recovery
 
+#### Losing every approved device
+
+Proposed v1 contract; reset is not implemented. The prototype now provides recovery
+help before unlock and reports when only one or no approved device remains. Approval
+status does not prove the device is accessible: an offline or lost browser can still
+be listed as approved. Never infer key loss from absence or inactivity alone.
+
+With a usable approved device, use ordinary fingerprint-checked approval and revoke
+lost devices. Without one, the current prototype permits revocation through a live
+account session, but a replacement stays pending. Preserve surviving browser data;
+an account-password reset or server restore cannot recover the local passphrase,
+MLS secrets or message history. Local history already readable remains readable.
+
+The future **Start a new messaging identity** flow must:
+
+1. Require fresh interactive suite authentication, proof of the replacement key,
+   and explicit confirmation of lost history and changed identity. Bind a single-use
+   request to the account, target key and current identity generation. Ordinary
+   session possession alone cannot complete reset. Validate the deployed issuer's
+   reauthentication behavior before enabling this path.
+2. Atomically advance an account's messaging identity generation, revoke all prior
+   devices and pending enrollments, retire their unclaimed KeyPackages, and audit
+   the old/new generation and replacement fingerprint. Keep historical tombstones;
+   never delete devices to reuse first-enrollment approval. Retry the same request
+   idempotently; stale generations fail without replacing a newer identity.
+3. Make reset visible to remaining room clients. Old device access ends immediately;
+   affected rooms pause until a surviving authorized client commits their removal.
+   A new identity receives no inherited room eligibility or local verification pins.
+   An operator may manage access but cannot vouch for the new decryption key.
+4. Require fresh invitations and independent fingerprint comparison before adding
+   the replacement to future room traffic. Bind the new identity generation to the
+   authenticated MLS application profile so an old approval cannot cross the reset.
+   Rejoining creates a new history floor; it does not transfer earlier messages.
+5. Keep a room paused when no authorized client retains its MLS state. If the lost
+   identity owns the room, require a new room for this first version; ownership
+   transfer and recovering abandoned groups are separate features. The new room
+   needs new invitations and verification, with the history break clearly shown.
+
+Reset exit evidence: a stolen ordinary session cannot reset; concurrent/replayed
+requests cannot reset twice; old and pending devices cannot send, fetch or approve;
+stale packages and identity pins cannot admit the replacement; returning peers see
+the identity change before sending; replacement history excludes the prior identity;
+and loss of the final room state has an explicit new-room outcome. Include lost
+acknowledgements and restored older server metadata in the recovery drill. Until
+these gates pass, expose guidance rather than a reset button or administrative bypass.
+
+#### Retention and server backups
+
 Proposed default: 30-day server ciphertext retention, with 24-hour and 7-day room
 policies. Describe this as retention, not guaranteed auto-burn. Recipients may copy
 content; browser cleanup is best effort. Expired events disappear from active fetch

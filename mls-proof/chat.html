@@ -28,6 +28,7 @@
     </section>
     <div id="workspace" hidden>
       <div class="toolbar"><p id="signed-in"></p><button id="lock" class="secondary">Lock and disconnect</button></div>
+      <p id="device-recovery" class="notice" hidden></p>
       <div class="layout">
         <aside class="card">
           <h2>Rooms</h2><p class="hint">Room names and membership are visible to the server.</p>
@@ -67,6 +68,16 @@
       </div>
       <section class="card fingerprint"><h2>This browser's fingerprint</h2><p>Share this through a separate trusted channel so teammates can verify your device.</p><code id="own-fingerprint"></code></section>
     </div>
+    <details id="recovery-help" class="card">
+      <summary>Lost a browser or its passphrase?</summary>
+      <p>Keep any surviving browser data. Your local passphrase unlocks keys on that browser; resetting your account password or restoring a server backup cannot recover them.</p>
+      <ol>
+        <li>If an approved browser still works, use it to compare and approve a replacement browser's fingerprint. A replacement receives future messages; earlier history is not transferred.</li>
+        <li>For a lost browser, sign in on a separate browser profile, create a device and use Your devices to revoke the lost one. A pending device can revoke your other devices. Ask remaining room members to apply verified membership before sending resumes.</li>
+        <li>If no approved browser can be used, this prototype cannot restore messaging access. A replacement stays pending. Keep readable local history; ask teammates to stop sending to lost devices. Identity reset is not implemented.</li>
+      </ol>
+      <p>The device list reports approval, not whether a browser or its keys are still accessible. Use Refresh rooms and devices after another browser changes approval.</p>
+    </details>
   </main>
 </body>
 </html>
