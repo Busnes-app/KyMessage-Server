@@ -73,7 +73,7 @@ It is a local interactive prototype, excluded from the embedded app and Docker.
    added after both browsers verify each other. It receives future messages only.
 
 **Lock and disconnect** clears the visible transcript, drafts, fingerprints and
-memory-only session/passphrase for the current tab. Other open tabs stay unlocked.
+memory-only session/wrapping key for the current tab. Other open tabs stay unlocked.
 The encrypted vault survives. The theme follows
 OS appearance until a local Light/Dark choice is saved. The UI does not export the
 manual harness's `window.proof` or `window.delivery` test surfaces.
@@ -372,8 +372,11 @@ do not fetch anything from that source.
 - AES-256-GCM seals the whole record with a fresh random 96-bit IV, format-version
   associated data, and a key derived from a user-supplied passphrase using PBKDF2
   SHA-256 (600,000 iterations, random 128-bit salt). Only salt, IV, format version
-  and ciphertext are persisted outside that envelope. The passphrase is memory-only
-  and reload locks the device. This is a proof UX, not the final product unlock design.
+  and ciphertext are persisted outside that envelope. The passphrase is used only
+  during setup/unlock. A non-extractable wrapping key
+  stays in the unlocked tab and is cleared on lock; pending unlock completion cannot
+  reopen it. Neither secret is persisted. This reduces repeated password derivation
+  during reads/writes while preserving the same encrypted format. Reload locks the device. This is a proof UX, not the final product unlock design.
 - Web Locks serializes tabs sharing that one device. Each operation reloads the
   latest record under the lock, runs MLS, then waits for the strict IndexedDB write
   transaction to complete. Different profiles never share secret storage.

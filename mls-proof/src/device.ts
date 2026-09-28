@@ -15,13 +15,14 @@ import { processPrivateMessage } from 'ts-mls/processMessages.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { mlsExporter } from 'ts-mls/keySchedule.js';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
-import { base64, unbase64, initializeVault, withVault, type DeviceRecord } from './vault';
+import { base64, unbase64, initializeVault, unlockVault, withVault, type UnlockedVault, type DeviceRecord } from './vault';
 import { accountID } from './delivery-wire';
 
 export const encoder = new TextEncoder();
 export const decoder = new TextDecoder('utf-8', { fatal: true });
 export const suite = getCiphersuiteImpl(getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
-let passphrase: string | null = null;
+let unlocked: UnlockedVault | null = null;
+let unlockGeneration = 0;
 
 export function decode<T>(wire: string, codec: Decoder<T>): T {
   const bytes = unbase64(wire);
@@ -70,8 +71,8 @@ function idle(record: DeviceRecord) {
 }
 
 export function run<T>(action: (record: DeviceRecord) => Promise<T>): Promise<T> {
-  if (passphrase === null) throw new Error('Device locked');
-  return withVault(passphrase, action);
+  if (unlocked === null) throw new Error('Device locked');
+  return withVault(unlocked, action);
 }
 
 async function stage(record: DeviceRecord, proposals: Proposal[]) {
@@ -101,7 +102,9 @@ export const proof = {
 
   async initialize(identity: string, password: string) {
     accountID(identity);
-    const wire = await initializeVault(password, async () => {
+    const generation = ++unlockGeneration;
+    unlocked = null;
+    const created = await initializeVault(password, async () => {
       const keys = await generateKeyPackage(
         { credentialType: 'basic', identity: encoder.encode(identity) },
         defaultCapabilities(), defaultLifetime, [], await suite,
@@ -117,17 +120,20 @@ export const proof = {
         pins: [pinFor(wire)], state: null, pending: null, inbox: [], outbox: [], cursor: 0, received: [], awaitingCommit: false,
       };
     });
-    passphrase = password;
-    return wire;
+    if (generation !== unlockGeneration) throw new Error('Device locked during setup');
+    unlocked = created.unlocked;
+    return created.wire;
   },
 
   async unlock(password: string) {
-    passphrase = null;
-    await withVault(password, async record => record.identity);
-    passphrase = password;
+    const generation = ++unlockGeneration;
+    unlocked = null;
+    const next = await unlockVault(password);
+    if (generation !== unlockGeneration) throw new Error('Device locked during unlock');
+    unlocked = next;
   },
 
-  lock() { passphrase = null; },
+  lock() { unlockGeneration++; unlocked = null; },
 
   async inspectKeyPackage(wire: string) {
     const pin = pinFor(wire);

@@ -1,5 +1,5 @@
 // Experiment only: one device per browser profile, one encrypted IndexedDB record.
-// A user-supplied passphrase stays in memory; the wrapping key is never persisted.
+// Unlock derives a non-extractable wrapping key once; neither it nor the passphrase is persisted.
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const aad = encoder.encode('kymessages-mls-proof/v1');
@@ -114,30 +114,46 @@ async function derive(passphrase: string, salt: Uint8Array<ArrayBuffer>): Promis
   );
 }
 
-// The MLS ratchet is one shared invariant. Separate profiles own separate records;
-// tabs of the SAME device lock, reload, transform, and atomically replace its record.
-export async function withVault<T>(passphrase: string, action: (record: DeviceRecord) => Promise<T>): Promise<T> {
+// The wrapping key lives only in the unlocked tab. Salt binds it to this envelope.
+export type UnlockedVault = { key: CryptoKey; salt: string };
+function envelope(value: unknown) {
+  const e = object(value);
+  const salt = unbase64(e.salt), iv = unbase64(e.iv);
+  if (e.version !== 1 || salt.length !== 16 || iv.length !== 12) throw new Error('Invalid vault envelope');
+  return {salt,iv,ciphertext:unbase64(e.ciphertext)};
+}
+async function decrypt(e: ReturnType<typeof envelope>, key: CryptoKey) {
+  const plaintext = await crypto.subtle.decrypt({name:'AES-GCM',iv:e.iv,additionalData:aad},key,e.ciphertext);
+  try {
+    const parsed: unknown = JSON.parse(decoder.decode(plaintext));
+    return parseRecord(parsed);
+  } finally { new Uint8Array(plaintext).fill(0); }
+}
+export async function unlockVault(passphrase: string): Promise<UnlockedVault> {
   return navigator.locks.request(databaseName, async () => {
     const db = await openDatabase();
     try {
-      const envelope = object(await read(db));
-      if (envelope.version !== 1) throw new Error('Unknown vault version');
-      const salt = unbase64(envelope.salt);
-      const iv = unbase64(envelope.iv);
-      if (salt.length !== 16 || iv.length !== 12) throw new Error('Invalid vault salt/IV');
-      const key = await derive(passphrase, salt);
-      const plaintext = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv, additionalData: aad }, key, unbase64(envelope.ciphertext),
-      );
-      const parsed: unknown = JSON.parse(decoder.decode(plaintext));
-      new Uint8Array(plaintext).fill(0);
-      const record = parseRecord(parsed);
+      const e = envelope(await read(db));
+      const key = await derive(passphrase,e.salt);
+      await decrypt(e,key); // Authenticate storage before retaining the key.
+      return {key,salt:base64(e.salt)};
+    } finally { db.close(); }
+  });
+}
+
+// The MLS ratchet is one shared invariant. Separate profiles own separate records;
+// tabs of the SAME device lock, reload, transform, and atomically replace its record.
+export async function withVault<T>(unlocked: UnlockedVault, action: (record: DeviceRecord) => Promise<T>): Promise<T> {
+  return navigator.locks.request(databaseName, async () => {
+    const db = await openDatabase();
+    try {
+      const e = envelope(await read(db));
+      if (base64(e.salt) !== unlocked.salt) throw new Error('Vault replaced; lock and unlock again');
+      const record = await decrypt(e,unlocked.key);
       const result = await action(record);
-      await seal(db, record, salt, key);
+      await seal(db, record, e.salt, unlocked.key);
       return result; // Never release wire bytes before the ratchet/outbox commit.
-    } finally {
-      db.close();
-    }
+    } finally { db.close(); }
   });
 }
 
@@ -163,7 +179,7 @@ export async function initializeVault(passphrase: string, create: () => Promise<
       const key = await derive(passphrase, salt);
       const record = await create();
       await seal(db, record, salt, key);
-      return record.keyPackage;
+      return {wire:record.keyPackage, unlocked:{key,salt:base64(salt)}};
     } finally {
       db.close();
     }

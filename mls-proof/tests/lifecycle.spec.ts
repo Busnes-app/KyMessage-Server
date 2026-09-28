@@ -266,3 +266,44 @@ test('manual proof UI uses the production CSP and does not make relay requests',
   expect(requests).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('unlock derives once and a lock cancels a late unlock', async ({page}) => {
+  await page.goto('/');
+  await page.waitForFunction(() => Boolean(window.proof));
+  const result = await page.evaluate(async password => {
+    const derive = crypto.subtle.deriveKey.bind(crypto.subtle);
+    let calls = 0;
+    crypto.subtle.deriveKey = (...args) => { calls++; return derive(...args); };
+    try {
+      await window.proof.initialize('unlock-lifecycle',password);
+      await window.proof.status();
+      await window.proof.status();
+      const afterActions = calls;
+      window.proof.lock();
+      await window.proof.unlock(password);
+      await window.proof.status();
+      const afterUnlock = calls;
+      let release!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      let reached!: () => void;
+      const entered = new Promise<void>(resolve => { reached = resolve; });
+      crypto.subtle.deriveKey = async (...args) => {
+        const key = await derive(...args);
+        reached();
+        await held;
+        return key;
+      };
+      const late = window.proof.unlock(password).then(() => 'unexpected unlock', error => String(error));
+      await entered;
+      window.proof.lock();
+      release();
+      const lateResult = await late;
+      const status = await window.proof.status().then(() => 'unexpected access', error => String(error));
+      return {afterActions,afterUnlock,lateResult,status};
+    } finally { crypto.subtle.deriveKey = derive; window.proof.lock(); }
+  },password);
+  expect(result.afterActions).toBe(1);
+  expect(result.afterUnlock).toBe(2);
+  expect(result.lateResult).toContain('Device locked during unlock');
+  expect(result.status).toContain('Device locked');
+});

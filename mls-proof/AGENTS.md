@@ -19,6 +19,9 @@ retains the manual wire harness. Root owns product decisions and research in `do
   traffic through the real Go API.
 - Persist each device's state separately. Any serialization of access to one device
   must reflect the real invariant that its ratchet can have only one current state.
+- Derive the non-extractable AES wrapping key only at setup/unlock; retain no
+  passphrase between operations and never persist the key. Lock invalidates pending
+  unlock/setup results so late KDF completion cannot reopen a locked device.
 - Persist ratchet, outbox, history and cursor in one encrypted IndexedDB record;
   release outbound bytes and received plaintext only after transaction completion.
 - A discarded private commit requires applying a winning commit before further
@@ -91,7 +94,7 @@ retains the manual wire harness. Root owns product decisions and research in `do
 - Persist sent/received transcript entries and pending send text only inside the
   encrypted vault, atomically with cursor/outbox changes. The wire request contains
   ciphertext only. Server acceptance is not a read receipt. Lock clears visible
-  history, drafts, fingerprints and the in-memory connection/passphrase; the OIDC
+  history, drafts, fingerprints and the in-memory connection/wrapping key; the OIDC
   cookie remains until the separate suite sign-out action.
 - Automatic receive checks wait 10 seconds between completed operations in an unlocked,
   visible, online chat tab with a selected room and no pending send. Serialize
