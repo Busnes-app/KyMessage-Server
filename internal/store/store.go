@@ -84,6 +84,7 @@ type GroupStore interface {
 type AuditStore interface {
 	LogAudit(ctx context.Context, r *AuditRecord) error
 	ListAuditRecords(ctx context.Context, offset, limit int) ([]*AuditRecord, int, error)
+	LatestAuditRecord(ctx context.Context, action string) (*AuditRecord, error)
 }
 
 // SettingsStore handles persistent key-value configuration.

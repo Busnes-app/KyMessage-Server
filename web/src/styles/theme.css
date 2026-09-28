@@ -290,7 +290,8 @@ dialog.modal-window::backdrop {
 .dr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .dr-header h1 { font-size: 24px; font-weight: 700; }
 .dr-section { margin-bottom: 20px; }
-.dr-section h3 { font-size: 16px; display: inline-flex; align-items: center; gap: 8px; }
+.dr-section > .panel-header { flex-wrap: wrap; gap: 12px; }
+.dr-section h3 { flex-shrink: 0; font-size: 16px; display: inline-flex; align-items: center; gap: 8px; }
 .dr-mono { font-family: var(--font-mono); }
 .dr-hint { color: var(--ink); font-size: 13px; margin: 0 0 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .dr-danger { color: var(--danger); }

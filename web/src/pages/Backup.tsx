@@ -30,6 +30,23 @@ export interface LocalCopy {
   created_at: string;
 }
 
+interface BackupAttempt {
+  outcome: 'success' | 'warning' | 'failure' | 'unknown';
+  trigger: 'scheduled' | 'cli' | 'admin';
+  recorded_at: string;
+  capsule_id: string;
+}
+
+function backupAttempt(value: unknown): BackupAttempt | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null ||
+    !('outcome' in value) || (value.outcome !== 'success' && value.outcome !== 'warning' && value.outcome !== 'failure' && value.outcome !== 'unknown') ||
+    !('trigger' in value) || (value.trigger !== 'scheduled' && value.trigger !== 'cli' && value.trigger !== 'admin') ||
+    !('recorded_at' in value) || typeof value.recorded_at !== 'string' || !Number.isFinite(Date.parse(value.recorded_at)) ||
+    !('capsule_id' in value) || typeof value.capsule_id !== 'string') throw new Error('Invalid backup attempt status');
+  return { outcome: value.outcome, trigger: value.trigger, recorded_at: value.recorded_at, capsule_id: value.capsule_id };
+}
+
 export interface BackupStatus {
   paired: boolean;
   key_pinned: boolean;
@@ -44,6 +61,8 @@ export interface BackupStatus {
   threshold?: number;
   total_shares?: number;
   last_deposit?: DepositReceipt;
+  last_run?: BackupAttempt;
+  last_run_error?: string;
   local_dir?: string;
   local_keep?: number;
   local_copies?: LocalCopy[];
@@ -168,7 +187,8 @@ export const Backup: React.FC = () => {
     setStatusError('');
     try {
       const data = await call<BackupStatus>('/api/backup/status', { method: 'GET' }, 'Could not load backup status');
-      setStatus(data);
+      if (data.last_run_error !== undefined && typeof data.last_run_error !== 'string') throw new Error('Invalid backup result error');
+      setStatus({ ...data, last_run: backupAttempt(data.last_run) });
       if (data.recovery_url) setRemoteUrl(data.recovery_url);
       if (typeof data.interval_sec === 'number') setScheduleSec(data.interval_sec);
     } catch (err) {
@@ -342,6 +362,7 @@ export const Backup: React.FC = () => {
       </div>
 
       {statusError && <Alert kind="error">{statusError}</Alert>}
+      {status?.last_run_error && <Alert kind="error">{status.last_run_error}</Alert>}
       {status?.recovery_key_error && <Alert kind="error">{status.recovery_key_error}</Alert>}
       {status && status.database_driver !== 'sqlite' && (
         <Alert kind="warn">
@@ -393,6 +414,15 @@ export const Backup: React.FC = () => {
           <div className="dr-fact-note">Counts from the last attempt, successful or not</div>
         </div>
       </div>
+
+      {status?.last_run ? (
+        <Alert kind={status.last_run.outcome === 'success' ? 'success' : status.last_run.outcome === 'failure' ? 'error' : 'warn'}>
+          Last recorded backup attempt: {{ success: 'Succeeded', warning: 'Needs attention', failure: 'Failed', unknown: 'Outcome unavailable' }[status.last_run.outcome]}
+          {' — '}{status.last_run.trigger}, {when(status.last_run.recorded_at)}.
+          {status.last_run.outcome !== 'success' && ' Check the service logs for details; existing copies are listed above.'}
+          {status.last_run.capsule_id && <> Capsule: <code>{status.last_run.capsule_id}</code>.</>}
+        </Alert>
+      ) : status && !status.last_run_error && <p className="text-muted">No recorded backup attempts.</p>}
 
       <div className="panel dr-section">
         <div className="panel-header">

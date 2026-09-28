@@ -207,6 +207,7 @@ jobs:
       - run: shellcheck scripts/*.sh
       - run: go build -o kymessages ./cmd/server
       - run: scripts/smoke-test.sh
+      - run: python3 scripts/backup-acceptance.py
 
   docker:
     name: Docker image build & run

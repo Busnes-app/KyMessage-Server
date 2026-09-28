@@ -33,6 +33,24 @@ afterEach(() => {
 });
 
 describe('Backup', () => {
+  it('shows a failed scheduled attempt even when an older remote receipt exists', async () => {
+    mockStatus({ ...PAIRED,
+      last_deposit: { capsule_id: 'old', digest: 'abc', size_bytes: 100, deposited_at: '2026-09-26T12:00:00Z' },
+      last_run: { outcome: 'failure', trigger: 'scheduled', recorded_at: '2026-09-27T12:00:00Z', capsule_id: '' },
+    });
+    render(<Backup />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Last recorded backup attempt: Failed');
+    expect(screen.getByRole('alert').textContent).toContain('scheduled');
+    expect(screen.getByText(/Last deposit/)).toBeTruthy();
+  });
+
+  it('rejects a malformed attempt instead of showing success', async () => {
+    mockStatus({ ...PAIRED, last_run: { outcome: 'success', trigger: 'scheduled', recorded_at: 'bad', capsule_id: '' } });
+    render(<Backup />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Invalid backup attempt status');
+    expect(screen.queryByText(/Last recorded backup attempt: Succeeded/)).toBeNull();
+  });
+
   it('warns when a key is pinned but there is no destination', async () => {
     mockStatus({ key_pinned: true, paired: false, interval_sec: 0, recovery_key_id: 'k1', threshold: 2, total_shares: 3, database_driver: 'sqlite', members: [] });
     render(<Backup />);

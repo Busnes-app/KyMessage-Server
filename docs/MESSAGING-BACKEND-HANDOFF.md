@@ -266,3 +266,26 @@ screen's last remote receipt can conceal a later scheduled failure. Remaining
 client bounds, browser/deployment evidence and measured resource limits also stay
 open. Product packaging CI `e27924f` is green. Root/proof DOX updated; production
 API/store/web contracts remain unchanged in this isolated test slice.
+
+Backup status checkpoint: migration 13 indexes audit action/insertion ID; status
+reads the latest recorded backup attempt from the existing append-only audit log.
+It reports outcome/trigger/time/capsule ID, never raw remote errors. Partial local
+or receipt failures show warnings; legacy records stay unknown. The UI separates
+this result from older successful remote receipts and validates the new fields.
+Backup controls wrap naturally on small screens.
+
+`scripts/backup-acceptance.py` runs the built binary with a minimal environment,
+owned loopback port and disposable SQLite/local directories (~3 minutes). Real
+ticks prove admin schedule override, scheduled local sealing, injected destination
+failure, retry timing, turning the scheduler off, manual runs, product identity,
+0600 copies, pruning and clean shutdown. Only its own scratch last-attempt row is
+aged for the failure case. It uses a public test key, no shares or remote service.
+The check passed and is added to the smoke CI job.
+
+Verification: full store/API/cmd race suites and vet pass; latest-result tests also
+pass on disposable PostgreSQL 17. Nine frontend tests and four production-browser
+cases pass with actual local sealing and responsive screenshots. Generated assets
+are rebuilt. Root/store/API/web/browser DOX updated; other contracts/indexes unchanged.
+CI through `280ebcf` is green. Deployment and independent crypto review remain open.
+Next: local transcript capacity and constrained-host acceptance; do not mistake the
+isolated client's existing bounds for measured small-team capacity.

@@ -225,6 +225,7 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 10, Name: "messaging_scoped_packages", SQLite: messagingScopedPackageSchema, Postgres: messagingScopedPackageSchema},
 	{Version: 11, Name: "messaging_direct_rooms", SQLite: messagingDirectRoomSchema, Postgres: messagingDirectRoomSchema},
 	{Version: 12, Name: "messaging_retention", SQLite: messagingRetentionSchema, Postgres: messagingRetentionSchema},
+	{Version: 13, Name: "audit_latest_action", SQLite: `CREATE INDEX idx_audit_action_id ON audit_records(action, id);`, Postgres: `CREATE INDEX idx_audit_action_id ON audit_records(action, id);`},
 }
 
 // Run executes all pending migrations for the specified database driver.

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -803,6 +804,21 @@ ORDER BY g.display_name ASC
 
 type auditStore struct {
 	store *SQLStore
+}
+
+// LatestAuditRecord uses insertion order, including when the wall clock moves back.
+func (a *auditStore) LatestAuditRecord(ctx context.Context, action string) (*AuditRecord, error) {
+	q := a.store.rebind(`SELECT id, user_id, action, resource, details, ip_address, created_at
+FROM audit_records WHERE action = ? ORDER BY id DESC LIMIT 1`)
+	var r AuditRecord
+	err := a.store.db.QueryRowContext(ctx, q, action).Scan(&r.ID, &r.UserID, &r.Action, &r.Resource, &r.Details, &r.IPAddress, &r.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 func (a *auditStore) LogAudit(ctx context.Context, r *AuditRecord) error {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 async function fits(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -85,6 +86,22 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   expect(cachedDynamic).toBe(false);
   expect(violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('settings.png'), fullPage: true });
+  const fixture = JSON.parse(await readFile(new URL('../../internal/backup/testdata/pairing-v050.json', import.meta.url), 'utf8'));
+  const pinned = await page.evaluate(async publicKey => {
+    const csrf = document.cookie.split('; ').find(cookie => cookie.startsWith('ky_csrf='))?.slice('ky_csrf='.length);
+    const response = await fetch('/api/backup/pin-key', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf ?? '' },
+      body: JSON.stringify({ public_key: publicKey, threshold: 2, total_shares: 3 }),
+    });
+    return response.status;
+  }, fixture.PublicKey);
+  expect(pinned).toBe(200);
+  await nav.getByRole('button', { name: 'Backup & recovery' }).click();
+  await page.getByRole('button', { name: 'Back up now', exact: true }).click();
+  await expect(page.getByText(/Last recorded backup attempt: Succeeded/)).toBeVisible();
+  await fits(page);
+  await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
+  expect(violations).toEqual([]);
   await context.setOffline(true);
   const offline = await page.reload();
   expect(offline.ok()).toBe(true);

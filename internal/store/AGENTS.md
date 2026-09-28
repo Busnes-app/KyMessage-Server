@@ -7,6 +7,11 @@ Provides the unified Database Abstraction Layer (DAL) supporting pluggable backe
 Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `MessagingStore`, `GroupStore`, `AuditStore`, `SettingsStore`), dialect translations, and schema migrations.
 
 ## Local Contracts
+- `AuditStore.LatestAuditRecord(action)` reads the latest inserted row for one
+  exact action, returning `ErrNotFound` when absent. Migration 13 indexes `(action,
+  id)`; insertion order handles timestamp ties/backwards clocks without scanning
+  unrelated activity. Backup status reads this append-only source, not a second
+  shared last-result setting.
 - `MessagingStore` owns migration 5's messaging device registry and room ACLs, separate from push/QR device pairing. Each operation rechecks the active suite-only account and live session in its transaction; device-gated operations additionally check the approved device token hash.
 - Serialize messaging operations through a non-key update of the acting user row, then the session and relevant room/member rows. Keep the user update compatible with PostgreSQL foreign-key key-share locks; cross-invitations must not take a second account write lock.
 - Only the first successfully verified device bootstraps trust. Retain verified-device tombstones after revocation so losing every device cannot silently bootstrap a replacement. Mutations and their success audits commit together.

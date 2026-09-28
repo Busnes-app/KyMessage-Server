@@ -501,6 +501,29 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 	if last, ok, err := recoveryclient.LastDeposit(settings); err == nil && ok {
 		out["last_deposit"] = last
 	}
+	if last, err := s.store.Audit().LatestAuditRecord(ctx, "admin.backup_run"); err == nil {
+		outcome := "unknown"
+		if strings.HasPrefix(last.Details, `outcome="success" `) {
+			outcome = "success"
+			if strings.Contains(last.Details, " local_error=") || strings.Contains(last.Details, " receipt_unrecorded=") {
+				outcome = "warning"
+			}
+		} else if strings.HasPrefix(last.Details, `outcome="failure" `) {
+			outcome = "failure"
+		}
+		trigger := "admin"
+		if last.UserID == "system" {
+			trigger = "scheduled"
+		} else if last.UserID == "cli" {
+			trigger = "cli"
+		}
+		// Reuse the append-only audit source; no second shared last-result setting.
+		// Expose only classified metadata, never raw remote error text or credentials.
+		out["last_run"] = map[string]any{"outcome": outcome, "trigger": trigger,
+			"recorded_at": last.CreatedAt, "capsule_id": last.Resource}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		out["last_run_error"] = "Could not read the latest backup result"
+	}
 	if s.config.Backup.Dir != "" {
 		out["local_dir"] = s.config.Backup.Dir
 		out["local_keep"] = s.config.Backup.Keep

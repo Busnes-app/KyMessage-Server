@@ -97,7 +97,9 @@ instance; the current operator-console preview is not an encrypted-chat release:
 Pin the suite public key manually or pair with KyRecovery, and compare its fingerprint
 with the ceremony record. A pinned key needs at least one destination: local directory
 or KyRecovery. One backup run seals once for both destinations and checks the remote
-receipt digest. The backup screen shows destination, schedule and results. Unpairing
+receipt digest. The backup screen shows destinations, schedule and the latest recorded attempt,
+including scheduled/local-only failures and partial-success warnings. The last
+successful remote receipt stays separate. Unpairing
 keeps the key pin and local copies; separately revoke the product token at KyRecovery.
 Never put custodian shares into the running server.
 
@@ -113,5 +115,7 @@ for its existing token/capsules; changing the default does not change KyRecovery
 server smoke checks. `make test-postgres` needs a disposable PostgreSQL 17 instance.
 See [web/AGENTS.md](web/AGENTS.md) for production-CSP, keyboard and responsive browser
 checks and [mls-proof/README.md](mls-proof/README.md) for the isolated crypto suites.
-CI also builds/runs the container, checks dependencies and verifies committed frontend
+The smoke CI job also runs `python3 scripts/backup-acceptance.py`, a three-minute
+disposable test of actual scheduler ticks, local-copy failures and live schedule
+changes. CI builds/runs the container, checks dependencies and verifies committed frontend
 assets. It publishes no image while the first-release gates remain open.

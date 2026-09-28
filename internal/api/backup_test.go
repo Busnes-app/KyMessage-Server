@@ -107,6 +107,41 @@ func TestPinKeyIsWriteOnce(t *testing.T) {
 	}
 }
 
+func TestStatusShowsLatestBackupAttemptWithoutExposingAuditDetails(t *testing.T) {
+	srv, st, _ := setupTestServer(t)
+	session := loginAs(t, srv, st, "alice", "admin")
+	if _, ok := statusOf(t, srv, session)["last_run"]; ok {
+		t.Fatal("fresh instance reports a backup attempt")
+	}
+	ctx := context.Background()
+	for i, tc := range []struct {
+		actor, trigger, outcome, details string
+	}{
+		{"system", "scheduled", "success", api.AuditDetails(map[string]any{"outcome": "success", "capsule_id": "local-copy"})},
+		{"system", "scheduled", "failure", api.AuditDetails(map[string]any{"outcome": "failure", "error": "private-test-detail"})},
+		{"cli", "cli", "warning", api.AuditDetails(map[string]any{"outcome": "success", "local_error": "private-test-detail"})},
+		{"usr_alice", "admin", "warning", api.AuditDetails(map[string]any{"outcome": "success", "receipt_unrecorded": "private-test-detail"})},
+		{"system", "scheduled", "unknown", `legacy result private-test-detail`},
+	} {
+		// A backwards clock and unrelated newer events must not hide the latest attempt.
+		at := time.Now().UTC().Add(-time.Duration(i) * time.Hour)
+		if err := st.Audit().LogAudit(ctx, &store.AuditRecord{UserID: tc.actor, Action: "admin.backup_run", Resource: "capsule-test", Details: tc.details, CreatedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Audit().LogAudit(ctx, &store.AuditRecord{Action: "unrelated", Details: "private-test-detail"}); err != nil {
+			t.Fatal(err)
+		}
+		status := statusOf(t, srv, session)
+		last, ok := status["last_run"].(map[string]any)
+		if !ok || last["outcome"] != tc.outcome || last["trigger"] != tc.trigger || last["capsule_id"] != "capsule-test" {
+			t.Fatalf("attempt %d: %+v", i, last)
+		}
+		if raw, _ := json.Marshal(status); bytes.Contains(raw, []byte("private-test-detail")) {
+			t.Fatal("status exposed raw audit details")
+		}
+	}
+}
+
 func TestPinKeyBadTopology(t *testing.T) {
 	srv, st, _ := setupSQLiteServer(t)
 	session := loginAs(t, srv, st, "alice", "admin")
@@ -190,6 +225,10 @@ func TestRunWritesLocalCopy0600(t *testing.T) {
 	copies, _ := status["local_copies"].([]any)
 	if status["paired"] != false || status["key_pinned"] != true || len(copies) != 1 || status["local_dir"] != cfg.Backup.Dir {
 		t.Errorf("status %v", status)
+	}
+	last, ok := status["last_run"].(map[string]any)
+	if !ok || last["outcome"] != "success" || last["capsule_id"] != res.Manifest.CapsuleID {
+		t.Fatalf("local-only backup result missing: %v", last)
 	}
 }
 

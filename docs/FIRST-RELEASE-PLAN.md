@@ -48,9 +48,10 @@ prototype test is not production approval.
    expired ciphertext, invalidates restored grants and permanently retires old rooms.
    Fresh identity recovery and new rooms avoid resuming stale MLS state. A real
    sealed-capsule round trip and SQLite/PostgreSQL grant-policy tests pass. Product
-   identity wiring is implemented; schedule/local-copy/receipt acceptance and deployed
-   verification remain open; the backup screen still needs a persistent scheduled
-   outcome (a last remote receipt does not show a newer failed attempt); the source-build restore runbook records the implemented recovery policy.
+   identity wiring and local scheduled-backup acceptance are implemented. The screen
+   reports the latest recorded attempt separately from an older remote receipt.
+   A running-server drill covers live schedule changes, failure retry timing, local
+   copies/pruning and shutdown. Live remote-deposit/deployment checks remain open; the source-build restore runbook records the implemented recovery policy.
 6. **Release evidence — open.** Run CI on both database engines, production browser
    regressions, dependency checks, recovery drills, declared-host load tests and
    protocol/application-binding security review. Record actual supported browsers
@@ -67,7 +68,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `e27924f`; current implementation remains a server scaffold plus
+- CI green through `280ebcf`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -95,3 +96,9 @@ to RFC 9420 capability handling. This dependency defect and the custom GroupInfo
 application profile remain open gates. Reproduction and exact pins are recorded in
 `MLS-INTEROP-RESEARCH.md`; no cryptographic dependency or signed incoming bytes were
 patched. The ordinary 18 browser lifecycle tests still pass.
+
+Backup outcome evidence: SQLite/PostgreSQL tests cover latest-action reads despite
+clock rollback/unrelated activity, partial success and raw-detail exclusion. Full
+store/API/cmd race suites and vet pass. Nine frontend tests and four real-server
+Chromium cases pass, including local sealing and narrow/wide light/dark backup UI.
+The three-minute scheduler acceptance check passes and now runs in CI.

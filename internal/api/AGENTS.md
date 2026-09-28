@@ -47,6 +47,12 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - Non-API routes fall back to serving `web.Handler()` for client-side SPA routing.
 - New routes are unauthenticated only by deliberate choice; privileged ones are registered wrapped in `s.requireAdmin` in `routes()`, so the trust level of every route is readable in one place.
 - Backup capsule/status versions use `config.AppVersion`, shared with the CLI.
+- Backup status includes the latest recorded `admin.backup_run` as `last_run`:
+  outcome, trigger, recorded timestamp and capsule ID only. Classify the known audit
+  prefix; legacy formats are unknown and partial destination/receipt failures are
+  warnings. Keep raw audit/error details out of this DTO. A failed audit lookup is
+  a visible `last_run_error`, not an invented success or empty history. This result
+  is separate from the last successful remote receipt.
 - Backup routes and theme writes are admin-only: capsules and settings carry site data and secrets. The scaffold has no step-up; admin-only plus `TestPrivilegedEndpointsRequireAdmin` is its equivalent for every destructive backup route. Routes are registered with method patterns, and because the SPA catch-all answers any method, tests pin that a wrong method never reaches a backup handler rather than expecting 405.
 
 | Method | Path | Handler | Response |

@@ -130,6 +130,11 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
+- `scripts/backup-acceptance.py` starts its own loopback process and disposable
+  SQLite/local-copy directories. It exercises real scheduler ticks (~3 minutes),
+  live schedule changes, local-destination failure/retry timing, pruning and
+  shutdown. Time injection changes only its scratch database's last-attempt row.
+  No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
 - Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
