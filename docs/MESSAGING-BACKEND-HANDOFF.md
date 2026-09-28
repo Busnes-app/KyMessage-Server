@@ -92,30 +92,36 @@ Store/API/web/browser DOX updated; root/index ownership remains unchanged.
 All eight CI jobs passed for `1bddf96` (run 36372268213). Production client
 integration still depends on reviewed cryptographic/application bindings.
 
-## Security review stopping point
+## Self-review fixes
 
-Local review baseline: `1bddf9659933124d142353f1415fd0ffc8cdc56d`. Reconnaissance
-is complete; hunting is incomplete because authentication/client agents terminated
-with tooling cybersecurity-risk flags. No confirmed findings or completed audit.
-Artifacts: `/home/yoshi/security-audit-skill/KyMessage-Server/run-1/` contains
-architecture.md, incomplete REPORT.md, FINDINGS-DETAIL.md and empty findings.json.
-The empty array means no validated findings yet, not a clean security assessment.
+User reminder: we are reviewing our own work. Separate reviewers can challenge
+findings, but this does not fulfill the external cryptographic assessment.
 
-Next: reproduce Lock during a delayed `signedInAccount()` response in the isolated
-chat access form. The candidate is that unlock begins after Lock, leaving the vault
-key live although UI generation suppresses the result. Check actual state/impact
-before fixing. Then reproduce the allowed-message-storage versus 64-MiB capsule
-per-file limit: the single SQLite snapshot may outgrow backups within member
-quotas. The existing oversized-export test uses direct SQL, so the full member
-request chain and independent validation are still missing. Legacy pairing
-count/cleanup was only an initial lead; no demonstrated impact.
+- `b5ff3e7` fixes snapshot capacity from delivery payloads: blank event/KeyPackage
+  payloads, expire packages, remove Welcomes and advance retention floors only in
+  the private snapshot, then compact. Keep retry metadata, topology and audits.
+  Three bounded rooms previously produced 74,539,008 bytes (>64 MiB); regression
+  now proves actual sealing, snapshot integrity and unchanged live data/counters.
+  Reject oversized remaining metadata before allocating the file; export/drill
+  return 413. Metadata growth and full-database scratch disk remain constraints.
+- Stale setup after cross-tab removal is fixed by checking view generation after
+  account lookup, before starting setup/unlock. The real two-tab OIDC regression
+  failed with one recreated IndexedDB entry before the fix; afterward zero remains
+  and subsequent explicit setup still works. All ten Chromium/Firefox OIDC cases
+  pass. This recreated fresh keys only; it never restored deleted keys/history.
+- Reject the original Lock-button confidentiality claim: the button is hidden
+  during access. Actual navigate-away/back checks reloaded locked documents.
+- Full backup/API/cmd race suites and vet pass; additional projection/sealing and
+  oversized export/drill regressions pass. Separate reviewers checked both fixes.
+  Backup/API/proof DOX now reflect behavior; root records self-review evidence
+  limits. Child indexes are unchanged because ownership/structure did not change.
 
-The operations reviewer reported selected existing authz/CSRF/recovery-network,
-restore and capsule extraction tests passing. Preserve review limitations and
-resume the skill's independent validation/report verification phases after
-reproduction. This agent-assisted review cannot close the external crypto gate.
-SSO DOX now reflects implemented generation-bound reset; root/index ownership
-stays unchanged. No runtime source changed in this checkpoint.
+Local artifacts: `/home/yoshi/security-audit-skill/KyMessage-Server/run-1/`.
+Architecture recon completed; broad hunting remains incomplete following prior
+review-tool interruptions. No confirmed security vulnerabilities are recorded;
+empty findings.json is not a clean audit. The legacy pairing cleanup lead remains
+unvalidated. Next: check CI for these fixes, then continue remaining local review
+and release evidence without calling self-review independent certification.
 
 ## Open release gates
 

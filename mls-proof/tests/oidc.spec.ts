@@ -293,3 +293,47 @@ test('live wakeups fetch encrypted history without a poll and reconnect after of
     await expect(bob.page.locator('#messages')).toBeEmpty();
   } finally { await alice.context.close(); await bob.context.close(); }
 });
+
+test('cross-tab removal cancels setup waiting for the account response',async ({browser}) => {
+  const owner = await open(browser,'cancel-setup-' + crypto.randomUUID().slice(0,8));
+  const waiting = await owner.context.newPage();
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await waiting.goto('/chat.html?auth=oidc');
+    await expect(waiting.locator('#suite-account')).toContainText(owner.id);
+    let intercepted = false;
+    await waiting.route('**/api/auth/me',async route => {
+      if (!intercepted) { intercepted = true; await held; }
+      await route.continue();
+    });
+    await waiting.getByLabel('Local passphrase').fill(password);
+    await waiting.getByRole('button',{name:'Create test device',exact:true}).click();
+    await expect.poll(() => intercepted).toBe(true);
+    owner.page.once('dialog',dialog => dialog.accept());
+    await click(owner.page,'Remove this browser’s local messaging data','Local messaging data removed');
+    await expect(waiting.getByRole('status')).toContainText('removed in another tab');
+    release();
+    await expect(waiting.getByRole('button',{name:'Create test device',exact:true})).toBeEnabled();
+    // No new root may appear after the removal notice and canceled setup finish.
+    const entries = await owner.page.evaluate(() => new Promise<number>((resolve,reject) => {
+      const request = indexedDB.open('kymessages-mls-proof-v1',1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction('vault','readonly');
+        const count = tx.objectStore('vault').count();
+        tx.oncomplete = () => { db.close(); resolve(count.result); };
+        tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    }));
+    expect(entries).toBe(0);
+    await expect(waiting.locator('#workspace')).toBeHidden();
+    await expect(waiting.getByRole('status')).toContainText('removed in another tab');
+    // A subsequent explicit setup remains available and requires fresh input.
+    await waiting.unroute('**/api/auth/me');
+    await waiting.getByLabel('Local passphrase').fill(password);
+    await click(waiting,'Create test device','Test device connected');
+    await expect(waiting.locator('#signed-in')).toContainText('pending');
+  } finally { release(); await owner.context.close(); }
+});

@@ -115,6 +115,9 @@ Default section order:
 6. Report any docs intentionally left unchanged and why
 
 ## User Preferences
+- Treat agent review of its own implementation as self-review. Separate reproduced
+  defects, regression evidence and reviewer checks from independent cryptographic
+  assessment; never use self-review to close that external release gate.
 - Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions, MFA challenges and device pairings. Untouched existing accounts are not retroactively flagged.
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md

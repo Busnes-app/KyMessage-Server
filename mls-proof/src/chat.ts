@@ -344,6 +344,7 @@ form('access-form',async event => {
   field('password').value = '';
   try {
     const account = cookieMode ? await signedInAccount() : null;
+    if (generation !== viewGeneration) return;
     if (cookieMode && !account) throw new SessionError('Sign in before unlocking your device.');
     const identity = account?.id ?? field('account').value.trim();
     if (event.submitter instanceof HTMLButtonElement && event.submitter.value === 'create') await proof.initialize(identity,passphrase);

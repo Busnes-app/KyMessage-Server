@@ -88,6 +88,8 @@ retains the manual wire harness. Root owns product decisions and research in `do
   or online unlock. Cookie-mode messaging requests recheck that account; session loss or
   mismatch locks the UI. The encrypted vault and pending ciphertext remain intact.
   Lock is local to this tab; suite sign-out separately revokes the server session.
+  After the account lookup, recheck the view generation before starting setup or
+  unlock: cross-tab removal cancels pending access and must not recreate a vault.
 - Use exact account IDs of 1–64 UTF-8 bytes without controls or malformed surrogates.
   Match Go roster JSON field order and escaping, including `<`, `>`, `&`, U+2028/2029.
   The OIDC return hint in sessionStorage is a boolean fixed-path navigation hint,

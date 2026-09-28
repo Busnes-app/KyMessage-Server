@@ -139,10 +139,23 @@ from retained data and physical disk use. SQLite/PostgreSQL tests cover access,
 bounds, priority and actual retention rows. Full store/API race suites and vet pass;
 15 frontend tests and four production-CSP responsive browser cases pass.
 
-Security review checkpoint: architecture reconnaissance is complete, but local
-authentication/client hunting was interrupted by review tooling. No finding is
-confirmed and the independent assessment gate remains open. Pending reproductions:
-Lock during an in-flight account check before vault unlock, and allowed messaging
-storage exceeding the single-file SQLite capsule limit. Detailed local artifacts:
-`/home/yoshi/security-audit-skill/KyMessage-Server/run-1/REPORT.md`. Finish dynamic
-reproduction and separate validation before treating either candidate as a defect.
+Self-review checkpoint: this is a review of our own implementation, not independent
+cryptographic assessment. The original unlock/Lock-button confidentiality claim
+was rejected (the button is hidden); real navigate-away/back checks did not reproduce
+it. A narrower two-tab cancellation defect was reproduced and fixed: stale setup
+could create a new vault after another tab removed local data. Deleted keys/history
+were never recovered. The new regression failed before the generation guard and
+passes in the ten-case Chromium/Firefox OIDC suite; a separate reviewer checked it.
+
+Backup capacity fix (`b5ff3e7`): three bounded rooms produced a 74,539,008-byte
+snapshot, exceeding the 64 MiB capsule member limit. Collection now blanks event
+and KeyPackage payloads and removes Welcomes only in the private snapshot, retains
+receipt hashes/topology/audits, advances retention floors and compacts it. The
+regression proves live payloads/counters unchanged and actual capsule sealing.
+Metadata/receipt/audit growth can still exceed 64 MiB; reject before full allocation.
+The complete live database still needs scratch disk space. Full backup/API/cmd race
+suites and vet pass; targeted projection, sealing and oversized export/drill checks
+pass. This is capacity/restore evidence, not a demonstrated malicious-member exploit.
+Local audit artifacts remain at
+`/home/yoshi/security-audit-skill/KyMessage-Server/run-1/REPORT.md`; broad hunting and
+independent cryptographic assessment remain incomplete.
