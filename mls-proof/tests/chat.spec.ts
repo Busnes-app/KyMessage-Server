@@ -595,7 +595,7 @@ test('direct conversations require consent and verification, then reopen their h
       const response = await route.fetch();
       const body: unknown = await response.json();
       if (!body || typeof body !== 'object' || !('devices' in body) || !Array.isArray(body.devices) || !body.devices[0]) throw new Error('Missing fixture roster');
-      body.devices.push({...body.devices[0],id:crypto.randomUUID(),user_id:'another-account',public_key:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')});
+      body.devices.push({...body.devices[0],id:crypto.randomUUID(),user_id:'another-account',public_key:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))});
       await route.fulfill({response,json:body});
     },{times:1});
     await bob.page.getByLabel('Message',{exact:true}).fill('Rejected third account');
