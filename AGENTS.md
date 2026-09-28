@@ -1,7 +1,16 @@
 # KyMessages repository
 
-This folder is the server-base starting point for KyMessages. The user-selected
-first-release priority is small teams and encrypted text chat.
+KyMessages builds on the inherited server base. Its source-built operator console
+and API use the KyMessages identity; the encrypted-chat client stays isolated until
+its release gates pass. The user-selected priority is small teams and encrypted text chat.
+
+- `kymessages` is the binary and local image name; `KY_APP_NAME` defaults to
+  `KyMessages`. `internal/config.AppVersion` is shared by CLI and capsule paths.
+  Preserve explicit legacy service names for existing pairing pins/capsules.
+- Compose is a loopback local preview by default, names `kymessages:local` and never
+  pulls an upstream base image. Use the build overlay while images are unpublished;
+  preserve existing overlay chains. The release target is SQLite, one instance.
+- `make clean` removes generated artifacts only; never runtime data or backups.
 
 - Continue the encrypted-chat first-release plan in `docs/FIRST-RELEASE-PLAN.md`
   through implementation and verification; commit each completed slice and before
@@ -121,13 +130,12 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - `govulncheck` and `npm audit --audit-level=high`
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
-- Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; the browser job gates publishing.
+- Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
   on Chromium and Firefox in CI. It remains outside the deployment artifacts.
-- Image coordinate assertions and image publication are restricted to the upstream
-  `Busnes-app/ky-server-base` repository. KyMessages CI validates the scaffold and
-  proof without publishing a production image. Product coordinates remain a release gate.
-- In that upstream repository, on a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/ky-server-base:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `ky_server_base:local`) so every compose command, recovery docs included, uses the local build.
+- Container builds use `npm ci` and exclude `mls-proof/`. CI builds/runs
+  `kymessages:ci` but has no image publication/promotion jobs while release gates
+  remain open. Keep the independent MLS review and deployed identity gates explicit.
 
 Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
@@ -173,4 +181,4 @@ failure. Restored messaging rooms are permanently retired; users recover identit
 with fresh suite authentication and create new independently verified rooms.
 Never restore or rewind browser MLS state. Root owns this policy and `docs/RESTORE.md`.
 
-The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator document: `docs/RESTORE.md` (the inherited restore runbook). `README.md` introduces the product definition; product-specific installation and configuration documentation is a release gate, not yet a shipped guide.
+The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.

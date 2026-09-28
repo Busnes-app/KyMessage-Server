@@ -112,7 +112,7 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
         ) : (
           <div>
             <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
-              Scan this QR code in your KySecurity / Business.app mobile wrapper or enter the 6-digit PIN below.
+              Pair a compatible suite client using this QR code or PIN. Encrypted-chat browser approval is a separate fingerprint-checked step.
             </p>
 
             <div

@@ -17,7 +17,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
   const navItems = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
     { id: 'scim', label: 'Directory & SCIM', icon: Users },
-    { id: 'backup', label: 'KyBackup (Feature 0)', icon: Archive },
+    { id: 'backup', label: 'Backup & recovery', icon: Archive },
     { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
   ];
 
@@ -26,7 +26,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
       <header className="app-header">
         <div className="app-brand">
             <img src="/app-icon.png" width={28} height={28} alt="" />
-            <span>{appName || 'Busnes.app'}</span>
+            <span>{appName || 'KyMessages'}</span>
           </div>
 
           <nav className="app-nav" aria-label="Primary">

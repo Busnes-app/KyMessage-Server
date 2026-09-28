@@ -1,7 +1,7 @@
 {
-  "name": "ky-server-base-web",
+  "name": "kymessages-web",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.0-dev",
   "type": "module",
   "scripts": {
     "dev": "vite",

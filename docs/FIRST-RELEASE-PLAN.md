@@ -40,15 +40,16 @@ prototype test is not production approval.
    legacy undated text requires explicit clearing. No plaintext notifications or server-side previews.
 4. **Deployable client and identity — open.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
-   Apply KyMessages identity/coordinates, HTTPS setup, responsive keyboard UX,
-   browser support declaration and reproducible embedded assets. Keep the disposable
+   KyMessages identity, local image/Compose coordinates, reproducible embedded
+   assets and local installation/configuration documentation are implemented. HTTPS
+   deployment, integrated messaging UX and supported-browser declaration remain open. Keep the disposable
    fixture and experimental unaudited client out of deployment until their gates pass.
 5. **Operations and recovery — in progress.** SQLite capsule restoration now prunes
    expired ciphertext, invalidates restored grants and permanently retires old rooms.
    Fresh identity recovery and new rooms avoid resuming stale MLS state. A real
    sealed-capsule round trip and SQLite/PostgreSQL grant-policy tests pass. Product
-   identity wiring, schedule/local-copy/receipt acceptance and deployment docs remain
-   open; the source-build restore runbook records the implemented recovery policy.
+   identity wiring is implemented; schedule/local-copy/receipt acceptance and deployed
+   verification remain open; the source-build restore runbook records the implemented recovery policy.
 6. **Release evidence — open.** Run CI on both database engines, production browser
    regressions, dependency checks, recovery drills, declared-host load tests and
    protocol/application-binding security review. Record actual supported browsers
@@ -65,7 +66,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `e4f5caf`; current implementation remains a server scaffold plus
+- CI green through `3d26ccc`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -77,3 +78,10 @@ interoperability against an independent implementation; and real supported-brows
 and constrained-host measurements. Local tests may advance these gates but cannot
 stand in for evidence they did not produce. Continue independent implementation when
 one gate needs external input; never hide that gate or silently downgrade encryption.
+
+Local packaging evidence: the full Go race suite, vet/module verification, seven
+frontend tests, four production-CSP/responsive Chromium cases, dependency checks,
+CLI/server smoke tests and final container HTTP/assets checks pass. Compose base,
+source-build, DNS and static-IP overlays validate. The container serves the exact
+committed frontend bundle and excludes the experimental MLS client. No image was
+published and no deployment occurred.

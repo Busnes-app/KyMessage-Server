@@ -120,7 +120,7 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
           >
             <img src="/app-icon.png" width={56} height={56} alt="" />
           </div>
-          <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>{appName || 'Busnes.app'}</h1>
+          <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>{appName || 'KyMessages'}</h1>
           <p style={{ color: 'var(--ink)', fontSize: '14px', marginTop: '4px' }}>Cloud Mobile First Base Platform</p>
         </div>
 

@@ -42,11 +42,11 @@ export const Settings: React.FC<SettingsProps> = ({ settings }) => {
           </div>
         </div>
 
-        {/* KySecurity Theme Card */}
+        {/* Appearance */}
         <div className="panel">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
             <Palette size={20} style={{ color: 'var(--accent)' }} />
-            <h3 style={{ fontSize: '16px' }}>KySecurity Design System</h3>
+            <h3 style={{ fontSize: '16px' }}>Appearance</h3>
           </div>
           <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
             Color tokens: Patina Ky (`#0d0f14`/`#4deeea`), Cyber, Nord, Paper, OLED with Space Grotesk and IBM Plex Mono fonts.

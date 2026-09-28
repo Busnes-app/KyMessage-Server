@@ -24,3 +24,8 @@
 /mls-proof/
 **/.env.*
 !**/.env.example
+
+/kymessages
+
+# The frontend stage builds its own assets; never overlay stale embedded output.
+/web/dist/

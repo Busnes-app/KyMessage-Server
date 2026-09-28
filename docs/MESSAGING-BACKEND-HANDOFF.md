@@ -221,15 +221,27 @@ CI caught the moved restore command's stale decrypt-guard path. `fc309a0` update
 only the allowlisted filename to `cmd/server/restore.go`; the sole allowed function
 remains `restore`. Full backup race tests passed after the correction.
 
-Next: product identity/operations wiring (being prepared locally); production client
-embedding still requires the independent MLS/application-profile review gates. KyMessages is not deployed yet, confirmed by the user. Keep
-live issuer checks open while independent implementation continues.
+Product packaging now uses `kymessages`, `KyMessages` and one shared 0.1.0-dev
+version. Explicit legacy service-name overrides still work for existing recovery
+pins. Compose is a loopback-only source-built SQLite preview; its build overlay
+preserves existing DNS/static-IP chains. CI checks the product image without
+publishing it. The embedded operator console identifies the preview and does not
+include the unaudited encrypted-chat client. `make clean` preserves runtime data
+and backups. README and the restore runbook now describe this product.
 
-Product embedding, installation, deployed recovery and load/security evidence remain open. The unaudited `ts-mls` experiment and private
-GroupInfo extension stay out of production. Deployed issuer interaction, independent
-protocol review/interop and full supported-browser evidence remain explicit release gates. Reset is not lost-history recovery.
+Verification: full Go race suite, vet/module verification, seven frontend tests,
+four production-CSP/responsive Chromium cases, dependency checks, CLI/server smoke
+and final container HTTP/assets checks pass. The final container serves the exact
+built frontend bundle and excludes mls-proof. All Compose overlay combinations
+validate. CI is green through `3d26ccc`:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36367330888
 
-DOX updated store/API/config/proof/fixture contracts and product/wire documents.
-Root already records the full-release/commit preference; auth/SSO/web contracts and
-child indexes stay unchanged because their ownership and ordinary login behavior
-were not changed. Mirror this checkpoint to myslop before an actual pause.
+Next: independent-implementation interop evidence and operational acceptance.
+Production client embedding still requires independent MLS/application-profile
+assessment. KyMessages is not deployed yet, confirmed by the user. Live issuer,
+real supported-browser and constrained-host checks remain open. Reset is not
+lost-history recovery. Never equate prototype test passes with production approval.
+
+DOX updated root, API, config and web contracts for product packaging. Existing
+child indexes and other domain contracts stay unchanged because ownership and
+runtime messaging/backup semantics did not change. Mirror before an actual pause.

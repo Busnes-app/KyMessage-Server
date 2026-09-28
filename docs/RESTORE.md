@@ -42,12 +42,12 @@ SQLite copies and database rollbacks bypass the preparation below and are unsupp
 3. Build the intended checkout and restore into a new or empty directory:
 
    ```sh
-   go build -o ky_server_base ./cmd/server
-   ./ky_server_base restore -capsule ./backup.kycap -to ./restored -service 'Busnes.app'
+   go build -o kymessages ./cmd/server
+   ./kymessages restore -capsule ./backup.kycap -to ./restored -service 'KyMessages'
    ```
 
-   Replace `Busnes.app` with the capsule's exact service name (`KY_APP_NAME` at backup
-   time). It is still this scaffold's default. The service check runs before combining
+   Replace `KyMessages` with the capsule's exact service name (`KY_APP_NAME` at backup
+   time). The current default is `KyMessages`; older test capsules may use `Busnes.app`. The service check runs before combining
    shares. Paste one `ky2-...` share per line, then Ctrl-D; do not supply them as flags.
    The library verifies the capsule and key binding and refuses a nonempty target.
 4. Compare the printed authenticated manifest's capsule ID, service, creation time,

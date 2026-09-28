@@ -14,7 +14,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/keyfile"
 )
 
-// Config encapsulates all runtime configuration for ky_server_base.
+// Config encapsulates all runtime configuration for KyMessages.
 type Config struct {
 	Server    ServerConfig    `json:"server"`
 	Database  DatabaseConfig  `json:"database"`
@@ -112,7 +112,10 @@ const MinDepositInterval = 15 * time.Minute
 
 // DefaultAppName is the service name an unconfigured instance runs under. Capsules are sealed
 // under it, so the restore CLI has to agree with it without loading a whole Config.
-const DefaultAppName = "Busnes.app"
+const DefaultAppName = "KyMessages"
+
+// AppVersion is shared by the CLI and every capsule-producing path.
+const AppVersion = "0.1.0-dev"
 
 // LoadFromEnv initializes a Config struct populated from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {

@@ -33,3 +33,5 @@ coverage.out
 # Local build state and review scratch
 *.tsbuildinfo
 .superpowers/
+
+/kymessages

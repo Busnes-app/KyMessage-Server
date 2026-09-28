@@ -1,12 +1,16 @@
 # Config
 
 ## Purpose
-Manages environment and file-based configuration loading, defaults, and type conversions for ky_server_base.
+Manages environment and file-based configuration loading, defaults, and type conversions for KyMessages.
 
 ## Ownership
 Owns environment variable parsing, configuration validation, default fallbacks, and security key generations.
 
 ## Local Contracts
+- `DefaultAppName` is `KyMessages`; it is the default capsule service name as well
+  as the visible product name. Keep explicit `KY_APP_NAME` overrides for already
+  pinned recovery service names. `AppVersion` supplies CLI and HTTP/scheduled capsule
+  paths so they cannot report different build versions.
 - `LoadFromEnv() (*Config, error)` must supply safe, valid defaults for all subsystems.
 - Never log plaintext secrets or sensitive tokens.
 - `KY_TRUSTED_PROXIES` is a comma-separated list of reverse-proxy IPs or CIDRs, empty by default, parsed once at startup into `[]netip.Prefix`; an unparsable entry fails startup. Only a request whose peer address is in the list may speak for another client through `X-Forwarded-For`. `0.0.0.0/0` and `::/0` are refused at startup; list only the proxy's own address or subnet.

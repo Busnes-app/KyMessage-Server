@@ -10,12 +10,16 @@ import (
 )
 
 func TestConfigLoadDefaults(t *testing.T) {
+	t.Setenv("KY_APP_NAME", "")
 	t.Setenv("KY_DATA_DIR", t.TempDir())
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
+	if cfg.Server.AppName != "KyMessages" {
+		t.Errorf("expected KyMessages service name, got %q", cfg.Server.AppName)
+	}
 	if cfg.Server.Port != 8080 {
 		t.Errorf("expected default port 8080, got %d", cfg.Server.Port)
 	}

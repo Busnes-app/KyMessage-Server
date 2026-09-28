@@ -10,10 +10,10 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate }) => {
   const cards = [
     {
-      title: 'Feature 0: KyBackup & Recovery',
+      title: 'Backup & recovery',
       desc: 'Encrypted capsule container generation and automated sandboxed restore drills.',
-      status: 'Verified Ready',
-      statusType: 'success',
+      status: 'Check setup',
+      statusType: 'neutral',
       icon: Archive,
       action: () => onNavigate('backup'),
       actionLabel: 'Run Restore Drill',
@@ -54,7 +54,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
           Welcome, {user?.display_name || user?.username}!
         </h1>
         <p style={{ color: 'var(--ink)', fontSize: '15px' }}>
-          {settings?.app_name || 'Busnes.app'} is initialized on the Ky Server Base platform.
+          {settings?.app_name || 'KyMessages'} operator console. Encrypted chat is under review and is not included in this build.
         </p>
       </div>
 
