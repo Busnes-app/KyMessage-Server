@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	_ "modernc.org/sqlite"
@@ -101,6 +102,34 @@ func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
 	path := filepath.Join(dir, "ky_server.db")
 	if err := recoveryclient.SQLiteSnapshot(ctx, db, path); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNoDatabaseSnapshot, err)
+	}
+	// Restores retire every room. Keep topology and retry metadata, not delivery
+	// payloads that cannot be resumed. Mutate only this owned, consistent copy.
+	snapshot, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	defer snapshot.Close()
+	for _, query := range []string{
+		"DELETE FROM messaging_welcomes",
+		"UPDATE messaging_events SET payload = '' WHERE payload <> ''",
+		"UPDATE messaging_key_packages SET payload = '', expires_at = 1",
+		"UPDATE messaging_rooms SET retained_bytes = 0, retained_from = sequence + 1",
+		"VACUUM",
+	} {
+		if _, err := snapshot.ExecContext(ctx, query); err != nil {
+			return nil, fmt.Errorf("prepare recovery snapshot: %w", err)
+		}
+	}
+	if err := snapshot.Close(); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > recoveryclient.MaxCapsuleFileBytes {
+		return nil, capsule.ErrCapsuleTooLarge
 	}
 	return os.ReadFile(path)
 }

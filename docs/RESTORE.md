@@ -12,7 +12,7 @@ The inherited `ky-primitives/recoveryclient` adapter seals these files:
 
 | File | Contents |
 |---|---|
-| `data/ky_server.db` | SQLite snapshot: accounts, MFA state, grants, messaging metadata/ciphertext, audits, settings and sealed recovery token |
+| `data/ky_server.db` | SQLite snapshot: accounts, MFA state, grants, messaging metadata/receipt hashes, audits, settings and sealed recovery token |
 | `data/encryption.key` | Deployment key needed to open stored MFA secrets and the recovery token; not an MLS message key |
 | `data/recovery.pub` | Pinned suite recovery public key, when configured |
 | `config/settings.json` | App name, URL, port and database driver for operator reference; not automatically loaded |
@@ -20,8 +20,12 @@ The inherited `ky-primitives/recoveryclient` adapter seals these files:
 Custodians together can open the capsule, including its operational secrets and
 metadata. KyRecovery cannot. Browser MLS secrets, local histories and pending sends
 are not in the capsule. Losing every browser key still loses access to messages.
-Capsules have their own retention and may contain ciphertext older than a room's
-live retention window. Preparation prunes expired payloads before the server serves.
+New capsules exclude event, Welcome and KeyPackage payloads from the private
+snapshot; live data is unchanged. Older capsules may contain ciphertext beyond
+room retention. Preparation still prunes expired payloads before serving. The
+compacted snapshot has a 64 MiB limit, including receipts and audits; oversized
+metadata fails backup explicitly. Initial snapshot scratch space still needs room
+for the complete live database.
 
 Only SQLite capsule backup/restore is supported here. The collector refuses
 PostgreSQL because it cannot produce its consistent snapshot. PostgreSQL store

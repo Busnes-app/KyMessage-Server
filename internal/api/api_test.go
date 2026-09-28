@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -401,8 +400,7 @@ func TestExportCapsuleRejectsAnOversizedPayload(t *testing.T) {
 
 	// A real database one blob past the per-member cap: the collector snapshots with VACUUM
 	// INTO, so the file has to be a database, and zeroblob makes a large one instantly.
-	big := filepath.Join(t.TempDir(), "oversized.db")
-	db, err := sql.Open("sqlite", big)
+	db, err := sql.Open("sqlite", cfg.Database.DSN)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,16 +408,20 @@ func TestExportCapsuleRejectsAnOversizedPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	cfg.Database.Driver = "sqlite"
-	cfg.Database.DSN = big
 
-	w := adminPost(t, srv, loginAs(t, srv, st, "alice", "admin"), "/api/backup/export-capsule")
+	admin := loginAs(t, srv, st, "alice", "admin")
+	w := adminPost(t, srv, admin, "/api/backup/export-capsule")
 
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized export: got %d, want 413: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "64 MiB per file") {
 		t.Errorf("body does not name the limit: %s", w.Body.String())
+	}
+
+	w = adminPost(t, srv, admin, "/api/backup/drill")
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized drill: got %d, want 413", w.Code)
 	}
 }
 

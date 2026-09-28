@@ -106,6 +106,10 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	payload, err := backup.Collect(ctx, s.config, appVersion)
+	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
+		s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+		return
+	}
 	if errors.Is(err, backup.ErrNoDatabaseSnapshot) {
 		// An honest failed drill, not a 500: the operator needs to read why no backup exists.
 		s.writeJSON(w, http.StatusOK, &recoveryclient.DrillResult{Passed: false, ErrorMessage: err.Error(),
@@ -153,6 +157,10 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, err := backup.Collect(ctx, s.config, appVersion)
+	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
+		s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+		return
+	}
 	if errors.Is(err, backup.ErrNoDatabaseSnapshot) {
 		s.writeError(w, http.StatusPreconditionFailed, err.Error())
 		return

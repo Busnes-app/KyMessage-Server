@@ -349,7 +349,8 @@ Revoked devices and removed/inactive members cannot read. Remaining eligible epo
 devices may read while sends are paused to catch up and produce a commit. Operations
 overlapping a revocation can complete in their pre-revocation order; subsequent
 operations recheck current eligibility. Already downloaded bytes cannot be recalled.
-HTTP polling uses the shared 120/account/minute limit. The WebSocket wakeup stream
+HTTP polling uses the separate 2,400-read/account/minute budget; writes retain
+their 120/account/minute budget. The WebSocket wakeup stream
 below preserves the same store checks; no mobile push is implemented.
 
 ### Prototype bounds

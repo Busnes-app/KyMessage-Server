@@ -243,14 +243,18 @@ manual key pinning, scheduled backups, local sealed copies, receipt checking,
 write-once trust, unpairing, and drills. The suite ceremony supplies k-of-n; 3-of-5
 is not hardcoded. Keep the existing minimum scheduling interval and admin control.
 
-Server recovery restores configuration, database metadata, audit records, and any
-retained ciphertext included in its snapshot. It restores neither browser MLS
+Server recovery restores configuration, database metadata and audit records. New
+capsules omit event, Welcome and KeyPackage payloads; older capsules may contain
+retained ciphertext. It restores neither browser MLS
 secrets nor the ability to decrypt history after all client keys are lost. The
 server's encryption key in a capsule is an operational key, not a message key.
 
-The existing adapter snapshots the whole SQLite database, so future ciphertext
-tables will be included unless collection changes. Backup copies may outlive room
-retention; disclose their independent retention and custodian access to metadata.
+The adapter takes a consistent SQLite snapshot, then clears delivery payloads only
+in that private copy and compacts it. Event receipt hashes and room topology remain.
+The resulting database must fit the shared 64 MiB file limit; metadata, receipts
+and audit growth can still exceed it and fail backup explicitly. Snapshot disk space
+still scales with the whole live database. Backup copies have independent retention
+and custodian access to metadata; older capsules may outlive ciphertext retention.
 The restore command now prunes expired content and invalidates restored grants
 before reporting success. It permanently retires all restored room ownership and
 membership; first-release recovery uses fresh suite authentication, confirmed

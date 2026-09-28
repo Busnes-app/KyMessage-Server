@@ -54,6 +54,8 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   responses so browser device setup never uses cached account status.
 - Non-API routes fall back to serving `web.Handler()` for client-side SPA routing.
 - New routes are unauthenticated only by deliberate choice; privileged ones are registered wrapped in `s.requireAdmin` in `routes()`, so the trust level of every route is readable in one place.
+- Export and drill collection return 413 for oversized snapshots; export also
+  handles the same error from sealing.
 - Backup capsule/status versions use `config.AppVersion`, shared with the CLI.
 - Backup status includes the latest recorded `admin.backup_run` as `last_run`:
   outcome, trigger, recorded timestamp and capsule ID only. Classify the known audit
