@@ -1,8 +1,8 @@
-// Experiment only: one device per browser profile, one encrypted IndexedDB record.
+// Experiment only: one device per browser profile, separate encrypted room records.
 // Unlock derives a non-extractable wrapping key once; neither it nor the passphrase is persisted.
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
-const aad = encoder.encode('kymessages-mls-proof/v1');
+const aad = (entry: string) => encoder.encode(entry === 'device' ? 'kymessages-mls-proof/v1' : 'kymessages-mls-proof/v1/' + entry);
 export const databaseName = 'kymessages-mls-proof-v1';
 const maxBytes = 2 * 1024 * 1024;
 
@@ -87,21 +87,27 @@ async function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-async function read(db: IDBDatabase): Promise<unknown> {
+async function read(db: IDBDatabase, entry = 'device'): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('vault', 'readonly');
-    const request = transaction.objectStore('vault').get('device');
+    const request = transaction.objectStore('vault').get(entry);
     transaction.oncomplete = () => resolve(request.result);
     transaction.onabort = () => reject(transaction.error ?? new Error('Read aborted'));
   });
 }
 
-async function write(db: IDBDatabase, value: unknown): Promise<void> {
+async function write(db: IDBDatabase, value: unknown, entry: string, createOnly = false): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('vault', 'readwrite', { durability: 'strict' });
-    transaction.objectStore('vault').put(value, 'device');
+    const store = transaction.objectStore('vault');
+    let failure: Error | undefined;
+    if (createOnly) {
+      // IndexedDB serializes this short allocation transaction, not room ratchets.
+      const count = store.count();
+      count.onsuccess = () => { if (count.result >= 100) { failure = new Error('Local room capacity reached; existing conversations remain available'); transaction.abort(); } else store.add(value,entry); };
+    } else store.put(value,entry);
     transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error('Write aborted'));
+    transaction.onabort = () => reject(failure ?? transaction.error ?? new Error('Write aborted'));
   });
 }
 
@@ -122,8 +128,8 @@ function envelope(value: unknown) {
   if (e.version !== 1 || salt.length !== 16 || iv.length !== 12) throw new Error('Invalid vault envelope');
   return {salt,iv,ciphertext:unbase64(e.ciphertext)};
 }
-async function decrypt(e: ReturnType<typeof envelope>, key: CryptoKey) {
-  const plaintext = await crypto.subtle.decrypt({name:'AES-GCM',iv:e.iv,additionalData:aad},key,e.ciphertext);
+async function decrypt(e: ReturnType<typeof envelope>, key: CryptoKey, entry = 'device') {
+  const plaintext = await crypto.subtle.decrypt({name:'AES-GCM',iv:e.iv,additionalData:aad(entry)},key,e.ciphertext);
   try {
     const parsed: unknown = JSON.parse(decoder.decode(plaintext));
     return parseRecord(parsed);
@@ -141,30 +147,30 @@ export async function unlockVault(passphrase: string): Promise<UnlockedVault> {
   });
 }
 
-// The MLS ratchet is one shared invariant. Separate profiles own separate records;
-// tabs of the SAME device lock, reload, transform, and atomically replace its record.
-export async function withVault<T>(unlocked: UnlockedVault, action: (record: DeviceRecord) => Promise<T>): Promise<T> {
-  return navigator.locks.request(databaseName, async () => {
+// Each room owns its ratchet/outbox/history. Only tabs of the SAME room serialize.
+// The legacy device record keeps its original lock name and authenticated format.
+export async function withVault<T>(unlocked: UnlockedVault, action: (record: DeviceRecord) => Promise<T>, entry = 'device'): Promise<T> {
+  return navigator.locks.request(entry === 'device' ? databaseName : databaseName + ':' + entry, async () => {
     const db = await openDatabase();
     try {
-      const e = envelope(await read(db));
+      const e = envelope(await read(db,entry));
       if (base64(e.salt) !== unlocked.salt) throw new Error('Vault replaced; lock and unlock again');
-      const record = await decrypt(e,unlocked.key);
+      const record = await decrypt(e,unlocked.key,entry);
       const result = await action(record);
-      await seal(db, record, e.salt, unlocked.key);
+      await seal(db, record, e.salt, unlocked.key,entry);
       return result; // Never release wire bytes before the ratchet/outbox commit.
     } finally { db.close(); }
   });
 }
 
-async function seal(db: IDBDatabase, record: DeviceRecord, salt: Uint8Array<ArrayBuffer>, key: CryptoKey) {
+async function seal(db: IDBDatabase, record: DeviceRecord, salt: Uint8Array<ArrayBuffer>, key: CryptoKey, entry = 'device', createOnly = false) {
   parseRecord(record); // Enforce proof capacity before committing, including outgoing lists.
   const plaintext = encoder.encode(JSON.stringify(record));
   if (plaintext.length > maxBytes) throw new Error('Proof vault capacity reached');
   const iv = crypto.getRandomValues(new Uint8Array(12));
   try {
-    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, plaintext);
-    await write(db, { version: 1, salt: base64(salt), iv: base64(iv), ciphertext: base64(new Uint8Array(ciphertext)) });
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad(entry) }, key, plaintext);
+    await write(db, { version: 1, salt: base64(salt), iv: base64(iv), ciphertext: base64(new Uint8Array(ciphertext)) },entry,createOnly);
   } finally {
     plaintext.fill(0);
   }
@@ -183,5 +189,16 @@ export async function initializeVault(passphrase: string, create: () => Promise<
     } finally {
       db.close();
     }
+  });
+}
+
+// Existing entries are never recreated, including after a lost initialization reply.
+export async function ensureRoomVault(unlocked: UnlockedVault, entry: string, create: () => Promise<DeviceRecord>) {
+  return navigator.locks.request(databaseName + ':' + entry, async () => {
+    const db = await openDatabase();
+    try {
+      if (await read(db,entry) !== undefined) return;
+      await seal(db,await create(),unbase64(unlocked.salt),unlocked.key,entry,true);
+    } finally { db.close(); }
   });
 }

@@ -348,3 +348,88 @@ test('owner removal confirms, reconciles lost replies and requires rekey before 
     await expect(member.page.locator('#messages')).not.toContainText('While removed');
   } finally { await owner.context.close(); await member.context.close(); }
 });
+
+test('room switching preserves separate encrypted histories and unresolved sends',async ({browser}) => {
+  const aliceName = 'rooms-a-' + crypto.randomUUID().slice(0,8);
+  const bobName = 'rooms-b-' + crypto.randomUUID().slice(0,8);
+  const alice = await start(browser,aliceName), bob = await start(browser,bobName);
+  try {
+    for (const room of ['First room','Second room']) {
+      await alice.page.getByLabel('New room name').fill(room);
+      if (room === 'First room') {
+        await alice.page.route('**/api/messaging/rooms',async route => {
+          expect((await route.fetch()).status()).toBe(201);
+          await route.abort('failed');
+        },{times:1});
+        await alice.page.getByRole('button',{name:'Create room',exact:true}).click();
+        await expect(alice.page.getByRole('status')).not.toHaveText('Working…');
+        await click(alice.page,'Refresh rooms and devices','Rooms and devices refreshed');
+        await click(alice.page,'Open First room','Room selected');
+      } else await click(alice.page,'Create room','Room created');
+      await click(alice.page,'Apply verified membership','Verified membership applied');
+      await alice.page.getByLabel("Teammate's account ID").fill(bobName);
+      await click(alice.page,'Invite teammate','Invitation sent');
+      await click(bob.page,'Refresh rooms and devices','Rooms and devices refreshed');
+      await click(bob.page,'Accept ' + room,'Room selected');
+      await click(bob.page,'Prepare to join','Ready to join');
+      await click(alice.page,'Refresh rooms and devices','Rooms and devices refreshed');
+      if (room === 'First room') {
+        await verify(alice.page,bobName,bob.fingerprint);
+        await verify(bob.page,aliceName,alice.fingerprint);
+      }
+      await click(alice.page,'Apply verified membership','Verified membership applied');
+      await click(bob.page,'Check for messages','Messages checked');
+      await alice.page.getByLabel('Message',{exact:true}).fill('Message in ' + room);
+      if (room === 'First room') {
+        await alice.page.route('**/api/messaging/rooms/*/events',async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          expect((await route.fetch()).status()).toBe(200);
+          await route.abort('failed');
+        },{times:1});
+        await alice.page.getByRole('button',{name:'Send encrypted message',exact:true}).click();
+        await expect(alice.page.locator('#pending-text')).toContainText('Message in First room');
+      } else {
+        await click(alice.page,'Send encrypted message','Message accepted');
+        await click(bob.page,'Check for messages','Messages checked');
+        await expect(bob.page.locator('#messages')).toContainText('Message in Second room');
+        await expect(bob.page.locator('#messages')).not.toContainText('Message in First room');
+      }
+    }
+    await alice.page.reload();
+    await unlock(alice.page,aliceName);
+    await expect(alice.page.locator('#room-title')).toHaveText('Second room');
+    await expect(alice.page.locator('#messages')).toContainText('Message in Second room');
+    await alice.page.getByLabel('Message',{exact:true}).fill('Keep this draft in its room');
+    alice.page.once('dialog',dialog => dialog.dismiss());
+    await click(alice.page,'Open First room','Room change cancelled');
+    await expect(alice.page.getByLabel('Message',{exact:true})).toHaveValue('Keep this draft in its room');
+    alice.page.once('dialog',dialog => dialog.accept());
+    await click(alice.page,'Open First room','Room selected');
+    await expect(alice.page.getByLabel('Message',{exact:true})).toHaveValue('');
+    await expect(alice.page.locator('#pending-text')).toContainText('Message in First room');
+    await click(alice.page,'Retry pending delivery','Pending delivery confirmed');
+    await expect(alice.page.locator('#messages')).toContainText('Message in First room');
+    await expect(alice.page.locator('#messages')).not.toContainText('Message in Second room');
+    await click(bob.page,'Open First room','Room selected');
+    await click(bob.page,'Check for messages','Messages checked');
+    await expect(bob.page.locator('#messages')).toContainText('Message in First room');
+    const entries = await alice.page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve,reject) => {
+        const request = indexedDB.open('kymessages-mls-proof-v1',1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        return await new Promise<string[]>((resolve,reject) => {
+          const tx = db.transaction('vault','readonly');
+          const request = tx.objectStore('vault').getAllKeys();
+          tx.oncomplete = () => resolve(request.result.map(String));
+          tx.onabort = () => reject(tx.error);
+        });
+      } finally {db.close();}
+    });
+    expect(entries).toHaveLength(2);
+    expect(entries).toContain('device');
+    expect(entries.some(key => key.startsWith('room:'))).toBe(true);
+  } finally { await alice.context.close(); await bob.context.close(); }
+});

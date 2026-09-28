@@ -53,7 +53,7 @@ It is a local interactive prototype, excluded from the embedded app and Docker.
    session for any synthetic account. Keep it on loopback and use no real data.
 2. Alice creates a room and selects **Apply verified membership** to activate it,
    then invites Bob's test account. Room names and membership are server-visible.
-3. Bob refreshes rooms, accepts the invitation and selects **Prepare to join**.
+3. Bob refreshes rooms, accepts the invitation and selects**Prepare to join**.
    Alice refreshes too. Both independently obtain the fingerprint shown in the
    other browser's own fingerprint panel, select the peer device, and verify it.
    The directory never supplies a prefilled verification fingerprint.
@@ -90,12 +90,22 @@ clears the view; late results cannot reopen it. Cookie session loss detected by 
 poll locks the UI without discarding encrypted state. Hidden/offline tabs and tabs
 with pending sends detect session loss on their next network operation.
 
-The prototype owns one room per browser profile. **Prepare to join** retries an
+The prototype supports multiple rooms per browser profile, each with independent
+encrypted state. Switching preserves pending sends and history; a draft must be
+explicitly discarded before switching. Reload remembers the selected room in a
+non-secret, tab-local hint. The first room keeps its legacy storage entry; later
+rooms own separate entries with names authenticated by AES-GCM. Up to 100 entries
+of 2 MiB each are allowed; a full room or vault fails without deleting history.
+Only the selected room receives automatic checks.
+
+**Prepare to join** retries an
 unexpired publication or renews an expired one with fresh join keys and the same
 verified device identity. It retains up to 16 older packages for delayed Welcomes;
 checking messages completes a join and removes the consumed package. Unused
 packages remain encrypted because the server may offer them on a later rejoin. It
-does not support room switching or deployed identity integration.
+does not yet support deployed identity integration or discovery of archived local
+rooms after their server membership is removed. Keep the last selected room open
+to read its local history after revocation; no encrypted entries are deleted.
 Start with fresh profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
 
@@ -325,11 +335,12 @@ acceptance responses, unresolved-outbox refusal, stale history-floor rejection,
 identity preservation and encrypted chat across the gap. Two also use the actual
 Accept reinvitation button and verify disabled sending while waiting.
 
-This remains a one-room/profile proof that publishes only pre-join material and
-cannot use that published material to initialize a different group. Its interactive
+Each room publishes its own pre-join material; new rooms generate fresh join keys
+and cannot reuse published material to initialize a different group. Its interactive
 fixture UI, including OIDC mode, is not a deployed product client. It has no automatic pool
 replenishment, signing-key rotation, retention-gap recovery, history reset or restore reconciliation. A stale-roster rejection without a winning commit deliberately
-leaves the client waiting; room-creation response loss can leave an unused room.
+leaves the client waiting. After a lost creation response, refresh rooms and open
+the empty owned room to initialize it; an existing epoch can never be reinitialized.
 The transcript starts with new sends/receives; older proof inboxes are not backfilled.
 The adapter validates list capacity before persisting its connection record; a full
 256-entry transcript stops progress rather than silently deleting history.
@@ -366,20 +377,22 @@ do not fetch anything from that source.
 
 ## Storage and protocol decisions exercised
 
-- Each browser profile owns a single device and one IndexedDB record. The record
+- Each browser profile owns a single device and separate IndexedDB room records. Each record
   contains the MLS state, key-package private material before use, explicit public
   key pins, staged commit, ciphertext outbox, decrypted history and receive cursor.
 - AES-256-GCM seals the whole record with a fresh random 96-bit IV, format-version
-  associated data, and a key derived from a user-supplied passphrase using PBKDF2
+  associated data (plus the entry name for new room records), and a key derived from a user-supplied passphrase using PBKDF2
   SHA-256 (600,000 iterations, random 128-bit salt). Only salt, IV, format version
   and ciphertext are persisted outside that envelope. The passphrase is used only
   during setup/unlock. A non-extractable wrapping key
   stays in the unlocked tab and is cleared on lock; pending unlock completion cannot
   reopen it. Neither secret is persisted. This reduces repeated password derivation
   during reads/writes while preserving the same encrypted format. Reload locks the device. This is a proof UX, not the final product unlock design.
-- Web Locks serializes tabs sharing that one device. Each operation reloads the
-  latest record under the lock, runs MLS, then waits for the strict IndexedDB write
-  transaction to complete. Different profiles never share secret storage.
+- Web Locks serialize tabs sharing the same room. Each operation reloads that room's
+  latest record, runs MLS, then waits for the strict IndexedDB write transaction.
+  Different rooms have separate locks; allocation alone uses a short native database
+  transaction for the total-entry cap. Room IDs are visible in entry names and the
+  tab's navigation hint; message contents, keys and history remain encrypted.
 - Outgoing ciphertext and updated ratchet commit together before the caller receives
   wire bytes. Incoming ratchet, deduplication digest, cursor and history also commit
   together before an application result is returned. Aborted writes leave old state

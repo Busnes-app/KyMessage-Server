@@ -17,12 +17,16 @@ retains the manual wire harness. Root owns product decisions and research in `do
   KeyPackages and messages in the test driver. The HTTP suite exchanges only
   fingerprints out of band; browsers publish/claim packages and send encrypted
   traffic through the real Go API.
-- Persist each device's state separately. Any serialization of access to one device
-  must reflect the real invariant that its ratchet can have only one current state.
+- Persist each room's state separately. Tabs of the same room serialize its ratchet;
+  different rooms use different IndexedDB entries and Web Locks. The legacy `device`
+  entry retains the first room and its original format/lock name. New `room:<UUID>`
+  entries authenticate that entry name as AES-GCM associated data, preventing swaps.
+  A short native allocation transaction caps total entries at 100; per-entry 2 MiB
+  and list bounds remain. The non-secret selected-entry hint is tab-local sessionStorage.
 - Derive the non-extractable AES wrapping key only at setup/unlock; retain no
   passphrase between operations and never persist the key. Lock invalidates pending
   unlock/setup results so late KDF completion cannot reopen a locked device.
-- Persist ratchet, outbox, history and cursor in one encrypted IndexedDB record;
+- Persist each room's ratchet, outbox, history and cursor in one encrypted IndexedDB record;
   release outbound bytes and received plaintext only after transaction completion.
 - A discarded private commit requires applying a winning commit before further
   sends or commits. Retry a pending transport submission with identical wire bytes.
@@ -42,13 +46,16 @@ retains the manual wire harness. Root owns product decisions and research in `do
 - Persist KeyPackage publication parameters and claim request IDs before networking.
   Cache claimed bytes before creating an MLS commit; a lost response retries the
   same claim until a cached expiry or explicit HTTP 409 retires it. `approveDevice` requires an independently obtained fingerprint; the
-  directory alone cannot pin a key. The one-room proof renews an expired unused
+  directory alone cannot pin a key. The proof renews an expired unused
   join package with fresh init/HPKE keys and the same enrolled signing key. Retain
   at most 16 prior packages inside the encrypted connection record for delayed
   Welcomes; match exactly one MLS KeyPackageRef and discard its consumed secrets
   with the verified, durable join. Retain unmatched unused packages for later
-  allocation; the server can still offer them on rejoin. Never use published
-  material to initialize a group.
+  allocation; the server can still offer them on rejoin. New publications are scoped
+  to the selected room; preserve unscoped retry parameters from older records. New
+  room records generate fresh init/HPKE keys with the same enrolled signing identity.
+  Never use published material to initialize a group. Opening an empty owned room can
+  initialize it after a lost creation acknowledgement; nonzero epochs cannot bootstrap.
 - Explicit rejoin requires a newer membership generation after reinvitation and
   no unresolved outbox/commit. Keep old ratchet, cursor and transcript while fresh
   join material is published. Block sends/commits until a Welcome authenticates
@@ -65,6 +72,11 @@ retains the manual wire harness. Root owns product decisions and research in `do
   Match Go roster JSON field order and escaping, including `<`, `>`, `&`, U+2028/2029.
   The OIDC return hint in sessionStorage is a boolean fixed-path navigation hint,
   never a credential or arbitrary redirect URL.
+- Room switching preserves unresolved sends and histories in their original entries.
+  Confirm before discarding an unsent draft; never carry a draft into another room.
+  Pins copied from the first room remain bound to the verified account/key/generation.
+  An unavailable saved room fails visibly and returns the next unlock to the original
+  record without deleting the inaccessible entry. Archived-room discovery remains open.
 - The chat prototype uses DOM text nodes for messages and requires a fingerprint
   obtained from the peer's own browser. Never populate verification from discovery.
   Same-account device approval and local room-key verification are separate actions.

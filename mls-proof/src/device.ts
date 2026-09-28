@@ -15,7 +15,7 @@ import { processPrivateMessage } from 'ts-mls/processMessages.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { mlsExporter } from 'ts-mls/keySchedule.js';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
-import { base64, unbase64, initializeVault, unlockVault, withVault, type UnlockedVault, type DeviceRecord } from './vault';
+import { base64, unbase64, initializeVault, unlockVault, ensureRoomVault, withVault, type UnlockedVault, type DeviceRecord } from './vault';
 import { accountID } from './delivery-wire';
 
 export const encoder = new TextEncoder();
@@ -23,6 +23,26 @@ export const decoder = new TextDecoder('utf-8', { fatal: true });
 export const suite = getCiphersuiteImpl(getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
 let unlocked: UnlockedVault | null = null;
 let unlockGeneration = 0;
+let activeEntry = 'device';
+try {
+  const saved = sessionStorage.getItem('kymessages-active-room');
+  if (saved && /^room:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(saved)) activeEntry = saved;
+} catch { /* A room can still be selected when navigation hints are unavailable. */ }
+export function useEntry(entry: string) {
+  if (!unlocked) throw new Error('Device locked');
+  activeEntry = entry;
+  try { sessionStorage.setItem('kymessages-active-room',entry); } catch { /* In-memory selection still works. */ }
+}
+export function runAt<T>(entry: string, action: (record: DeviceRecord) => Promise<T>): Promise<T> {
+  if (!unlocked) throw new Error('Device locked');
+  return withVault(unlocked,action,entry);
+}
+export async function ensureEntry(entry: string, create: () => Promise<DeviceRecord>) {
+  if (!unlocked) throw new Error('Device locked');
+  const generation = unlockGeneration;
+  await ensureRoomVault(unlocked,entry,create);
+  if (generation !== unlockGeneration) throw new Error('Device locked during room setup');
+}
 
 export function decode<T>(wire: string, codec: Decoder<T>): T {
   const bytes = unbase64(wire);
@@ -72,7 +92,7 @@ function idle(record: DeviceRecord) {
 
 export function run<T>(action: (record: DeviceRecord) => Promise<T>): Promise<T> {
   if (unlocked === null) throw new Error('Device locked');
-  return withVault(unlocked, action);
+  return withVault(unlocked, action,activeEntry);
 }
 
 async function stage(record: DeviceRecord, proposals: Proposal[]) {
@@ -122,6 +142,7 @@ export const proof = {
     });
     if (generation !== unlockGeneration) throw new Error('Device locked during setup');
     unlocked = created.unlocked;
+    useEntry('device');
     return created.wire;
   },
 
@@ -131,6 +152,16 @@ export const proof = {
     const next = await unlockVault(password);
     if (generation !== unlockGeneration) throw new Error('Device locked during unlock');
     unlocked = next;
+    // A stale navigation hint cannot prevent access to the account's root vault.
+    if (activeEntry !== 'device') {
+      try { await withVault(next,async () => undefined,activeEntry); }
+      catch {
+        if (generation !== unlockGeneration) throw new Error('Device locked during unlock');
+        useEntry('device'); unlocked = null;
+        throw new Error('Saved room could not be opened. Its encrypted data remains. Unlock again to view other rooms.');
+      }
+    }
+    if (generation !== unlockGeneration) throw new Error('Device locked during unlock');
   },
 
   lock() { unlockGeneration++; unlocked = null; },

@@ -41,13 +41,44 @@ uses the new generation immediately in its local self pin.
 - Earlier complete delivery suite: 25 passed, one intentional duplicate-engine skip.
 - CI for `ad21d59` passed: https://github.com/Busnes-app/KyMessage-Server/actions/runs/36359795108
 
+## Durable-conversation progress
+
+`6b6eabe` derives the wrapping key only during unlock/setup and retains no passphrase
+between operations. Lock cancels late unlock completion. `954b10d` adds migration 10's
+optional KeyPackage publication room scope: active membership required, immutable
+scope, no claims from another room, existing device quotas retained. Its CI passed:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36360773559
+
+The latest client slice switches rooms using separate encrypted IndexedDB entries
+and Web Locks. The legacy first room stays in `device`; subsequent `room:<UUID>`
+entries authenticate their entry name as AES-GCM associated data. Up to 100 entries,
+2 MiB per entry, existing 256-element list bounds; full storage refuses writes and
+never silently deletes history. All entries use the root's non-extractable wrapping
+key and salt with fresh IVs. The tab-local selected-entry hint contains no secret.
+
+New rooms generate fresh init/HPKE keys under the same enrolled signing identity.
+Publications are room-scoped; retained older unscoped publication retries remain
+compatible. Already verified root pins carry their identity generation into new
+rooms. Switching preserves unresolved sends and histories; drafts require explicit
+confirmation before discard. Lost room-creation acknowledgement recovers by refreshing
+and opening the empty owned room; published join material/nonzero epochs cannot be
+used to initialize another group.
+
+Final multi-room verification: typecheck/build; 18 manual MLS tests; 29 HTTP/UI tests
+plus one intentional duplicate cross-engine skip; 6 OIDC tests, all passed across
+Chromium/Firefox. New cases prove two-room history/outbox persistence, reload and
+draft handling, lost creation acknowledgement, independent room locks and rejection
+of swapped encrypted entries. Scoped package race tests passed on SQLite/PostgreSQL.
+The stale device-loss wording assertions from the reset slice were fixed in `b93d89d`.
+
 ## Next and constraints
 
-Continue durable conversations: unwrap local encryption once per unlock without
-retaining the passphrase, then separate room records/ratchets and support room
-switching. Account-wide KeyPackage allocation currently assumes one room per browser;
-solve package ownership/claim routing before splitting local room state. Never reuse
-published init keys to create a new group. Preserve unresolved outboxes and history.
+Continue durable conversations with client-side safe Markdown, direct-message UX
+and discovery of saved local rooms after server membership is removed. Existing
+archived entries are retained but only the last-selected one is currently reachable
+without a server-listed membership. Only the selected room receives automatic checks.
+Server room listings currently expose one page of 100 in the client. These remain
+product work; do not imply a finished encrypted-chat release.
 
 Live delivery, retention/gap recovery, product embedding, installation, restore and
 load/security evidence remain open. The unaudited `ts-mls` experiment and private

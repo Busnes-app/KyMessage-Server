@@ -18,9 +18,11 @@ prototype test is not production approval.
    tests and Chromium/Firefox reset/rejoin drills pass. The default-off server gate
    still needs deployed issuer assurance and restore/rollback evidence.
 2. **Durable conversations — in progress.** Isolated proof has verified opaque delivery,
-   encrypted local history, outbox retry and one-room rejoin. Remaining: multiple
-   rooms/DMs per account, bounded room storage, safe Markdown, visible trust changes
-   and a defined production unlock/local-data lifecycle.
+   encrypted local history, outbox retry, rejoin and room switching. Each room owns
+   its encrypted record/ratchet, scoped join packages and pending sends; local storage
+   is bounded. Unlock retains only a non-extractable wrapping key. Remaining: direct
+   message UX, archived local-room discovery, safe Markdown and the final production
+   unlock/local-data lifecycle.
 3. **Live delivery and retention — open.** Replace foreground-only polling with
    authenticated live wakeups backed by durable cursor reads. Verify session/device
    revocation, origin checks, replay/reconnect, retention gaps, expiry cleanup and
@@ -50,7 +52,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `ad21d59`; current implementation remains a server scaffold plus
+- CI green through `954b10d`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required

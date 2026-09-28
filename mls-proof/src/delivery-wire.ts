@@ -61,7 +61,7 @@ export function connection(value: unknown) {
     challenge: d.challenge === undefined || d.challenge === null ? null : text(d.challenge),
     room: d.room === null ? null : text(d.room),
     roster: d.roster === null ? null : roster(d.roster),
-    publication: publication === null ? null : {payload:text(publication.payload),expires_at:integer(publication.expires_at)},
+    publication: publication === null ? null : {payload:text(publication.payload),expires_at:integer(publication.expires_at),...(publication.room_id === undefined ? {} : {room_id:text(publication.room_id)})},
     joinPackages,
     rejoinGeneration: d.rejoinGeneration === undefined || d.rejoinGeneration === null ? null : integer(d.rejoinGeneration),
     claims: d.claims === undefined ? [] : array(d.claims,item => {

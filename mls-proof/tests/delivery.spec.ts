@@ -367,3 +367,63 @@ for (const removeCommit of [false,true]) test(`explicit rejoin preserves history
     expect((await alice.page.evaluate(() => window.delivery.sync())).inbox).toEqual(['Kept before removal','Rejoined reply']);
   } finally { await alice.context.close(); await bob.context.close(); }
 });
+
+test('separate room ratchets do not share a lock or accept swapped encrypted records',async ({browser}) => {
+  const alice = await device(browser,'separate-rooms');
+  const other = await alice.context.newPage();
+  try {
+    const first = await alice.page.evaluate(() => window.delivery.createRoom('First isolated room'));
+    await alice.page.evaluate(() => window.delivery.stageCommit());
+    await accept(alice.page);
+    const second = await alice.page.evaluate(() => window.delivery.createRoom('Second isolated room'));
+    await alice.page.evaluate(() => window.delivery.stageCommit());
+    await accept(alice.page);
+    await other.goto('/');
+    await other.waitForFunction(() => Boolean(window.delivery));
+    await other.evaluate(async ({password,session,room}) => {
+      await window.proof.unlock(password);
+      window.delivery.connect(session);
+      await window.delivery.selectRoom(room);
+    },{password,session:alice.session,room:second});
+    await alice.page.evaluate(room => window.delivery.selectRoom(room),first);
+    await alice.page.evaluate(() => new Promise<void>(resolve => {
+      void navigator.locks.request('kymessages-mls-proof-v1',async () => {
+        const held = new Promise<void>(release => { Object.assign(window,{releaseRoomLock:release}); });
+        resolve();
+        await held;
+      });
+    }));
+    try {
+      await Promise.race([
+        other.evaluate(async () => {
+          await window.delivery.stageSend('Independent room state');
+          await window.delivery.submit();
+          await window.delivery.sync();
+        }),
+        new Promise<never>((_resolve,reject) => setTimeout(() => reject(new Error('Second room blocked on first room lock')),5000)),
+      ]);
+    } finally {
+      await alice.page.evaluate(() => (window as typeof window & {releaseRoomLock:()=>void}).releaseRoomLock());
+    }
+    expect((await other.evaluate(() => window.delivery.status())).messages[0]?.text).toBe('Independent room state');
+    await other.evaluate(async room => {
+      const db = await new Promise<IDBDatabase>((resolve,reject) => {
+        const open = indexedDB.open('kymessages-mls-proof-v1',1);
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      try {
+        await new Promise<void>((resolve,reject) => {
+          const tx = db.transaction('vault','readwrite');
+          const store = tx.objectStore('vault');
+          const read = store.get('device');
+          read.onsuccess = () => store.put(read.result,'room:' + room);
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+        });
+      } finally {db.close();}
+    },second);
+    await expect(other.evaluate(() => window.delivery.status())).rejects.toThrow();
+    expect((await alice.page.evaluate(() => window.delivery.status())).room).toBe(first);
+  } finally { await alice.context.close(); }
+});

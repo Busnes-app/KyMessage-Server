@@ -10,7 +10,7 @@ import { verifyKeyPackage, makeKeyPackageRef, generateKeyPackageWithKey } from '
 import { defaultCapabilities } from 'ts-mls/defaultCapabilities.js';
 import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
-import { run, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
+import { run, runAt, ensureEntry, useEntry, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
 import { base64, unbase64, type DeviceRecord } from './vault';
 import { object, text, accountID, integer, identityGeneration, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
@@ -49,8 +49,9 @@ function connected(record: DeviceRecord): Connection {
   const value: unknown = JSON.parse(record.delivery);
   return connection(value);
 }
-async function transaction<T>(action: (r: DeviceRecord, d: Connection) => Promise<T>) {
-  return run(async r => {
+async function transaction<T>(action: (r: DeviceRecord, d: Connection) => Promise<T>, entry?: string) {
+  const operate = (work: (r: DeviceRecord) => Promise<T>) => entry === undefined ? run(work) : runAt(entry,work);
+  return operate(async r => {
     const d = connected(r);
     const result = await action(r, d);
     r.delivery = JSON.stringify(connection(d)); // Validate capacity at the persisted boundary too.
@@ -102,6 +103,52 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
   const roster_hash = text(v.roster_hash);
   if (await rosterHash(d.room,devices) !== roster_hash) throw new Error('Directory roster hash mismatch');
   return { domain: 'KyMessages MLS proof delivery v2', room: d.room, id: crypto.randomUUID(), device_id: d.device, kind, epoch, roster_hash, devices };
+}
+
+async function freshRoomRecord(base: DeviceRecord, room: string): Promise<DeviceRecord> {
+  const old = keyPackage(base.keyPackage);
+  const signKey = base.keys ? unbase64(base.keys.signaturePrivateKey) : state(base).signaturePrivateKey;
+  const now = Math.floor(Date.now()/1000);
+  const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
+    {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
+    {signKey,publicKey:old.leafNode.signaturePublicKey},await suite);
+  const d = connected(base);
+  const record: DeviceRecord = {
+    ...base, keyPackage:base64(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:fresh.publicPackage})),
+    keys:{initPrivateKey:base64(fresh.privatePackage.initPrivateKey),hpkePrivateKey:base64(fresh.privatePackage.hpkePrivateKey),signaturePrivateKey:base64(fresh.privatePackage.signaturePrivateKey)},
+    state:null,pending:null,outbox:[],inbox:[],received:[],cursor:0,awaitingCommit:false,
+    delivery:JSON.stringify(connection({device:d.device,token:d.token,room,pending:null,roster:null})),
+  };
+  Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
+  return record;
+}
+async function openRoom(room: string) {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(room)) throw new Error('Invalid room ID');
+  const signal = connectionAbort.signal;
+  const base = await runAt('device',async r => r);
+  const root = connected(base);
+  const entry = root.room === null || root.room === room ? 'device' : 'room:' + room;
+  if (entry !== 'device') await ensureEntry(entry,() => freshRoomRecord(base,room));
+  await transaction(async (r,d) => {
+    if (d.room !== null && d.room !== room) throw new Error('Another tab selected the first room; try again');
+    d.room = room;
+    const rooms = array((await api('/rooms',d.token)).rooms,object);
+    const selected = rooms.find(x => x.id === room);
+    if (selected?.membership === 'invited' && !r.state) await api(roomPath(d) + '/join',d.token,'POST');
+    else if (selected?.membership !== 'active' && selected?.membership !== 'invited') throw new Error('Room not available to this account');
+    // Recover an empty owned room after a lost creation acknowledgement. Never
+    // initialize a group with join material that has already been published.
+    if (!r.state && selected.owner_id === r.identity && !d.publication) {
+      const remote = await api(roomPath(d) + '/delivery',d.token);
+      if (integer(remote.epoch) === 0) {
+        const group = await createGroup(encoder.encode(room),keyPackage(r.keyPackage),privateKeys(r),[],await suite,config(r));
+        r.state = base64(encodeGroupState(group));
+        r.keys = null;
+      }
+    }
+  },entry);
+  signal.throwIfAborted();
+  useEntry(entry);
 }
 
 export const delivery = {
@@ -181,26 +228,15 @@ export const delivery = {
     });
   },
   async createRoom(name: string) {
-    return transaction(async (r,d) => {
-      if (d.room || r.state || d.publication) throw new Error('Proof owns one room; published KeyPackages are for joining');
-      const v = await api('/rooms',d.token,'POST',{name});
-      d.room = text(v.id);
-      const current = await createGroup(encoder.encode(d.room),keyPackage(r.keyPackage),privateKeys(r),[],await suite,config(r));
-      r.state = base64(encodeGroupState(current));
-      r.keys = null;
-      return d.room;
-    });
+    const signal = connectionAbort.signal;
+    const token = await transaction(async (_r,d) => d.token);
+    const v = await api('/rooms',token,'POST',{name});
+    signal.throwIfAborted();
+    const room = text(v.id);
+    await openRoom(room);
+    return room;
   },
-  async selectRoom(room: string) {
-    return transaction(async (r,d) => {
-      if (d.room || r.state) throw new Error('Proof owns one room');
-      d.room = room;
-      const rooms = array((await api('/rooms',d.token)).rooms,object);
-      const selected = rooms.find(x => x.id === room);
-      if (selected?.membership === 'invited') await api(roomPath(d) + '/join',d.token,'POST');
-      else if (selected?.membership !== 'active') throw new Error('Room not available to this account');
-    });
-  },
+  async selectRoom(room: string) { await openRoom(room); },
   async rejoin() {
     return transaction(async (r,d) => {
       if (!r.state || !d.room || !d.device) throw new Error('Rejoin requires an existing room');
@@ -261,6 +297,7 @@ export const delivery = {
   },
   async publishKeyPackage() {
     await transaction(async (r,d) => {
+      if (!d.room) throw new Error('Select a room before publishing join material');
       if ((r.state && d.rejoinGeneration === null) || !r.keys) throw new Error('KeyPackage already consumed');
       if (d.publication && d.publication.expires_at*1000 <= Date.now()) {
         // Expiry prevents new allocation, but an earlier claim may already have
@@ -277,7 +314,7 @@ export const delivery = {
         Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
         d.publication = null;
       }
-      if (!d.publication) d.publication = {payload:r.keyPackage,expires_at:Math.floor(Date.now()/1000)+3600};
+      if (!d.publication) d.publication = {payload:r.keyPackage,expires_at:Math.floor(Date.now()/1000)+3600,room_id:d.room};
     });
     return transaction(async (_r,d) => {
       if (!d.publication) throw new Error('Missing publication');

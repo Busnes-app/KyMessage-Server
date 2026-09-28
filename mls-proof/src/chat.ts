@@ -191,18 +191,20 @@ async function render() {
   list.replaceChildren();
   for (const room of rooms) {
     const row = line('li',room.name + (room.id === s.room ? ' · Current room' : ''));
-    if (!s.room) {
+    if (room.id !== s.room) {
       const join = document.createElement('button');
       join.textContent = `${room.membership === 'invited' ? 'Accept' : 'Open'} ${room.name}`;
       join.addEventListener('click', () => { void action(async () => {
+        confirmDraftDiscard();
         await delivery.selectRoom(room.id);
+        field('message').value = '';
         await refresh();
       },'Room selected. Prepare to join, then verify your teammates.'); });
       row.append(join);
     }
     list.append(row);
   }
-  element('create-form').hidden = s.room !== null || own?.status !== 'approved';
+  element('create-form').hidden = own?.status !== 'approved';
   element('room-tools').hidden = s.room === null;
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? 'A quieter place to talk';
@@ -293,8 +295,11 @@ click('identity-reset',async () => {
   lockLocal();
   location.assign(url);
 },'Continue with fresh suite authentication.');
+function confirmDraftDiscard() {
+  if (field('message').value && !confirm('Discard this unsent draft and switch rooms? Pending encrypted sends remain saved in their original room.')) throw new Error('Room change cancelled.');
+}
 click('refresh',refresh,'Rooms and devices refreshed.');
-form('create-form',async () => { await delivery.createRoom(field('room-name').value.trim()); await refresh(); },'Room created. Apply verified membership to activate it.');
+form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim()); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');
 form('remove-form',async () => {
   const target = field('remove-member').value;
