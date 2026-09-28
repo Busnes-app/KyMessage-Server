@@ -3,7 +3,8 @@
 Implemented scope: authenticated messaging devices, invitation-based room access
 and an experimental opaque HTTP event log on SQLite and PostgreSQL. The log
 coordinates declared epochs and device rosters and distributes bounded, one-time
-KeyPackages. WebSockets and production MLS client integration remain unimplemented.
+KeyPackages. Authenticated WebSocket wakeups complement durable HTTP cursor reads;
+production MLS client integration remains unimplemented.
 An interactive chat prototype exists only inside the isolated browser proof.
 The isolated [`mls-proof/` HTTP adapter](../mls-proof/README.md#http-delivery-proof)
 now exercises these endpoints with real MLS and enrolled-key binding. It is excluded
@@ -22,8 +23,11 @@ password. Generic OIDC accounts and local bootstrap administrators are excluded.
 Every route requires the existing session cookie or session Bearer credential.
 Cookie writes also require the base's CSRF cookie/header pair. When supplied,
 Origin must match `KY_APP_URL`. Authenticated messaging responses use `no-store`.
-Account limits are 120 requests/minute, with enrollment additionally limited to
-10 requests/5 minutes. These limits use the base's process-local limiter.
+Account budgets are separate: 2,400 GET requests/minute and 120 write requests/minute,
+with enrollment additionally limited to 10 requests/5 minutes. Receiving traffic
+cannot consume the write budget. These limits use the base's process-local limiter;
+WebSocket admission also has per-account/server connection caps. The transport
+acceptance profile and its limits are in [MESSAGING-LOAD.md](MESSAGING-LOAD.md).
 
 `GET /api/auth/me` supplies the authenticated account's immutable `user.id`, distinct
 from its display name, username and OIDC subject. Both signed-in and anonymous

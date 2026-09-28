@@ -73,7 +73,14 @@ func (s *Server) requireMessaging(next messagingHandler) http.HandlerFunc {
 			s.writeError(w, http.StatusForbidden, "Origin not allowed")
 			return
 		}
-		if !s.allowAttempt("messaging:"+user.ID, 120, time.Minute) {
+		// Receiving a busy room must not consume the budget for sending or
+		// managing devices. Two foreground devices at 10 messages/second need
+		// roughly 1,200 cursor reads/minute, plus directory/reconnect headroom.
+		bucket, limit := "messaging:write:", 120
+		if r.Method == http.MethodGet {
+			bucket, limit = "messaging:read:", 2400
+		}
+		if !s.allowAttempt(bucket+user.ID, limit, time.Minute) {
 			s.writeError(w, http.StatusTooManyRequests, "Too many messaging requests")
 			return
 		}

@@ -107,3 +107,35 @@ func TestMessagingDeliveryHTTP(t *testing.T) {
 	messagingCode(t, messagingRequest(t, srv, "GET", path+"/events", other, od.Token, nil), 404)
 	messagingCode(t, messagingRequest(t, srv, "PUT", path+"/events", session, d.Token, nil), 404)
 }
+
+func TestMessagingReceiveTrafficDoesNotSpendWriteBudget(t *testing.T) {
+	srv, st, _ := setupTestServer(t)
+	session := messagingLogin(t, st, "busy-reader")
+	d := verifyEnrollment(t, srv, session, requestEnrollment(t, srv, session))
+	created := messagingRequest(t, srv, "POST", "/api/messaging/rooms", session, d.Token, map[string]string{"name": "Busy"})
+	messagingCode(t, created, 201)
+	var room struct{ ID string }
+	if err := json.Unmarshal(created.Body.Bytes(), &room); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/messaging/rooms/" + room.ID + "/delivery"
+	// More than the old shared budget: ordinary receives cannot prevent an
+	// invitation or device action. Writes still have an independent abuse cap.
+	for range 150 {
+		messagingCode(t, messagingRequest(t, srv, "GET", path, session, d.Token, nil), 200)
+	}
+	messagingCode(t, messagingRequest(t, srv, "POST", "/api/messaging/rooms", session, d.Token, map[string]string{"name": "Another"}), 201)
+	limited := false
+	for range 120 {
+		w := messagingRequest(t, srv, "POST", "/api/messaging/rooms", session, d.Token, map[string]string{"name": ""})
+		if w.Code == 429 {
+			limited = true
+			break
+		}
+		messagingCode(t, w, 400)
+	}
+	if !limited {
+		t.Fatal("write abuse was not limited")
+	}
+	messagingCode(t, messagingRequest(t, srv, "GET", path, session, d.Token, nil), 200)
+}

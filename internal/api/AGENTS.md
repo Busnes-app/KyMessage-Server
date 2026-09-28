@@ -8,6 +8,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 
 ## Local Contracts
 - `/api/messaging/` routes use `requireMessaging`: suite OIDC only (persisted provider `kysignon`, no local password), live session, matching browser Origin and account rate limits. Existing cookie CSRF applies. `X-KyMessages-Device` supplements the session for approval and room operations; enrollment, listing and revoking one's own devices need only the suite session.
+- Messaging GETs and writes have separate per-account process-local budgets:
+  2,400 reads/minute and 120 writes/minute. Receiving a busy room cannot exhaust
+  device-management/sending capacity. Enrollment retains its 10/5-minute cap.
 - `messaging_handlers.go` owns bounded JSON parsing, Ed25519 enrollment challenges and public DTOs. `store.Messaging()` rechecks authorization transactionally. Follow `docs/MESSAGING-API.md` at the repository root for the wire contract; never expose device token hashes or session bindings in device listings.
 - Room creation accepts optional `peer_user_id` for a direct conversation. Validate
   it like invitation account IDs; return the immutable binding in room DTOs. The
@@ -75,6 +78,11 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - `GET /api/settings` tiers its payload: public fields for the login screen, `db_driver`/`scim_enabled` for any session, and `extra_settings` for admins only; KyRecovery tokens are omitted in both sealed and legacy plaintext forms, dropped by the `kyrecovery_token` key prefix rather than by literal key name.
 
 ## Verification
+- `TestMessagingTransportLoad` is opt-in (`KY_MESSAGING_LOAD=1`), uses disposable
+  SQLite, and requires the constrained-container procedure in
+  `docs/MESSAGING-LOAD.md` for capacity claims. It measures opaque HTTP/WebSocket
+  transport, not browser MLS or deployed TLS. Every sender/receiver owns its
+  observations; merge after completion and include scheduling backlog in latency.
 - `messaging_test.go` covers signed OIDC callback enrollment, challenge replay, cross-account device credentials, revocation, invitation consent, room isolation and HTTP boundaries on both database engines.
 - `messaging_delivery_test.go` covers event input limits, retry receipts, cursor pagination and unauthorized access on both database engines.
 - `messaging_key_packages_test.go` covers publication/claim HTTP boundaries, access checks and retry equality on both engines.

@@ -115,3 +115,17 @@ control characters count toward the serialized-byte limit. Linux WebKit containe
 but the full HTTP/UI run had two key-creation failures; WebKit remains outside the
 verified subset. Controlled clocks now install before app startup. See
 `BROWSER-EVIDENCE.md`; real Safari/iOS remains unverified.
+
+Constrained-host transport evidence: the opt-in SQLite HTTP/WebSocket check uses
+50 accounts and 100 connected devices, 60 seconds at 10/s then two seconds at 50/s.
+A shared 120-request/minute budget first caused HTTP 429; reads now have their own
+2,400/minute budget while writes retain 120/minute. The final independent-sender
+run under a 2-CPU/2-GiB container quota delivered all 700 events to all devices.
+Sustained p95 acceptance/receipt: 67.24/220.91 ms; burst: 52.73/158.43 ms. Metrics
+include scheduling backlog and are checked separately by phase. This is synthetic
+opaque transport, not browser MLS, deployed TLS or a soak test. Reproduce using
+`MESSAGING-LOAD.md`; complete end-to-end release capacity remains open.
+Full API race tests and vet pass on SQLite; all messaging API race tests pass on
+an owned disposable PostgreSQL 17 instance. The new rate-limit regression covers
+receive traffic above the old budget, retained write abuse limits, and reads after
+write exhaustion. The opt-in load test remains separate from ordinary CI timing.

@@ -342,6 +342,11 @@ WASM and native targets before committing to four client platforms.
 | 4 — expansion | Calls, alerts, attachments and push in independently usable increments | NAT/TURN tests; bot trust disclosure; client-side attachment encryption; metadata-only push |
 | 5 — interoperability | Federation and native clients | Named peer/version compatibility tests and device lifecycle parity |
 
+Local evidence: [the constrained transport check](MESSAGING-LOAD.md) delivers 700
+opaque messages to 100 devices under a 2-CPU/2-GiB quota, meeting both phase targets.
+It excludes browser MLS, deployed TLS/identity and long-duration capacity; it does
+not close the full foreground-receipt release gate.
+
 Proposed pilot load: 50 accounts, 100 connected devices, rooms up to 50 accounts,
 10 messages/second sustained and 50/second bursts. On a declared 2-vCPU/2-GiB test
 host, target p95 server acceptance below 250 ms and foreground receipt below 1 s

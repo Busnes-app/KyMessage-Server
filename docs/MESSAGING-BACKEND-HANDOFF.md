@@ -49,17 +49,32 @@ native regression reproduces `generateKey('Ed25519', ...)` OperationError withou
 MLS/application code. Do not retry around this failure or claim Safari/iOS support.
 `docs/BROWSER-EVIDENCE.md` records pins, commands and the container offline pitfall.
 
-## Work in progress / next
+## Transport checkpoint
 
-Constrained-host transport acceptance is being added in
-`internal/api/messaging_load_test.go` (opt-in `KY_MESSAGING_LOAD=1`). Initial real
-100-device/50-account test hit HTTP 429 after 64 messages: reads and writes shared
-120 requests/minute. Working edits separate reads (2,400/minute/account) and writes
-(120/minute/account), preserving enrollment limits. A first constrained 2-CPU/2-GiB
-run then delivered 700 messages to all devices; the final check now reports sustained
-and burst latency separately, including producer backlog. Finish verification,
-record exact evidence/limits, update API/DOX and commit this separate runtime slice.
-These pending API edits are not part of the browser checkpoint.
+`internal/api/messaging_load_test.go` is opt-in (`KY_MESSAGING_LOAD=1`). It runs
+real HTTP/cookie/CSRF and 100 WebSockets over disposable SQLite, with synthetic
+accounts and 1,024-byte opaque events. It first reproduced HTTP 429 after 64
+messages because reads/writes shared one 120/minute account budget. Reads now
+have 2,400/minute/account; writes retain 120/minute and enrollment retains 10/5 min.
+A regression keeps write limiting and read/write independence explicit.
+
+The final constrained 2-CPU/2-GiB run uses 50 independent account senders and
+reports phases separately, including scheduling backlog. 60 seconds at 10/s then
+two seconds at 50/s produced 700 receipts and 70,000 ordered, exact deliveries.
+Sustained p95 acceptance/receipt: 67.24/220.91 ms; burst: 52.73/158.43 ms. A previous
+global serial sender produced artificial burst backlog; the final harness measures
+the intended independent-account workload. See `docs/MESSAGING-LOAD.md` for exact
+pins, procedure and scope. This does not measure MLS, deployed TLS or a soak.
+
+Verification: full SQLite API race suite and vet pass; messaging API race tests
+pass on an owned disposable PostgreSQL 17 instance. API DOX and wire documentation
+now state separate budgets. Root/store/web DOX and child indexes intentionally stay
+unchanged: no ownership, storage or UI contract changed in this runtime slice.
+
+Next: verify the pushed transport commit in CI, then address remaining independent
+operator acceptance work. Keep external/dependency gates below open. Production
+client integration depends on reviewed cryptographic/application bindings, not
+another prototype-only test pass.
 
 ## Open release gates
 
