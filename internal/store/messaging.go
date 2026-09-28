@@ -39,7 +39,7 @@ type MessagingEnrollment struct {
 
 type MessagingRoom struct {
 	ID, Name, OwnerID, Membership, PeerUserID string
-	CreatedAt                                 int64
+	CreatedAt, RetentionDays                  int64
 }
 
 type MessagingMember struct {
@@ -48,6 +48,7 @@ type MessagingMember struct {
 }
 
 type MessagingStore interface {
+	ExpireMessages(context.Context) error
 	BeginRecoveryAuthentication(context.Context, MessagingActor, MessagingRecoveryAuthentication) error
 	RecoveryAuthentication(context.Context, MessagingActor, string) (MessagingRecoveryAuthentication, error)
 	CompleteRecoveryAuthentication(context.Context, MessagingActor, string, string) error
@@ -285,6 +286,9 @@ func (m *messagingStore) invite(ctx context.Context, tx *sql.Tx, actor Messaging
 }
 
 func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, room MessagingRoom) error {
+	if room.RetentionDays == 0 {
+		room.RetentionDays = 30
+	}
 	return m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
 		if room.PeerUserID != "" {
 			if room.PeerUserID == actor.UserID {
@@ -301,7 +305,7 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 		if count >= 100 {
 			return ErrMessagingLimit
 		}
-		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_rooms (id, name, owner_id, created_at, owner_identity_generation, direct_peer_id) VALUES (?, ?, ?, ?, (SELECT generation FROM messaging_identities WHERE user_id = ?), ?)`), room.ID, room.Name, actor.UserID, room.CreatedAt, actor.UserID, room.PeerUserID); err != nil {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_rooms (id, name, owner_id, created_at, owner_identity_generation, direct_peer_id, retention_days) VALUES (?, ?, ?, ?, (SELECT generation FROM messaging_identities WHERE user_id = ?), ?, ?)`), room.ID, room.Name, actor.UserID, room.CreatedAt, actor.UserID, room.PeerUserID, room.RetentionDays); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status, identity_generation) VALUES (?, ?, 'active', (SELECT generation FROM messaging_identities WHERE user_id = ?))`), room.ID, actor.UserID, actor.UserID); err != nil {
@@ -319,14 +323,14 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 func (m *messagingStore) ListRooms(ctx context.Context, actor MessagingActor, offset int) ([]MessagingRoom, error) {
 	rooms := []MessagingRoom{}
 	err := m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
-		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT r.id, r.name, r.owner_id, r.created_at, m.status, r.direct_peer_id FROM messaging_rooms r JOIN messaging_members m ON m.room_id = r.id WHERE m.user_id = ? AND m.identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = m.user_id) AND m.status IN ('invited', 'active') ORDER BY r.created_at, r.id LIMIT 100 OFFSET ?`), actor.UserID, offset)
+		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT r.id, r.name, r.owner_id, r.created_at, m.status, r.direct_peer_id, r.retention_days FROM messaging_rooms r JOIN messaging_members m ON m.room_id = r.id WHERE m.user_id = ? AND m.identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = m.user_id) AND m.status IN ('invited', 'active') ORDER BY r.created_at, r.id LIMIT 100 OFFSET ?`), actor.UserID, offset)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var room MessagingRoom
-			if err := rows.Scan(&room.ID, &room.Name, &room.OwnerID, &room.CreatedAt, &room.Membership, &room.PeerUserID); err != nil {
+			if err := rows.Scan(&room.ID, &room.Name, &room.OwnerID, &room.CreatedAt, &room.Membership, &room.PeerUserID, &room.RetentionDays); err != nil {
 				return err
 			}
 			rooms = append(rooms, room)

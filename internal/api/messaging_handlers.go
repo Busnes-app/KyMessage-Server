@@ -125,6 +125,8 @@ func (s *Server) messagingError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusForbidden, "Messaging access denied")
 	case errors.Is(err, store.ErrMessagingConflict):
 		s.writeError(w, http.StatusConflict, "Messaging state conflict")
+	case errors.Is(err, store.ErrMessagingHistoryGone):
+		s.writeJSON(w, http.StatusGone, map[string]string{"error": "Required encrypted history expired; explicit rejoin or a new room is required", "code": "history_expired"})
 	case errors.Is(err, store.ErrMessagingLimit):
 		s.writeError(w, http.StatusConflict, "Messaging capacity reached")
 	default:
@@ -235,8 +237,9 @@ func messagingUserID(id string) bool {
 
 func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
 	var request struct {
-		Name       string `json:"name"`
-		PeerUserID string `json:"peer_user_id"`
+		Name          string `json:"name"`
+		PeerUserID    string `json:"peer_user_id"`
+		RetentionDays int64  `json:"retention_days"`
 	}
 	if !s.messagingJSON(w, r, &request) {
 		return
@@ -249,7 +252,14 @@ func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, http.StatusBadRequest, "Valid peer account ID required")
 		return
 	}
-	room := store.MessagingRoom{ID: uuid.NewString(), Name: request.Name, OwnerID: actor.UserID, CreatedAt: time.Now().Unix(), Membership: "active", PeerUserID: request.PeerUserID}
+	if request.RetentionDays == 0 {
+		request.RetentionDays = 30
+	}
+	if request.RetentionDays != 1 && request.RetentionDays != 7 && request.RetentionDays != 30 {
+		s.writeError(w, http.StatusBadRequest, "Retention must be 1, 7 or 30 days")
+		return
+	}
+	room := store.MessagingRoom{ID: uuid.NewString(), Name: request.Name, OwnerID: actor.UserID, CreatedAt: time.Now().Unix(), Membership: "active", PeerUserID: request.PeerUserID, RetentionDays: request.RetentionDays}
 	if err := s.store.Messaging().CreateRoom(r.Context(), actor, room); err != nil {
 		s.messagingError(w, err)
 		return
@@ -258,7 +268,7 @@ func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Reques
 }
 
 func roomView(room store.MessagingRoom) map[string]any {
-	return map[string]any{"id": room.ID, "name": room.Name, "owner_id": room.OwnerID, "created_at": room.CreatedAt, "membership": room.Membership, "peer_user_id": room.PeerUserID}
+	return map[string]any{"id": room.ID, "name": room.Name, "owner_id": room.OwnerID, "created_at": room.CreatedAt, "membership": room.Membership, "peer_user_id": room.PeerUserID, "retention_days": room.RetentionDays}
 }
 
 func (s *Server) handleMessagingRooms(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {

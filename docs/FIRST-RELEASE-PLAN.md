@@ -29,8 +29,10 @@ prototype test is not production approval.
 3. **Live delivery and retention — in progress.** Authenticated WebSocket wakeups
    now back the cookie-mode prototype with durable HTTP cursor reads. Origin checks,
    session/device revocation, connection quotas, shutdown and reconnect are tested.
-   Foreground polling remains fallback. Retention gaps, expiry cleanup and explicit
-   rejoin after a gap remain open. No plaintext notifications or server-side previews.
+   Foreground polling remains fallback. Server retention now clears expired ciphertext
+   and Welcomes on access, startup and periodic sweeps; missed prefixes return 410
+   and retry receipts survive cleanup. Client gap UX/local expiry and the end-to-end
+   gap/rejoin drill remain open. No plaintext notifications or server-side previews.
 4. **Deployable client and identity — open.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
    Apply KyMessages identity/coordinates, HTTPS setup, responsive keyboard UX,
@@ -56,7 +58,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `32aa3e8`; current implementation remains a server scaffold plus
+- CI green through `59d2f77`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required

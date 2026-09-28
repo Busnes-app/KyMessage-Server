@@ -12,6 +12,10 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - Room creation accepts optional `peer_user_id` for a direct conversation. Validate
   it like invitation account IDs; return the immutable binding in room DTOs. The
   store atomically invites that peer and enforces the two-account boundary.
+  `retention_days` defaults to 30 and accepts only 1, 7 or 30; it is immutable for
+  the room. Delivery exposes retention/floor metadata and event expiry timestamps.
+  A missed expired prefix returns 410 with `code:history_expired`, never a partial
+  ciphertext page that could be mistaken for complete MLS history.
 - `messaging_recovery.go` owns recovery-authentication initiation and callback.
   Initiation requires the target pending device's token; callback keeps the original
   suite session and never issues another. Seal server-owned OIDC state with the

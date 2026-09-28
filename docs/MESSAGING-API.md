@@ -158,7 +158,7 @@ unless marked 201. All routes require the suite session described above.
 | POST `/devices/{device}/recovery-auth` | `{confirm_identity_reset?:boolean}` → 201 `{authorization_url,expires_at,identity_reset_available,reset_requested}` | Own pending device credential and original live suite session |
 | GET `/recovery-auth/callback?state=…&code=…` | Authentication result or reset receipt above | Original suite session; fresh signed OIDC evidence and unchanged device registry |
 | POST `/devices/key-packages` | `{payload,expires_at}` → `{package_id,expires_at}` | Approved publishing device |
-| POST `/rooms` | `{name,peer_user_id?}` → 201 room | Approved device |
+| POST `/rooms` | `{name,peer_user_id?,retention_days?}` → 201 room | Approved device |
 | GET `/rooms?offset=0` | `{rooms:[...]}` | Approved device; own invited/active memberships only |
 | GET `/rooms/{room}/members` | `{members:[{user_id,status,identity_generation,current_identity_generation}]}` | Approved device and active membership |
 | POST `/rooms/{room}/members` | `{user_id}` → `{invited:true}` | Approved device and room ownership |
@@ -176,7 +176,7 @@ commit. These are server-reported changes, never proof of a replacement key; cli
 must independently verify its fingerprint. Current plus committed rosters bound the
 listing, rather than retaining an unbounded history of departed accounts.
 
-Room objects expose `id`, `name`, `owner_id`, `created_at`, `membership`, `peer_user_id`.
+Room objects expose `id`, `name`, `owner_id`, `created_at`, `membership`, `peer_user_id`, `retention_days`.
 An empty peer denotes an ordinary invitation-only room. Migration 11 adds direct
 rooms: creation with an existing active suite-only peer atomically invites that
 account. Self-targeting returns 409; invalid IDs return 400; unavailable peers 404.
@@ -328,7 +328,7 @@ storage only; it does not prove successful encryption, processing or delivery.
 
 GET events returns at most 50 ordered entries, with at most 1 MiB of base64 payload
 and Welcome strings per page. Entries contain `{id,device_id,sequence,epoch,kind,
-roster_hash,payload,welcome,created_at}`. For commits, `epoch` is the resulting
+roster_hash,payload,welcome,created_at,expires_at}`. For commits, `epoch` is the resulting
 epoch. `welcome` is the caller's envelope, or an empty string; other devices'
 envelopes are never returned. Commit bytes are included as well, so newly welcomed
 clients must initialize from the Welcome rather than process the same commit twice.
@@ -345,18 +345,47 @@ Revoked devices and removed/inactive members cannot read. Remaining eligible epo
 devices may read while sends are paused to catch up and produce a commit. Operations
 overlapping a revocation can complete in their pre-revocation order; subsequent
 operations recheck current eligibility. Already downloaded bytes cannot be recalled.
-HTTP polling uses the shared 120/account/minute limit; no long polling or push is
-implemented. A future WebSocket stream must preserve these same store checks.
+HTTP polling uses the shared 120/account/minute limit. The WebSocket wakeup stream
+below preserves the same store checks; no mobile push is implemented.
 
 ### Prototype bounds
 
 Event POST bodies are capped at 768 KiB; payload and individual Welcome values are
 canonical standard base64 of 1–65,536 bytes each. Their aggregate encoded size is
-at most 512 KiB. Each room retains at most 4,096 events and 32 MiB of encoded payload
-plus Welcome data. The cap includes commits and returns 409 without evicting state.
-These bounds intentionally stop the prototype; timed retention, offline rejoin,
-log compaction and restore/rollback reconciliation are pilot-release gates. The
-inherited database backup includes this log; it is not an expiring mailbox yet.
+at most 512 KiB. Each room retains at most 4,096 nonexpired events and 32 MiB of
+encoded payload plus Welcome data. The cap includes commits and returns 409 without
+evicting unexpired state. Retry receipt metadata has a separate lifetime cap of
+1,000,000 accepted events per room; reaching it requires a new room. These are
+bounded prototype defaults pending workload measurements, not measured capacity.
+
+### Ciphertext retention
+
+Migration 12 adds immutable `retention_days` at room creation: 1, 7 or 30; omitted
+or zero selects 30. Existing rooms get 30 days and existing event expiries derive
+from their original creation time. This policy applies to both application events
+and MLS control/Welcome material. Delivery state exposes `retention_days` and
+`retained_from`; event responses expose Unix-second `expires_at`. Expiry remains
+ordered if the server clock moves backward, so a missing prefix cannot masquerade
+as a complete transcript. Changing a room's policy requires creating a new room.
+
+Room operations clear expired payloads and Welcomes under the same room lock;
+`store.Open` sweeps before returning, and the daemon sweeps idle rooms each minute.
+Sweeps use per-room transactions and a 30-second background deadline, then retry
+on the next tick. An operation that returns an error can roll back its incidental
+cleanup, but cannot return expired ciphertext; the independent sweep clears it.
+
+Keep event IDs, request hashes, sequence/epoch/roster metadata and timestamps after
+payload expiry. Exact retries still return the original receipt; changing their
+bytes still conflicts. Retention does not mean those metadata, audit records or
+backup copies disappear. Logical removal is not guaranteed physical disk erasure.
+
+An authorized cursor behind an expired prefix returns 410 with
+`{code:"history_expired",error:...}`. Never advance a client ratchet past that gap.
+A caught-up client can continue; a missed Welcome or transcript needs ordinary
+explicit remove/reinvite and a fresh verified Welcome, or a new room if no suitable
+owner/peer can perform that sequence. A new membership floor excludes old history.
+Client gap UX/local expiry and restored identity/rollback reconciliation remain
+release work; server pruning alone does not complete those gates.
 
 ## Limits and failure behavior
 

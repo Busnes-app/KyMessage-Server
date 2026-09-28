@@ -31,6 +31,7 @@ func newSQLStore(ctx context.Context, db *sql.DB, driver string) (*SQLStore, err
 	}
 
 	if err := migrations.Run(ctx, db, driver); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("migration failure on driver %s: %w", driver, err)
 	}
 
@@ -45,6 +46,10 @@ func newSQLStore(ctx context.Context, db *sql.DB, driver string) (*SQLStore, err
 	s.groups = &groupStore{store: s}
 	s.audit = &auditStore{store: s}
 	s.settings = &settingsStore{store: s}
+	if err := s.Messaging().ExpireMessages(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("expire messaging ciphertext: %w", err)
+	}
 
 	return s, nil
 }

@@ -127,9 +127,34 @@ preservation, no plaintext socket frames and lock closure. All 35 delivery regre
 (one intentional duplicate-engine skip). `govulncheck` reports no affected call paths
 (three findings exist in required modules outside imported vulnerable packages).
 
-Next: retention, explicit gap recovery and the final local-data lifecycle. KyMessages
-is not deployed yet, confirmed by the user; keep live issuer checks open while
-independent implementation continues.
+Migration 12 implements server ciphertext retention: immutable per-room 1/7/30-day
+policy (default 30), ordered expiry, retained prefix floor, payload/Welcome clearing,
+and 410 `history_expired` for missed history. Preserve receipt hashes and sequence
+metadata after expiry; exact retries still acknowledge the same event. Active limits
+are 4,096 events/32 MiB per room; lifetime receipt limit is 1,000,000. Neither backup
+copies nor audit/receipt metadata are erased by message retention. Client expiry
+and gap UX remain open; the current proof still displays generic API errors.
+
+Store initialization prunes before returning, including restored SQLite databases.
+The daemon sweeps idle rooms every minute with a 30-second operation deadline. Its
+completion joins the backup scheduler before the existing bounded shutdown drain;
+failed store initialization closes its database handle. Operations use room locks
+and short transactions; failed user operations can roll back incidental cleanup,
+but cannot expose expired ciphertext. Independent sweeps complete physical row updates.
+
+Verification: full store/API/cmd race suites passed. Messaging race suites also passed
+on disposable PostgreSQL 17. Retention cases cover expired Welcome denial, receipt
+replay/tampering, retained-byte accounting, explicit remove/reinvite history floors,
+startup cleanup, idempotent sweeps, backward clocks and concurrent append/cleanup
+across connections. Go vet and diff checks pass.
+
+CI for the live-delivery checkpoint passed:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364009571
+
+Next: client retention controls, persisted history-gap state, explicit rejoin/new-room
+help and local transcript expiry; then the final local-data lifecycle and restore
+rollback protections. KyMessages is not deployed yet, confirmed by the user. Keep
+live issuer checks open while independent implementation continues.
 
 Retention/gap recovery, product embedding, installation, restore and
 load/security evidence remain open. The unaudited `ts-mls` experiment and private

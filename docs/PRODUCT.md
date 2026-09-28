@@ -216,8 +216,11 @@ and verify clock alignment; the consumer intentionally gives no clock-skew grace
 
 #### Retention and server backups
 
-Proposed default: 30-day server ciphertext retention, with 24-hour and 7-day room
-policies. Describe this as retention, not guaranteed auto-burn. Recipients may copy
+The backend now defaults to 30-day ciphertext retention, with 24-hour and 7-day
+policies chosen at room creation. Room policy is immutable in this version; a new
+policy needs a new room. Expired ciphertext and Welcome data leave active fetches;
+retry hashes, sequence metadata and audits have separate lifetimes. Startup and
+periodic sweeps are implemented, while client expiry/gap UX remains in progress. Describe this as retention, not guaranteed auto-burn. Recipients may copy
 content; browser cleanup is best effort. Expired events disappear from active fetch
 and local views, and the client reports unavailable history when it falls behind.
 

@@ -134,3 +134,12 @@ CREATE INDEX messaging_key_packages_room ON messaging_key_packages(device_id, pu
 const messagingDirectRoomSchema = `
 ALTER TABLE messaging_rooms ADD COLUMN direct_peer_id TEXT NOT NULL DEFAULT '';
 `
+
+const messagingRetentionSchema = `
+ALTER TABLE messaging_rooms ADD COLUMN retention_days BIGINT NOT NULL DEFAULT 30 CHECK(retention_days IN (1, 7, 30));
+ALTER TABLE messaging_rooms ADD COLUMN retained_from BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE messaging_events ADD COLUMN expires_at BIGINT NOT NULL DEFAULT 0;
+UPDATE messaging_events SET expires_at = created_at + 2592000;
+CREATE INDEX messaging_events_expiry ON messaging_events(expires_at, room_id) WHERE payload <> '';
+CREATE INDEX messaging_events_room_expiry ON messaging_events(room_id, expires_at) WHERE payload <> '';
+`

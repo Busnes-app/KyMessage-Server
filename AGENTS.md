@@ -154,7 +154,10 @@ only where it returns, between runs, and `runServer` cancels and waits on that c
 WebSocket handlers and the pair, pin-key and deposit handlers, which detach from their requests and so outlive
 `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
-Nothing writes into a closed store. Both waits run under one `backupWaitTimeout`
+`messagingMaintenanceLoop` sweeps expired ciphertext every minute with a 30-second
+operation deadline; startup pruning lives in `store.Open`. Its completion joins the
+backup scheduler's completion before the same shutdown drain finishes. Nothing writes
+into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
 which delivers once and would leave the second wait unbounded; the HTTP drain is `shutdownTimeout`
 (5s). `docker-compose.yml` grants a `stop_grace_period` above their sum, so the guarantee holds

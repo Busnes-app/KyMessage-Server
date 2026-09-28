@@ -110,6 +110,10 @@ func runServer() {
 	srv := api.NewServer(cfg, st)
 	backupDone := make(chan struct{})
 	go backupLoop(ctx, cfg, st, backupDone)
+	maintenanceDone := make(chan struct{})
+	go messagingMaintenanceLoop(ctx, st, maintenanceDone)
+	backgroundDone := make(chan struct{})
+	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone }()
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	httpServer := &http.Server{
@@ -143,11 +147,11 @@ func runServer() {
 	cancel()
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), backupWaitTimeout)
 	defer waitCancel()
-	waitForBackupWork(waitCtx, backupDone, srv.WaitDetached)
+	waitForBackupWork(waitCtx, backgroundDone, srv.WaitDetached)
 	log.Println("[KY-BASE] Server stopped")
 }
 
-// waitForBackupWork blocks until the scheduler loop and every detached handler have finished,
+// waitForBackupWork blocks until both background loops and every detached handler have finished,
 // or until ctx expires. Backup work ignores cancellation once bytes are moving: the scheduler's
 // run, and the pair, pin-key and deposit handlers, all detach from their caller. They are waited
 // out before the store closes, or they write into a closed store -- a key pinned on disk with no
@@ -160,18 +164,18 @@ func runServer() {
 // budget on its own and the handler wait is read only once the deadline has already passed,
 // giving a live detached handler no time at all. Past the deadline the work is abandoned and said
 // so; a SIGKILL would have been silent.
-func waitForBackupWork(ctx context.Context, backupDone <-chan struct{}, waitDetached func()) {
+func waitForBackupWork(ctx context.Context, backgroundDone <-chan struct{}, waitDetached func()) {
 	handlersDone := make(chan struct{})
 	go func() { defer close(handlersDone); waitDetached() }()
 
 	select {
-	case <-backupDone:
+	case <-backgroundDone:
 	default:
-		log.Println("[KY-BASE] waiting for the scheduled backup in flight...")
+		log.Println("[KY-BASE] waiting for scheduled backup or messaging maintenance in flight...")
 		select {
-		case <-backupDone:
+		case <-backgroundDone:
 		case <-ctx.Done():
-			log.Printf("[KY-BASE] abandoning a scheduled deposit still running after %s; its receipt may be unrecorded", backupWaitTimeout)
+			log.Printf("[KY-BASE] abandoning background work still running after %s; a backup receipt may be unrecorded", backupWaitTimeout)
 		}
 	}
 	select {
