@@ -1,4 +1,5 @@
 import { proof } from './device';
+import { maxSavedMessages, maxSavedMessageBytes } from './vault';
 import { messageBody } from './markdown';
 import { delivery } from './delivery';
 import { object, text } from './delivery-wire';
@@ -310,7 +311,7 @@ async function render() {
     : roomPaused ? 'Membership changed. Apply verified membership before sending more messages.'
     : s.epoch === '0' ? 'Apply verified membership to activate this room.'
     : 'Room unlocked. Check for messages to catch up before sending.';
-  element('local-retention').textContent = 'Local cleanup runs when this room is opened or its unlocked timer fires, including offline. Older saved messages without deadlines remain until cleared. Copied content and backups may survive.';
+  element('local-retention').textContent = `This browser keeps up to ${maxSavedMessages} recent messages or ${maxSavedMessageBytes / 1024} KiB of saved transcript per room, whichever fills first. Older entries are dropped permanently; signing in or a server backup cannot retrieve them. ${s.historyPruned ? `${s.historyPruned} older messages dropped by this limit. ` : ''}Retention cleanup also runs on access and unlocked timers, including offline. Undated legacy text has no automatic deadline but still shares the cache limit. Keys and pending sends are kept; copied content and backups may survive.`;
   element('messages').replaceChildren(...s.messages.map(m => {
     const row = document.createElement('li');
     row.append(line('strong',m.sender === s.identity ? 'You' : m.sender),messageBody(m.text),line('small',m.sender === s.identity ? 'Accepted by server · Not a read receipt' : 'Received and verified'));

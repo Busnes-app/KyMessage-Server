@@ -19,7 +19,9 @@ prototype test is not production approval.
 2. **Durable conversations — implemented in the isolated prototype.** Isolated proof has verified opaque delivery,
    encrypted local history, outbox retry, rejoin and room switching. Each room owns
    its encrypted record/ratchet, scoped join packages and pending sends; local storage
-   is bounded. Unlock retains only a non-extractable wrapping key. Direct
+   is bounded. Recent history now rolls at 256 messages/256 KiB instead of stopping
+   receipt at capacity; setup and room notices explain permanent eviction and show
+   a durable dropped-message count. Keys, cursors and pending sends are preserved. Unlock retains only a non-extractable wrapping key. Direct
    conversations with immutable peer accounts are implemented. Confirmed local-data
    removal deletes all vault entries, locks other tabs and prevents in-flight writes
    from reviving them; replacement approval remains required. Production integration
@@ -37,7 +39,7 @@ prototype test is not production approval.
    Chromium/Firefox drills cover expired initial Welcomes and established sessions.
    New local transcript/inbox copies now expire on room access and unlocked timers,
    including offline. Confirmed room-history clearing retains keys and pending sends;
-   legacy undated text requires explicit clearing. No plaintext notifications or server-side previews.
+   legacy undated text has no timer but shares the explicit recent-cache limit. No plaintext notifications or server-side previews.
 4. **Deployable client and identity — open.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
    KyMessages identity, local image/Compose coordinates, reproducible embedded
@@ -68,7 +70,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `280ebcf`; current implementation remains a server scaffold plus
+- CI green through `195f949`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -102,3 +104,11 @@ clock rollback/unrelated activity, partial success and raw-detail exclusion. Ful
 store/API/cmd race suites and vet pass. Nine frontend tests and four real-server
 Chromium cases pass, including local sealing and narrow/wide light/dark backup UI.
 The three-minute scheduler acceptance check passes and now runs in CI.
+
+Recent-cache evidence: 20 manual lifecycle cases pass across Chromium/Firefox,
+including 260 real encrypted messages, reload, rolling replay hashes and an intact
+pending outbox. Full HTTP/UI tests pass 55 cases with one intentional duplicate
+engine skip; eight OIDC cases pass. A seeded display-cache boundary test preserves
+live ratchets/cursor and pending ciphertext; it is not server load evidence. Escaped
+control characters count toward the serialized-byte limit. Linux WebKit checks are
+being run in an isolated supported container; real Safari/iOS remains unverified.

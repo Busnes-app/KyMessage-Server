@@ -17,7 +17,7 @@
     <section id="access" class="card">
       <h2>Your browser is your device</h2>
       <div id="suite-access" hidden><p id="suite-account">Sign in with your suite identity before creating or unlocking this browser's device.</p><a id="oidc-login" href="/api/sso/kysignon/login">Sign in with suite identity</a><button id="sign-out" class="secondary">Sign out of suite</button></div>
-      <p>A passphrase protects this browser's local keys and history. Clearing site storage or losing the passphrase loses them. One account per browser profile. Each room keeps its own encrypted history and pending sends. Locking clears this tab; other open tabs stay unlocked.</p>
+      <p>A passphrase protects this browser's local keys and history. Clearing site storage or losing the passphrase loses them. One account per browser profile. Each room keeps its own encrypted recent-history cache and pending sends. The cache keeps at most 256 messages or 256 KiB per room; older entries are permanently dropped. Locking clears this tab; other open tabs stay unlocked.</p>
       <form id="access-form">
         <label id="account-label">Test account <input id="account" required pattern="[a-z][a-z0-9\-]{0,31}" maxlength="32" autocomplete="off" placeholder="alice"></label>
         <label>Local passphrase <input id="password" type="password" required minlength="16" maxlength="1024" autocomplete="off"></label>

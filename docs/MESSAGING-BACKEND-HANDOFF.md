@@ -289,3 +289,22 @@ are rebuilt. Root/store/API/web/browser DOX updated; other contracts/indexes unc
 CI through `280ebcf` is green. Deployment and independent crypto review remain open.
 Next: local transcript capacity and constrained-host acceptance; do not mistake the
 isolated client's existing bounds for measured small-team capacity.
+
+Recent-history checkpoint: the isolated client keeps newest 256 messages/256 KiB
+of serialized transcript; it drops old cache entries rather than failing the next
+receive. Notices at setup/in-room disclose permanent loss and a persisted counter.
+Ratchets, pending sends/commits, cursors and pins remain unchanged. New inbox copies
+carry sequence IDs so eviction removes copies below the visible transcript floor;
+legacy copies have no sequence and share their own bound. Undated legacy text has
+no expiry timer but shares the capacity policy. Clear-history resets the counter.
+Manual wire replay hashes now roll with a cursor-derived offset; older replays fail.
+
+Verification: 20 manual cases (including 260 actual encrypted messages), 55 HTTP/UI
+cases plus one intentional duplicate-engine skip, and eight OIDC cases pass on
+Chromium/Firefox. Full-cache HTTP coverage seeds only synthetic display history,
+then proves live encrypted receive, pending send, reload and subsequent delivery;
+this is explicitly not a throughput result. JSON-byte tests include escaped control
+characters. Typecheck/build and whitespace checks pass. CI `195f949` is green.
+Proof DOX/product/cache notices updated; production domains/indexes unchanged.
+Next: finish Linux WebKit container evidence, then constrained-host transport/load
+acceptance. Container checks are running separately; no deployed-instance change.

@@ -2,7 +2,7 @@ import { test, expect, firefox, type Browser, type Page } from '@playwright/test
 import type {} from '../src/delivery';
 import type {} from '../src/device';
 import { object, text, connection } from '../src/delivery-wire';
-import { parseRecord } from '../src/vault';
+import { parseRecord, trimSavedMessages, maxSavedMessageBytes } from '../src/vault';
 
 const password = 'disposable MLS HTTP integration passphrase';
 async function device(browser: Browser, name: string, loseEnrollmentReply = false) {
@@ -478,7 +478,7 @@ test('local expiry removes both transcript copies without changing keys or pendi
 
 test('legacy transcript parsing preserves unknown expiry and rejects invalid deadlines',() => {
   const old = {version:1,identity:'legacy',keyPackage:'',keys:null,pins:[],state:null,pending:null,inbox:['Keep legacy text'],outbox:[],cursor:0,awaitingCommit:false,received:[]};
-  expect(parseRecord(old).inbox).toEqual([{text:'Keep legacy text',expiresAt:null}]);
+  expect(parseRecord(old).inbox).toEqual([{text:'Keep legacy text',expiresAt:null,sequence:null}]);
   const saved = {device:null,token:'',room:null,roster:null,pending:null,messages:[{id:'event',sender:'legacy',text:'Keep legacy text',sequence:1}]};
   expect(connection(saved).messages[0]?.expiresAt).toBeNull();
   for (const expiresAt of [-1,1.5,'100',Infinity]) {
@@ -530,4 +530,71 @@ test('removing a vault prevents an in-flight room write from reviving it after r
     });
     expect(entries).toEqual(['device']);
   } finally { await alice.context.close(); }
+});
+
+test('history byte limits count serialized escaping rather than only visible text', () => {
+  const messages = Array.from({length:256}, (_, index) => ({text:'\0'.repeat(4096),index}));
+  const removed = trimSavedMessages(messages);
+  expect(removed).toBeGreaterThan(200);
+  expect(messages.at(-1)?.index).toBe(255);
+  expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThanOrEqual(maxSavedMessageBytes);
+});
+
+test('a full saved cache accepts new encrypted traffic without losing a pending send', async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    // Populate only synthetic display history, preserving the actual live MLS state
+    // and server cursor. This checks the cache boundary, not sustained server load.
+    const root = await bob.page.evaluate(async password => {
+      // Use the same authenticated local format as earlier vault fault drills.
+      const db = await new Promise<IDBDatabase>((resolve,reject) => {
+        const request = indexedDB.open('kymessages-mls-proof-v1');
+        request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+      });
+      try {
+        const saved = await new Promise<{version:number;salt:string;iv:string;ciphertext:string}>((resolve,reject) => {
+          const tx = db.transaction('vault'); const read = tx.objectStore('vault').get('device');
+          tx.oncomplete = () => resolve(read.result); tx.onabort = () => reject(tx.error);
+        });
+        const bytes = (value:string) => Uint8Array.from(atob(value),c => c.charCodeAt(0));
+        const keyMaterial = await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
+        const key = await crypto.subtle.deriveKey({name:'PBKDF2',hash:'SHA-256',iterations:600000,salt:bytes(saved.salt)},keyMaterial,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+        const aad = new TextEncoder().encode('kymessages-mls-proof/v1');
+        const raw: unknown = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(saved.iv),additionalData:aad},key,bytes(saved.ciphertext))));
+        if (!raw || typeof raw !== 'object' || !('delivery' in raw) || typeof raw.delivery !== 'string') throw new Error('Expected saved connection');
+        const connection: unknown = JSON.parse(raw.delivery);
+        if (!connection || typeof connection !== 'object') throw new Error('Expected connection');
+        const seed = Array.from({length:256},(_,i) => ({id:`seed-${i}`,sender:'synthetic',text:'x'.repeat(850),sequence:0,expiresAt:null}));
+        Object.assign(connection,{messages:seed});
+        Object.assign(raw,{delivery:JSON.stringify(connection),inbox:seed.map(item => ({text:item.text,expiresAt:null,sequence:0}))});
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad},key,new TextEncoder().encode(JSON.stringify(raw)));
+        const b64 = (value:Uint8Array) => btoa(Array.from(value,c => String.fromCharCode(c)).join(''));
+        await new Promise<void>((resolve,reject) => {
+          const tx = db.transaction('vault','readwrite',{durability:'strict'});
+          tx.objectStore('vault').put({...saved,iv:b64(iv),ciphertext:b64(new Uint8Array(encrypted))},'device');
+          tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+        });
+        return true;
+      } finally { db.close(); }
+    },password);
+    expect(root).toBe(true);
+    await bob.page.evaluate(() => window.delivery.stageSend('Pending send survives cache trimming'));
+    const pending = await bob.page.evaluate(() => window.delivery.status());
+    const latest = 'Latest encrypted message ' + '\0'.repeat(4000);
+    await alice.page.evaluate(text => window.delivery.stageSend(text), latest);
+    await accept(alice.page);
+    await bob.page.evaluate(() => window.delivery.sync());
+    const after = await bob.page.evaluate(() => window.delivery.status());
+    expect(after.cursor).toBe(pending.cursor + 1);
+    expect(after.messages.length).toBeLessThanOrEqual(256);
+    expect(after.historyPruned).toBeGreaterThan(0);
+    expect(after.messages.at(-1)?.text).toBe(latest);
+    expect(after.pendingText).toBe(pending.pendingText);
+    await reload(bob.page,bob.session);
+    expect(await bob.page.evaluate(() => window.delivery.status())).toEqual(after);
+    await accept(bob.page);
+    await alice.page.evaluate(() => window.delivery.sync());
+    expect((await alice.page.evaluate(() => window.delivery.status())).messages.at(-1)?.text).toBe(pending.pendingText);
+  } finally { await alice.context.close(); await bob.context.close(); }
 });

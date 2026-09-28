@@ -88,6 +88,7 @@ export function connection(value: unknown) {
       const m = object(item);
       return {id:text(m.id),sender:text(m.sender),text:text(m.text),sequence:integer(m.sequence),expiresAt:expiry(m.expiresAt)};
     }),
+    historyPruned: d.historyPruned === undefined ? 0 : integer(d.historyPruned),
     pending: p === null ? null : { request: text(p.request), state: p.state === null ? null : text(p.state), plaintext:p.plaintext === undefined || p.plaintext === null ? null : text(p.plaintext) },
   };
 }

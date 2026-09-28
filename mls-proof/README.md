@@ -359,8 +359,12 @@ replenishment, signing-key rotation, history reset or full restore reconciliatio
 leaves the client waiting. After a lost creation response, refresh rooms and open
 the empty owned room to initialize it; an existing epoch can never be reinitialized.
 The transcript starts with new sends/receives; older proof inboxes are not backfilled.
-The adapter validates list capacity before persisting its connection record; a full
-256-entry transcript stops progress rather than silently deleting history.
+The client now retains a recent cache: newest 256 messages or 256 KiB of serialized
+transcript, whichever fills first. Setup/room notices explain permanent eviction;
+a saved counter shows how much was dropped. Pending sends, keys, verification pins
+and cursor are never trimmed. This removes the old 256-message receive stall.
+The diagnostic inbox is bounded too; new sequenced copies below the transcript
+floor leave with it. Legacy unsequenced copies share their own bounded cache.
 Those recovery paths and an independent application-binding review are required
 before product integration. The underlying MLS library remains unaudited.
 
@@ -435,7 +439,9 @@ narrow layout. `npm audit --audit-level=high` reported no vulnerabilities when a
   avoids that path without modifying the MLS implementation.
 - The proof retains no old epoch/generation message keys. Offline delivery must
   replay the ordered stream, including control events. Gaps fail explicitly. It
-  caps each list at 256 entries, the vault plaintext at 2 MiB, and text at 4096 bytes.
+  keeps history/retry windows bounded at 256 entries, trims history also by a
+  256-KiB JSON-byte budget, caps other lists at 256, vault plaintext at 2 MiB and
+  text at 4096 bytes. Older retries outside the manual hash window fail closed.
   These are experiment limits, not proposed production capacity.
 
 The library's root module references optional crypto providers. The proof imports
@@ -493,7 +499,7 @@ or cursors. New saved messages expire at the earlier of server-reported expiry a
 plus room retention. The unlocked timer and room access remove both transcript and
 inbox copies without resetting keys/cursors or discarding pending sends. Cleanup
 also runs in disconnected history mode; suspended/locked rooms wait until opened.
-Older records without deadlines remain until explicitly cleared. **Clear saved
+Older records without deadlines have no expiry timer, but still share the recent-cache limit. **Clear saved
 history in this room** confirms before deleting this entry's downloaded messages;
 it preserves keys and pending delivery. Other tabs can retain visible copies until
 refreshed. Local deletion is best effort, not physical disk erasure.

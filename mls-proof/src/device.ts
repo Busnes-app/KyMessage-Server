@@ -15,7 +15,7 @@ import { processPrivateMessage } from 'ts-mls/processMessages.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { mlsExporter } from 'ts-mls/keySchedule.js';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
-import { base64, unbase64, initializeVault, unlockVault, forgetVault, ensureRoomVault, inspectVaults, withVault, type UnlockedVault, type DeviceRecord } from './vault';
+import { base64, unbase64, initializeVault, unlockVault, forgetVault, ensureRoomVault, inspectVaults, withVault, trimSavedMessages, maxSavedMessages, type UnlockedVault, type DeviceRecord } from './vault';
 import { accountID } from './delivery-wire';
 
 export const encoder = new TextEncoder();
@@ -319,7 +319,9 @@ export const proof = {
         throw new Error('Apply the winning commit before continuing');
       }
       if (sequence <= record.cursor) {
-        if (record.received[sequence - 1] !== hash) throw new Error('Delivery sequence conflict');
+        const index = sequence - (record.cursor - record.received.length + 1);
+        if (index < 0) throw new Error('Replay outside remembered window');
+        if (record.received[index] !== hash) throw new Error('Delivery sequence conflict');
         return 'duplicate';
       }
       if (sequence !== record.cursor + 1) throw new Error('Delivery gap; fetch missing events');
@@ -329,7 +331,9 @@ export const proof = {
       record.awaitingCommit = false;
       record.cursor = sequence;
       record.received.push(hash);
-      if (result.kind === 'applicationMessage') record.inbox.push({text:decoder.decode(result.message),expiresAt:null});
+      record.received.splice(0, Math.max(0, record.received.length - maxSavedMessages));
+      if (result.kind === 'applicationMessage') record.inbox.push({text:decoder.decode(result.message),expiresAt:null,sequence});
+      trimSavedMessages(record.inbox);
       result.consumed.forEach(zeroOutUint8Array);
       return result.kind;
     });

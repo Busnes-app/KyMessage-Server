@@ -226,8 +226,13 @@ policy needs a new room. Expired ciphertext and Welcome data leave active fetche
 retry hashes, sequence metadata and audits have separate lifetimes. Startup and
 periodic sweeps are implemented. The isolated client persists gaps and requires
 explicit verified reinvitation. New local transcript/inbox copies expire on room
-access and unlocked timers, including offline; legacy text without deadlines needs
-explicit clearing. Pending sends are retained until resolved. Describe this as
+access and unlocked timers, including offline. The isolated client keeps only the
+newest 256 messages or 256 KiB of serialized transcript per room, whichever fills
+first. Older local entries are permanently evicted, with setup/room notices and a
+saved dropped-message count; keys, cursor and pending sends remain. This is a recent
+cache, not a guarantee of local history for the whole server retention period.
+Legacy text has no expiry timer but shares this capacity policy. Production limits
+still require pilot measurements. Pending sends are retained until resolved. Describe this as
 retention, not guaranteed auto-burn. Recipients may copy
 content; browser cleanup is best effort. Expired events disappear from active fetch
 and local views, and the client reports unavailable history when it falls behind.

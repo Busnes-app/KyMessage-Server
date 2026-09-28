@@ -11,7 +11,7 @@ import { defaultCapabilities } from 'ts-mls/defaultCapabilities.js';
 import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { run, runAt, ensureEntry, useEntry, selectEntry, inspectEntries, unlockedIdentity, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
-import { base64, unbase64, type DeviceRecord } from './vault';
+import { base64, unbase64, trimSavedMessages, type DeviceRecord } from './vault';
 import { object, text, accountID, integer, identityGeneration, retentionDays, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
 
@@ -57,6 +57,13 @@ async function transaction<T>(action: (r: DeviceRecord, d: Connection) => Promis
     d.messages = d.messages.filter(message => message.expiresAt === null || message.expiresAt > now);
     r.inbox = r.inbox.filter(message => message.expiresAt === null || message.expiresAt > now);
     const result = await action(r, d);
+    const pruned = trimSavedMessages(d.messages);
+    d.historyPruned += pruned;
+    if (pruned && d.messages.length) {
+      const floor = d.messages[0]?.sequence ?? 0;
+      r.inbox = r.inbox.filter(message => message.sequence === null || message.sequence >= floor);
+    }
+    trimSavedMessages(r.inbox);
     r.delivery = JSON.stringify(connection(d)); // Validate capacity at the persisted boundary too.
     return result;
   });
@@ -602,7 +609,7 @@ export const delivery = {
             const sender = m.devices.find(x => x.id === e.device_id);
             if (!sender) throw new Error('Missing authenticated sender');
             if (expiresAt > Date.now()/1000) {
-              r.inbox.push({text:plaintext,expiresAt});
+              r.inbox.push({text:plaintext,expiresAt,sequence:e.sequence});
               d.messages.push({id:e.id,sender:sender.user_id,text:plaintext,sequence:e.sequence,expiresAt});
             }
             r.state = base64(encodeGroupState({...current,secretTree:result.tree}));
@@ -630,8 +637,8 @@ export const delivery = {
     return {cursor:result.cursor,inbox:result.inbox};
   },
   async clearHistory() {
-    return transaction(async (r,d) => { d.messages = []; r.inbox = []; });
+    return transaction(async (r,d) => { d.messages = []; r.inbox = []; d.historyPruned = 0; });
   },
-  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,retentionDays:d.retentionDays,historyGap:d.historyGap,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox.map(message => message.text),epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
+  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,retentionDays:d.retentionDays,historyPruned:d.historyPruned,historyGap:d.historyGap,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox.map(message => message.text),epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
 };
 declare global { interface Window { delivery: typeof delivery } }

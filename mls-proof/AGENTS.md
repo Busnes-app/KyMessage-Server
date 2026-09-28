@@ -22,7 +22,7 @@ retains the manual wire harness. Root owns product decisions and research in `do
   entry retains the first room and its original format/lock name. New `room:<UUID>`
   entries authenticate that entry name as AES-GCM associated data, preventing swaps.
   A short native allocation transaction caps total entries at 100; per-entry 2 MiB
-  and list bounds remain. The non-secret selected-entry hint is tab-local sessionStorage.
+  and non-history list bounds remain. The non-secret selected-entry hint is tab-local sessionStorage.
 - Confirm before removing all local messaging data. Clear every room entry in one
   strict IndexedDB transaction, retain no unlocked key, and notify same-origin tabs
   to lock. Device revocation and suite sign-out remain separate explicit actions.
@@ -148,7 +148,16 @@ retains the manual wire harness. Root owns product decisions and research in `do
   not authenticated sender time. Expire both copies on selected-room access and
   the unlocked chat timer, including disconnected history mode; preserve keys,
   cursor, pins, outbox and unresolved text. Suspended/locked rooms clean up when
-  next opened. Legacy text without deadlines remains until explicit clearing.
+  next opened. Legacy text without deadlines has no timer but shares cache bounds.
+  After an action, keep the newest 256 transcript entries within 256 KiB of JSON
+  bytes; trim the diagnostic inbox too. Sequenced inbox entries below a pruned
+  transcript floor leave together. Legacy unsequenced copies share their own bound.
+  Persist the dropped-transcript count and show the permanent-loss notice at setup
+  and in the room. This is a recent cache, not an archive for the retention period.
+  Trimming never changes ratchets, cursor, pending sends/commits or verification pins.
+  Clear-history resets the count as well as both plaintext caches. The manual wire
+  harness also rolls its last 256 retry hashes with an offset from the cursor;
+  older replays fail closed rather than decrypting again.
   `Clear saved history in this room` confirms before clearing only this entry's
   transcript/inbox; it cannot recall other copies or reset its cryptographic state.
   The wire request contains

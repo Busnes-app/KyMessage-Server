@@ -5,6 +5,22 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 const aad = (entry: string) => encoder.encode(entry === 'device' ? 'kymessages-mls-proof/v1' : 'kymessages-mls-proof/v1/' + entry);
 export const databaseName = 'kymessages-mls-proof-v1';
 const maxBytes = 2 * 1024 * 1024;
+export const maxSavedMessages = 256;
+export const maxSavedMessageBytes = 256 * 1024;
+
+// Retain a recent cache without allowing display history to stop MLS progress.
+// Count serialized bytes so escaping/control characters cannot evade the budget.
+export function trimSavedMessages<T>(messages: T[]): number {
+  let start = messages.length, bytes = 2;
+  while (start > 0 && messages.length - start < maxSavedMessages) {
+    const size = encoder.encode(JSON.stringify(messages[start - 1])).length + 1;
+    if (bytes + size > maxSavedMessageBytes) break;
+    bytes += size;
+    start--;
+  }
+  messages.splice(0, start);
+  return start;
+}
 
 export function base64(bytes: Uint8Array): string {
   return btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''));
@@ -76,9 +92,9 @@ export function parseRecord(value: unknown) {
     },
     outbox: list(r.outbox, string),
     inbox: list(r.inbox, item => {
-      if (typeof item === 'string') return {text:item,expiresAt:null};
+      if (typeof item === 'string') return {text:item,expiresAt:null,sequence:null};
       const saved = object(item);
-      return {text:string(saved.text),expiresAt:expiry(saved.expiresAt)};
+      return {text:string(saved.text),expiresAt:expiry(saved.expiresAt),sequence:expiry(saved.sequence)};
     }),
     cursor: r.cursor,
     awaitingCommit: r.awaitingCommit,

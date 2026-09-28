@@ -307,3 +307,30 @@ test('unlock derives once and a lock cancels a late unlock', async ({page}) => {
   expect(result.lateResult).toContain('Device locked during unlock');
   expect(result.status).toContain('Device locked');
 });
+
+test('recent history and replay receipts roll forward beyond 256 messages', async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    const pending = await bob.page.evaluate(() => window.proof.send('Pending while receiving a long conversation'));
+    let first = '', latest = '';
+    for (let index = 0; index < 260; index++) {
+      latest = await alice.page.evaluate(index => window.proof.send(`Message ${index}`), index);
+      if (index === 0) first = latest;
+      await receive(bob.page, index + 1, latest);
+      await alice.page.evaluate(wire => window.proof.acknowledge(wire), latest);
+    }
+    const saved = await bob.page.evaluate(() => window.proof.status());
+    expect(saved.cursor).toBe(260);
+    expect(saved.inbox).toHaveLength(256);
+    expect(saved.inbox[0]).toBe('Message 4');
+    expect(saved.inbox.at(-1)).toBe('Message 259');
+    expect(saved.outbox).toEqual([pending]);
+    await reload(bob.page);
+    expect(await bob.page.evaluate(() => window.proof.status())).toEqual(saved);
+    expect(await receive(bob.page, 260, latest)).toBe('duplicate');
+    await expect(receive(bob.page, 1, first)).rejects.toThrow('Replay outside remembered window');
+    expect(await bob.page.evaluate(() => window.proof.status())).toEqual(saved);
+    await receive(alice.page, 1, pending);
+    expect((await alice.page.evaluate(() => window.proof.status())).inbox).toEqual(['Pending while receiving a long conversation']);
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
