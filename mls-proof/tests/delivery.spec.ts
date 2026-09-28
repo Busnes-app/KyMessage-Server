@@ -427,3 +427,19 @@ test('separate room ratchets do not share a lock or accept swapped encrypted rec
     expect((await alice.page.evaluate(() => window.delivery.status())).room).toBe(first);
   } finally { await alice.context.close(); }
 });
+
+test('server rollback response preserves the ratchet and pending bytes across reload',async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    await bob.page.evaluate(() => window.delivery.stageSend('Keep unresolved ciphertext'));
+    const before = await bob.page.evaluate(() => window.delivery.status());
+    await bob.page.route('**/events?after=*',route => route.fulfill({status:409,json:{error:'Cursor exceeds restored server sequence'}}),{times:1});
+    await expect(bob.page.evaluate(() => window.delivery.sync())).rejects.toThrow('Server history is behind');
+    await reload(bob.page,bob.session);
+    expect(await bob.page.evaluate(() => window.delivery.status())).toEqual({...before,historyGap:'rollback'});
+    await expect(bob.page.evaluate(() => window.delivery.stageSend('Do not regenerate'))).rejects.toThrow('Missing encrypted history');
+    await expect(bob.page.evaluate(() => window.delivery.rejoin())).rejects.toThrow('Resolve pending');
+    // A later successful read must not silently clear the persisted failure.
+    await expect(bob.page.evaluate(() => window.delivery.sync())).rejects.toThrow('Server history is behind');
+  } finally { await alice.context.close(); await bob.context.close(); }
+});

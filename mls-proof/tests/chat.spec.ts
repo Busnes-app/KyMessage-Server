@@ -621,3 +621,66 @@ test('direct conversations require consent and verification, then reopen their h
     await click(bob.page,'Start direct message','Choose another account');
   } finally { await alice.context.close(); await bob.context.close(); }
 });
+
+for (const joined of [true,false]) test(`expired history requires explicit recovery, previously joined ${joined}`,async ({browser}) => {
+  const ownerName = 'expiry-owner-' + crypto.randomUUID().slice(0,8);
+  const memberName = 'expiry-member-' + crypto.randomUUID().slice(0,8);
+  const owner = await start(browser,ownerName), member = await start(browser,memberName);
+  try {
+    // Pause receive timers so this browser really misses the encrypted history.
+    await member.page.clock.install();
+    await member.page.clock.pauseAt(new Date());
+    await owner.page.getByLabel('Retention for new conversations').selectOption('1');
+    await owner.page.getByLabel('New room name').fill('Expiring room');
+    const created = owner.page.waitForResponse(r => r.url().endsWith('/api/messaging/rooms') && r.request().method() === 'POST');
+    await click(owner.page,'Create room','Room created');
+    const room: unknown = await (await created).json();
+    if (!room || typeof room !== 'object' || !('id' in room) || typeof room.id !== 'string') throw new Error('Missing room ID');
+    await expect(owner.page.locator('#retention-state')).toContainText('24 hours');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    const invite = async () => {
+      await owner.page.getByLabel("Teammate's account ID").fill(memberName);
+      await click(owner.page,'Invite teammate','Invitation sent');
+      await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    };
+    await invite();
+    await click(member.page,'Accept Expiring room','Room selected');
+    await click(member.page,'Prepare to join','Ready to join');
+    await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await verify(owner.page,memberName,member.fingerprint);
+    await verify(member.page,ownerName,owner.fingerprint);
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    if (joined) {
+      await click(member.page,'Check for messages','Messages checked');
+      await owner.page.getByLabel('Message',{exact:true}).fill('Earlier saved history');
+      await click(owner.page,'Send encrypted message','Message accepted');
+      await click(member.page,'Check for messages','Messages checked');
+    }
+    await owner.page.getByLabel('Message',{exact:true}).fill('Missed and expired');
+    await click(owner.page,'Send encrypted message','Message accepted');
+    expect((await owner.page.request.post('/proof-fixture/expire-room/' + room.id)).status()).toBe(204);
+    await click(member.page,'Check for messages','expired');
+    await expect(member.page.locator('#history-gap')).toContainText('Required encrypted history expired');
+    await expect(member.page.locator('#poll-state')).toContainText('paused');
+    await expect(member.page.locator('#send')).toBeDisabled();
+    await expect(member.page.locator('#commit')).toBeDisabled();
+    await member.page.reload();
+    await unlock(member.page,memberName);
+    await expect(member.page.locator('#history-gap')).toBeVisible();
+    if (joined) await expect(member.page.locator('#messages')).toContainText('Earlier saved history');
+    await owner.page.getByLabel('Member to remove').selectOption(memberName);
+    owner.page.once('dialog',dialog => dialog.accept());
+    await click(owner.page,'Remove member','Member removed');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await invite();
+    await click(member.page,'Accept reinvitation','Reinvitation accepted');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await click(member.page,'Check for messages','Messages checked');
+    await expect(member.page.locator('#history-gap')).toBeHidden();
+    await member.page.getByLabel('Message',{exact:true}).fill('Future verified traffic');
+    await click(member.page,'Send encrypted message','Message accepted');
+    await click(owner.page,'Check for messages','Messages checked');
+    await expect(owner.page.locator('#messages')).toContainText('Future verified traffic');
+    await expect(member.page.locator('#messages')).not.toContainText('Missed and expired');
+  } finally { await owner.context.close(); await member.context.close(); }
+});

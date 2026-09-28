@@ -39,8 +39,10 @@
           <h2>Rooms</h2><p class="hint">Room names and membership are visible to the server.</p>
           <button id="refresh" class="secondary">Refresh rooms and devices</button>
           <ul id="rooms"></ul>
+          <div id="new-conversation-tools"><label>Retention for new conversations <select id="retention-days"><option value="1">24 hours</option><option value="7">7 days</option><option value="30" selected>30 days</option></select></label>
           <form id="create-form"><label>New room name <input id="room-name" required maxlength="120"></label><button>Create room</button></form>
           <form id="direct-form"><label>Direct message account ID <input id="direct-account" required maxlength="64" autocomplete="off"></label><button>Start direct message</button></form>
+          </div>
           <details><summary>Saved conversations</summary><p class="hint">Encrypted history on this browser, including rooms whose access was removed.</p><button id="saved-refresh" class="secondary">List saved conversations</button><ul id="saved-rooms"></ul></details>
           <details id="account-management"><summary>Your devices</summary><p>Your first device is approved automatically. Approve another browser only after comparing its fingerprint independently.</p><ul id="account-devices"></ul>
             <form id="account-approval-form"><label for="pending-device">Pending device</label><select id="pending-device" required></select><label>Fingerprint from that browser <input id="account-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button id="approve-own">Approve own device</button></form>
@@ -50,6 +52,8 @@
         </aside>
         <section class="card conversation">
           <h2 id="room-title">A quieter place to talk</h2>
+          <p id="retention-state" class="hint"></p>
+          <p id="history-gap" class="notice" hidden></p>
           <p id="room-state">Create a room, or accept an invitation from a teammate.</p>
           <div id="room-tools" hidden>
             <button id="sync" class="secondary">Check for messages</button>

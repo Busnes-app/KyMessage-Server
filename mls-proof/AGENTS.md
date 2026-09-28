@@ -60,8 +60,15 @@ retains the manual wire harness. Root owns product decisions and research in `do
   no unresolved outbox/commit. Keep old ratchet, cursor and transcript while fresh
   join material is published. Block sends/commits until a Welcome authenticates
   the expected generation and a newer epoch/history floor. Replace the ratchet
-  atomically with that verified join; preserve earlier local history. This does
-  not recover revoked devices, retention gaps or rolled-back stores.
+  atomically with that verified join; preserve earlier local history. Persist missing
+  history (410) or rollback (409) as a local gap without changing ratchets/cursors.
+  Pause sending and automatic reads until explicit recovery. Retention-gap rejoin
+  requires a newer membership generation, including after an expired initial
+  Welcome; retain attempted generations across repeated missed joins. A verified
+  join clears the gap. Never rewind a cursor or epoch to fit restored server data.
+  This does not recover revoked devices or the missing messages.
+- New room/direct creation offers fixed 1/7/30-day server retention. Cache that
+  policy encrypted; distinguish server cleanup from recipient copies and backups.
 - Keep fixture proxying opt-in with `MLS_PROOF_DELIVERY=1`; the normal manual
   harness stays offline. Production `web/` and authentication semantics remain untouched.
 - `?auth=oidc` reads the immutable account ID from `/api/auth/me` before local setup

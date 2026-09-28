@@ -132,8 +132,8 @@ policy (default 30), ordered expiry, retained prefix floor, payload/Welcome clea
 and 410 `history_expired` for missed history. Preserve receipt hashes and sequence
 metadata after expiry; exact retries still acknowledge the same event. Active limits
 are 4,096 events/32 MiB per room; lifetime receipt limit is 1,000,000. Neither backup
-copies nor audit/receipt metadata are erased by message retention. Client expiry
-and gap UX remain open; the current proof still displays generic API errors.
+copies nor audit/receipt metadata are erased by message retention. Local expiry
+remains open; client gap handling is described below.
 
 Store initialization prunes before returning, including restored SQLite databases.
 The daemon sweeps idle rooms every minute with a 30-second operation deadline. Its
@@ -151,12 +151,28 @@ across connections. Go vet and diff checks pass.
 CI for the live-delivery checkpoint passed:
 https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364009571
 
-Next: client retention controls, persisted history-gap state, explicit rejoin/new-room
-help and local transcript expiry; then the final local-data lifecycle and restore
+The isolated client now offers 1/7/30-day retention for new rooms/direct chats,
+caches policy encrypted, and persists 410/409 gaps without changing saved ratchets,
+cursors, transcripts or pending bytes. Sending and automatic reads pause; reload
+preserves the warning. Explicit reinvitation must advance membership generation,
+including when the original Welcome expired. Save attempted generations so another
+missed join cannot reuse that generation. Only a fully verified fresh Welcome
+clears the gap; missing messages are not recovered.
+
+The build-tagged bearer fixture ages a chosen room then invokes real cleanup.
+Chromium/Firefox drills pass for both established and never-joined browsers,
+including reload, disabled sends and future-only rejoin. Full HTTP/UI suite passed
+39 cases with one intentional duplicate-engine skip. The final six gap/rollback
+cases and all eight OIDC cases passed on both engines after the UI status fix.
+The rollback response test preserves pending bytes across reload; a real restored
+server drill remains required. Fixture vet and proof build passed.
+Server-retention CI passed: https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364733298
+
+Next: local transcript expiry; then the final local-data lifecycle and restore
 rollback protections. KyMessages is not deployed yet, confirmed by the user. Keep
 live issuer checks open while independent implementation continues.
 
-Retention/gap recovery, product embedding, installation, restore and
+Local retention, product embedding, installation, restore and
 load/security evidence remain open. The unaudited `ts-mls` experiment and private
 GroupInfo extension stay out of production. Deployed issuer interaction, independent
 protocol review/interop, full supported-browser evidence and restored metadata

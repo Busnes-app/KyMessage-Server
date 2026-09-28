@@ -53,18 +53,18 @@ It is a local interactive prototype, excluded from the embedded app and Docker.
    session for any synthetic account. Keep it on loopback and use no real data.
 2. Alice creates a room and selects **Apply verified membership** to activate it,
    then invites Bob's test account. Room names and membership are server-visible.
-3. Bob refreshes rooms, accepts the invitation and selects**Prepare to join**.
+3. Bob refreshes rooms, accepts the invitation and selects **Prepare to join**.
    Alice refreshes too. Both independently obtain the fingerprint shown in the
    other browser's own fingerprint panel, select the peer device, and verify it.
    The directory never supplies a prefilled verification fingerprint.
 4. Alice applies verified membership again. Bob selects **Check for messages** to
    receive the Welcome. Both can now send encrypted text and check for messages.
-   Checks are manual in this prototype; live updates remain product work.
+   Foreground automatic checks also receive messages.
 5. A failed submission displays pending delivery and offers an identical retry.
    Reload locks the vault. Unlock with the original test account/passphrase to
    recover pending delivery and both sides of the conversation. Acceptance by the
-   server is explicitly distinct from a read receipt. Message text is rendered as
-   text, including HTML-looking strings; Markdown is not implemented here.
+   server is explicitly distinct from a read receipt. Message text uses
+   local Markdown rendering with raw HTML/images disabled and HTTP(S)-only links.
 6. A second browser created for the same account starts pending. In the first
    browser, open **Your devices**, refresh, compare the second browser's own
    fingerprint independently, then approve it. Refresh the second browser. Server
@@ -82,7 +82,8 @@ The unlocked chat tab checks the selected room automatically, waiting 10 seconds
 between completed operations. Checks pause while hidden, offline, or waiting on an explicit send retry.
 Failed checks back off to 20, 40 and at most 60 seconds; a successful action restores
 the 10-second interval. Drafts and typing focus remain intact. Manual checks still
-work. This is foreground HTTP polling, not WebSocket delivery or background push.
+work. Cookie mode also uses authenticated WebSocket wakeups; bearer fixture mode
+uses polling. Neither provides background push.
 Each tab polls independently; the server's shared account rate limit still applies.
 
 Delivery requests have a ten-second deadline. Lock aborts in-flight delivery and
@@ -152,7 +153,8 @@ membership change; **Check messages** verifies the new Welcome. Earlier local
 history remains, but messages sent while removed are unavailable. Pending outbound
 work blocks rejoin rather than being silently discarded. Sends remain disabled
 until the new Welcome is verified. A lost invitation response can be retried after
-reload. This cannot reapprove a revoked device or recover a retention gap.
+reload. This cannot reapprove a revoked device or recover missing messages.
+Retention gaps require the same explicit newer-generation reinvitation.
 
 `npm run test:delivery -- --project=chromium --project=firefox` includes DOM-driven
 chat and same-account device-approval tests alongside the protocol tests. Screenshots
@@ -345,7 +347,7 @@ Accept reinvitation button and verify disabled sending while waiting.
 Each room publishes its own pre-join material; new rooms generate fresh join keys
 and cannot reuse published material to initialize a different group. Its interactive
 fixture UI, including OIDC mode, is not a deployed product client. It has no automatic pool
-replenishment, signing-key rotation, retention-gap recovery, history reset or restore reconciliation. A stale-roster rejection without a winning commit deliberately
+replenishment, signing-key rotation, history reset or full restore reconciliation. A stale-roster rejection without a winning commit deliberately
 leaves the client waiting. After a lost creation response, refresh rooms and open
 the empty owned room to initialize it; an existing epoch can never be reinitialized.
 The transcript starts with new sends/receives; older proof inboxes are not backfilled.
@@ -472,3 +474,11 @@ ordinary authenticated HTTP reads verify and persist MLS messages. The socket cl
 on lock, room switch or a hidden/offline tab. Reconnect reads the durable cursor;
 10-second checks remain fallback, and fixture bearer mode continues to use them.
 Frozen-timer browser tests prove live receive and offline catch-up without a poll.
+
+New conversations offer fixed 24-hour, 7-day or 30-day server retention. Expired
+required history pauses sending and automatic reads without discarding saved
+state. Ask the owner to remove/reinvite the account, accept reinvitation, and wait
+for verified membership to receive future traffic. An expired initial Welcome
+uses the same flow. Owners or rooms without a suitable peer must start a new room.
+A server behind the saved cursor also pauses the client; it never rewinds keys
+or cursors. Local transcript expiry remains separate work.

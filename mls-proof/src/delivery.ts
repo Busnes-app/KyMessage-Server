@@ -12,7 +12,7 @@ import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { run, runAt, ensureEntry, useEntry, selectEntry, inspectEntries, unlockedIdentity, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
 import { base64, unbase64, type DeviceRecord } from './vault';
-import { object, text, accountID, integer, identityGeneration, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
+import { object, text, accountID, integer, identityGeneration, retentionDays, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
 
 // Experiment-specific GroupInfo extension, authenticated by MLS for Welcome joins.
@@ -94,6 +94,7 @@ async function checkMetadata(r: DeviceRecord, d: Connection, e: Event, m: Metada
   pinned(r,m.devices);
 }
 async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'application' | 'commit'): Promise<Metadata> {
+  if (d.historyGap) throw new Error('Missing encrypted history: rejoin explicitly or create a new room');
   if (!d.room || !d.device || d.pending || d.rejoinGeneration !== null || r.awaitingCommit || r.pending || r.outbox.length) throw new Error('Resolve pending delivery first');
   const v = await api(roomPath(d) + '/delivery', d.token);
   const devices = roster(v.devices);
@@ -143,6 +144,7 @@ async function openRoom(room: string, expectedPeer?: string) {
     d.directPeer = directPeer;
     if (selected.membership === 'invited' && !r.state) await api(roomPath(d) + '/join',d.token,'POST');
     d.name = text(selected.name);
+    d.retentionDays = retentionDays(selected.retention_days);
     // Recover an empty owned room after a lost creation acknowledgement. Never
     // initialize a group with join material that has already been published.
     if (!r.state && selected.owner_id === r.identity && !d.publication) {
@@ -197,7 +199,7 @@ export const delivery = {
     return transaction(async (_r,d) => array((await api('/rooms',d.token)).rooms, item => {
       const room = object(item);
       if (room.membership !== 'active' && room.membership !== 'invited') throw new Error('Invalid room membership');
-      return {id:text(room.id),name:text(room.name),owner:accountID(room.owner_id),peer:room.peer_user_id === undefined || room.peer_user_id === '' ? null : accountID(room.peer_user_id),membership:room.membership};
+      return {id:text(room.id),name:text(room.name),owner:accountID(room.owner_id),peer:room.peer_user_id === undefined || room.peer_user_id === '' ? null : accountID(room.peer_user_id),membership:room.membership,retentionDays:retentionDays(room.retention_days)};
     }));
   },
   async savedRooms() {
@@ -279,16 +281,16 @@ export const delivery = {
       return d.device;
     });
   },
-  async createRoom(name: string) {
+  async createRoom(name: string, days: number = 30) {
     const signal = connectionAbort.signal;
     const token = await transaction(async (_r,d) => d.token);
-    const v = await api('/rooms',token,'POST',{name});
+    const v = await api('/rooms',token,'POST',{name,retention_days:retentionDays(days)});
     signal.throwIfAborted();
     const room = text(v.id);
     await openRoom(room);
     return room;
   },
-  async directRoom(peerValue: string) {
+  async directRoom(peerValue: string, days: number = 30) {
     const peer = accountID(peerValue);
     const identity = unlockedIdentity();
     if (peer === identity) throw new Error('Choose another account for a direct conversation');
@@ -299,7 +301,7 @@ export const delivery = {
     if (existing) { await openRoom(existing.id,peer); return existing.id; }
     const signal = connectionAbort.signal;
     const token = await transaction(async (_r,d) => d.token);
-    const created = await api('/rooms',token,'POST',{name:'Direct: ' + peer,peer_user_id:peer});
+    const created = await api('/rooms',token,'POST',{name:'Direct: ' + peer,peer_user_id:peer,retention_days:retentionDays(days)});
     signal.throwIfAborted();
     const room = text(created.id);
     await openRoom(room,peer);
@@ -308,11 +310,11 @@ export const delivery = {
   async selectRoom(room: string) { await openRoom(room); },
   async rejoin() {
     return transaction(async (r,d) => {
-      if (!r.state || !d.room || !d.device) throw new Error('Rejoin requires an existing room');
+      if (!d.room || !d.device) throw new Error('Rejoin requires an existing room');
       if (d.pending || r.pending || r.outbox.length || r.awaitingCommit) throw new Error('Resolve pending delivery before rejoining');
       if (d.rejoinGeneration !== null) return;
-      const previous = d.roster?.find(x => x.id === d.device);
-      if (!previous) throw new Error('Missing verified membership generation');
+      const previous = Math.max(d.roster?.find(x => x.id === d.device)?.generation ?? -1,d.joinGeneration ?? -1);
+      if (previous < 0) throw new Error('Missing earlier membership generation; use a new room');
       const rooms = array((await api('/rooms',d.token)).rooms,object);
       const selected = rooms.find(x => x.id === d.room);
       if (selected?.membership === 'invited') await api(roomPath(d) + '/join',d.token,'POST');
@@ -320,16 +322,17 @@ export const delivery = {
       const directory = await api(roomPath(d) + '/delivery',d.token);
       const own = roster(directory.devices).find(x => x.id === d.device);
       const old = keyPackage(r.keyPackage);
-      if (!own || own.user_id !== r.identity || own.public_key !== base64(old.leafNode.signaturePublicKey) || own.generation <= previous.generation) throw new Error('Rejoin requires a newer membership generation');
+      if (!own || own.user_id !== r.identity || own.public_key !== base64(old.leafNode.signaturePublicKey) || own.generation <= previous) throw new Error('Rejoin requires a newer membership generation');
       const now = Math.floor(Date.now()/1000);
       const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
         {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
-        {signKey:state(r).signaturePrivateKey,publicKey:old.leafNode.signaturePublicKey},await suite);
+        {signKey:r.keys ? unbase64(r.keys.signaturePrivateKey) : state(r).signaturePrivateKey,publicKey:old.leafNode.signaturePublicKey},await suite);
       r.keyPackage = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:fresh.publicPackage}));
       r.keys = {initPrivateKey:base64(fresh.privatePackage.initPrivateKey),hpkePrivateKey:base64(fresh.privatePackage.hpkePrivateKey),signaturePrivateKey:base64(fresh.privatePackage.signaturePrivateKey)};
       Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
       d.publication = null;
       d.rejoinGeneration = own.generation;
+      d.joinGeneration = own.generation;
       // Keep the old ratchet, cursor and history until a verified Welcome replaces it.
     });
   },
@@ -368,6 +371,12 @@ export const delivery = {
     await transaction(async (r,d) => {
       if (!d.room) throw new Error('Select a room before publishing join material');
       if ((r.state && d.rejoinGeneration === null) || !r.keys) throw new Error('KeyPackage already consumed');
+      if (d.joinGeneration === null) {
+        const remote = await api(roomPath(d) + '/delivery',d.token);
+        const own = roster(remote.devices).find(device => device.id === d.device);
+        if (!own || own.user_id !== r.identity || own.public_key !== base64(keyPackage(r.keyPackage).leafNode.signaturePublicKey)) throw new Error('Missing bound join device');
+        d.joinGeneration = own.generation;
+      }
       if (d.publication && d.publication.expires_at*1000 <= Date.now()) {
         // Expiry prevents new allocation, but an earlier claim may already have
         // produced a Welcome. Keep its private join material until a verified join.
@@ -502,8 +511,16 @@ export const delivery = {
     return {sequence:integer(receipt.sequence),epoch:integer(receipt.epoch)};
   },
   async sync() {
-    return transaction(async (r,d) => {
-      const page = await api(roomPath(d) + '/events?after=' + r.cursor,d.token);
+    const result = await transaction(async (r,d) => {
+      if (d.historyGap && d.rejoinGeneration === null) return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox};
+      const response = await request(roomPath(d) + '/events?after=' + r.cursor,d.token);
+      if (response.status === 410 || response.status === 409) {
+        d.historyGap = response.status === 410 ? 'expired' : 'rollback';
+        d.rejoinGeneration = null;
+        return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox};
+      }
+      if (response.status !== 200) throw new Error(`Delivery HTTP ${response.status}: ${text(object(response.value).error)}`);
+      const page = object(response.value);
       const events = array(page.events,event);
       const floor = integer(page.start_sequence);
       for (const e of events) {
@@ -519,7 +536,7 @@ export const delivery = {
           if (!d.room || e.kind !== 'commit' || !e.welcome) throw new Error('Expected initial Welcome');
           if (d.rejoinGeneration !== null) {
             const own = m.devices.find(x => x.id === d.device);
-            if (!own || own.generation !== d.rejoinGeneration || e.sequence <= r.cursor || BigInt(e.epoch) <= state(r).groupContext.epoch) throw new Error('Rejoin history or generation mismatch');
+            if (!own || own.generation !== d.rejoinGeneration || e.sequence <= r.cursor || (r.state !== null && BigInt(e.epoch) <= state(r).groupContext.epoch)) throw new Error('Rejoin history or generation mismatch');
           }
           const welcome = decode(e.welcome,decodeMlsMessage);
           if (welcome.wireformat !== 'mls_welcome') throw new Error('Expected MLS Welcome');
@@ -555,6 +572,8 @@ export const delivery = {
           }));
           d.publication = null;
           d.rejoinGeneration = null;
+          d.historyGap = null;
+          d.joinGeneration = m.devices.find(device => device.id === d.device)?.generation ?? null;
         } else if (e.device_id === d.device) {
           if (!d.pending) throw new Error('Own event has no durable outbox');
           const body = object(JSON.parse(d.pending.request));
@@ -597,9 +616,11 @@ export const delivery = {
         d.roster = m.devices;
       }
       if (integer(page.next) !== r.cursor) throw new Error('Invalid delivery cursor');
-      return {cursor:r.cursor,inbox:r.inbox};
+      return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox};
     });
+    if (result.gap) throw new Error(result.gap === 'expired' ? 'Required encrypted history expired. Rejoin explicitly or create a new room; saved state was preserved.' : 'Server history is behind this browser. Do not roll back local state; use a new room or obtain a verified fresh invitation.');
+    return {cursor:result.cursor,inbox:result.inbox};
   },
-  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
+  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,retentionDays:d.retentionDays,historyGap:d.historyGap,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
 };
 declare global { interface Window { delivery: typeof delivery } }

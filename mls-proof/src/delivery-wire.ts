@@ -17,6 +17,15 @@ export function integer(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Expected nonnegative integer');
   return value;
 }
+export function retentionDays(value: unknown = 30): 1 | 7 | 30 {
+  if (value !== 1 && value !== 7 && value !== 30) throw new Error('Expected 1, 7 or 30 retention days');
+  return value;
+}
+export function historyGap(value: unknown): 'expired' | 'rollback' | null {
+  if (value === undefined || value === null) return null;
+  if (value !== 'expired' && value !== 'rollback') throw new Error('Invalid history gap');
+  return value;
+}
 export function identityGeneration(value: unknown): number {
   const generation = integer(value);
   if (generation === 0) throw new Error('Expected positive identity generation');
@@ -60,6 +69,9 @@ export function connection(value: unknown) {
     device: d.device === null ? null : text(d.device), token: text(d.token),
     challenge: d.challenge === undefined || d.challenge === null ? null : text(d.challenge),
     room: d.room === null ? null : text(d.room),
+    historyGap: historyGap(d.historyGap),
+    retentionDays: retentionDays(d.retentionDays),
+    joinGeneration: d.joinGeneration === undefined || d.joinGeneration === null ? null : integer(d.joinGeneration),
     directPeer: d.directPeer === undefined || d.directPeer === null ? null : accountID(d.directPeer),
     name: d.name === undefined || d.name === null ? null : text(d.name),
     roster: d.roster === null ? null : roster(d.roster),

@@ -83,7 +83,7 @@ async function receiveLive() {
 function stopPolling() { clearTimeout(pollTimer); pollTimer = undefined; }
 function schedulePoll() {
   stopPolling();
-  if (!opened || localOnly || document.hidden || !navigator.onLine || !rooms.some(room => room.id === snapshot?.room && room.membership === 'active') || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') { stopLive(); return; }
+  if (!opened || localOnly || (snapshot?.historyGap && !snapshot.rejoining) || document.hidden || !navigator.onLine || !rooms.some(room => room.id === snapshot?.room && room.membership === 'active') || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') { stopLive(); return; }
   if (snapshot?.room) connectLive(snapshot.room);
   if (needsLiveRead() && !busy && !snapshot?.pending) { void receiveLive(); return; }
   pollTimer = setTimeout(() => {
@@ -114,17 +114,17 @@ function controls() {
   });
   const approved = devices.find(device => device.id === snapshot?.device)?.status === 'approved';
   const activeRoom = rooms.some(room => room.id === snapshot?.room && room.membership === 'active');
-  button('send').disabled = !activeRoom || roomPaused || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
+  button('send').disabled = !activeRoom || Boolean(snapshot?.historyGap) || roomPaused || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
   field('message').disabled = !backgroundWork && button('send').disabled;
   button('lock').disabled = false;
   button('refresh').disabled = localOnly || busy;
-  button('commit').disabled = !activeRoom || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
+  button('commit').disabled = !activeRoom || Boolean(snapshot?.historyGap) || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
   button('publish').disabled = !approved || busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
   button('sync').disabled = !approved || !activeRoom || busy;
   button('retry').disabled = !approved || !activeRoom || busy;
   button('approve-own').disabled = !approved || busy;
   button('remove').disabled = busy || snapshot?.pending === true || snapshot?.rejoining === true;
-  button('rejoin').disabled = !approved || busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
+  button('rejoin').disabled = !approved || busy || !snapshot?.room || snapshot.pending || snapshot.rejoining;
 }
 async function action(task: () => Promise<void>, success: string, background = false) {
   if (busy) return;
@@ -156,7 +156,9 @@ async function action(task: () => Promise<void>, success: string, background = f
     }
     if (generation !== viewGeneration && !(error instanceof SessionError)) return;
     const message = error instanceof Error ? error.message : 'The operation failed. Try again.';
-    if (background && opened && devices.find(device => device.id === snapshot?.device)?.status === 'revoked') {
+    if (background && opened && snapshot?.historyGap && !snapshot.rejoining) {
+      element('poll-state').textContent = 'Automatic checks paused. Explicit recovery required.';
+    } else if (background && opened && devices.find(device => device.id === snapshot?.device)?.status === 'revoked') {
       element('poll-state').textContent = 'Automatic checks stopped: device revoked.';
     } else if (background && opened) {
       pollDelay = Math.min(pollDelay*2,60_000);
@@ -261,11 +263,17 @@ async function render() {
     }
     list.append(row);
   }
+  element('new-conversation-tools').hidden = own?.status !== 'approved';
   element('create-form').hidden = own?.status !== 'approved';
   element('direct-form').hidden = own?.status !== 'approved';
   element('room-tools').hidden = localOnly || s.room === null;
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
+  element('retention-state').textContent = s.room ? `Server retention: ${s.retentionDays === 1 ? '24 hours' : s.retentionDays + ' days'}. Policy is fixed for this room; downloaded copies and backups may outlive it.` : '';
+  element('history-gap').hidden = s.historyGap === null;
+  element('history-gap').textContent = s.historyGap === 'rollback'
+    ? 'The server is behind this browser’s saved history. Local state has not been rolled back. Use a new room or a fresh verified invitation; restoring server data cannot restore browser keys.'
+    : 'Required encrypted history expired before this browser received it. Ask the room owner to remove and reinvite your account, then accept reinvitation and wait for a teammate to apply verified membership. If you own the room or no suitable peer remains, create a new room. Earlier local state and any pending delivery remain intact.';
   element('invite-form').hidden = room?.owner !== s.identity;
   const invite = field('invite-account');
   if (invite instanceof HTMLInputElement) { invite.readOnly = Boolean(room?.peer); if (room?.peer) invite.value = room.peer; else if (invite.dataset.direct === 'true') invite.value = ''; invite.dataset.direct = String(Boolean(room?.peer)); }
@@ -282,6 +290,7 @@ async function render() {
     : room?.membership === 'invited' && s.epoch !== null ? 'You have a new invitation. Accept reinvitation to receive future messages; earlier local history remains.'
     : !room ? 'Room access was removed. Earlier local history remains; a new invitation is required.'
     : s.rejoining ? 'Rejoining: prepare to join, then wait for a new verified Welcome. Earlier local history stays; messages during removal are unavailable.'
+    : s.historyGap ? 'Sending and automatic receive checks are paused until explicit recovery.'
     : s.epoch === null ? 'Waiting for an existing member to add this verified device. Prepare to join, then check for messages.'
     : roomPaused ? 'Membership changed. Apply verified membership before sending more messages.'
     : s.epoch === '0' ? 'Apply verified membership to activate this room.'
@@ -295,6 +304,7 @@ async function render() {
   element('pending-text').textContent = s.pendingText === null ? 'Membership change pending. Retry the same delivery.' : `Delivery pending — confirmation unknown\n${s.pendingText}`;
   element('send-form').hidden = localOnly || s.room === null;
   if (localOnly) element('poll-state').textContent = 'Disconnected. No automatic checks.';
+  else if (s.historyGap && !s.rejoining) element('poll-state').textContent = 'Automatic checks paused. Explicit recovery required.';
 }
 
 form('history-form',async () => {
@@ -349,7 +359,7 @@ function lockLocal() {
   viewGeneration++;
   stopPolling();
   proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
-  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms']) element(id).replaceChildren();
+  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms','retention-state','history-gap']) element(id).replaceChildren();
   for (const id of ['message','password','history-password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
   element('workspace').hidden = true; element('access').hidden = false;
@@ -402,8 +412,8 @@ click('saved-refresh',async () => {
   }));
 },'Saved conversations listed.');
 click('refresh',refresh,'Rooms and devices refreshed.');
-form('direct-form',async () => { confirmDraftDiscard(); await delivery.directRoom(field('direct-account').value); field('message').value = ''; field('direct-account').value = ''; await refresh(); },'Direct conversation selected. The recipient must accept; verify fingerprints before messaging.');
-form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim()); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
+form('direct-form',async () => { confirmDraftDiscard(); await delivery.directRoom(field('direct-account').value,Number(field('retention-days').value)); field('message').value = ''; field('direct-account').value = ''; await refresh(); },'Direct conversation selected. The recipient must accept; verify fingerprints before messaging.');
+form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim(),Number(field('retention-days').value)); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');
 form('remove-form',async () => {
   const target = field('remove-member').value;

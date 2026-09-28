@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -17,6 +18,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/config"
@@ -69,6 +72,29 @@ func serve() error {
 	defer st.Close()
 	mux := http.NewServeMux()
 	if !oidcMode {
+		// Test-only clock aging against this process's disposable database.
+		aging, err := sql.Open("sqlite", cfg.Database.DSN+"?_pragma=busy_timeout(5000)")
+		if err != nil {
+			return err
+		}
+		defer aging.Close()
+		mux.HandleFunc("POST /proof-fixture/expire-room/{room}", func(w http.ResponseWriter, r *http.Request) {
+			room := r.PathValue("room")
+			id, err := uuid.Parse(room)
+			if err != nil || id.String() != room {
+				http.Error(w, "invalid room", 400)
+				return
+			}
+			if _, err := aging.ExecContext(r.Context(), "UPDATE messaging_events SET expires_at = 1 WHERE room_id = ?", room); err != nil {
+				http.Error(w, "fixture aging failed", 500)
+				return
+			}
+			if err := st.Messaging().ExpireMessages(r.Context()); err != nil {
+				http.Error(w, "fixture expiry failed", 500)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
 		mux.HandleFunc("POST /proof-fixture/session/{user}", func(w http.ResponseWriter, r *http.Request) {
 			user := r.PathValue("user")
 			if !utf8.ValidString(user) || len(user) == 0 || len(user) > 64 || strings.ContainsFunc(user, unicode.IsControl) {

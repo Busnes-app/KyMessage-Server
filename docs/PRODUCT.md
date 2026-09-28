@@ -37,8 +37,9 @@ to already downloaded messages after membership removal or network loss. Online
 messaging still requires suite authentication. Direct conversations atomically invite
 one fixed peer, require consent and key verification, and reject third-account
 membership and client rosters. Repeated starts reopen an existing visible pair;
-concurrent starts can create separate rooms. Automatic replenishment, retention-gap
-recovery, live KyIdentity deployment and reviewed
+concurrent starts can create separate rooms. Retention gaps now require explicit
+verified reinvitation or a new room. Automatic replenishment, local expiry,
+live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 
 ## Promise and audience
@@ -220,7 +221,8 @@ The backend now defaults to 30-day ciphertext retention, with 24-hour and 7-day
 policies chosen at room creation. Room policy is immutable in this version; a new
 policy needs a new room. Expired ciphertext and Welcome data leave active fetches;
 retry hashes, sequence metadata and audits have separate lifetimes. Startup and
-periodic sweeps are implemented, while client expiry/gap UX remains in progress. Describe this as retention, not guaranteed auto-burn. Recipients may copy
+periodic sweeps are implemented. The isolated client persists gaps and requires
+explicit verified reinvitation; local transcript expiry remains in progress. Describe this as retention, not guaranteed auto-burn. Recipients may copy
 content; browser cleanup is best effort. Expired events disappear from active fetch
 and local views, and the client reports unavailable history when it falls behind.
 

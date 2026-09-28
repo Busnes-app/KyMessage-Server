@@ -1,8 +1,7 @@
-# Encrypted-chat first release
-
 **Repo:** KyMessage-Server
 **Worktree:** /home/yoshi/git/busnes.app/KyMessage-Server (branch master)
 
+# Encrypted-chat first release
 User-confirmed scope: complete the small-team encrypted-chat first release. Continue
 through implementation and verification; commit each completed slice and before
 any unavoidable break. Calls, bots, federation and native clients are outside this
@@ -31,8 +30,10 @@ prototype test is not production approval.
    session/device revocation, connection quotas, shutdown and reconnect are tested.
    Foreground polling remains fallback. Server retention now clears expired ciphertext
    and Welcomes on access, startup and periodic sweeps; missed prefixes return 410
-   and retry receipts survive cleanup. Client gap UX/local expiry and the end-to-end
-   gap/rejoin drill remain open. No plaintext notifications or server-side previews.
+   and retry receipts survive cleanup. The client offers retention policy at creation,
+   persists missing/rollback gaps and pauses until explicit verified recovery.
+   Chromium/Firefox drills cover expired initial Welcomes and established sessions.
+   Local transcript expiry remains open. No plaintext notifications or server-side previews.
 4. **Deployable client and identity — open.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
    Apply KyMessages identity/coordinates, HTTPS setup, responsive keyboard UX,
@@ -58,7 +59,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `59d2f77`; current implementation remains a server scaffold plus
+- CI green through `e13cf7f`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required

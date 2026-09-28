@@ -15,6 +15,10 @@ fixture process lifetime.
 - Serve the actual API handler. Direct fixture session provisioning is a separate
   route and is not evidence of OIDC. `MLS_PROOF_OIDC=1` disables that route and
   configures the actual suite callback against `oidc.go`'s local test issuer.
+- Bearer mode exposes `POST /proof-fixture/expire-room/{room}` only on the
+  disposable loopback fixture. Validate the room UUID, age its event deadlines in
+  the temporary database, then run the real store cleanup for retention drills.
+  OIDC mode does not register this synthetic aging route.
 - The fixture reissues sessions for an existing synthetic account so the chat
   prototype can unlock after reload. Anyone on the fixture can name any test
   account; this is deliberately not authentication and must remain loopback-only.

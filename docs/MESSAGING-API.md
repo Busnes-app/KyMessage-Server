@@ -384,7 +384,9 @@ An authorized cursor behind an expired prefix returns 410 with
 A caught-up client can continue; a missed Welcome or transcript needs ordinary
 explicit remove/reinvite and a fresh verified Welcome, or a new room if no suitable
 owner/peer can perform that sequence. A new membership floor excludes old history.
-Client gap UX/local expiry and restored identity/rollback reconciliation remain
+The isolated client persists 410/409 gaps, pauses sending/automatic reads and
+requires explicit newer-generation rejoin or a new room. It preserves ratchets,
+cursors and pending bytes. Local expiry and restored identity/rollback reconciliation remain
 release work; server pruning alone does not complete those gates.
 
 ## Limits and failure behavior
