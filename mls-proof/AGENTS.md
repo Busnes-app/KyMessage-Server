@@ -77,7 +77,11 @@ retains the manual wire harness. Root owns product decisions and research in `do
   Pins copied from the first room remain bound to the verified account/key/generation.
   An unavailable saved room fails visibly and returns the next unlock to the original
   record without deleting the inaccessible entry. Archived-room discovery remains open.
-- The chat prototype uses DOM text nodes for messages and requires a fingerprint
+- `markdown.ts` renders messages locally using pinned markdown-it with raw HTML,
+  image rendering, plugins, custom highlighters and automatic linkification disabled.
+  Only absolute HTTP(S) links are active; set noreferrer/noopener and open a new tab.
+  Never pass message source directly to an HTML sink. Keep identifiers and status
+  text in DOM text nodes. The chat prototype requires a fingerprint
   obtained from the peer's own browser. Never populate verification from discovery.
   Same-account device approval and local room-key verification are separate actions.
   Room selection reconciles an already-active membership after a lost join response

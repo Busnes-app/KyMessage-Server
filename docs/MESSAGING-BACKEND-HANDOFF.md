@@ -73,8 +73,12 @@ The stale device-loss wording assertions from the reset slice were fixed in `b93
 
 ## Next and constraints
 
-Continue durable conversations with client-side safe Markdown, direct-message UX
-and discovery of saved local rooms after server membership is removed. Existing
+Client-side Markdown is now implemented with pinned markdown-it 15.0.2, raw HTML
+and image rendering disabled, and only HTTP(S) links active with no opener/referrer.
+Four Chromium/Firefox cases passed for formatting, HTML/script links, tracking
+images, reload and mobile layout; npm audit reported no vulnerabilities.
+
+Continue durable conversations with direct-message UX and discovery of saved local rooms after server membership is removed. Existing
 archived entries are retained but only the last-selected one is currently reachable
 without a server-listed membership. Only the selected room receives automatic checks.
 Server room listings currently expose one page of 100 in the client. These remain

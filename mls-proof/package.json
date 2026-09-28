@@ -12,6 +12,7 @@
     "test:oidc": "playwright test -c playwright.oidc.config.mjs"
   },
   "dependencies": {
+    "markdown-it": "15.0.2",
     "ts-mls": "1.6.4"
   },
   "devDependencies": {

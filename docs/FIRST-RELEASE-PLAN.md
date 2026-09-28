@@ -21,8 +21,9 @@ prototype test is not production approval.
    encrypted local history, outbox retry, rejoin and room switching. Each room owns
    its encrypted record/ratchet, scoped join packages and pending sends; local storage
    is bounded. Unlock retains only a non-extractable wrapping key. Remaining: direct
-   message UX, archived local-room discovery, safe Markdown and the final production
-   unlock/local-data lifecycle.
+   message UX, archived local-room discovery and the final production unlock/local-data
+   lifecycle. Client-only Markdown with HTML/images disabled and HTTP(S)-only links
+   is implemented and browser-tested.
 3. **Live delivery and retention — open.** Replace foreground-only polling with
    authenticated live wakeups backed by durable cursor reads. Verify session/device
    revocation, origin checks, replay/reconnect, retention gaps, expiry cleanup and

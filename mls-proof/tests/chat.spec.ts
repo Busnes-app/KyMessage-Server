@@ -433,3 +433,45 @@ test('room switching preserves separate encrypted histories and unresolved sends
     expect(entries.some(key => key.startsWith('room:'))).toBe(true);
   } finally { await alice.context.close(); await bob.context.close(); }
 });
+
+test('Markdown is local, escapes HTML and never loads sender images',async ({browser}) => {
+  const user = 'markdown-' + crypto.randomUUID().slice(0,8);
+  const alice = await start(browser,user);
+  const external: string[] = [];
+  alice.page.on('request',request => { if (request.url().includes('privacy-test.invalid')) external.push(request.url()); });
+  try {
+    await alice.page.getByLabel('New room name').fill('Formatting');
+    await click(alice.page,'Create room','Room created');
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    const message = [
+      '**Strong** and *emphasis* with `inline code`',
+      '- first item\n- second item',
+      '> quoted text',
+      '```html\n<script>alert("code is text")</script>\n' + 'x'.repeat(200) + '\n```',
+      '[Documentation](https://example.com/docs?a=1&b=2)',
+      '![pixel](https://privacy-test.invalid/pixel)',
+      '<img src="https://privacy-test.invalid/raw" onerror="alert(1)"><svg onload="alert(1)"></svg><script>alert(1)</script>',
+      '[run](javascript:alert(1)) [encoded](&#x6a;avascript:alert(1)) [local](/api/auth/logout) [data](data:text/html;base64,PHNjcmlwdD4=)',
+    ].join('\n\n');
+    await alice.page.getByLabel('Message',{exact:true}).fill(message);
+    await click(alice.page,'Send encrypted message','Message accepted');
+    for (const reload of [false,true]) {
+      if (reload) { await alice.page.reload(); await unlock(alice.page,user); }
+      const body = alice.page.locator('#messages .message-body');
+      await expect(body.locator('strong')).toHaveText('Strong');
+      await expect(body.locator('em')).toHaveText('emphasis');
+      await expect(body.locator('li')).toHaveCount(2);
+      await expect(body.locator('blockquote')).toContainText('quoted text');
+      await expect(body.locator('pre code')).toContainText('<script>alert("code is text")</script>');
+      await expect(body.locator('img,svg,script,iframe,form,style')).toHaveCount(0);
+      await expect(body).toContainText('<img src=');
+      const link = body.getByRole('link',{name:'Documentation',exact:true});
+      await expect(link).toHaveAttribute('rel','noopener noreferrer');
+      await expect(link).toHaveAttribute('target','_blank');
+      expect(await body.locator('a').evaluateAll(links => links.every(link => link instanceof HTMLAnchorElement && ['http:','https:'].includes(link.protocol)))).toBe(true);
+      expect(external).toEqual([]);
+    }
+    await alice.page.setViewportSize({width:360,height:780});
+    expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally {await alice.context.close();}
+});

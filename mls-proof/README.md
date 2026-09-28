@@ -375,6 +375,17 @@ The vector tests the exporter only, not complete RFC conformance or cross-librar
 interoperability. Inputs and expected output are embedded in the test; test runs
 do not fetch anything from that source.
 
+## Message formatting
+
+Markdown source stays inside the encrypted transcript and is rendered locally with
+pinned `markdown-it` 15.0.2. Raw HTML is escaped; image rendering, plugins, custom
+highlighters and automatic linkification are disabled. Only absolute HTTP(S) links
+are active, opening without opener access or a referrer. No image or preview is
+fetched just because a message is displayed. This follows the parser's
+[HTML-disabled safety strategy](https://github.com/markdown-it/markdown-it/blob/master/docs/safety.md).
+Browser regressions cover formatting, HTML/script URLs, tracking images, reload and
+narrow layout. `npm audit --audit-level=high` reported no vulnerabilities when added.
+
 ## Storage and protocol decisions exercised
 
 - Each browser profile owns a single device and separate IndexedDB room records. Each record

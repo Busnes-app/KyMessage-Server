@@ -1,4 +1,5 @@
 import { proof } from './device';
+import { messageBody } from './markdown';
 import { delivery } from './delivery';
 import { object, text } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
@@ -226,7 +227,7 @@ async function render() {
     : 'Room unlocked. Check for messages to catch up before sending.';
   element('messages').replaceChildren(...s.messages.map(m => {
     const row = document.createElement('li');
-    row.append(line('strong',m.sender === s.identity ? 'You' : m.sender),line('p',m.text),line('small',m.sender === s.identity ? 'Accepted by server · Not a read receipt' : 'Received and verified'));
+    row.append(line('strong',m.sender === s.identity ? 'You' : m.sender),messageBody(m.text),line('small',m.sender === s.identity ? 'Accepted by server · Not a read receipt' : 'Received and verified'));
     return row;
   }));
   element('pending').hidden = !s.pending;

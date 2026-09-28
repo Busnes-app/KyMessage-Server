@@ -29,7 +29,7 @@ summary { cursor: pointer; font-weight: 600; }
 ul { list-style: none; padding: 0; }
 li { overflow-wrap: anywhere; margin: .6rem 0; }
 #messages { list-style: none; padding: 0; border-top: 1px solid var(--ky-line); margin-top: 1.5rem; }
-#messages li { padding: .8rem 0; border-bottom: 1px solid var(--ky-line); }
+#messages > li { padding: .8rem 0; border-bottom: 1px solid var(--ky-line); }
 #messages p, #pending-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 #messages p { margin: .35rem 0; }
 #messages small { color: var(--ky-ink-muted); }
@@ -38,3 +38,10 @@ code { font-family: var(--ky-font-mono); overflow-wrap: anywhere; }
 #pending { background: var(--ky-accent-soft); padding: .8rem; }
 @media (min-width: 1400px) { main, header { max-width: 90rem; margin: auto; } }
 @media (max-width: 720px) { header, main { padding: 1rem; } header { align-items: start; } .eyebrow { display: none; } .layout { grid-template-columns: 1fr; } .toolbar { align-items: start; } }
+
+.message-body { overflow-wrap: anywhere; }
+.message-body pre { max-width: 100%; overflow-x: auto; padding: .75rem; border: 1px solid var(--ky-line); }
+.message-body :is(h1,h2,h3,h4,h5,h6) { font-size: 1rem; margin: .5rem 0; }
+.message-body blockquote { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid var(--ky-line); }
+.message-body table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.message-body :is(td,th) { padding: .35rem; border: 1px solid var(--ky-line); }
