@@ -70,7 +70,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `1bddf96`; current implementation remains a server scaffold plus
+- CI green through `171591a`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -155,7 +155,9 @@ regression proves live payloads/counters unchanged and actual capsule sealing.
 Metadata/receipt/audit growth can still exceed 64 MiB; reject before full allocation.
 The complete live database still needs scratch disk space. Full backup/API/cmd race
 suites and vet pass; targeted projection, sealing and oversized export/drill checks
-pass. This is capacity/restore evidence, not a demonstrated malicious-member exploit.
+pass. The real running-server scheduler acceptance drill passes timer, retry,
+live-disable, copy permissions/pruning and shutdown checks. This is capacity/restore
+evidence, not a demonstrated malicious-member exploit.
 Local audit artifacts remain at
 `/home/yoshi/security-audit-skill/KyMessage-Server/run-1/REPORT.md`; broad hunting and
 independent cryptographic assessment remain incomplete.

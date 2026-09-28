@@ -32,7 +32,7 @@ passes with production E2EE approval.
   are implemented. The drill is `scripts/backup-acceptance.py` (~3 minutes).
 
 Authoritative contracts: `PRODUCT.md`, `MESSAGING-API.md`, `RESTORE.md`, and the
-nearest DOX documents. CI is green through `1bddf96`; recent implementation slices
+nearest DOX documents. CI is green through `171591a`; recent implementation slices
 are `195f949` (backup outcomes), `280ebcf` (interop), `e27924f` (packaging),
 `3d26ccc` (local removal), `fc309a0`/`01ad7de` (restore).
 
@@ -89,7 +89,7 @@ store/API race suites and vet pass. Fifteen frontend tests and four real-server,
 production-CSP width/theme cases pass. The committed embedded bundle is rebuilt.
 Store/API/web/browser DOX updated; root/index ownership remains unchanged.
 
-All eight CI jobs passed for `1bddf96` (run 36372268213). Production client
+All eight CI jobs passed for `171591a` (run 36373855427). Production client
 integration still depends on reviewed cryptographic/application bindings.
 
 ## Self-review fixes
@@ -120,8 +120,10 @@ Local artifacts: `/home/yoshi/security-audit-skill/KyMessage-Server/run-1/`.
 Architecture recon completed; broad hunting remains incomplete following prior
 review-tool interruptions. No confirmed security vulnerabilities are recorded;
 empty findings.json is not a clean audit. The legacy pairing cleanup lead remains
-unvalidated. Next: check CI for these fixes, then continue remaining local review
-and release evidence without calling self-review independent certification.
+unvalidated. The real running-server scheduler acceptance drill also passes: timer, failed-run
+retry timing, live disable, manual copies/permissions/pruning and clean shutdown.
+Continue remaining local review and release evidence without calling self-review
+independent certification.
 
 ## Open release gates
 
