@@ -24,6 +24,7 @@ import (
 const messagingDeviceHeader = "X-KyMessages-Device"
 
 func (s *Server) messagingRoutes() {
+	s.mux.HandleFunc("GET /api/messaging/rooms/{room}/live", s.tracked(s.requireMessaging(s.handleMessagingLive)))
 	s.mux.HandleFunc("POST /api/messaging/devices/{device}/recovery-auth", s.requireMessaging(s.handleMessagingRecoveryAuth))
 	s.mux.HandleFunc("GET /api/messaging/recovery-auth/callback", s.requireMessaging(s.handleMessagingRecoveryAuthCallback))
 	s.mux.HandleFunc("POST /api/messaging/devices/key-packages", s.requireMessaging(s.handleMessagingPublishKeyPackage))
@@ -193,6 +194,7 @@ func (s *Server) handleMessagingVerify(w http.ResponseWriter, r *http.Request, a
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging("")
 	s.writeJSON(w, http.StatusOK, map[string]any{"device": deviceView(*device)})
 }
 
@@ -214,6 +216,7 @@ func (s *Server) handleMessagingApprove(w http.ResponseWriter, r *http.Request, 
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging("")
 	s.writeJSON(w, http.StatusOK, map[string]bool{"approved": true})
 }
 
@@ -222,6 +225,7 @@ func (s *Server) handleMessagingRevoke(w http.ResponseWriter, r *http.Request, a
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging("")
 	s.writeJSON(w, http.StatusOK, map[string]bool{"revoked": true})
 }
 
@@ -307,6 +311,7 @@ func (s *Server) handleMessagingInvite(w http.ResponseWriter, r *http.Request, a
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging(r.PathValue("room"))
 	s.writeJSON(w, http.StatusOK, map[string]bool{"invited": true})
 }
 
@@ -315,6 +320,7 @@ func (s *Server) handleMessagingJoin(w http.ResponseWriter, r *http.Request, act
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging(r.PathValue("room"))
 	s.writeJSON(w, http.StatusOK, map[string]bool{"joined": true})
 }
 
@@ -323,5 +329,6 @@ func (s *Server) handleMessagingRemove(w http.ResponseWriter, r *http.Request, a
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging(r.PathValue("room"))
 	s.writeJSON(w, http.StatusOK, map[string]bool{"removed": true})
 }

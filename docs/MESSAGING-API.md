@@ -164,6 +164,7 @@ unless marked 201. All routes require the suite session described above.
 | POST `/rooms/{room}/members` | `{user_id}` → `{invited:true}` | Approved device and room ownership |
 | POST `/rooms/{room}/join` | `{joined:true}` | Approved device and own pending invitation |
 | DELETE `/rooms/{room}/members/{user}` | `{removed:true}` | Approved device and room ownership; owner cannot remove self |
+| GET `/rooms/{room}/live` | WebSocket wakeups (below) | Live suite session, exact Origin and approved device first frame; active membership |
 | GET `/rooms/{room}/delivery` | Current epoch, sequence, roster hash, paused flag and eligible devices | Approved device and active membership |
 | POST `/rooms/{room}/events` | Event envelope → `{sequence,epoch}` | Approved device, active membership and current epoch eligibility |
 | GET `/rooms/{room}/events?after=0` | `{events:[...],next,start_sequence}` | Approved device included in accepted epoch and current membership generation |
@@ -399,3 +400,34 @@ KeyPackage tests additionally cover cross-room allocation races, publication/cla
 retry recovery, tombstones, capacity, expired/revoked targets and changed membership
 generations. HTTP browser tests discover packages through the server and reject a
 corrupted package response before staging MLS state.
+
+## Live wakeups
+
+`GET /api/messaging/rooms/{room}/live` upgrades an authenticated suite session.
+Require the exact scheme/host from the configured application origin and a canonical
+room UUID; query strings are refused. Browsers use their existing HttpOnly session
+cookie. Within five seconds, send one text frame containing the 64-character hex
+device credential. Headers remain available for native session authentication; never
+put a session or device credential in URLs or subprotocols. No other data frames are
+accepted. The read limit is 64 bytes and compression is disabled.
+
+After checking the live session, approved device and current room membership, the
+server sends `{kind:"wake",sequence,epoch,roster_hash}`. These server declarations
+only prompt authenticated HTTP cursor reads; they never advance local MLS state or
+carry message bodies. Subscribe before reading the first snapshot to avoid losing a
+concurrent change. Every reconnect gets the current snapshot.
+
+Limits: four connections per account and 256 per process, including incomplete
+credential handshakes. Each owns one coalescing signal; mutation notifications follow
+successful commits. A 15-second heartbeat catches missed notifications, out-of-process
+changes and session/identity revocations; it also pings the peer. Database and network
+operations have five-second deadlines. Revoked access fails subsequent HTTP reads
+immediately; a quiet stream can take the heartbeat plus operation deadlines to close.
+Shutdown cancels upgraded streams and drains their tracked handlers before store close.
+
+The prototype uses this stream in cookie mode for its selected room and retains
+10-second polling as fallback. It coalesces notices with foreground operations,
+preserves drafts and unresolved sends, and closes on lock, room switch or hidden/
+offline state. This is single-instance delivery, without a broker or durable socket
+queue. The server uses pinned [coder/websocket](https://github.com/coder/websocket)
+for framing and control messages; MLS content remains in the existing HTTP protocol.

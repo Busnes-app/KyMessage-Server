@@ -33,10 +33,59 @@ let backgroundWork = false;
 let viewGeneration = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let pollDelay = 10_000;
+let liveStop: (() => void) | null = null;
+let liveRoom: string | null = null;
+let liveNotice: {sequence:number;epoch:number;rosterHash:string} | null = null;
+let directoryHash: string | null = null;
+let directoryRoom: string | null = null;
+let liveGeneration = 0;
+function stopLive() { liveGeneration++; liveStop?.(); liveStop = null; liveRoom = null; liveNotice = null; }
+function connectLive(room: string) {
+  if (!cookieMode || liveRoom === room) return;
+  stopLive();
+  liveRoom = room;
+  const connectionVersion = liveGeneration;
+  const generation = viewGeneration;
+  void delivery.watch(room,notice => {
+    if (generation !== viewGeneration || connectionVersion !== liveGeneration || liveRoom !== room || snapshot?.room !== room || localOnly) return;
+    liveNotice = notice;
+    if (needsLiveRead() && !busy && !snapshot.pending) void receiveLive();
+  },() => {
+    if (generation !== viewGeneration || connectionVersion !== liveGeneration || liveRoom !== room) return;
+    liveStop = null; liveRoom = null;
+    element('poll-state').textContent = 'Live connection interrupted. Automatic checks continue; reconnecting after the next check.';
+  }).then(stop => {
+    if (generation !== viewGeneration || connectionVersion !== liveGeneration || liveRoom !== room) stop(); else liveStop = stop;
+  }).catch(error => {
+    if (generation !== viewGeneration || connectionVersion !== liveGeneration || liveRoom !== room) return;
+    liveRoom = null;
+    if (error instanceof SessionError) { lockLocal(); element('notice').textContent = error.message; }
+  });
+}
+function needsLiveRead() {
+  return liveNotice !== null && snapshot !== null && (liveNotice.sequence > snapshot.cursor || directoryRoom !== snapshot.room || liveNotice.rosterHash !== directoryHash);
+}
+async function receiveLive() {
+  const notice = liveNotice;
+  liveNotice = null;
+  await action(async () => {
+    const epochChanged = notice && notice.epoch !== Number(snapshot?.epoch);
+    if (notice && snapshot && notice.sequence > snapshot.cursor) await delivery.sync();
+    if (notice && notice.rosterHash !== directoryHash) {
+      const generation = viewGeneration;
+      const listing = await delivery.members();
+      if (!opened || generation !== viewGeneration) return;
+      members = listing;
+    }
+    if (notice && (notice.rosterHash !== directoryHash || epochChanged)) await directory();
+  },'',true);
+}
 function stopPolling() { clearTimeout(pollTimer); pollTimer = undefined; }
 function schedulePoll() {
   stopPolling();
-  if (!opened || localOnly || document.hidden || !navigator.onLine || !rooms.some(room => room.id === snapshot?.room && room.membership === 'active') || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') return;
+  if (!opened || localOnly || document.hidden || !navigator.onLine || !rooms.some(room => room.id === snapshot?.room && room.membership === 'active') || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') { stopLive(); return; }
+  if (snapshot?.room) connectLive(snapshot.room);
+  if (needsLiveRead() && !busy && !snapshot?.pending) { void receiveLive(); return; }
   pollTimer = setTimeout(() => {
     if (busy || !snapshot?.room || snapshot.pending) { schedulePoll(); return; }
     void action(async () => {
@@ -144,6 +193,8 @@ async function directory() {
   const current = await delivery.directory();
   if (!opened || generation !== viewGeneration) return;
   roomPaused = current.paused;
+  directoryHash = current.rosterHash;
+  directoryRoom = current.room;
   const peers = current.peers;
   element('peers').replaceChildren(...peers.map(x => line('li',`${x.user_id} · Identity ${x.identity_generation} · ${x.id} · ${x.approved ? 'Verified locally' : 'Needs verification'}`)));
   // Deliberately do not fill the approval field from the server's own fingerprint.
@@ -293,6 +344,8 @@ form('access-form',async event => {
   }
 },'Test device connected.');
 function lockLocal() {
+  stopLive();
+  directoryHash = null; directoryRoom = null;
   viewGeneration++;
   stopPolling();
   proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;

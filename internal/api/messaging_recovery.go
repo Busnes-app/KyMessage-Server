@@ -77,6 +77,7 @@ func (s *Server) handleMessagingRecoveryAuthCallback(w http.ResponseWriter, r *h
 	// A receipt only reports a completed mutation to its original live session.
 	// It never authorizes another mutation or repeats the one-use code exchange.
 	if receipt, err := s.store.Messaging().ResetReceipt(r.Context(), actor, hash); err == nil {
+		s.wakeMessaging("")
 		s.messagingResetResult(w, r, receipt)
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -113,6 +114,7 @@ func (s *Server) handleMessagingRecoveryAuthCallback(w http.ResponseWriter, r *h
 			s.messagingError(w, err)
 			return
 		}
+		s.wakeMessaging("")
 		s.messagingResetResult(w, r, receipt)
 		return
 	}

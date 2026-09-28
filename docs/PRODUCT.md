@@ -23,8 +23,8 @@ existing suite callback, cookie/CSRF transport and authenticated account-bound u
 using a disposable local issuer. Pre-join package renewal preserves verified device
 identity and delayed Welcomes. Explicit reinvitation/rejoin preserves earlier local
 history and verifies a new membership generation before resuming chat. The chat tab
-also polls verified delivery while visible and online, with failure backoff and
-cancellation on lock. Owner-only removal controls expose invitation revocation,
+uses authenticated WebSocket wakeups in cookie mode, backed by verified HTTP
+cursor reads and polling fallback while visible and online, with cancellation on lock. Owner-only removal controls expose invitation revocation,
 immediate server access removal and the required encryption update before sending.
 Account device revocation preserves local history without silently re-enrolling
 revoked keys. The OIDC prototype exercises confirmed identity reset and fresh

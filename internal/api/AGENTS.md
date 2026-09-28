@@ -22,6 +22,18 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   Reset consumes fresh authentication in the atomic reset transaction. Its session-bound
   receipt supports callback retry without another mutation; HTML success redirects
   only to `/`. Authentication-only success never becomes a later reset grant.
+- `messaging_live.go` owns WebSocket wakeups for one active room per connection.
+  Authenticate the suite session before upgrade, require the exact configured origin
+  and no query, then receive the 64-byte hex device credential as the first text frame
+  within five seconds. Never put credentials in URLs/subprotocols or emit message bodies.
+  Recheck session/device/ACL before each notice; send only sequence, epoch and roster
+  hash. Each connection owns a one-slot signal; cap four per account and 256 per server.
+  Mutations wake readers after commit; a 15-second heartbeat catches missed changes
+  and external/session revocations. Network and database operations have five-second
+  deadlines. Extra data frames close the stream; compression stays disabled.
+  Register through `tracked` before authentication. `StopMessaging` rejects new
+  registrations and cancels existing streams before HTTP shutdown; `WaitDetached`
+  drains them before the store closes. HTTP cursor reads remain the durable source.
 - `messaging_delivery.go` adds device-gated room state and event append/read routes. Canonicalize and bound base64 envelopes at the HTTP boundary; responses expose only the caller's Welcome. A successful append acknowledges durable opaque storage, not cryptographic validation or recipient delivery.
 - `messaging_key_packages.go` accepts device-authenticated publication (canonical base64, 16 KiB decoded, expiry within seven days, optional canonical `room_id`) and room-authorized POST claims. Scoped publication requires active room access; caller JSON cannot move a published package to another room. The store derives the publishing device from its credential; JSON cannot choose an owner. MLS parsing, credential/key binding and signed lifetime validation remain client responsibilities.
 - POST `/api/auth/change-password` accepts a restricted local session, current password and a different policy-valid new password. Browser CSRF and per-IP/account limits apply. Success revokes all sessions and requires sign-in again; flagged sessions get `password_change_required` on protected routes and public-only settings.

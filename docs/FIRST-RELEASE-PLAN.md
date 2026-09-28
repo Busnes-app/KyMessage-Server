@@ -26,10 +26,11 @@ prototype test is not production approval.
    remain discoverable after membership removal; explicit passphrase-only history
    mode reads local ciphertext without server requests in an already loaded app. Client-only Markdown with HTML/images disabled and HTTP(S)-only links
    is implemented and browser-tested.
-3. **Live delivery and retention — open.** Replace foreground-only polling with
-   authenticated live wakeups backed by durable cursor reads. Verify session/device
-   revocation, origin checks, replay/reconnect, retention gaps, expiry cleanup and
-   explicit rejoin. No plaintext notifications or server-side previews.
+3. **Live delivery and retention — in progress.** Authenticated WebSocket wakeups
+   now back the cookie-mode prototype with durable HTTP cursor reads. Origin checks,
+   session/device revocation, connection quotas, shutdown and reconnect are tested.
+   Foreground polling remains fallback. Retention gaps, expiry cleanup and explicit
+   rejoin after a gap remain open. No plaintext notifications or server-side previews.
 4. **Deployable client and identity — open.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
    Apply KyMessages identity/coordinates, HTTPS setup, responsive keyboard UX,

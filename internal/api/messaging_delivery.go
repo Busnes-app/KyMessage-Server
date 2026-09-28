@@ -68,6 +68,7 @@ func (s *Server) handleMessagingAppend(w http.ResponseWriter, r *http.Request, a
 		s.messagingError(w, err)
 		return
 	}
+	s.wakeMessaging(r.PathValue("room"))
 	// A new append and its exact retry return the same durable acknowledgement.
 	s.writeJSON(w, http.StatusOK, map[string]any{"sequence": receipt.Sequence, "epoch": receipt.Epoch})
 }

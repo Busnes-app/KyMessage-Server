@@ -24,6 +24,8 @@ fixture process lifetime.
   callbacks bound into each code. `auth_time` records the explicit fixture form POST,
   never token issuance. Only OIDC fixture mode enables the reset gate. Its signing key and code records live only
   for the fixture process. Never inherit a live issuer from the host environment.
+- Cancel upgraded messaging streams before HTTP shutdown and wait for detached
+  handlers before closing the temporary store.
 - Cookie Secure is disabled and CookieDomain cleared only for the loopback fixture.
   Production cookie configuration and auth handlers retain their normal behavior.
 

@@ -162,6 +162,37 @@ export const delivery = {
   connect(value: string) { connectionAbort.abort(); connectionAbort = new AbortController(); session = {kind:'bearer',token:value}; },
   connectCookie(identity: string) { connectionAbort.abort(); connectionAbort = new AbortController(); session = {kind:'cookie',identity}; },
   disconnect() { session = null; connectionAbort.abort(); },
+  async watch(room: string, onWake: (notice: {sequence:number;epoch:number;rosterHash:string}) => void, onDisconnect: () => void) {
+    if (session?.kind !== 'cookie') return () => {};
+    const signal = connectionAbort.signal;
+    const identity = session.identity;
+    if ((await signedInAccount(signal))?.id !== identity) throw new SessionError('The signed-in account changed or expired. Sign in again, then unlock its device.');
+    const access = await transaction(async (_r,d) => ({room:d.room,token:d.token}));
+    signal.throwIfAborted();
+    if (access.room !== room) throw new Error('Selected room changed before live connection');
+    const url = new URL('/api/messaging/rooms/' + encodeURIComponent(access.room) + '/live',location.href);
+    url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(url);
+    let stopped = false;
+    const timeout = setTimeout(() => { stop(); onDisconnect(); },10_000);
+    const stop = () => { stopped = true; clearTimeout(timeout); access.token = ''; signal.removeEventListener('abort',stop); socket.close(); };
+    signal.addEventListener('abort',stop,{once:true});
+    socket.onopen = () => { if (stopped) return; socket.send(access.token); access.token = ''; };
+    socket.onmessage = event => {
+      if (stopped) return;
+      try {
+        if (typeof event.data !== 'string' || event.data.length > 1024) throw new Error('Oversized live notice');
+        const raw: unknown = JSON.parse(event.data);
+        const value = object(raw);
+        const rosterHash = text(value.roster_hash);
+        if (value.kind !== 'wake' || !/^[a-f0-9]{64}$/.test(rosterHash)) throw new Error('Invalid live notice');
+        clearTimeout(timeout);
+        onWake({sequence:integer(value.sequence),epoch:integer(value.epoch),rosterHash});
+      } catch { stop(); onDisconnect(); }
+    };
+    socket.onclose = () => { clearTimeout(timeout); signal.removeEventListener('abort',stop); access.token = ''; if (!stopped) onDisconnect(); };
+    return stop;
+  },
   async rooms() {
     return transaction(async (_r,d) => array((await api('/rooms',d.token)).rooms, item => {
       const room = object(item);
@@ -322,7 +353,7 @@ export const delivery = {
       const current = await api(roomPath(d) + '/delivery',d.token);
       if (typeof current.paused !== 'boolean') throw new Error('Invalid room pause state');
       const peers = await Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,identity_generation:device.identity_generation,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key && p.identityGeneration === device.identity_generation)})));
-      return {peers,paused:current.paused};
+      return {peers,paused:current.paused,room:d.room,rosterHash:text(current.roster_hash)};
     });
   },
   async approveDevice(device: string, expectedFingerprint: string) {

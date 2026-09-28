@@ -98,7 +98,10 @@ func serve() error {
 		mux.HandleFunc("/proof-fixture/session/", http.NotFound)
 	}
 	mux.HandleFunc("GET /proof-fixture/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
-	mux.Handle("/", api.NewServer(cfg, st))
+	apiServer := api.NewServer(cfg, st)
+	defer apiServer.WaitDetached()
+	defer apiServer.StopMessaging()
+	mux.Handle("/", apiServer)
 	server := &http.Server{Addr: "127.0.0.1:4179", Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -110,6 +113,7 @@ func serve() error {
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		apiServer.StopMessaging()
 		return server.Shutdown(shutdown)
 	}
 }

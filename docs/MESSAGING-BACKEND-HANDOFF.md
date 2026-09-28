@@ -104,11 +104,34 @@ the full run (one intentional duplicate-engine skip). Full store/API race suites
 also pass. Only the selected room receives automatic
 checks; client server-room discovery reads one page of 100.
 
-Next: authenticated live wakeups backed by durable HTTP cursor reads, then retention
-and explicit gap recovery. KyMessages is not deployed yet, confirmed by the user;
-keep live issuer checks open while independent implementation continues.
+WebSocket wakeups now serve the selected active room in cookie mode. The endpoint
+requires a live suite session and exact configured Origin before upgrade, then the
+64-byte hex device credential in a first text frame within five seconds. No URL
+credentials. Four connections/account, 256/process, one coalescing signal each; every
+notice rechecks session/device/ACL and contains only sequence/epoch/roster hash.
+Successful mutations signal after commit; a 15-second heartbeat catches external
+changes and revoked sessions. HTTP cursor reads still verify/persist actual MLS.
 
-Live delivery, retention/gap recovery, product embedding, installation, restore and
+`StopMessaging` runs before HTTP shutdown and cancels upgraded connections; the
+existing detached counter tracks them before authentication and drains before store
+close. The fixture follows the same shutdown order. The proof opens no stream in
+local-history or bearer-fixture mode and closes on lock/room switch/hidden/offline.
+Queued notices coalesce with foreground work; cursor and directory-hash comparisons
+avoid redundant requests. Polling remains fallback. Dependency: coder/websocket 1.8.15.
+
+Verification: native WebSocket race tests pass on SQLite/PostgreSQL for origins,
+first-frame limits, cross-account credentials, missing membership, quotas, reconnect,
+revocation and shutdown. Full API/cmd race suites and vet pass. Eight Chromium/Firefox
+OIDC cases pass, including frozen-timer live receive, offline catch-up, draft/focus
+preservation, no plaintext socket frames and lock closure. All 35 delivery regressions also pass
+(one intentional duplicate-engine skip). `govulncheck` reports no affected call paths
+(three findings exist in required modules outside imported vulnerable packages).
+
+Next: retention, explicit gap recovery and the final local-data lifecycle. KyMessages
+is not deployed yet, confirmed by the user; keep live issuer checks open while
+independent implementation continues.
+
+Retention/gap recovery, product embedding, installation, restore and
 load/security evidence remain open. The unaudited `ts-mls` experiment and private
 GroupInfo extension stay out of production. Deployed issuer interaction, independent
 protocol review/interop, full supported-browser evidence and restored metadata

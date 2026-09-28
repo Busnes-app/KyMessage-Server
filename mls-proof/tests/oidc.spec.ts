@@ -18,9 +18,10 @@ async function login(page: Page, subject: string) {
   if (!id) throw new Error('Missing server account ID');
   return id;
 }
-async function open(browser: Browser, subject: string) {
+async function open(browser: Browser, subject: string, controlledClock = false) {
   const context = await browser.newContext();
   const page = await context.newPage();
+  if (controlledClock) await page.clock.install();
   await page.goto('/chat.html?auth=oidc');
   await expect(page.locator('#access-form')).toBeHidden();
   const id = await login(page,subject);
@@ -237,4 +238,59 @@ test('confirmed identity reset revokes old browsers and rejoins only future veri
   } finally {
     await Promise.all([lost.context.close(),owner.context.close(),replacement.context.close()]);
   }
+});
+
+test('live wakeups fetch encrypted history without a poll and reconnect after offline',async ({browser}) => {
+  const alice = await open(browser,'live-a-' + crypto.randomUUID().slice(0,8));
+  const bob = await open(browser,'live-b-' + crypto.randomUUID().slice(0,8),true);
+  const wakeFrames: string[] = [];
+  const urls: string[] = [];
+  let closed = 0;
+  bob.page.on('websocket',socket => {
+    urls.push(socket.url());
+    socket.on('framereceived',frame => wakeFrames.push(String(frame.payload)));
+    socket.on('close',() => closed++);
+  });
+  try {
+    await alice.page.getByLabel('Direct message account ID').fill(bob.id);
+    await click(alice.page,'Start direct message','Direct conversation selected');
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    await click(bob.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(bob.page,'Accept Direct: ' + bob.id,'Room selected');
+    await click(bob.page,'Prepare to join','Ready to join');
+    await click(alice.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await verify(alice.page,bob.id,bob.fingerprint);
+    await verify(bob.page,alice.id,alice.fingerprint);
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    await expect(bob.page.locator('#send')).toBeEnabled();
+    await bob.page.clock.pauseAt(new Date(Date.now()+1000));
+    await bob.page.getByLabel('Message',{exact:true}).fill('Keep this draft');
+    await alice.page.getByLabel('Message',{exact:true}).fill('Live encrypted message');
+    await click(alice.page,'Send encrypted message','Message accepted');
+    await expect(bob.page.locator('#messages')).toContainText('Live encrypted message');
+    await expect(bob.page.getByLabel('Message',{exact:true})).toHaveValue('Keep this draft');
+    await expect(bob.page.getByLabel('Message',{exact:true})).toBeFocused();
+    await expect.poll(() => wakeFrames.length).toBeGreaterThan(0);
+    for (const frame of wakeFrames) {
+      const parsed: unknown = JSON.parse(frame);
+      expect(parsed).toMatchObject({kind:'wake'});
+      expect(frame).not.toContain('Live encrypted message');
+      expect(frame).not.toContain(password);
+    }
+    await bob.context.setOffline(true);
+    await expect.poll(() => closed).toBeGreaterThan(0);
+    const prior = urls.length;
+    await alice.page.getByLabel('Message',{exact:true}).fill('Catch up after offline');
+    await click(alice.page,'Send encrypted message','Message accepted');
+    await expect(bob.page.locator('#messages')).not.toContainText('Catch up after offline');
+    await bob.context.setOffline(false);
+    await expect.poll(() => urls.length).toBeGreaterThan(prior);
+    await expect(bob.page.locator('#messages')).toContainText('Catch up after offline');
+    await expect(bob.page.locator('#messages li')).toHaveCount(2);
+    for (const url of urls) expect(new URL(url).search).toBe('');
+    const closedBefore = closed;
+    await click(bob.page,'Lock and disconnect','Device locked');
+    await expect.poll(() => closed).toBeGreaterThan(closedBefore);
+    await expect(bob.page.locator('#messages')).toBeEmpty();
+  } finally { await alice.context.close(); await bob.context.close(); }
 });

@@ -126,6 +126,14 @@ retains the manual wire harness. Root owns product decisions and research in `do
   ciphertext only. Server acceptance is not a read receipt. Lock clears visible
   history, drafts, fingerprints and the in-memory connection/wrapping key; the OIDC
   cookie remains until the separate suite sign-out action.
+- Cookie-mode chat adds one WebSocket for the selected active room. Send the device
+  credential in the first frame; use the suite HttpOnly cookie, never URL credentials.
+  Wakeups carry only sequence/epoch/roster hash and trigger ordinary verified HTTP
+  reads. Coalesce notices with foreground actions and ignore already-applied cursors
+  and directory hashes. Close on lock, hidden/offline tab, removed access or room
+  change; guard stale asynchronous connection attempts with a separate generation.
+  Retry after ordinary fallback checks. Read-only history opens no stream; the
+  disposable bearer browser harness retains polling. No automatic send or approval.
 - Automatic receive checks wait 10 seconds between completed operations in an unlocked,
   visible, online chat tab with a selected room and no pending send. Serialize
   polls with foreground actions; failures back off to 20/40/60 seconds. Polls

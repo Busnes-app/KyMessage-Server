@@ -44,6 +44,7 @@ type Server struct {
 	// connection. http.Server.Shutdown does not know about them, so runServer waits on this
 	// before the store closes.
 	detached detachedCounter
+	live     messagingLiveRegistry
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is

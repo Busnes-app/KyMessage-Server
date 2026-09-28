@@ -4,7 +4,7 @@ export default defineConfig({
   build: { rollupOptions: { input: { manual: 'index.html', chat: 'chat.html' } } },
   preview: {
     proxy: process.env.MLS_PROOF_DELIVERY === '1' ? {
-      '/api': 'http://127.0.0.1:4179',
+      '/api': {target:'http://127.0.0.1:4179',ws:true},
       '/proof-fixture': 'http://127.0.0.1:4179',
     } : undefined,
     headers: {

@@ -465,3 +465,10 @@ prepare to join and independently verify fingerprints. The client caches the pee
 and refuses extra-account rosters. Starting again reopens the oldest visible match;
 concurrent starts can create separate conversations. The creator owns invitations
 and removals; resetting that owner's identity still requires a new room.
+
+Cookie-authenticated chat now opens a WebSocket for the selected active room. It
+sends the device credential in the first frame and receives only wakeup metadata;
+ordinary authenticated HTTP reads verify and persist MLS messages. The socket closes
+on lock, room switch or a hidden/offline tab. Reconnect reads the durable cursor;
+10-second checks remain fallback, and fixture bearer mode continues to use them.
+Frozen-timer browser tests prove live receive and offline catch-up without a poll.
