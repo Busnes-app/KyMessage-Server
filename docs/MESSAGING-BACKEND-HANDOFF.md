@@ -78,10 +78,20 @@ and image rendering disabled, and only HTTP(S) links active with no opener/refer
 Four Chromium/Firefox cases passed for formatting, HTML/script links, tracking
 images, reload and mobile layout; npm audit reported no vulnerabilities.
 
-Continue durable conversations with direct-message UX and discovery of saved local rooms after server membership is removed. Existing
-archived entries are retained but only the last-selected one is currently reachable
-without a server-listed membership. Only the selected room receives automatic checks.
-Server room listings currently expose one page of 100 in the client. These remain
+Saved conversations now enumerate encrypted room records independently of server
+membership. Names are cached encrypted; unreadable entries are reported individually.
+Explicit passphrase-only history mode disconnects delivery and makes no server
+requests, hides sending/account controls, and clears history/keys on lock. This works
+in an already loaded app offline; cold offline startup is not implemented. Root vault
+corruption still prevents unlocking. Ordinary online unlock retains suite-account checks.
+
+Verification: proof build passed; four selected HTTP/UI cases, four local lifecycle
+cases and all six OIDC cases passed across Chromium/Firefox. The new case covers
+removed membership, damaged sibling records, wrong passphrase, offline local selection,
+no API requests during 60 seconds and lock clearing history.
+
+Continue durable conversations with direct-message UX. Only the selected room receives
+automatic checks; client server-room discovery reads one page of 100. These remain
 product work; do not imply a finished encrypted-chat release.
 
 Live delivery, retention/gap recovery, product embedding, installation, restore and

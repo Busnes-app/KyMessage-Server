@@ -15,7 +15,7 @@ import { processPrivateMessage } from 'ts-mls/processMessages.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { mlsExporter } from 'ts-mls/keySchedule.js';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
-import { base64, unbase64, initializeVault, unlockVault, ensureRoomVault, withVault, type UnlockedVault, type DeviceRecord } from './vault';
+import { base64, unbase64, initializeVault, unlockVault, ensureRoomVault, inspectVaults, withVault, type UnlockedVault, type DeviceRecord } from './vault';
 import { accountID } from './delivery-wire';
 
 export const encoder = new TextEncoder();
@@ -28,6 +28,10 @@ try {
   const saved = sessionStorage.getItem('kymessages-active-room');
   if (saved && /^room:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(saved)) activeEntry = saved;
 } catch { /* A room can still be selected when navigation hints are unavailable. */ }
+export function unlockedIdentity(): string {
+  if (!unlocked) throw new Error('Device locked');
+  return unlocked.identity;
+}
 export function useEntry(entry: string) {
   if (!unlocked) throw new Error('Device locked');
   activeEntry = entry;
@@ -37,11 +41,26 @@ export function runAt<T>(entry: string, action: (record: DeviceRecord) => Promis
   if (!unlocked) throw new Error('Device locked');
   return withVault(unlocked,action,entry);
 }
+export async function selectEntry(entry: string, validate: (record: DeviceRecord) => Promise<void>) {
+  if (!unlocked) throw new Error('Device locked');
+  const generation = unlockGeneration;
+  await withVault(unlocked,validate,entry);
+  if (generation !== unlockGeneration) throw new Error('Device locked during room selection');
+  useEntry(entry);
+}
 export async function ensureEntry(entry: string, create: () => Promise<DeviceRecord>) {
   if (!unlocked) throw new Error('Device locked');
   const generation = unlockGeneration;
   await ensureRoomVault(unlocked,entry,create);
   if (generation !== unlockGeneration) throw new Error('Device locked during room setup');
+}
+
+export async function inspectEntries<T>(inspect: (record: DeviceRecord) => T) {
+  if (!unlocked) throw new Error('Device locked');
+  const generation = unlockGeneration;
+  const result = await inspectVaults(unlocked,inspect);
+  if (generation !== unlockGeneration) throw new Error('Device locked during local read');
+  return result;
 }
 
 export function decode<T>(wire: string, codec: Decoder<T>): T {

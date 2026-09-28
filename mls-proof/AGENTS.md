@@ -65,7 +65,7 @@ retains the manual wire harness. Root owns product decisions and research in `do
 - Keep fixture proxying opt-in with `MLS_PROOF_DELIVERY=1`; the normal manual
   harness stays offline. Production `web/` and authentication semantics remain untouched.
 - `?auth=oidc` reads the immutable account ID from `/api/auth/me` before local setup
-  or unlock. Cookie-mode messaging requests recheck that account; session loss or
+  or online unlock. Cookie-mode messaging requests recheck that account; session loss or
   mismatch locks the UI. The encrypted vault and pending ciphertext remain intact.
   Lock is local to this tab; suite sign-out separately revokes the server session.
 - Use exact account IDs of 1–64 UTF-8 bytes without controls or malformed surrogates.
@@ -76,7 +76,15 @@ retains the manual wire harness. Root owns product decisions and research in `do
   Confirm before discarding an unsent draft; never carry a draft into another room.
   Pins copied from the first room remain bound to the verified account/key/generation.
   An unavailable saved room fails visibly and returns the next unlock to the original
-  record without deleting the inaccessible entry. Archived-room discovery remains open.
+  record without deleting the inaccessible entry. Saved-room discovery reads each
+  encrypted entry without writes and reports unreadable entries individually. Cache
+  room names inside their encrypted connection records; older unnamed entries show IDs.
+- Read-only history unlock is an explicit passphrase-only action in a loaded app.
+  Disconnect delivery before unlocking; never fetch session/device/room data, poll,
+  send, approve or revoke in this mode. Hide account controls and the composer.
+  Saved-room selection verifies its account against the authenticated local vault
+  identity and binds entry name to room ID. Lock clears inventory, history and keys.
+  Ordinary online unlock still requires the matching live suite account.
 - `markdown.ts` renders messages locally using pinned markdown-it with raw HTML,
   image rendering, plugins, custom highlighters and automatic linkification disabled.
   Only absolute HTTP(S) links are active; set noreferrer/noopener and open a new tab.

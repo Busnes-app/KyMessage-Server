@@ -103,9 +103,16 @@ unexpired publication or renews an expired one with fresh join keys and the same
 verified device identity. It retains up to 16 older packages for delayed Welcomes;
 checking messages completes a join and removes the consumed package. Unused
 packages remain encrypted because the server may offer them on a later rejoin. It
-does not yet support deployed identity integration or discovery of archived local
-rooms after their server membership is removed. Keep the last selected room open
-to read its local history after revocation; no encrypted entries are deleted.
+does not yet support deployed identity integration. **Saved conversations** lists
+locally retained rooms, including removed memberships. Cached names stay encrypted;
+older unnamed entries show room IDs. Unreadable additional records are reported
+individually, without hiding readable rooms or deleting encrypted entries.
+
+**Read saved history without signing in** unlocks local data with its passphrase
+and keeps the loaded app disconnected. There are no session checks, message polls,
+sends or account-management actions in this mode. Lock to return to suite sign-in
+before resuming messaging. Offline startup still needs the app's static assets;
+the verified case is an already loaded app taken offline.
 Start with fresh profiles when the disposable fixture database is restarted. Preserve existing
 profiles while that fixture runs to exercise reload and retry recovery.
 

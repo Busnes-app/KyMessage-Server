@@ -32,7 +32,9 @@ fingerprint verification; deployed reset stays disabled pending issuer assurance
 The prototype now switches between separately encrypted room records, preserves
 pending sends on room changes and reload, and scopes join packages to their room.
 Unlock derives the non-extractable wrapping key once without retaining a passphrase
-between operations. Archived-room discovery, automatic replenishment, retention-gap
+between operations. Saved-room discovery and explicit passphrase-only history reading preserve access
+to already downloaded messages after membership removal or network loss. Online
+messaging still requires suite authentication. Automatic replenishment, retention-gap
 recovery, live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 

@@ -475,3 +475,93 @@ test('Markdown is local, escapes HTML and never loads sender images',async ({bro
     expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally {await alice.context.close();}
 });
+
+test('saved conversations remain readable after removal and a damaged sibling entry',async ({browser}) => {
+  const aliceName = 'archive-a-' + crypto.randomUUID().slice(0,8);
+  const bobName = 'archive-b-' + crypto.randomUUID().slice(0,8);
+  const alice = await start(browser,aliceName), bob = await start(browser,bobName);
+  try {
+    await alice.page.getByLabel('New room name').fill('Archived team');
+    await click(alice.page,'Create room','Room created');
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    await alice.page.getByLabel("Teammate's account ID").fill(bobName);
+    await click(alice.page,'Invite teammate','Invitation sent');
+    await click(bob.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(bob.page,'Accept Archived team','Room selected');
+    await click(bob.page,'Prepare to join','Ready to join');
+    await click(alice.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await verify(alice.page,bobName,bob.fingerprint);
+    await verify(bob.page,aliceName,alice.fingerprint);
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    await click(bob.page,'Check for messages','Messages checked');
+    await alice.page.getByLabel('Message',{exact:true}).fill('Readable local history survives membership loss');
+    await click(alice.page,'Send encrypted message','Message accepted');
+    await click(bob.page,'Check for messages','Messages checked');
+    await bob.page.getByLabel('New room name').fill('Other conversation');
+    await click(bob.page,'Create room','Room created');
+    await click(bob.page,'Apply verified membership','Verified membership applied');
+    await alice.page.getByLabel('Member to remove').selectOption(bobName);
+    alice.page.once('dialog',dialog => dialog.accept());
+    await click(alice.page,'Remove member','Member removed');
+    await click(bob.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(bob.page.locator('#rooms')).not.toContainText('Archived team');
+    await bob.page.getByText('Saved conversations',{exact:true}).click();
+    await click(bob.page,'List saved conversations','Saved conversations listed');
+    await click(bob.page,'Open saved Archived team','Saved conversation opened');
+    await expect(bob.page.locator('#messages')).toContainText('Readable local history survives membership loss');
+    await expect(bob.page.locator('#room-title')).toHaveText('Archived team');
+    await expect(bob.page.locator('#send')).toBeDisabled();
+    await expect(bob.page.locator('#sync')).toBeDisabled();
+    await bob.page.reload();
+    await unlock(bob.page,bobName);
+    await expect(bob.page.locator('#messages')).toContainText('Readable local history survives membership loss');
+    await bob.page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve,reject) => {
+        const open = indexedDB.open('kymessages-mls-proof-v1',1);
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      try {
+        await new Promise<void>((resolve,reject) => {
+          const tx = db.transaction('vault','readwrite');
+          const store = tx.objectStore('vault');
+          const keys = store.getAllKeys();
+          keys.onsuccess = () => {
+            for (const key of keys.result) if (typeof key === 'string' && key.startsWith('room:')) store.put({damaged:true},key);
+          };
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+        });
+      } finally {db.close();}
+    });
+    await bob.page.getByText('Saved conversations',{exact:true}).click();
+    await click(bob.page,'List saved conversations','Saved conversations listed');
+    await expect(bob.page.locator('#saved-rooms')).toContainText('could not be opened');
+    await expect(bob.page.getByRole('button',{name:'Open saved Archived team',exact:true})).toBeVisible();
+    await click(bob.page,'Lock and disconnect','Device locked');
+    await expect(bob.page.locator('#saved-rooms')).toBeEmpty();
+    await bob.context.setOffline(true);
+    const attempts: string[] = [];
+    bob.page.on('request',request => { if (request.url().includes('/api/') || request.url().includes('/proof-fixture/')) attempts.push(request.url()); });
+    await bob.page.getByText('Read saved history without signing in',{exact:true}).click();
+    await bob.page.getByLabel('History passphrase').fill('incorrect history passphrase');
+    await bob.page.getByRole('button',{name:'Read saved history',exact:true}).click();
+    await expect(bob.page.getByRole('status')).not.toHaveText('Working…');
+    await expect(bob.page.locator('#workspace')).toBeHidden();
+    await expect(bob.page.getByLabel('History passphrase')).toHaveValue('');
+    await bob.page.getByLabel('History passphrase').fill(password);
+    await click(bob.page,'Read saved history','Saved history unlocked');
+    await expect(bob.page.locator('#messages')).toContainText('Readable local history survives membership loss');
+    await expect(bob.page.locator('#signed-in')).toContainText('Local history only');
+    await expect(bob.page.locator('#send-form')).toBeHidden();
+    await expect(bob.page.locator('#account-management')).toBeHidden();
+    await expect(bob.page.locator('#refresh')).toBeDisabled();
+    await click(bob.page,'List saved conversations','Saved conversations listed');
+    await click(bob.page,'Open saved Archived team','Saved conversation opened');
+    await bob.page.clock.install();
+    await bob.page.clock.runFor(60_000);
+    expect(attempts).toEqual([]);
+    await click(bob.page,'Lock and disconnect','Device locked');
+    await expect(bob.page.locator('#messages')).toBeEmpty();
+  } finally {await alice.context.close();await bob.context.close();}
+});

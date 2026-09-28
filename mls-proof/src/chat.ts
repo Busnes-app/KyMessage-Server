@@ -28,6 +28,7 @@ function line(tag: 'li' | 'p' | 'strong' | 'small', value: string) {
 }
 let busy = false;
 let opened = false;
+let localOnly = false;
 let backgroundWork = false;
 let viewGeneration = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -35,7 +36,7 @@ let pollDelay = 10_000;
 function stopPolling() { clearTimeout(pollTimer); pollTimer = undefined; }
 function schedulePoll() {
   stopPolling();
-  if (!opened || document.hidden || !navigator.onLine || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') return;
+  if (!opened || localOnly || document.hidden || !navigator.onLine || !rooms.some(room => room.id === snapshot?.room && room.membership === 'active') || devices.find(device => device.id === snapshot?.device)?.status !== 'approved') return;
   pollTimer = setTimeout(() => {
     if (busy || !snapshot?.room || snapshot.pending) { schedulePoll(); return; }
     void action(async () => {
@@ -67,10 +68,11 @@ function controls() {
   button('send').disabled = !activeRoom || roomPaused || busy || !snapshot?.epoch || snapshot.epoch === '0' || snapshot.pending || snapshot.rejoining;
   field('message').disabled = !backgroundWork && button('send').disabled;
   button('lock').disabled = false;
+  button('refresh').disabled = localOnly || busy;
   button('commit').disabled = !activeRoom || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
   button('publish').disabled = !approved || busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
-  button('sync').disabled = !approved || busy;
-  button('retry').disabled = !approved || busy;
+  button('sync').disabled = !approved || !activeRoom || busy;
+  button('retry').disabled = !approved || !activeRoom || busy;
   button('approve-own').disabled = !approved || busy;
   button('remove').disabled = busy || snapshot?.pending === true || snapshot?.rejoining === true;
   button('rejoin').disabled = !approved || busy || !snapshot?.epoch || snapshot.pending || snapshot.rejoining;
@@ -174,7 +176,9 @@ async function render() {
   element('workspace').hidden = false;
   const own = devices.find(x => x.id === s.device);
   const approvedCount = devices.filter(device => device.status === 'approved').length;
-  const recovery = approvedCount === 0
+  const recovery = localOnly
+    ? 'Local history only. This tab is disconnected; lock it and sign in to resume messaging.'
+    : approvedCount === 0
     ? 'No approved devices remain. Keep any surviving browser data. A pending replacement can request an identity reset through suite sign-in when the operator enables it. See recovery help below.'
     : own?.status !== 'approved'
     ? 'Use an accessible approved browser to approve a replacement after comparing its fingerprint. If none can be used, identity reset requires fresh suite authentication and new room invitations. See recovery help below.'
@@ -184,7 +188,8 @@ async function render() {
   element('device-recovery').textContent = recovery;
   element('device-recovery').hidden = recovery === '';
   element('identity-reset').hidden = !cookieMode || own?.status !== 'pending' || s.room !== null;
-  element('signed-in').textContent = `${s.identity} · Device ${own?.status ?? 'unknown'} · Identity ${own?.identity_generation ?? 'unknown'}`;
+  element('account-management').hidden = localOnly;
+  element('signed-in').textContent = localOnly ? `${s.identity} · Local history only` : `${s.identity} · Device ${own?.status ?? 'unknown'} · Identity ${own?.identity_generation ?? 'unknown'}`;
   element('account-devices').replaceChildren(...devices.map(x => line('li',`${x.id} · ${x.status}`)));
   options('revoke-device',devices.filter(device => device.status !== 'revoked').map(device => ({id:device.id,label:`${device.id}${device.id === s.device ? ' · This browser' : ''} · ${device.status}`})),'Choose a device to revoke');
   options('pending-device',devices.filter(x => x.status === 'pending').map(x => ({id:x.id,label:x.id})));
@@ -206,14 +211,16 @@ async function render() {
     list.append(row);
   }
   element('create-form').hidden = own?.status !== 'approved';
-  element('room-tools').hidden = s.room === null;
+  element('room-tools').hidden = localOnly || s.room === null;
   const room = rooms.find(x => x.id === s.room);
-  element('room-title').textContent = room?.name ?? 'A quieter place to talk';
+  element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
   element('invite-form').hidden = room?.owner !== s.identity;
   element('remove-form').hidden = room?.owner !== s.identity;
   options('remove-member',members.filter(member => member.id !== s.identity && member.status !== 'removed').map(member => ({id:member.id,label:`${member.id} · ${member.status}`})),'Choose a member');
   element('members').replaceChildren(...members.map(member => line('li',`${member.id} · ${member.status}${member.identityGeneration !== member.currentIdentityGeneration ? ` · Server reports identity changed from ${member.identityGeneration} to ${member.currentIdentityGeneration}. New invitation and independent fingerprint verification required.` : ''}`)));
-  element('room-state').textContent = own?.status === 'revoked'
+  element('room-state').textContent = localOnly
+    ? 'Reading saved history. No server access, new messages or account changes in this mode.'
+    : own?.status === 'revoked'
     ? 'This messaging device was revoked. Earlier local history remains readable here; sending, receiving and re-enrollment are disabled. Another approved device is needed to approve a replacement.'
     : own?.status !== 'approved'
     ? 'This browser needs approval from an existing device. Compare its fingerprint there, then refresh.'
@@ -232,10 +239,26 @@ async function render() {
   }));
   element('pending').hidden = !s.pending;
   element('pending-text').textContent = s.pendingText === null ? 'Membership change pending. Retry the same delivery.' : `Delivery pending — confirmation unknown\n${s.pendingText}`;
-  element('send-form').hidden = s.room === null;
+  element('send-form').hidden = localOnly || s.room === null;
+  if (localOnly) element('poll-state').textContent = 'Disconnected. No automatic checks.';
 }
 
+form('history-form',async () => {
+  const generation = viewGeneration;
+  const password = field('history-password').value;
+  field('history-password').value = '';
+  delivery.disconnect(); proof.lock();
+  try {
+    await proof.unlock(password);
+    if (generation !== viewGeneration) return;
+    localOnly = true; opened = true;
+    const fingerprint = await delivery.ownFingerprint();
+    if (generation !== viewGeneration) return;
+    element('own-fingerprint').textContent = fingerprint;
+  } catch (error) { proof.lock(); delivery.disconnect(); opened = false; localOnly = false; throw error; }
+},'Saved history unlocked. No server connection.');
 form('access-form',async event => {
+  const generation = viewGeneration;
   const passphrase = field('password').value;
   field('password').value = '';
   try {
@@ -253,8 +276,11 @@ form('access-form',async event => {
       delivery.connect(text(object(value).session));
     }
     await delivery.enroll();
+    if (generation !== viewGeneration) return;
     opened = true;
-    element('own-fingerprint').textContent = await delivery.ownFingerprint();
+    const fingerprint = await delivery.ownFingerprint();
+    if (generation !== viewGeneration) return;
+    element('own-fingerprint').textContent = fingerprint;
     await refresh();
   } catch (error) {
     opened = false;
@@ -266,9 +292,9 @@ form('access-form',async event => {
 function lockLocal() {
   viewGeneration++;
   stopPolling();
-  proof.lock(); delivery.disconnect(); opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
-  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery']) element(id).replaceChildren();
-  for (const id of ['message','password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
+  proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
+  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms']) element(id).replaceChildren();
+  for (const id of ['message','password','history-password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
   element('workspace').hidden = true; element('access').hidden = false;
 }
@@ -299,6 +325,26 @@ click('identity-reset',async () => {
 function confirmDraftDiscard() {
   if (field('message').value && !confirm('Discard this unsent draft and switch rooms? Pending encrypted sends remain saved in their original room.')) throw new Error('Room change cancelled.');
 }
+click('saved-refresh',async () => {
+  const generation = viewGeneration;
+  const saved = await delivery.savedRooms();
+  if (!opened || generation !== viewGeneration) return;
+  element('saved-rooms').replaceChildren(...saved.flatMap(item => {
+    if (item.kind === 'unreadable') return [line('li','A saved conversation could not be opened. Its encrypted data remains on this browser.')];
+    if (!item.value) return [];
+    const row = line('li',item.value.name);
+    const open = document.createElement('button');
+    open.textContent = 'Open saved ' + item.value.name;
+    open.addEventListener('click',() => { void action(async () => {
+      confirmDraftDiscard();
+      await delivery.selectSavedRoom(item.entry);
+      field('message').value = '';
+      if (!localOnly) await refresh();
+    },'Saved conversation opened. Sending requires current room access.'); });
+    row.append(open);
+    return [row];
+  }));
+},'Saved conversations listed.');
 click('refresh',refresh,'Rooms and devices refreshed.');
 form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim()); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');

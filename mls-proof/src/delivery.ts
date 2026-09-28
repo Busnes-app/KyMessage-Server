@@ -10,7 +10,7 @@ import { verifyKeyPackage, makeKeyPackageRef, generateKeyPackageWithKey } from '
 import { defaultCapabilities } from 'ts-mls/defaultCapabilities.js';
 import { decryptGroupSecrets, decryptGroupInfo } from 'ts-mls/welcome.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
-import { run, runAt, ensureEntry, useEntry, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
+import { run, runAt, ensureEntry, useEntry, selectEntry, inspectEntries, unlockedIdentity, state, config, decode, keyPackage, pinFor, suite, encoder, decoder } from './device';
 import { base64, unbase64, type DeviceRecord } from './vault';
 import { object, text, accountID, integer, identityGeneration, array, roster, metadata, event, connection, type Connection, type Metadata, type Event, type Roster } from './delivery-wire';
 import { signedInAccount, secureFetch, SessionError } from './session';
@@ -136,6 +136,7 @@ async function openRoom(room: string) {
     const selected = rooms.find(x => x.id === room);
     if (selected?.membership === 'invited' && !r.state) await api(roomPath(d) + '/join',d.token,'POST');
     else if (selected?.membership !== 'active' && selected?.membership !== 'invited') throw new Error('Room not available to this account');
+    d.name = text(selected.name);
     // Recover an empty owned room after a lost creation acknowledgement. Never
     // initialize a group with join material that has already been published.
     if (!r.state && selected.owner_id === r.identity && !d.publication) {
@@ -161,6 +162,20 @@ export const delivery = {
       if (room.membership !== 'active' && room.membership !== 'invited') throw new Error('Invalid room membership');
       return {id:text(room.id),name:text(room.name),owner:text(room.owner_id),membership:room.membership};
     }));
+  },
+  async savedRooms() {
+    return inspectEntries(r => {
+      if (!r.delivery) return null;
+      const d = connected(r);
+      return d.room ? {id:d.room,name:d.name ?? d.room} : null;
+    });
+  },
+  async selectSavedRoom(entry: string) {
+    const identity = unlockedIdentity();
+    await selectEntry(entry,async r => {
+      const d = connected(r);
+      if (r.identity !== identity || !d.room || (entry !== 'device' && entry !== 'room:' + d.room)) throw new Error('Saved conversation binding mismatch');
+    });
   },
   async accountDevices() {
     return transaction(async (_r,d) => array((await api('/devices',d.token)).devices, item => {
@@ -531,6 +546,6 @@ export const delivery = {
       return {cursor:r.cursor,inbox:r.inbox};
     });
   },
-  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
+  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
 };
 declare global { interface Window { delivery: typeof delivery } }

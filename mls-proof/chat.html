@@ -25,6 +25,10 @@
         <button type="submit" name="mode" value="create">Create test device</button>
         <button type="submit" name="mode" value="unlock" class="secondary">Unlock existing device</button>
       </form>
+      <details><summary>Read saved history without signing in</summary>
+        <p>This opens only encrypted data already on this browser. Sending, receiving and account changes stay disconnected.</p>
+        <form id="history-form"><label>History passphrase <input id="history-password" type="password" required minlength="16" maxlength="1024" autocomplete="off"></label><button>Read saved history</button></form>
+      </details>
     </section>
     <div id="workspace" hidden>
       <div class="toolbar"><p id="signed-in"></p><button id="lock" class="secondary">Lock and disconnect</button></div>
@@ -36,7 +40,8 @@
           <button id="refresh" class="secondary">Refresh rooms and devices</button>
           <ul id="rooms"></ul>
           <form id="create-form"><label>New room name <input id="room-name" required maxlength="120"></label><button>Create room</button></form>
-          <details><summary>Your devices</summary><p>Your first device is approved automatically. Approve another browser only after comparing its fingerprint independently.</p><ul id="account-devices"></ul>
+          <details><summary>Saved conversations</summary><p class="hint">Encrypted history on this browser, including rooms whose access was removed.</p><button id="saved-refresh" class="secondary">List saved conversations</button><ul id="saved-rooms"></ul></details>
+          <details id="account-management"><summary>Your devices</summary><p>Your first device is approved automatically. Approve another browser only after comparing its fingerprint independently.</p><ul id="account-devices"></ul>
             <form id="account-approval-form"><label for="pending-device">Pending device</label><select id="pending-device" required></select><label>Fingerprint from that browser <input id="account-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button id="approve-own">Approve own device</button></form>
             <form id="account-revocation-form"><label for="revoke-device">Device to revoke</label><select id="revoke-device" required></select><button>Revoke device</button></form>
             <p class="hint">Revocation ends server access. Room members must update encryption; downloaded messages remain. Keep an approved browser to approve replacements.</p>

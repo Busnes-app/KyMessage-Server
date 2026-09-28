@@ -121,7 +121,7 @@ async function derive(passphrase: string, salt: Uint8Array<ArrayBuffer>): Promis
 }
 
 // The wrapping key lives only in the unlocked tab. Salt binds it to this envelope.
-export type UnlockedVault = { key: CryptoKey; salt: string };
+export type UnlockedVault = { key: CryptoKey; salt: string; identity: string };
 function envelope(value: unknown) {
   const e = object(value);
   const salt = unbase64(e.salt), iv = unbase64(e.iv);
@@ -141,8 +141,8 @@ export async function unlockVault(passphrase: string): Promise<UnlockedVault> {
     try {
       const e = envelope(await read(db));
       const key = await derive(passphrase,e.salt);
-      await decrypt(e,key); // Authenticate storage before retaining the key.
-      return {key,salt:base64(e.salt)};
+      const record = await decrypt(e,key); // Authenticate storage before retaining the key.
+      return {key,salt:base64(e.salt),identity:record.identity};
     } finally { db.close(); }
   });
 }
@@ -185,7 +185,7 @@ export async function initializeVault(passphrase: string, create: () => Promise<
       const key = await derive(passphrase, salt);
       const record = await create();
       await seal(db, record, salt, key);
-      return {wire:record.keyPackage, unlocked:{key,salt:base64(salt)}};
+      return {wire:record.keyPackage, unlocked:{key,salt:base64(salt),identity:record.identity}};
     } finally {
       db.close();
     }
@@ -201,4 +201,29 @@ export async function ensureRoomVault(unlocked: UnlockedVault, entry: string, cr
       await seal(db,await create(),unbase64(unlocked.salt),unlocked.key,entry,true);
     } finally { db.close(); }
   });
+}
+
+// Merge independent room summaries at the read boundary. A damaged entry must not
+// hide the other rooms or cause a write; keep its ciphertext for recovery.
+export async function inspectVaults<T>(unlocked: UnlockedVault, inspect: (record: DeviceRecord) => T) {
+  const db = await openDatabase();
+  const result: ({kind:'ready';entry:string;value:T} | {kind:'unreadable'})[] = [];
+  try {
+    const entries = await new Promise<IDBValidKey[]>((resolve,reject) => {
+      const tx = db.transaction('vault','readonly');
+      const request = tx.objectStore('vault').getAllKeys();
+      tx.oncomplete = () => resolve(request.result);
+      tx.onabort = () => reject(tx.error);
+    });
+    if (entries.length > 100) throw new Error('Local vault entry limit exceeded');
+    for (const entry of entries) {
+      if (typeof entry !== 'string') { result.push({kind:'unreadable'}); continue; }
+      try {
+        const e = envelope(await read(db,entry));
+        if (base64(e.salt) !== unlocked.salt) throw new Error('Different vault key');
+        result.push({kind:'ready',entry,value:inspect(await decrypt(e,unlocked.key,entry))});
+      } catch { result.push({kind:'unreadable'}); }
+    }
+    return result;
+  } finally {db.close();}
 }
