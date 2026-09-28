@@ -38,6 +38,12 @@ retains the manual wire harness. Root owns product decisions and research in `do
 - A discarded private commit requires applying a winning commit before further
   sends or commits. Retry a pending transport submission with identical wire bytes.
 - Document failed gates and security limitations alongside successful checks.
+- Optional OpenMLS interoperability uses only owned loopback native/gRPC processes,
+  pinned by `docs/MLS-INTEROP-RESEARCH.md`. Keep RPC responses/private test material
+  out of logs; `proof.interopState` exposes only hashes of synthetic group secrets.
+  Unmodified OpenMLS currently exposes ts-mls's unknown-version capability decoder
+  failure. `openmls-mls10-only.patch` changes the test peer's advertisement only;
+  passing that constrained exchange never closes the extensibility/profile gates.
 - `delivery.ts` binds MLS credentials/signature keys to enrolled accounts and
   independently pinned roster keys. Keep the room ID, event ID, sender, epoch and
   roster and identity generation in authenticated MLS metadata; Welcome joins validate the signed GroupInfo
@@ -177,6 +183,9 @@ retains the manual wire harness. Root owns product decisions and research in `do
 ## Verification
 
 - `npm ci`, `npm run build`, and `npm test` from this directory.
+- `npm run test:interop -- --project=chromium --project=firefox` requires the pinned
+  external fixture paths documented in `docs/MLS-INTEROP-RESEARCH.md`; it is excluded
+  from normal tests/CI until the compatibility failure is resolved.
 - Browser installation on a supported Linux host:
   `npx playwright install --with-deps chromium firefox webkit`.
 - `npm test -- --project=chromium --project=firefox` runs the verified host subset;

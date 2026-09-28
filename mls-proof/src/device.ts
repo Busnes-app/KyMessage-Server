@@ -140,6 +140,19 @@ async function stage(record: DeviceRecord, proposals: Proposal[]) {
 }
 
 export const proof = {
+  // Test-only agreement checks return hashes, never the live group secrets.
+  async interopState() {
+    return run(async record => {
+      const current = state(record);
+      const exported = await mlsExporter(current.keySchedule.exporterSecret,
+        'kymessages-interop', encoder.encode('synthetic-context'), 32, await suite);
+      const digest = async (bytes: Uint8Array) => base64(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes))));
+      const result = { authentication: await digest(current.keySchedule.epochAuthenticator), exporter: await digest(exported) };
+      zeroOutUint8Array(exported);
+      return result;
+    });
+  },
+
   // Independent published vectors use only synthetic inputs, never device state.
   async exporterVector(input: { secret: string; label: string; context: string; length: number }) {
     if (!Number.isSafeInteger(input.length) || input.length < 1 || input.length > 256) throw new Error('Invalid vector length');

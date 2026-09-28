@@ -245,3 +245,24 @@ lost-history recovery. Never equate prototype test passes with production approv
 DOX updated root, API, config and web contracts for product packaging. Existing
 child indexes and other domain contracts stay unchanged because ownership and
 runtime messaging/backup semantics did not change. Mirror before an actual pause.
+
+Independent-implementation checkpoint: `mls-proof/tests/interop.spec.ts` launches an
+owned loopback OpenMLS fixture and calls pinned grpcurl with JSON on stdin; native
+private response fields are never logged. `proof.interopState` returns only hashes
+of the live authenticator and a fixed-label exporter. The optional suite stays out
+of normal tests/deployment; setup is in `docs/MLS-INTEROP-RESEARCH.md`.
+
+Unmodified OpenMLS 0.9.0 failed on both browsers: its valid advertised future
+protocol version 999 is rejected by ts-mls 1.6.4's closed capability decoder. Keep
+this dependency defect open. The committed `openmls-mls10-only.patch` removes that
+advertisement in the synthetic fixture before signing; it does not modify received
+wire bytes or either cryptographic implementation. With that explicit constraint,
+the full bidirectional lifecycle and live-secret agreement cases pass in Chromium
+and Firefox. All 18 existing lifecycle cases pass. The private HTTP GroupInfo binding
+and independent security assessment remain unverified; this is partial evidence.
+
+Next: persistently expose the latest scheduled/manual backup result. The current
+screen's last remote receipt can conceal a later scheduled failure. Remaining
+client bounds, browser/deployment evidence and measured resource limits also stay
+open. Product packaging CI `e27924f` is green. Root/proof DOX updated; production
+API/store/web contracts remain unchanged in this isolated test slice.

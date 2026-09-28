@@ -49,7 +49,8 @@ prototype test is not production approval.
    Fresh identity recovery and new rooms avoid resuming stale MLS state. A real
    sealed-capsule round trip and SQLite/PostgreSQL grant-policy tests pass. Product
    identity wiring is implemented; schedule/local-copy/receipt acceptance and deployed
-   verification remain open; the source-build restore runbook records the implemented recovery policy.
+   verification remain open; the backup screen still needs a persistent scheduled
+   outcome (a last remote receipt does not show a newer failed attempt); the source-build restore runbook records the implemented recovery policy.
 6. **Release evidence — open.** Run CI on both database engines, production browser
    regressions, dependency checks, recovery drills, declared-host load tests and
    protocol/application-binding security review. Record actual supported browsers
@@ -66,7 +67,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `3d26ccc`; current implementation remains a server scaffold plus
+- CI green through `e27924f`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -85,3 +86,12 @@ CLI/server smoke tests and final container HTTP/assets checks pass. Compose base
 source-build, DNS and static-IP overlays validate. The container serves the exact
 committed frontend bundle and excludes the experimental MLS client. No image was
 published and no deployment occurred.
+
+Independent interoperability: native OpenMLS 0.9.0 and ts-mls 1.6.4 pass the named
+exchange/reload/update/join/removal and group-secret agreement scenarios in both
+browsers only with an explicitly MLS-1.0-only fixture advertisement. Unmodified
+OpenMLS fails because ts-mls rejects an unknown advertised protocol version, contrary
+to RFC 9420 capability handling. This dependency defect and the custom GroupInfo
+application profile remain open gates. Reproduction and exact pins are recorded in
+`MLS-INTEROP-RESEARCH.md`; no cryptographic dependency or signed incoming bytes were
+patched. The ordinary 18 browser lifecycle tests still pass.

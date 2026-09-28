@@ -1,0 +1,13 @@
+diff --git a/interop_client/src/main.rs b/interop_client/src/main.rs
+index ee00058..64e5570 100644
+--- a/interop_client/src/main.rs
++++ b/interop_client/src/main.rs
+@@ -284,7 +284,7 @@ impl MlsClient for MlsClientImpl {
+ 
+         let key_package = KeyPackage::builder()
+             .leaf_node_capabilities(Capabilities::new(
+-                Some(&[ProtocolVersion::Mls10, ProtocolVersion::Other(999)]),
++                Some(&[ProtocolVersion::Mls10]),
+                 Some(&[
+                     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519,
+                     Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256,

@@ -497,3 +497,13 @@ Older records without deadlines remain until explicitly cleared. **Clear saved
 history in this room** confirms before deleting this entry's downloaded messages;
 it preserves keys and pending delivery. Other tabs can retain visible copies until
 refreshed. Local deletion is best effort, not physical disk erasure.
+
+## Independent implementation check
+
+The optional `npm run test:interop -- --project=chromium --project=firefox` harness
+uses native OpenMLS 0.9.0 through a test-only loopback gRPC process. Setup, exact pins,
+commands and results are in [MLS-INTEROP-RESEARCH.md](../docs/MLS-INTEROP-RESEARCH.md).
+The unmodified peer currently fails on an unknown advertised protocol version.
+The explicitly constrained MLS-1.0-only peer passes exchange, state agreement,
+updates, reload, joins and removal on both browsers. That is partial evidence;
+it does not validate the KyMessages HTTP profile or establish security approval.

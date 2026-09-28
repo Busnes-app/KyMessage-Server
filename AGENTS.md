@@ -21,7 +21,9 @@ its release gates pass. The user-selected priority is small teams and encrypted 
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
   before selecting MLS/media libraries or making federation compatibility claims.
 - The isolated browser experiment lives in `mls-proof/`; selection evidence is in
-  [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Its test results do not
+  [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Before changing library
+  compatibility claims, read [docs/MLS-INTEROP-RESEARCH.md](docs/MLS-INTEROP-RESEARCH.md)
+  for the failed extensibility gate and constrained OpenMLS exchange evidence. Its test results do not
   establish production approval or complete milestone 0. Keep it out of deployment.
 - Root owns product definition and cross-domain documentation in `docs/`; children
   own the runtime domains indexed below. Keep product plans distinct from current
