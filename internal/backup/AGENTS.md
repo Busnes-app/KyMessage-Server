@@ -48,6 +48,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   nothing else.
 
 ## Verification
+- The decrypt guard allows only `restore` in `cmd/server/restore.go` to invoke
+  suite-key capsule opening. HTTP/scheduled product code never receives shares.
 - `go test -v ./internal/backup/...` covers decoded seal/open checks, malformed recipes,
   subprocess lock contention/exit, scratch cleanup and the synthetic v0.5.0 pairing fixture
   in `testdata/pairing-v050.json`. The fixture uses a 32-byte 0x01 deployment key and retains

@@ -16,6 +16,6 @@ func TestNothingInTheServerDecrypts(t *testing.T) {
 		t.Fatal(err)
 	}
 	guardtest.NoDecryptOutside(t, root, map[string][]string{
-		filepath.Join("cmd", "server", "main.go"): {"restore"},
+		filepath.Join("cmd", "server", "restore.go"): {"restore"},
 	})
 }
