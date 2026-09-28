@@ -124,3 +124,8 @@ CREATE TABLE messaging_reset_receipts (
     completed_at BIGINT NOT NULL
 );
 `
+
+const messagingScopedPackageSchema = `
+ALTER TABLE messaging_key_packages ADD COLUMN publication_room TEXT NOT NULL DEFAULT '';
+CREATE INDEX messaging_key_packages_room ON messaging_key_packages(device_id, publication_room, expires_at);
+`

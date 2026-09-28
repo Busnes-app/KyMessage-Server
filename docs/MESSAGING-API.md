@@ -194,12 +194,18 @@ previously obtained message keys.
 ## KeyPackage publication and claims
 
 An approved device publishes an unused MLS KeyPackage with POST
-`/devices/key-packages`: `{payload,expires_at}`. `payload` is canonical standard
+`/devices/key-packages`: `{payload,expires_at,room_id?}`. `payload` is canonical standard
 base64 of 1–16,384 wire bytes; `expires_at` is Unix seconds, after now and no more
 than seven days ahead. The entire JSON body is capped at 24 KiB. Publication returns
 `{package_id,expires_at}`; `package_id` is SHA-256 hex of the decoded wire bytes,
 **not** the MLS KeyPackageRef. The authenticated device owns the package; the caller
-cannot specify another publishing device in JSON.
+cannot specify another publishing device in JSON. Migration 10 adds optional room
+scope: a canonical `room_id` requires active membership, remains immutable on retry,
+and prevents claims from any other room. Claims prefer their own scoped packages
+before legacy unscoped packages. Omitted/empty scope preserves the earlier API;
+new multi-room clients should publish scoped packages and retain each room's private
+join material in that room's encrypted record. Lifetime and available-package quotas
+still apply across the whole device.
 
 The server stores opaque bytes. Receivers must validate MLS format/ciphersuite,
 credential identity, enrolled signature key, signatures and signed lifetime before

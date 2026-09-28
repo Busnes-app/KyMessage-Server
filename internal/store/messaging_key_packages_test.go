@@ -151,3 +151,55 @@ func TestMessagingKeyPackageCapacityAndRevocation(t *testing.T) {
 		t.Fatal("account deletion reset package publication history", err)
 	}
 }
+
+func TestMessagingKeyPackagesStayInTheirPublishedRoom(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner, _ := deliveryDevice(t, st, messagingActor(t, st, "owner"))
+	joiner, target := deliveryDevice(t, st, messagingActor(t, st, "joiner"))
+	for _, room := range []string{"one", "two"} {
+		must(st.Messaging().CreateRoom(ctx, owner, store.MessagingRoom{ID: room, Name: room}))
+		must(st.Messaging().InviteMember(ctx, owner, room, joiner.UserID))
+	}
+	raw := []byte("room one join material")
+	kp := store.MessagingKeyPackage{ID: crypto.SHA256Hex(raw), Payload: base64.StdEncoding.EncodeToString(raw), ExpiresAt: time.Now().Add(time.Hour).Unix(), RoomID: "one"}
+	if err := st.Messaging().PublishKeyPackage(ctx, joiner, kp); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("invitation alone allowed publication: %v", err)
+	}
+	must(st.Messaging().AcceptInvite(ctx, joiner, "one"))
+	must(st.Messaging().AcceptInvite(ctx, joiner, "two"))
+	must(st.Messaging().PublishKeyPackage(ctx, joiner, kp))
+	must(st.Messaging().PublishKeyPackage(ctx, joiner, kp))
+	moved := kp
+	moved.RoomID = "two"
+	if err := st.Messaging().PublishKeyPackage(ctx, joiner, moved); !errors.Is(err, store.ErrMessagingConflict) {
+		t.Fatalf("publication moved rooms: %v", err)
+	}
+	if _, err := st.Messaging().ClaimKeyPackage(ctx, owner, "two", target, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("wrong room consumed package: %v", err)
+	}
+	request := uuid.NewString()
+	claimed, err := st.Messaging().ClaimKeyPackage(ctx, owner, "one", target, request)
+	must(err)
+	if claimed.ID != kp.ID || claimed.RoomID != "one" {
+		t.Fatal(claimed)
+	}
+	retry, err := st.Messaging().ClaimKeyPackage(ctx, owner, "one", target, request)
+	must(err)
+	if retry != claimed {
+		t.Fatal("room-scoped retry changed package")
+	}
+	if _, err := st.Messaging().ClaimKeyPackage(ctx, owner, "two", target, request); !errors.Is(err, store.ErrMessagingConflict) {
+		t.Fatalf("claim replay crossed rooms: %v", err)
+	}
+}

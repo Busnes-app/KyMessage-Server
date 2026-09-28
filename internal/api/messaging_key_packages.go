@@ -13,10 +13,18 @@ import (
 func (s *Server) handleMessagingPublishKeyPackage(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
 	var input struct {
 		Payload   string `json:"payload"`
+		RoomID    string `json:"room_id"`
 		ExpiresAt int64  `json:"expires_at"`
 	}
 	if !s.messagingJSONLimit(w, r, &input, 24*1024) {
 		return
+	}
+	if input.RoomID != "" {
+		id, err := uuid.Parse(input.RoomID)
+		if err != nil || id.String() != input.RoomID {
+			s.writeError(w, 400, "Canonical room UUID required")
+			return
+		}
 	}
 	wire, err := base64.StdEncoding.DecodeString(input.Payload)
 	now := time.Now().Unix()
@@ -24,7 +32,7 @@ func (s *Server) handleMessagingPublishKeyPackage(w http.ResponseWriter, r *http
 		s.writeError(w, 400, "Canonical base64 KeyPackage up to 16 KiB and expiry within seven days required")
 		return
 	}
-	kp := store.MessagingKeyPackage{ID: crypto.SHA256Hex(wire), Payload: input.Payload, ExpiresAt: input.ExpiresAt}
+	kp := store.MessagingKeyPackage{ID: crypto.SHA256Hex(wire), Payload: input.Payload, ExpiresAt: input.ExpiresAt, RoomID: input.RoomID}
 	if err := s.store.Messaging().PublishKeyPackage(r.Context(), actor, kp); err != nil {
 		s.messagingError(w, err)
 		return

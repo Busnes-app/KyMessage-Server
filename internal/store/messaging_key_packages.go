@@ -10,17 +10,22 @@ import (
 // The delivery service stores opaque MLS KeyPackages. The receiving MLS client
 // validates their credential, signature key, lifetime and signatures before use.
 type MessagingKeyPackage struct {
-	ID, DeviceID, Payload string
-	ExpiresAt             int64
+	ID, DeviceID, Payload, RoomID string
+	ExpiresAt                     int64
 }
 
 func (m *messagingStore) PublishKeyPackage(ctx context.Context, actor MessagingActor, kp MessagingKeyPackage) error {
 	return m.transaction(ctx, actor, true, func(tx *sql.Tx, device string) error {
-		var owner, payload, claim string
+		if kp.RoomID != "" {
+			if _, _, _, err := m.deliveryState(ctx, tx, actor, kp.RoomID); err != nil {
+				return err
+			}
+		}
+		var owner, payload, claim, publicationRoom string
 		var expires int64
-		err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT device_id, payload, expires_at, claim_id FROM messaging_key_packages WHERE id = ?`), kp.ID).Scan(&owner, &payload, &expires, &claim)
+		err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT device_id, payload, expires_at, claim_id, publication_room FROM messaging_key_packages WHERE id = ?`), kp.ID).Scan(&owner, &payload, &expires, &claim, &publicationRoom)
 		if err == nil {
-			if owner != device || payload != kp.Payload || expires != kp.ExpiresAt || claim != "" {
+			if owner != device || publicationRoom != kp.RoomID || payload != kp.Payload || expires != kp.ExpiresAt || claim != "" {
 				return ErrMessagingConflict
 			}
 			return nil // A publication retry must never put a claimed package back.
@@ -37,7 +42,7 @@ func (m *messagingStore) PublishKeyPackage(ctx context.Context, actor MessagingA
 		if total >= 128 || available >= 16 {
 			return ErrMessagingLimit
 		}
-		_, err = tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_key_packages (id, device_id, payload, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`), kp.ID, device, kp.Payload, kp.ExpiresAt)
+		_, err = tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_key_packages (id, device_id, payload, expires_at, publication_room) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`), kp.ID, device, kp.Payload, kp.ExpiresAt, kp.RoomID)
 		if err != nil {
 			return err
 		}
@@ -76,7 +81,7 @@ func (m *messagingStore) ClaimKeyPackage(ctx context.Context, actor MessagingAct
 		}
 		var claimedRoom string
 		var claimedGeneration int64
-		err = tx.QueryRowContext(ctx, m.store.rebind(`SELECT id, device_id, payload, expires_at, claim_room, member_generation FROM messaging_key_packages WHERE claimant_device = ? AND claim_id = ?`), device, requestID).Scan(&kp.ID, &kp.DeviceID, &kp.Payload, &kp.ExpiresAt, &claimedRoom, &claimedGeneration)
+		err = tx.QueryRowContext(ctx, m.store.rebind(`SELECT id, device_id, payload, expires_at, claim_room, member_generation, publication_room FROM messaging_key_packages WHERE claimant_device = ? AND claim_id = ?`), device, requestID).Scan(&kp.ID, &kp.DeviceID, &kp.Payload, &kp.ExpiresAt, &claimedRoom, &claimedGeneration, &kp.RoomID)
 		if err == nil {
 			if kp.DeviceID != target || claimedRoom != room || claimedGeneration != targetGeneration || kp.ExpiresAt <= time.Now().Unix() {
 				return ErrMessagingConflict
@@ -89,11 +94,11 @@ func (m *messagingStore) ClaimKeyPackage(ctx context.Context, actor MessagingAct
 		if prior, exists := old[target]; exists && prior.generation == targetGeneration {
 			return ErrMessagingConflict
 		}
-		query := `SELECT id, device_id, payload, expires_at FROM messaging_key_packages WHERE device_id = ? AND claim_id = '' AND expires_at > ? ORDER BY expires_at, id LIMIT 1`
+		query := `SELECT id, device_id, payload, expires_at, publication_room FROM messaging_key_packages WHERE device_id = ? AND claim_id = '' AND expires_at > ? AND (publication_room = ? OR publication_room = '') ORDER BY CASE WHEN publication_room = '' THEN 1 ELSE 0 END, expires_at, id LIMIT 1`
 		if m.store.driver == "postgres" {
 			query += " FOR UPDATE SKIP LOCKED"
 		}
-		err = tx.QueryRowContext(ctx, m.store.rebind(query), target, time.Now().Unix()).Scan(&kp.ID, &kp.DeviceID, &kp.Payload, &kp.ExpiresAt)
+		err = tx.QueryRowContext(ctx, m.store.rebind(query), target, time.Now().Unix(), room).Scan(&kp.ID, &kp.DeviceID, &kp.Payload, &kp.ExpiresAt, &kp.RoomID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
