@@ -26,6 +26,10 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   room requires active membership; scope cannot change on retry. Claims prefer
   packages scoped to their room and may use legacy unscoped packages, but never
   another room's scoped material. Device lifetime/availability quotas remain shared.
+- Migration 11 binds direct rooms to an immutable peer account ID. Creation and
+  the peer invitation are one transaction; reject self and ineligible accounts.
+  Owner invitations can only target that peer, including after removal or deletion.
+  Keep the binding after peer deletion so a direct room cannot become a group.
 - Room invitations require owner authorization and explicit recipient acceptance. Delivery and membership mutations lock the room after the actor/session. Each accepted invitation increments the member generation, preventing remove/rejoin from restoring old log access.
 - `messaging_delivery.go` and migration 6 own the bounded event log, declared epoch CAS, device-specific Welcome envelopes and history floors. Each append checks the current eligible roster against the requested hash; application events additionally require the committed roster. Exact retries return the original receipt without another audit. MLS transcript validity remains the receiving client's responsibility. Wire limits and lifecycle semantics live in `docs/MESSAGING-API.md` at the repository root.
 - `messaging_key_packages.go` and migration 7 own the content-addressed, bounded KeyPackage pool. Preserve claimed/expired rows as anti-republication tombstones, including after account deletion; their device IDs intentionally have no cascading foreign key. Claims require an eligible current-epoch device (or initial room owner), bind retries to caller/request ID, room, target and membership generation, and audit atomically. PostgreSQL claims lock a candidate with `FOR UPDATE SKIP LOCKED` so different rooms cannot allocate the same row.

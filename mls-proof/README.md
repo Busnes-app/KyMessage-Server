@@ -458,3 +458,10 @@ shipped as product APIs.
 
 Milestone 0 remains open. The proof supports continuing toward product client
 integration; it does not justify advertising or deploying production E2EE chat yet.
+
+Direct conversations use the same encrypted room flow with a server-enforced,
+immutable two-account boundary. Start with the peer account ID; they must accept,
+prepare to join and independently verify fingerprints. The client caches the peer
+and refuses extra-account rosters. Starting again reopens the oldest visible match;
+concurrent starts can create separate conversations. The creator owns invitations
+and removals; resetting that owner's identity still requires a new room.

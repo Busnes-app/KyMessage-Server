@@ -60,6 +60,7 @@ export function connection(value: unknown) {
     device: d.device === null ? null : text(d.device), token: text(d.token),
     challenge: d.challenge === undefined || d.challenge === null ? null : text(d.challenge),
     room: d.room === null ? null : text(d.room),
+    directPeer: d.directPeer === undefined || d.directPeer === null ? null : accountID(d.directPeer),
     name: d.name === undefined || d.name === null ? null : text(d.name),
     roster: d.roster === null ? null : roster(d.roster),
     publication: publication === null ? null : {payload:text(publication.payload),expires_at:integer(publication.expires_at),...(publication.room_id === undefined ? {} : {room_id:text(publication.room_id)})},

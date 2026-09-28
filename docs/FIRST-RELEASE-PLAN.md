@@ -20,8 +20,9 @@ prototype test is not production approval.
 2. **Durable conversations — in progress.** Isolated proof has verified opaque delivery,
    encrypted local history, outbox retry, rejoin and room switching. Each room owns
    its encrypted record/ratchet, scoped join packages and pending sends; local storage
-   is bounded. Unlock retains only a non-extractable wrapping key. Remaining: direct
-   message UX and the final production unlock/local-data lifecycle. Saved conversations
+   is bounded. Unlock retains only a non-extractable wrapping key. Direct
+   conversations with immutable peer accounts are implemented. The final production
+   unlock/local-data lifecycle remains open. Saved conversations
    remain discoverable after membership removal; explicit passphrase-only history
    mode reads local ciphertext without server requests in an already loaded app. Client-only Markdown with HTML/images disabled and HTTP(S)-only links
    is implemented and browser-tested.
@@ -54,12 +55,13 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `954b10d`; current implementation remains a server scaffold plus
+- CI green through `32aa3e8`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
 
-Live KyIdentity callback registration and deployed reauthentication policy; an
+KyMessages is not deployed yet (user-confirmed); live KyIdentity callback registration
+and deployed reauthentication policy remain unverified; an
 independent security assessment of the chosen MLS implementation/application profile;
 interoperability against an independent implementation; and real supported-browser
 and constrained-host measurements. Local tests may advance these gates but cannot

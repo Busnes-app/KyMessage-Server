@@ -34,7 +34,10 @@ pending sends on room changes and reload, and scopes join packages to their room
 Unlock derives the non-extractable wrapping key once without retaining a passphrase
 between operations. Saved-room discovery and explicit passphrase-only history reading preserve access
 to already downloaded messages after membership removal or network loss. Online
-messaging still requires suite authentication. Automatic replenishment, retention-gap
+messaging still requires suite authentication. Direct conversations atomically invite
+one fixed peer, require consent and key verification, and reject third-account
+membership and client rosters. Repeated starts reopen an existing visible pair;
+concurrent starts can create separate rooms. Automatic replenishment, retention-gap
 recovery, live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 

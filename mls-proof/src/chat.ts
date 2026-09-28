@@ -211,10 +211,13 @@ async function render() {
     list.append(row);
   }
   element('create-form').hidden = own?.status !== 'approved';
+  element('direct-form').hidden = own?.status !== 'approved';
   element('room-tools').hidden = localOnly || s.room === null;
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
   element('invite-form').hidden = room?.owner !== s.identity;
+  const invite = field('invite-account');
+  if (invite instanceof HTMLInputElement) { invite.readOnly = Boolean(room?.peer); if (room?.peer) invite.value = room.peer; else if (invite.dataset.direct === 'true') invite.value = ''; invite.dataset.direct = String(Boolean(room?.peer)); }
   element('remove-form').hidden = room?.owner !== s.identity;
   options('remove-member',members.filter(member => member.id !== s.identity && member.status !== 'removed').map(member => ({id:member.id,label:`${member.id} · ${member.status}`})),'Choose a member');
   element('members').replaceChildren(...members.map(member => line('li',`${member.id} · ${member.status}${member.identityGeneration !== member.currentIdentityGeneration ? ` · Server reports identity changed from ${member.identityGeneration} to ${member.currentIdentityGeneration}. New invitation and independent fingerprint verification required.` : ''}`)));
@@ -346,6 +349,7 @@ click('saved-refresh',async () => {
   }));
 },'Saved conversations listed.');
 click('refresh',refresh,'Rooms and devices refreshed.');
+form('direct-form',async () => { confirmDraftDiscard(); await delivery.directRoom(field('direct-account').value); field('message').value = ''; field('direct-account').value = ''; await refresh(); },'Direct conversation selected. The recipient must accept; verify fingerprints before messaging.');
 form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim()); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');
 form('remove-form',async () => {

@@ -129,3 +129,8 @@ const messagingScopedPackageSchema = `
 ALTER TABLE messaging_key_packages ADD COLUMN publication_room TEXT NOT NULL DEFAULT '';
 CREATE INDEX messaging_key_packages_room ON messaging_key_packages(device_id, publication_room, expires_at);
 `
+
+// Keep the peer binding after account deletion; a direct room cannot become a group.
+const messagingDirectRoomSchema = `
+ALTER TABLE messaging_rooms ADD COLUMN direct_peer_id TEXT NOT NULL DEFAULT '';
+`

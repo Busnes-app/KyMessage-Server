@@ -90,9 +90,23 @@ cases and all six OIDC cases passed across Chromium/Firefox. The new case covers
 removed membership, damaged sibling records, wrong passphrase, offline local selection,
 no API requests during 60 seconds and lock clearing history.
 
-Continue durable conversations with direct-message UX. Only the selected room receives
-automatic checks; client server-room discovery reads one page of 100. These remain
-product work; do not imply a finished encrypted-chat release.
+Migration 11 adds immutable direct-room peer bindings. Creation and the invitation
+commit together; a third account is denied even after peer removal/deletion. The
+client reuses an existing visible pair, requires consent and fingerprints, persists
+its counterpart, and rejects extra-account MLS rosters. Concurrent starts can create
+separate rooms; ownership/reset rules remain unchanged. Ordinary rooms remain groups.
+
+Verification: messaging race suites pass on SQLite and PostgreSQL 17, and Go vet and
+proof build pass. The full browser run exposed an obsolete removed-member button
+expectation and a duplicate key in the new injected-roster test; those expectations
+were corrected without weakening server denial or roster validation. Both corrected cases pass in Chromium and Firefox; the other 31 cases passed in
+the full run (one intentional duplicate-engine skip). Full store/API race suites
+also pass. Only the selected room receives automatic
+checks; client server-room discovery reads one page of 100.
+
+Next: authenticated live wakeups backed by durable HTTP cursor reads, then retention
+and explicit gap recovery. KyMessages is not deployed yet, confirmed by the user;
+keep live issuer checks open while independent implementation continues.
 
 Live delivery, retention/gap recovery, product embedding, installation, restore and
 load/security evidence remain open. The unaudited `ts-mls` experiment and private

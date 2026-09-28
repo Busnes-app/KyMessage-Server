@@ -67,6 +67,8 @@ function privateKeys(r: DeviceRecord) {
   return { initPrivateKey: unbase64(r.keys.initPrivateKey), hpkePrivateKey: unbase64(r.keys.hpkePrivateKey), signaturePrivateKey: unbase64(r.keys.signaturePrivateKey) };
 }
 function pinned(r: DeviceRecord, devices: Roster) {
+  const peer = connected(r).directPeer;
+  if (peer && devices.some(device => device.user_id !== r.identity && device.user_id !== peer)) throw new Error('Direct conversation contains another account');
   for (const d of devices) {
     if (!r.pins.some(p => p.identity === d.user_id && p.key === d.public_key && p.identityGeneration === d.identity_generation)) throw new Error('Unpinned roster identity/key');
   }
@@ -122,7 +124,7 @@ async function freshRoomRecord(base: DeviceRecord, room: string): Promise<Device
   Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
   return record;
 }
-async function openRoom(room: string) {
+async function openRoom(room: string, expectedPeer?: string) {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(room)) throw new Error('Invalid room ID');
   const signal = connectionAbort.signal;
   const base = await runAt('device',async r => r);
@@ -134,8 +136,12 @@ async function openRoom(room: string) {
     d.room = room;
     const rooms = array((await api('/rooms',d.token)).rooms,object);
     const selected = rooms.find(x => x.id === room);
-    if (selected?.membership === 'invited' && !r.state) await api(roomPath(d) + '/join',d.token,'POST');
-    else if (selected?.membership !== 'active' && selected?.membership !== 'invited') throw new Error('Room not available to this account');
+    if (selected?.membership !== 'active' && selected?.membership !== 'invited') throw new Error('Room not available to this account');
+    const boundPeer = selected.peer_user_id === undefined || selected.peer_user_id === '' ? null : accountID(selected.peer_user_id);
+    const directPeer = boundPeer === null ? null : selected.owner_id === r.identity ? boundPeer : accountID(selected.owner_id);
+    if ((expectedPeer && directPeer !== expectedPeer) || (d.directPeer && d.directPeer !== directPeer)) throw new Error('Direct conversation account binding changed');
+    d.directPeer = directPeer;
+    if (selected.membership === 'invited' && !r.state) await api(roomPath(d) + '/join',d.token,'POST');
     d.name = text(selected.name);
     // Recover an empty owned room after a lost creation acknowledgement. Never
     // initialize a group with join material that has already been published.
@@ -160,7 +166,7 @@ export const delivery = {
     return transaction(async (_r,d) => array((await api('/rooms',d.token)).rooms, item => {
       const room = object(item);
       if (room.membership !== 'active' && room.membership !== 'invited') throw new Error('Invalid room membership');
-      return {id:text(room.id),name:text(room.name),owner:text(room.owner_id),membership:room.membership};
+      return {id:text(room.id),name:text(room.name),owner:accountID(room.owner_id),peer:room.peer_user_id === undefined || room.peer_user_id === '' ? null : accountID(room.peer_user_id),membership:room.membership};
     }));
   },
   async savedRooms() {
@@ -249,6 +255,23 @@ export const delivery = {
     signal.throwIfAborted();
     const room = text(v.id);
     await openRoom(room);
+    return room;
+  },
+  async directRoom(peerValue: string) {
+    const peer = accountID(peerValue);
+    const identity = unlockedIdentity();
+    if (peer === identity) throw new Error('Choose another account for a direct conversation');
+    const rooms = await delivery.rooms();
+    // Concurrent starts may create separate conversations; each stays limited to
+    // the same two accounts. Reopen the oldest visible match on ordinary retries.
+    const existing = rooms.find(room => (room.owner === identity && room.peer === peer) || (room.owner === peer && room.peer === identity));
+    if (existing) { await openRoom(existing.id,peer); return existing.id; }
+    const signal = connectionAbort.signal;
+    const token = await transaction(async (_r,d) => d.token);
+    const created = await api('/rooms',token,'POST',{name:'Direct: ' + peer,peer_user_id:peer});
+    signal.throwIfAborted();
+    const room = text(created.id);
+    await openRoom(room,peer);
     return room;
   },
   async selectRoom(room: string) { await openRoom(room); },

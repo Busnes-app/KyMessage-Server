@@ -158,7 +158,7 @@ unless marked 201. All routes require the suite session described above.
 | POST `/devices/{device}/recovery-auth` | `{confirm_identity_reset?:boolean}` → 201 `{authorization_url,expires_at,identity_reset_available,reset_requested}` | Own pending device credential and original live suite session |
 | GET `/recovery-auth/callback?state=…&code=…` | Authentication result or reset receipt above | Original suite session; fresh signed OIDC evidence and unchanged device registry |
 | POST `/devices/key-packages` | `{payload,expires_at}` → `{package_id,expires_at}` | Approved publishing device |
-| POST `/rooms` | `{name}` → 201 room | Approved device |
+| POST `/rooms` | `{name,peer_user_id?}` → 201 room | Approved device |
 | GET `/rooms?offset=0` | `{rooms:[...]}` | Approved device; own invited/active memberships only |
 | GET `/rooms/{room}/members` | `{members:[{user_id,status,identity_generation,current_identity_generation}]}` | Approved device and active membership |
 | POST `/rooms/{room}/members` | `{user_id}` → `{invited:true}` | Approved device and room ownership |
@@ -175,7 +175,15 @@ commit. These are server-reported changes, never proof of a replacement key; cli
 must independently verify its fingerprint. Current plus committed rosters bound the
 listing, rather than retaining an unbounded history of departed accounts.
 
-Room objects expose `id`, `name`, `owner_id`, `created_at`, `membership`.
+Room objects expose `id`, `name`, `owner_id`, `created_at`, `membership`, `peer_user_id`.
+An empty peer denotes an ordinary invitation-only room. Migration 11 adds direct
+rooms: creation with an existing active suite-only peer atomically invites that
+account. Self-targeting returns 409; invalid IDs return 400; unavailable peers 404.
+The recipient must accept before access. Ownership remains with the creator, and
+owner invitations can only target the original peer (third-account attempts return
+403). Removing/deleting the peer never turns a direct room into a group. Reset and
+reinvitation retain ordinary identity-generation and future-history rules. Multiple
+rooms for the same pair are permitted; this API does not promise pair uniqueness.
 All timestamps are Unix seconds. Room names, device names, keys and memberships
 are server-visible metadata; room names are not encrypted by this API.
 

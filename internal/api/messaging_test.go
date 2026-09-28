@@ -353,3 +353,53 @@ func TestMessagingEnrollmentAfterVerifiedOIDCCallback(t *testing.T) {
 		}
 	}
 }
+
+func TestMessagingDirectRoomBoundary(t *testing.T) {
+	srv, st, _ := setupTestServer(t)
+	alice := messagingLogin(t, st, "direct-alice")
+	bob := messagingLogin(t, st, "direct-bob")
+	charlie := messagingLogin(t, st, "direct-charlie")
+	a := verifyEnrollment(t, srv, alice, requestEnrollment(t, srv, alice))
+	b := verifyEnrollment(t, srv, bob, requestEnrollment(t, srv, bob))
+	c := verifyEnrollment(t, srv, charlie, requestEnrollment(t, srv, charlie))
+	for _, invalid := range []struct {
+		peer   string
+		status int
+	}{{"direct-alice", 409}, {"missing", 404}, {"bad\naccount", 400}, {strings.Repeat("x", 65), 400}} {
+		messagingCode(t, messagingRequest(t, srv, "POST", "/api/messaging/rooms", alice, a.Token, map[string]string{"name": "Direct", "peer_user_id": invalid.peer}), invalid.status)
+	}
+	w := messagingRequest(t, srv, "GET", "/api/messaging/rooms", alice, a.Token, nil)
+	if strings.Contains(w.Body.String(), `"id"`) {
+		t.Fatal("failed creation left a room")
+	}
+	w = messagingRequest(t, srv, "POST", "/api/messaging/rooms", alice, a.Token, map[string]string{"name": "Direct", "peer_user_id": "direct-bob"})
+	messagingCode(t, w, 201)
+	var room struct {
+		ID   string
+		Peer string `json:"peer_user_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &room); err != nil {
+		t.Fatal(err)
+	}
+	if room.Peer != "direct-bob" {
+		t.Fatal("missing direct binding", w.Body.String())
+	}
+	path := "/api/messaging/rooms/" + room.ID
+	w = messagingRequest(t, srv, "GET", "/api/messaging/rooms", bob, b.Token, nil)
+	if !strings.Contains(w.Body.String(), `"membership":"invited"`) || !strings.Contains(w.Body.String(), `"peer_user_id":"direct-bob"`) {
+		t.Fatal(w.Body.String())
+	}
+	messagingCode(t, messagingRequest(t, srv, "GET", path+"/delivery", bob, b.Token, nil), 404)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/join", charlie, c.Token, nil), 404)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", alice, a.Token, map[string]string{"user_id": "direct-charlie"}), 403)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/join", bob, b.Token, nil), 200)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", bob, b.Token, map[string]string{"user_id": "direct-charlie"}), 404)
+	messagingCode(t, messagingRequest(t, srv, "DELETE", path+"/members/direct-bob", alice, a.Token, nil), 200)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", alice, a.Token, map[string]string{"user_id": "direct-charlie"}), 403)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", alice, a.Token, map[string]string{"user_id": "direct-bob"}), 200)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/join", bob, b.Token, nil), 200)
+	if err := st.Users().DeleteUser(context.Background(), "direct-bob"); err != nil {
+		t.Fatal(err)
+	}
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", alice, a.Token, map[string]string{"user_id": "direct-charlie"}), 403)
+}

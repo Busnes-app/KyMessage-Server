@@ -38,8 +38,8 @@ type MessagingEnrollment struct {
 }
 
 type MessagingRoom struct {
-	ID, Name, OwnerID, Membership string
-	CreatedAt                     int64
+	ID, Name, OwnerID, Membership, PeerUserID string
+	CreatedAt                                 int64
 }
 
 type MessagingMember struct {
@@ -265,8 +265,35 @@ func (m *messagingStore) RevokeDevice(ctx context.Context, actor MessagingActor,
 	})
 }
 
+func (m *messagingStore) invitationTarget(ctx context.Context, tx *sql.Tx, user string) error {
+	var eligible int
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM users WHERE id = ? AND status = 'active' AND sso_provider = 'kysignon' AND sso_subject <> '' AND password_hash = '' AND must_change_password = ?`), user, false).Scan(&eligible); err != nil {
+		return err
+	}
+	if eligible != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (m *messagingStore) invite(ctx context.Context, tx *sql.Tx, actor MessagingActor, room, user string) error {
+	result, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status, identity_generation) VALUES (?, ?, 'invited', COALESCE((SELECT generation FROM messaging_identities WHERE user_id = ?), 1)) ON CONFLICT (room_id, user_id) DO UPDATE SET status = 'invited', identity_generation = excluded.identity_generation WHERE messaging_members.status = 'removed' OR messaging_members.identity_generation <> excluded.identity_generation`), room, user, user)
+	if err := messagingChanged(result, err); err != nil {
+		return err
+	}
+	return m.audit(ctx, tx, actor, "messaging.member_invited", room, "user_id="+user)
+}
+
 func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, room MessagingRoom) error {
 	return m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
+		if room.PeerUserID != "" {
+			if room.PeerUserID == actor.UserID {
+				return ErrMessagingConflict
+			}
+			if err := m.invitationTarget(ctx, tx, room.PeerUserID); err != nil {
+				return err
+			}
+		}
 		var count int
 		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_rooms WHERE owner_id = ?`), actor.UserID).Scan(&count); err != nil {
 			return err
@@ -274,11 +301,16 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 		if count >= 100 {
 			return ErrMessagingLimit
 		}
-		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_rooms (id, name, owner_id, created_at, owner_identity_generation) VALUES (?, ?, ?, ?, (SELECT generation FROM messaging_identities WHERE user_id = ?))`), room.ID, room.Name, actor.UserID, room.CreatedAt, actor.UserID); err != nil {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_rooms (id, name, owner_id, created_at, owner_identity_generation, direct_peer_id) VALUES (?, ?, ?, ?, (SELECT generation FROM messaging_identities WHERE user_id = ?), ?)`), room.ID, room.Name, actor.UserID, room.CreatedAt, actor.UserID, room.PeerUserID); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status, identity_generation) VALUES (?, ?, 'active', (SELECT generation FROM messaging_identities WHERE user_id = ?))`), room.ID, actor.UserID, actor.UserID); err != nil {
 			return err
+		}
+		if room.PeerUserID != "" {
+			if err := m.invite(ctx, tx, actor, room.ID, room.PeerUserID); err != nil {
+				return err
+			}
 		}
 		return m.audit(ctx, tx, actor, "messaging.room_created", room.ID, "")
 	})
@@ -287,14 +319,14 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 func (m *messagingStore) ListRooms(ctx context.Context, actor MessagingActor, offset int) ([]MessagingRoom, error) {
 	rooms := []MessagingRoom{}
 	err := m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
-		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT r.id, r.name, r.owner_id, r.created_at, m.status FROM messaging_rooms r JOIN messaging_members m ON m.room_id = r.id WHERE m.user_id = ? AND m.identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = m.user_id) AND m.status IN ('invited', 'active') ORDER BY r.created_at, r.id LIMIT 100 OFFSET ?`), actor.UserID, offset)
+		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT r.id, r.name, r.owner_id, r.created_at, m.status, r.direct_peer_id FROM messaging_rooms r JOIN messaging_members m ON m.room_id = r.id WHERE m.user_id = ? AND m.identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = m.user_id) AND m.status IN ('invited', 'active') ORDER BY r.created_at, r.id LIMIT 100 OFFSET ?`), actor.UserID, offset)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var room MessagingRoom
-			if err := rows.Scan(&room.ID, &room.Name, &room.OwnerID, &room.CreatedAt, &room.Membership); err != nil {
+			if err := rows.Scan(&room.ID, &room.Name, &room.OwnerID, &room.CreatedAt, &room.Membership, &room.PeerUserID); err != nil {
 				return err
 			}
 			rooms = append(rooms, room)
@@ -315,12 +347,15 @@ func (m *messagingStore) InviteMember(ctx context.Context, actor MessagingActor,
 		if err := m.ownRoom(ctx, tx, actor, room); err != nil {
 			return err
 		}
-		var eligible int
-		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM users WHERE id = ? AND status = 'active' AND sso_provider = 'kysignon' AND sso_subject <> '' AND password_hash = '' AND must_change_password = ?`), user, false).Scan(&eligible); err != nil {
+		var peer string
+		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT direct_peer_id FROM messaging_rooms WHERE id = ?`), room).Scan(&peer); err != nil {
 			return err
 		}
-		if eligible != 1 {
-			return ErrNotFound
+		if peer != "" && user != peer {
+			return ErrMessagingDenied
+		}
+		if err := m.invitationTarget(ctx, tx, user); err != nil {
+			return err
 		}
 		var count int
 		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_members WHERE room_id = ?`), room).Scan(&count); err != nil {
@@ -329,11 +364,7 @@ func (m *messagingStore) InviteMember(ctx context.Context, actor MessagingActor,
 		if count >= 100 {
 			return ErrMessagingLimit
 		}
-		result, err := tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_members (room_id, user_id, status, identity_generation) VALUES (?, ?, 'invited', COALESCE((SELECT generation FROM messaging_identities WHERE user_id = ?), 1)) ON CONFLICT (room_id, user_id) DO UPDATE SET status = 'invited', identity_generation = excluded.identity_generation WHERE messaging_members.status = 'removed' OR messaging_members.identity_generation <> excluded.identity_generation`), room, user, user)
-		if err := messagingChanged(result, err); err != nil {
-			return err
-		}
-		return m.audit(ctx, tx, actor, "messaging.member_invited", room, "user_id="+user)
+		return m.invite(ctx, tx, actor, room, user)
 	})
 }
 

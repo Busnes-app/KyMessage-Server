@@ -9,6 +9,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 ## Local Contracts
 - `/api/messaging/` routes use `requireMessaging`: suite OIDC only (persisted provider `kysignon`, no local password), live session, matching browser Origin and account rate limits. Existing cookie CSRF applies. `X-KyMessages-Device` supplements the session for approval and room operations; enrollment, listing and revoking one's own devices need only the suite session.
 - `messaging_handlers.go` owns bounded JSON parsing, Ed25519 enrollment challenges and public DTOs. `store.Messaging()` rechecks authorization transactionally. Follow `docs/MESSAGING-API.md` at the repository root for the wire contract; never expose device token hashes or session bindings in device listings.
+- Room creation accepts optional `peer_user_id` for a direct conversation. Validate
+  it like invitation account IDs; return the immutable binding in room DTOs. The
+  store atomically invites that peer and enforces the two-account boundary.
 - `messaging_recovery.go` owns recovery-authentication initiation and callback.
   Initiation requires the target pending device's token; callback keeps the original
   suite session and never issues another. Seal server-owned OIDC state with the

@@ -334,6 +334,9 @@ test('owner removal confirms, reconciles lost replies and requires rekey before 
     await click(owner.page,'Apply verified membership','Verified membership applied');
     await owner.page.getByLabel('Message',{exact:true}).fill('While removed');
     await click(owner.page,'Send encrypted message','Message accepted by server');
+    await expect(member.page.getByRole('button',{name:'Check for messages',exact:true})).toBeDisabled();
+    // Bypassing the disabled control still cannot bypass the server ACL.
+    await member.page.locator('#sync').evaluate(node => node.removeAttribute('disabled'));
     await click(member.page,'Check for messages','HTTP 404');
     await expect(member.page.locator('#messages')).not.toContainText('While removed');
     await invite();
@@ -564,4 +567,57 @@ test('saved conversations remain readable after removal and a damaged sibling en
     await click(bob.page,'Lock and disconnect','Device locked');
     await expect(bob.page.locator('#messages')).toBeEmpty();
   } finally {await alice.context.close();await bob.context.close();}
+});
+
+test('direct conversations require consent and verification, then reopen their history',async ({browser}) => {
+  const aliceName = 'dm-alice-' + crypto.randomUUID().slice(0,8);
+  const bobName = 'dm-bob-' + crypto.randomUUID().slice(0,8);
+  const alice = await start(browser,aliceName);
+  const bob = await start(browser,bobName);
+  try {
+    await alice.page.getByLabel('Direct message account ID').fill(bobName);
+    await click(alice.page,'Start direct message','Direct conversation selected');
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    await expect(alice.page.locator('#members')).toContainText(bobName + ' · invited');
+    await expect(alice.page.getByLabel("Teammate's account ID")).toHaveValue(bobName);
+    await expect(alice.page.getByLabel("Teammate's account ID")).toHaveAttribute('readonly','');
+    await click(bob.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(bob.page.locator('#messages li')).toHaveCount(0);
+    await click(bob.page,'Accept Direct: ' + bobName,'Room selected');
+    await click(bob.page,'Prepare to join','Ready to join');
+    await click(alice.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(alice.page,'Apply verified membership','Unpinned roster');
+    await verify(alice.page,bobName,bob.fingerprint);
+    await verify(bob.page,aliceName,alice.fingerprint);
+    await click(alice.page,'Apply verified membership','Verified membership applied');
+    await click(bob.page,'Check for messages','Messages checked');
+    await bob.page.route('**/api/messaging/rooms/*/delivery',async route => {
+      const response = await route.fetch();
+      const body: unknown = await response.json();
+      if (!body || typeof body !== 'object' || !('devices' in body) || !Array.isArray(body.devices) || !body.devices[0]) throw new Error('Missing fixture roster');
+      body.devices.push({...body.devices[0],id:crypto.randomUUID(),user_id:'another-account',public_key:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')});
+      await route.fulfill({response,json:body});
+    },{times:1});
+    await bob.page.getByLabel('Message',{exact:true}).fill('Rejected third account');
+    await click(bob.page,'Send encrypted message','Direct conversation contains another account');
+    await bob.page.getByLabel('Message',{exact:true}).fill('Only our two accounts');
+    await click(bob.page,'Send encrypted message','Message accepted by server');
+    await click(alice.page,'Check for messages','Messages checked');
+    await expect(alice.page.locator('#messages')).toContainText('Only our two accounts');
+    await alice.page.getByLabel('New room name').fill('Other team room');
+    await click(alice.page,'Create room','Room created');
+    await expect(alice.page.getByLabel("Teammate's account ID")).not.toHaveAttribute('readonly');
+    await alice.page.getByLabel('Direct message account ID').fill(bobName);
+    await click(alice.page,'Start direct message','Direct conversation selected');
+    await expect(alice.page.locator('#rooms li')).toHaveCount(2);
+    await expect(alice.page.locator('#messages')).toContainText('Only our two accounts');
+    await bob.page.getByLabel('Direct message account ID').fill(aliceName);
+    await click(bob.page,'Start direct message','Direct conversation selected');
+    await expect(bob.page.locator('#rooms li')).toHaveCount(1);
+    await bob.page.reload();
+    await unlock(bob.page,bobName);
+    await expect(bob.page.locator('#messages')).toContainText('Only our two accounts');
+    await bob.page.getByLabel('Direct message account ID').fill(bobName);
+    await click(bob.page,'Start direct message','Choose another account');
+  } finally { await alice.context.close(); await bob.context.close(); }
 });

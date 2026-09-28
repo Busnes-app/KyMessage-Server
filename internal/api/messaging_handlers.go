@@ -225,9 +225,14 @@ func (s *Server) handleMessagingRevoke(w http.ResponseWriter, r *http.Request, a
 	s.writeJSON(w, http.StatusOK, map[string]bool{"revoked": true})
 }
 
+func messagingUserID(id string) bool {
+	return len(id) > 0 && len(id) <= 64 && !strings.ContainsFunc(id, unicode.IsControl)
+}
+
 func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
 	var request struct {
-		Name string `json:"name"`
+		Name       string `json:"name"`
+		PeerUserID string `json:"peer_user_id"`
 	}
 	if !s.messagingJSON(w, r, &request) {
 		return
@@ -236,7 +241,11 @@ func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, http.StatusBadRequest, "Valid room name required")
 		return
 	}
-	room := store.MessagingRoom{ID: uuid.NewString(), Name: request.Name, OwnerID: actor.UserID, CreatedAt: time.Now().Unix(), Membership: "active"}
+	if request.PeerUserID != "" && !messagingUserID(request.PeerUserID) {
+		s.writeError(w, http.StatusBadRequest, "Valid peer account ID required")
+		return
+	}
+	room := store.MessagingRoom{ID: uuid.NewString(), Name: request.Name, OwnerID: actor.UserID, CreatedAt: time.Now().Unix(), Membership: "active", PeerUserID: request.PeerUserID}
 	if err := s.store.Messaging().CreateRoom(r.Context(), actor, room); err != nil {
 		s.messagingError(w, err)
 		return
@@ -245,7 +254,7 @@ func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Reques
 }
 
 func roomView(room store.MessagingRoom) map[string]any {
-	return map[string]any{"id": room.ID, "name": room.Name, "owner_id": room.OwnerID, "created_at": room.CreatedAt, "membership": room.Membership}
+	return map[string]any{"id": room.ID, "name": room.Name, "owner_id": room.OwnerID, "created_at": room.CreatedAt, "membership": room.Membership, "peer_user_id": room.PeerUserID}
 }
 
 func (s *Server) handleMessagingRooms(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
@@ -290,7 +299,7 @@ func (s *Server) handleMessagingInvite(w http.ResponseWriter, r *http.Request, a
 	if !s.messagingJSON(w, r, &request) {
 		return
 	}
-	if len(request.UserID) == 0 || len(request.UserID) > 64 || strings.ContainsFunc(request.UserID, unicode.IsControl) {
+	if !messagingUserID(request.UserID) {
 		s.writeError(w, http.StatusBadRequest, "Valid user ID required")
 		return
 	}

@@ -40,6 +40,7 @@
           <button id="refresh" class="secondary">Refresh rooms and devices</button>
           <ul id="rooms"></ul>
           <form id="create-form"><label>New room name <input id="room-name" required maxlength="120"></label><button>Create room</button></form>
+          <form id="direct-form"><label>Direct message account ID <input id="direct-account" required maxlength="64" autocomplete="off"></label><button>Start direct message</button></form>
           <details><summary>Saved conversations</summary><p class="hint">Encrypted history on this browser, including rooms whose access was removed.</p><button id="saved-refresh" class="secondary">List saved conversations</button><ul id="saved-rooms"></ul></details>
           <details id="account-management"><summary>Your devices</summary><p>Your first device is approved automatically. Approve another browser only after comparing its fingerprint independently.</p><ul id="account-devices"></ul>
             <form id="account-approval-form"><label for="pending-device">Pending device</label><select id="pending-device" required></select><label>Fingerprint from that browser <input id="account-fingerprint" required pattern="[a-f0-9]{64}" maxlength="64" autocomplete="off"></label><button id="approve-own">Approve own device</button></form>

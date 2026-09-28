@@ -72,6 +72,12 @@ retains the manual wire harness. Root owns product decisions and research in `do
   Match Go roster JSON field order and escaping, including `<`, `>`, `&`, U+2028/2029.
   The OIDC return hint in sessionStorage is a boolean fixed-path navigation hint,
   never a credential or arbitrary redirect URL.
+- Direct conversations use room creation with one immutable peer. Reuse an existing
+  visible pair when starting again; concurrent starts may create separate rooms.
+  Recipient acceptance and independent fingerprint verification remain required.
+  Cache the counterpart in the encrypted connection; reject changed bindings and
+  any MLS roster containing another account even if its key was previously pinned.
+  Direct-room invitation controls can only target the bound peer.
 - Room switching preserves unresolved sends and histories in their original entries.
   Confirm before discarding an unsent draft; never carry a draft into another room.
   Pins copied from the first room remain bound to the verified account/key/generation.
