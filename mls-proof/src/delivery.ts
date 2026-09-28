@@ -53,6 +53,9 @@ async function transaction<T>(action: (r: DeviceRecord, d: Connection) => Promis
   const operate = (work: (r: DeviceRecord) => Promise<T>) => entry === undefined ? run(work) : runAt(entry,work);
   return operate(async r => {
     const d = connected(r);
+    const now = Math.floor(Date.now()/1000);
+    d.messages = d.messages.filter(message => message.expiresAt === null || message.expiresAt > now);
+    r.inbox = r.inbox.filter(message => message.expiresAt === null || message.expiresAt > now);
     const result = await action(r, d);
     r.delivery = JSON.stringify(connection(d)); // Validate capacity at the persisted boundary too.
     return result;
@@ -512,18 +515,21 @@ export const delivery = {
   },
   async sync() {
     const result = await transaction(async (r,d) => {
-      if (d.historyGap && d.rejoinGeneration === null) return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox};
+      if (d.historyGap && d.rejoinGeneration === null) return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox.map(message => message.text)};
       const response = await request(roomPath(d) + '/events?after=' + r.cursor,d.token);
       if (response.status === 410 || response.status === 409) {
         d.historyGap = response.status === 410 ? 'expired' : 'rollback';
         d.rejoinGeneration = null;
-        return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox};
+        return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox.map(message => message.text)};
       }
       if (response.status !== 200) throw new Error(`Delivery HTTP ${response.status}: ${text(object(response.value).error)}`);
       const page = object(response.value);
       const events = array(page.events,event);
       const floor = integer(page.start_sequence);
       for (const e of events) {
+        // Server deadlines are operational metadata, not authenticated sender time.
+        // Never extend local retention beyond receipt time plus the cached room policy.
+        const expiresAt = Math.min(e.expiresAt ?? Infinity,Math.floor(Date.now()/1000) + d.retentionDays*86400);
         const joining = r.state === null || d.rejoinGeneration !== null;
         if (e.sequence !== (joining ? floor : r.cursor+1)) throw new Error('Delivery sequence gap');
         const msg = decode(e.payload,decodeMlsMessage);
@@ -581,7 +587,7 @@ export const delivery = {
           if (d.pending.state) r.state = d.pending.state;
           if (!d.room) throw new Error('Missing room');
           groupMatches(state(r),d.room,e.epoch,m.devices);
-          if (e.kind === 'application' && d.pending.plaintext !== null) d.messages.push({id:e.id,sender:r.identity,text:d.pending.plaintext,sequence:e.sequence});
+          if (e.kind === 'application' && d.pending.plaintext !== null && expiresAt > Date.now()/1000) d.messages.push({id:e.id,sender:r.identity,text:d.pending.plaintext,sequence:e.sequence,expiresAt});
           d.pending = null;
         } else {
           if (d.pending && e.kind === 'commit') throw new Error('Resolve pending submission before winning commit');
@@ -593,10 +599,12 @@ export const delivery = {
             senderMatches(current,content.sender.leafIndex,e.device_id,m.devices);
             groupMatches(current,m.room,e.epoch,m.devices);
             const plaintext = decoder.decode(content.applicationData);
-            r.inbox.push(plaintext);
             const sender = m.devices.find(x => x.id === e.device_id);
             if (!sender) throw new Error('Missing authenticated sender');
-            d.messages.push({id:e.id,sender:sender.user_id,text:plaintext,sequence:e.sequence});
+            if (expiresAt > Date.now()/1000) {
+              r.inbox.push({text:plaintext,expiresAt});
+              d.messages.push({id:e.id,sender:sender.user_id,text:plaintext,sequence:e.sequence,expiresAt});
+            }
             r.state = base64(encodeGroupState({...current,secretTree:result.tree}));
             result.consumed.forEach(zeroOutUint8Array);
           } else {
@@ -616,11 +624,14 @@ export const delivery = {
         d.roster = m.devices;
       }
       if (integer(page.next) !== r.cursor) throw new Error('Invalid delivery cursor');
-      return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox};
+      return {gap:d.historyGap,cursor:r.cursor,inbox:r.inbox.map(message => message.text)};
     });
     if (result.gap) throw new Error(result.gap === 'expired' ? 'Required encrypted history expired. Rejoin explicitly or create a new room; saved state was preserved.' : 'Server history is behind this browser. Do not roll back local state; use a new room or obtain a verified fresh invitation.');
     return {cursor:result.cursor,inbox:result.inbox};
   },
-  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,retentionDays:d.retentionDays,historyGap:d.historyGap,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox,epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
+  async clearHistory() {
+    return transaction(async (r,d) => { d.messages = []; r.inbox = []; });
+  },
+  async status() { return transaction(async (r,d) => ({identity:r.identity,device:d.device,room:d.room,name:d.name,retentionDays:d.retentionDays,historyGap:d.historyGap,rejoining:d.rejoinGeneration !== null,pending:d.pending !== null,pendingText:d.pending?.plaintext ?? null,messages:d.messages,cursor:r.cursor,inbox:r.inbox.map(message => message.text),epoch:r.state ? state(r).groupContext.epoch.toString() : null})); },
 };
 declare global { interface Window { delivery: typeof delivery } }

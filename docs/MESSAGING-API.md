@@ -386,7 +386,10 @@ explicit remove/reinvite and a fresh verified Welcome, or a new room if no suita
 owner/peer can perform that sequence. A new membership floor excludes old history.
 The isolated client persists 410/409 gaps, pauses sending/automatic reads and
 requires explicit newer-generation rejoin or a new room. It preserves ratchets,
-cursors and pending bytes. Local expiry and restored identity/rollback reconciliation remain
+cursors and pending bytes. New local transcript/inbox copies expire at the earlier
+of the server deadline and local receipt plus cached room policy. Deadlines are
+operational metadata; they do not authenticate sender clocks. Legacy local text
+without deadlines requires explicit clearing. Full restored identity/rollback reconciliation remains
 release work; server pruning alone does not complete those gates.
 
 ## Limits and failure behavior

@@ -1,7 +1,8 @@
 import { test, expect, firefox, type Browser, type Page } from '@playwright/test';
 import type {} from '../src/delivery';
 import type {} from '../src/device';
-import { object, text } from '../src/delivery-wire';
+import { object, text, connection } from '../src/delivery-wire';
+import { parseRecord } from '../src/vault';
 
 const password = 'disposable MLS HTTP integration passphrase';
 async function device(browser: Browser, name: string, loseEnrollmentReply = false) {
@@ -442,4 +443,46 @@ test('server rollback response preserves the ratchet and pending bytes across re
     // A later successful read must not silently clear the persisted failure.
     await expect(bob.page.evaluate(() => window.delivery.sync())).rejects.toThrow('Server history is behind');
   } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+test('local expiry removes both transcript copies without changing keys or pending delivery',async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    await alice.page.evaluate(() => window.delivery.stageSend('Same text in both directions'));
+    await accept(alice.page);
+    await bob.page.evaluate(() => window.delivery.sync());
+    await bob.page.evaluate(() => window.delivery.stageSend('Same text in both directions'));
+    await accept(bob.page);
+    await bob.page.evaluate(() => window.delivery.stageSend('Pending text must survive cleanup'));
+    const before = await bob.page.evaluate(() => window.delivery.status());
+    expect(before.messages).toHaveLength(2);
+    expect(before.inbox).toHaveLength(1);
+    const now = Date.now();
+    await bob.page.clock.install();
+    await bob.page.clock.setSystemTime(new Date(now+31*86400_000));
+    const expired = await bob.page.evaluate(() => window.delivery.status());
+    expect(expired).toEqual({...before,messages:[],inbox:[]});
+    expect((await bob.page.evaluate(() => window.proof.status())).inbox).toEqual([]);
+    await reload(bob.page,bob.session);
+    expect(await bob.page.evaluate(() => window.delivery.status())).toEqual(expired);
+    await bob.page.clock.setSystemTime(new Date(now));
+    await accept(bob.page);
+    await alice.page.evaluate(() => window.delivery.sync());
+    expect((await alice.page.evaluate(() => window.delivery.status())).inbox).toContain('Pending text must survive cleanup');
+    const sent = await bob.page.evaluate(() => window.delivery.status());
+    await bob.page.evaluate(() => window.delivery.clearHistory());
+    expect(await bob.page.evaluate(() => window.delivery.status())).toEqual({...sent,messages:[],inbox:[]});
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+
+test('legacy transcript parsing preserves unknown expiry and rejects invalid deadlines',() => {
+  const old = {version:1,identity:'legacy',keyPackage:'',keys:null,pins:[],state:null,pending:null,inbox:['Keep legacy text'],outbox:[],cursor:0,awaitingCommit:false,received:[]};
+  expect(parseRecord(old).inbox).toEqual([{text:'Keep legacy text',expiresAt:null}]);
+  const saved = {device:null,token:'',room:null,roster:null,pending:null,messages:[{id:'event',sender:'legacy',text:'Keep legacy text',sequence:1}]};
+  expect(connection(saved).messages[0]?.expiresAt).toBeNull();
+  for (const expiresAt of [-1,1.5,'100',Infinity]) {
+    expect(() => parseRecord({...old,inbox:[{text:'Bad deadline',expiresAt}]})).toThrow('Invalid transcript expiry');
+    expect(() => connection({...saved,messages:[{...saved.messages[0],expiresAt}]})).toThrow('Invalid transcript expiry');
+  }
 });

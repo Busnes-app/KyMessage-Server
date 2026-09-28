@@ -129,7 +129,16 @@ retains the manual wire harness. Root owns product decisions and research in `do
   visible roster and server pause state determine the next action. Invitations
   can be revoked without a rekey when the eligible roster is unchanged.
 - Persist sent/received transcript entries and pending send text only inside the
-  encrypted vault, atomically with cursor/outbox changes. The wire request contains
+  encrypted vault, atomically with cursor/outbox changes. New confirmed transcript
+  and inbox copies carry a deadline: the earlier of server-reported expiry and
+  receipt time plus cached room retention. Server times are operational metadata,
+  not authenticated sender time. Expire both copies on selected-room access and
+  the unlocked chat timer, including disconnected history mode; preserve keys,
+  cursor, pins, outbox and unresolved text. Suspended/locked rooms clean up when
+  next opened. Legacy text without deadlines remains until explicit clearing.
+  `Clear saved history in this room` confirms before clearing only this entry's
+  transcript/inbox; it cannot recall other copies or reset its cryptographic state.
+  The wire request contains
   ciphertext only. Server acceptance is not a read receipt. Lock clears visible
   history, drafts, fingerprints and the in-memory connection/wrapping key; the OIDC
   cookie remains until the separate suite sign-out action.

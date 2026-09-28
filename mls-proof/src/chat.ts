@@ -33,6 +33,18 @@ let backgroundWork = false;
 let viewGeneration = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let pollDelay = 10_000;
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleExpiry() {
+  clearTimeout(expiryTimer);
+  if (!opened || !snapshot) return;
+  const deadlines = snapshot.messages.flatMap(message => message.expiresAt === null ? [] : [message.expiresAt]);
+  if (!deadlines.length) return;
+  const remaining = Math.min(...deadlines)*1000-Date.now();
+  expiryTimer = setTimeout(() => {
+    if (busy) { scheduleExpiry(); return; }
+    void action(async () => {},'Expired local messages cleared.');
+  },remaining <= 0 ? 60_000 : Math.min(remaining,2_147_483_647));
+}
 let liveStop: (() => void) | null = null;
 let liveRoom: string | null = null;
 let liveNotice: {sequence:number;epoch:number;rosterHash:string} | null = null;
@@ -118,6 +130,7 @@ function controls() {
   field('message').disabled = !backgroundWork && button('send').disabled;
   button('lock').disabled = false;
   button('refresh').disabled = localOnly || busy;
+  button('clear-history').disabled = !opened || busy || !snapshot?.room;
   button('commit').disabled = !activeRoom || Boolean(snapshot?.historyGap) || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
   button('publish').disabled = !approved || busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
   button('sync').disabled = !approved || !activeRoom || busy;
@@ -169,6 +182,7 @@ async function action(task: () => Promise<void>, success: string, background = f
     backgroundWork = false;
     controls();
     schedulePoll();
+    scheduleExpiry();
     if (!opened && !background) field('password').focus();
   }
 }
@@ -295,6 +309,7 @@ async function render() {
     : roomPaused ? 'Membership changed. Apply verified membership before sending more messages.'
     : s.epoch === '0' ? 'Apply verified membership to activate this room.'
     : 'Room unlocked. Check for messages to catch up before sending.';
+  element('local-retention').textContent = 'Local cleanup runs when this room is opened or its unlocked timer fires, including offline. Older saved messages without deadlines remain until cleared. Copied content and backups may survive.';
   element('messages').replaceChildren(...s.messages.map(m => {
     const row = document.createElement('li');
     row.append(line('strong',m.sender === s.identity ? 'You' : m.sender),messageBody(m.text),line('small',m.sender === s.identity ? 'Accepted by server · Not a read receipt' : 'Received and verified'));
@@ -358,8 +373,9 @@ function lockLocal() {
   directoryHash = null; directoryRoom = null;
   viewGeneration++;
   stopPolling();
+  clearTimeout(expiryTimer);
   proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
-  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms','retention-state','history-gap']) element(id).replaceChildren();
+  for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms','retention-state','history-gap','local-retention']) element(id).replaceChildren();
   for (const id of ['message','password','history-password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
   element('workspace').hidden = true; element('access').hidden = false;
@@ -430,6 +446,10 @@ form('account-revocation-form',async () => {
   try { await delivery.revokeAccountDevice(id); } finally { await refresh(); }
 },'Device revoked. Remaining room members must apply verified membership where sending is paused.');
 form('account-approval-form',async () => { await delivery.approveAccountDevice(field('pending-device').value,field('account-fingerprint').value.trim()); field('account-fingerprint').value = ''; await refresh(); },'Own device approved. Refresh on that browser.');
+click('clear-history',async () => {
+  if (!confirm('Clear saved messages in this room on this browser? This cannot be undone here. Room keys, pending delivery and other browsers remain unchanged.')) throw new Error('History clearing cancelled');
+  await delivery.clearHistory();
+},'Saved history cleared in this room.');
 click('rejoin',async () => { await delivery.rejoin(); await delivery.publishKeyPackage(); await refresh(); },'Reinvitation accepted. Ask an existing member to apply verified membership; earlier local history is preserved.');
 click('publish',async () => { await delivery.publishKeyPackage(); },'Ready to join. Ask an existing member to verify this device and apply membership.');
 click('sync',async () => { await delivery.sync(); await refresh(); },'Messages checked.');

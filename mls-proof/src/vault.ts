@@ -36,6 +36,13 @@ function list<T>(value: unknown, parse: (item: unknown) => T): T[] {
   return value.map(parse);
 }
 
+// Legacy transcripts have no trustworthy deadline; preserve them until explicit clearing.
+export function expiry(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Invalid transcript expiry');
+  return value;
+}
+
 export function parseRecord(value: unknown) {
   const r = object(value);
   if (r.version !== 1 || !Number.isSafeInteger(r.cursor) || typeof r.cursor !== 'number' || r.cursor < 0
@@ -68,7 +75,11 @@ export function parseRecord(value: unknown) {
       epoch: string(pending.epoch),
     },
     outbox: list(r.outbox, string),
-    inbox: list(r.inbox, string),
+    inbox: list(r.inbox, item => {
+      if (typeof item === 'string') return {text:item,expiresAt:null};
+      const saved = object(item);
+      return {text:string(saved.text),expiresAt:expiry(saved.expiresAt)};
+    }),
     cursor: r.cursor,
     awaitingCommit: r.awaitingCommit,
     received: list(r.received, string),

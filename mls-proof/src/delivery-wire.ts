@@ -1,3 +1,5 @@
+import { expiry } from './vault';
+
 // Network and persisted-adapter boundaries. MLS bytes are decoded by ts-mls.
 export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected object');
@@ -53,7 +55,7 @@ export type Metadata = ReturnType<typeof metadata>;
 export function event(value: unknown) {
   const e = object(value);
   if (e.kind !== 'application' && e.kind !== 'commit') throw new Error('Invalid event kind');
-  return { id: text(e.id), device_id: text(e.device_id), sequence: integer(e.sequence), epoch: integer(e.epoch), kind: e.kind, roster_hash: text(e.roster_hash), payload: text(e.payload), welcome: text(e.welcome) };
+  return { id: text(e.id), device_id: text(e.device_id), sequence: integer(e.sequence), epoch: integer(e.epoch), kind: e.kind, roster_hash: text(e.roster_hash), payload: text(e.payload), welcome: text(e.welcome), expiresAt: expiry(e.expires_at) };
 }
 export type Event = ReturnType<typeof event>;
 export function connection(value: unknown) {
@@ -84,7 +86,7 @@ export function connection(value: unknown) {
     }),
     messages: d.messages === undefined ? [] : array(d.messages, item => {
       const m = object(item);
-      return {id:text(m.id),sender:text(m.sender),text:text(m.text),sequence:integer(m.sequence)};
+      return {id:text(m.id),sender:text(m.sender),text:text(m.text),sequence:integer(m.sequence),expiresAt:expiry(m.expiresAt)};
     }),
     pending: p === null ? null : { request: text(p.request), state: p.state === null ? null : text(p.state), plaintext:p.plaintext === undefined || p.plaintext === null ? null : text(p.plaintext) },
   };

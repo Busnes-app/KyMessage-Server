@@ -299,7 +299,7 @@ export const proof = {
       record.awaitingCommit = false;
       record.cursor = sequence;
       record.received.push(hash);
-      if (result.kind === 'applicationMessage') record.inbox.push(decoder.decode(result.message));
+      if (result.kind === 'applicationMessage') record.inbox.push({text:decoder.decode(result.message),expiresAt:null});
       result.consumed.forEach(zeroOutUint8Array);
       return result.kind;
     });
@@ -313,7 +313,7 @@ export const proof = {
         epoch: current?.groupContext.epoch.toString() ?? null,
         members: current?.ratchetTree.flatMap(node => node?.nodeType === 'leaf' && node.leaf.credential.credentialType === 'basic'
           ? [decoder.decode(node.leaf.credential.identity)] : []) ?? [],
-        inbox: record.inbox, outbox: record.outbox, cursor: record.cursor,
+        inbox: record.inbox.map(message => message.text), outbox: record.outbox, cursor: record.cursor,
         awaitingCommit: record.awaitingCommit,
         pending: record.pending ? { wire: record.pending.wire, welcome: record.pending.welcome, epoch: record.pending.epoch } : null,
       };

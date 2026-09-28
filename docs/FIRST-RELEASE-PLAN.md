@@ -33,7 +33,9 @@ prototype test is not production approval.
    and retry receipts survive cleanup. The client offers retention policy at creation,
    persists missing/rollback gaps and pauses until explicit verified recovery.
    Chromium/Firefox drills cover expired initial Welcomes and established sessions.
-   Local transcript expiry remains open. No plaintext notifications or server-side previews.
+   New local transcript/inbox copies now expire on room access and unlocked timers,
+   including offline. Confirmed room-history clearing retains keys and pending sends;
+   legacy undated text requires explicit clearing. No plaintext notifications or server-side previews.
 4. **Deployable client and identity — open.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
    Apply KyMessages identity/coordinates, HTTPS setup, responsive keyboard UX,

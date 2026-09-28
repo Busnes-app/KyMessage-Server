@@ -72,6 +72,8 @@
           </div>
           <p id="poll-state" class="hint">Automatic checks start after unlock.</p>
           <ol id="messages" aria-label="Conversation"></ol>
+          <button id="clear-history" class="secondary">Clear saved history in this room</button>
+          <p id="local-retention" class="hint"></p>
           <div id="pending" hidden><p id="pending-text"></p><button id="retry">Retry pending delivery</button></div>
           <form id="send-form"><label>Message <textarea id="message" rows="3" maxlength="4096" required placeholder="Write a test message…"></textarea></label><button id="send">Send encrypted message</button></form>
           <p class="hint">Markdown formatting is supported. HTML and automatic image loading are disabled. Server acceptance is not a read receipt. Suite sign-in enables live message checks; 10-second checks remain as fallback while this tab is visible and online. Pending sends require an explicit retry.</p>

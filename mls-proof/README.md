@@ -481,4 +481,11 @@ state. Ask the owner to remove/reinvite the account, accept reinvitation, and wa
 for verified membership to receive future traffic. An expired initial Welcome
 uses the same flow. Owners or rooms without a suitable peer must start a new room.
 A server behind the saved cursor also pauses the client; it never rewinds keys
-or cursors. Local transcript expiry remains separate work.
+or cursors. New saved messages expire at the earlier of server-reported expiry and local receipt
+plus room retention. The unlocked timer and room access remove both transcript and
+inbox copies without resetting keys/cursors or discarding pending sends. Cleanup
+also runs in disconnected history mode; suspended/locked rooms wait until opened.
+Older records without deadlines remain until explicitly cleared. **Clear saved
+history in this room** confirms before deleting this entry's downloaded messages;
+it preserves keys and pending delivery. Other tabs can retain visible copies until
+refreshed. Local deletion is best effort, not physical disk erasure.

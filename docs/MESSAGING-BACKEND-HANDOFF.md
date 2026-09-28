@@ -168,11 +168,22 @@ The rollback response test preserves pending bytes across reload; a real restore
 server drill remains required. Fixture vet and proof build passed.
 Server-retention CI passed: https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364733298
 
-Next: local transcript expiry; then the final local-data lifecycle and restore
-rollback protections. KyMessages is not deployed yet, confirmed by the user. Keep
+Local transcript expiry is implemented: new confirmed transcript/inbox copies carry
+server/local-policy-clamped deadlines; selected-room transactions and an unlocked
+UI timer clear both. Local-only mode makes no network requests. Keep ratchets,
+cursors, pins and unresolved pending text. Legacy string inboxes/undated transcript
+entries remain readable until explicit clearing. The confirmed clear-history action
+only clears the selected entry's transcript/inbox, never its keys or pending send.
+Other tabs may keep visible copies until refreshed; physical erasure is not promised.
+
+Six selected expiry/legacy parsing cases and all 18 core lifecycle cases passed on
+Chromium/Firefox. Full HTTP/UI regressions passed 47 cases with one intentional
+duplicate-engine skip; all eight OIDC cases passed. Typecheck/build and diff checks pass.
+
+Next: final local-data lifecycle and restore rollback protections. KyMessages is not deployed yet, confirmed by the user. Keep
 live issuer checks open while independent implementation continues.
 
-Local retention, product embedding, installation, restore and
+Product embedding, installation, restore and
 load/security evidence remain open. The unaudited `ts-mls` experiment and private
 GroupInfo extension stay out of production. Deployed issuer interaction, independent
 protocol review/interop, full supported-browser evidence and restored metadata

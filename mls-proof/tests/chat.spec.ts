@@ -684,3 +684,35 @@ for (const joined of [true,false]) test(`expired history requires explicit recov
     await expect(member.page.locator('#messages')).not.toContainText('Missed and expired');
   } finally { await owner.context.close(); await member.context.close(); }
 });
+
+test('offline local history expires on its timer and clearing requires confirmation',async ({browser}) => {
+  const user = 'local-expiry-' + crypto.randomUUID().slice(0,8);
+  const {context,page} = await start(browser,user);
+  try {
+    await page.getByLabel('Retention for new conversations').selectOption('1');
+    await page.getByLabel('New room name').fill('Local expiry');
+    await click(page,'Create room','Room created');
+    await click(page,'Apply verified membership','Verified membership applied');
+    await page.getByLabel('Message',{exact:true}).fill('Copy held until its deadline');
+    await click(page,'Send encrypted message','Message accepted');
+    page.once('dialog',dialog => dialog.dismiss());
+    await click(page,'Clear saved history in this room','History clearing cancelled');
+    await expect(page.locator('#messages')).toContainText('Copy held until its deadline');
+    await click(page,'Lock and disconnect','Device locked');
+    await page.clock.install();
+    await page.reload();
+    await context.setOffline(true);
+    const requests: string[] = [];
+    page.on('request',request => { if (request.url().includes('/api/')) requests.push(request.url()); });
+    await page.getByText('Read saved history without signing in',{exact:true}).click();
+    await page.getByLabel('History passphrase').fill(password);
+    await click(page,'Read saved history','Saved history unlocked');
+    await expect(page.locator('#messages')).toContainText('Copy held until its deadline');
+    await page.clock.fastForward(86400_000+2000);
+    await expect(page.locator('#messages')).not.toContainText('Copy held until its deadline');
+    await expect(page.locator('#poll-state')).toContainText('Disconnected');
+    page.once('dialog',dialog => dialog.accept());
+    await click(page,'Clear saved history in this room','Saved history cleared');
+    expect(requests).toEqual([]);
+  } finally { await context.close(); }
+});
