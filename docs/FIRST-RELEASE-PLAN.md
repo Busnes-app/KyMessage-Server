@@ -70,7 +70,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `3d57834`; current implementation remains a server scaffold plus
+- CI green through `1bddf96`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -138,3 +138,11 @@ aligned. Counts include retired rooms and pending cleanup; receipts remain disti
 from retained data and physical disk use. SQLite/PostgreSQL tests cover access,
 bounds, priority and actual retention rows. Full store/API race suites and vet pass;
 15 frontend tests and four production-CSP responsive browser cases pass.
+
+Security review checkpoint: architecture reconnaissance is complete, but local
+authentication/client hunting was interrupted by review tooling. No finding is
+confirmed and the independent assessment gate remains open. Pending reproductions:
+Lock during an in-flight account check before vault unlock, and allowed messaging
+storage exceeding the single-file SQLite capsule limit. Detailed local artifacts:
+`/home/yoshi/security-audit-skill/KyMessage-Server/run-1/REPORT.md`. Finish dynamic
+reproduction and separate validation before treating either candidate as a defect.

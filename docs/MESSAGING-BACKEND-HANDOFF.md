@@ -32,7 +32,7 @@ passes with production E2EE approval.
   are implemented. The drill is `scripts/backup-acceptance.py` (~3 minutes).
 
 Authoritative contracts: `PRODUCT.md`, `MESSAGING-API.md`, `RESTORE.md`, and the
-nearest DOX documents. CI is green through `3d57834`; recent implementation slices
+nearest DOX documents. CI is green through `1bddf96`; recent implementation slices
 are `195f949` (backup outcomes), `280ebcf` (interop), `e27924f` (packaging),
 `3d26ccc` (local removal), `fc309a0`/`01ad7de` (restore).
 
@@ -89,9 +89,33 @@ store/API race suites and vet pass. Fifteen frontend tests and four real-server,
 production-CSP width/theme cases pass. The committed embedded bundle is rebuilt.
 Store/API/web/browser DOX updated; root/index ownership remains unchanged.
 
-Next: verify this operator slice in CI. Keep external/dependency gates below open.
-Production client integration depends on reviewed cryptographic/application
-bindings, not another prototype-only test pass.
+All eight CI jobs passed for `1bddf96` (run 36372268213). Production client
+integration still depends on reviewed cryptographic/application bindings.
+
+## Security review stopping point
+
+Local review baseline: `1bddf9659933124d142353f1415fd0ffc8cdc56d`. Reconnaissance
+is complete; hunting is incomplete because authentication/client agents terminated
+with tooling cybersecurity-risk flags. No confirmed findings or completed audit.
+Artifacts: `/home/yoshi/security-audit-skill/KyMessage-Server/run-1/` contains
+architecture.md, incomplete REPORT.md, FINDINGS-DETAIL.md and empty findings.json.
+The empty array means no validated findings yet, not a clean security assessment.
+
+Next: reproduce Lock during a delayed `signedInAccount()` response in the isolated
+chat access form. The candidate is that unlock begins after Lock, leaving the vault
+key live although UI generation suppresses the result. Check actual state/impact
+before fixing. Then reproduce the allowed-message-storage versus 64-MiB capsule
+per-file limit: the single SQLite snapshot may outgrow backups within member
+quotas. The existing oversized-export test uses direct SQL, so the full member
+request chain and independent validation are still missing. Legacy pairing
+count/cleanup was only an initial lead; no demonstrated impact.
+
+The operations reviewer reported selected existing authz/CSRF/recovery-network,
+restore and capsule extraction tests passing. Preserve review limitations and
+resume the skill's independent validation/report verification phases after
+reproduction. This agent-assisted review cannot close the external crypto gate.
+SSO DOX now reflects implemented generation-bound reset; root/index ownership
+stays unchanged. No runtime source changed in this checkpoint.
 
 ## Open release gates
 

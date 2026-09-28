@@ -18,8 +18,10 @@ Owns the application adapters around OAuth/OIDC login, KySignOn HMAC-SHA256 sign
   comparisons use Unix seconds. Ordinary login does not require `auth_time`.
 - `ReauthenticationRequest` is server-owned state. The messaging recovery-auth API
   seals it, binds it to the originating live session and pending device/registry,
-  and atomically consumes it after verification. Identity-generation binding and
-  reset mutation remain unimplemented. The verifier and its audit are not reset grants.
+  and binds the current identity generation. After verification, the store atomically
+  consumes it; an explicitly confirmed, default-off identity reset also increments
+  the generation and revokes prior devices and memberships. Verification without
+  reset intent only consumes and audits authentication; it grants no reset or approval.
 - SAML assertion parsing is not implemented locally; metadata XML uses `encoding/xml` and no ACS route is exposed until a maintained SAML service-provider library is configured.
 - Directory webhook timestamps are accepted only within five minutes; status or role changes revoke the user's sessions.
 
