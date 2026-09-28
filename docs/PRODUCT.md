@@ -43,7 +43,8 @@ unlocked timers, preserving pending sends. Confirmed whole-profile local-data re
 clears keys/history/pending entries and locks other tabs; it does not revoke server
 access or bypass replacement approval. Automatic replenishment,
 live KyIdentity deployment and reviewed
-product client integration remain open. This is not production E2EE.
+product client integration remain open. The operator console now exposes read-only storage totals, shared per-room limits
+and a bounded metadata list with rooms near capacity first. This is not production E2EE.
 
 ## Promise and audience
 

@@ -32,6 +32,16 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav).toBeVisible();
   await expect(page.getByRole('heading', { name: /Welcome/ })).toBeVisible();
+  const usage = page.getByRole('region', { name: 'Messaging storage' });
+  await expect(usage.getByRole('button', { name: 'Refresh storage usage' })).toBeEnabled();
+  await usage.getByText('Room limits and busiest rooms', { exact: true }).click();
+  await expect(usage.getByText('No messaging rooms.', { exact: true })).toBeVisible();
+  await expect(usage).toContainText('4,096 retained events');
+  await usage.getByRole('button', { name: 'Refresh storage usage' }).click();
+  await expect(usage.getByRole('button', { name: 'Refresh storage usage' })).toBeEnabled();
+  await expect(usage.getByText('No messaging rooms.', { exact: true })).toBeVisible();
+  await fits(page);
+  await page.screenshot({ path: testInfo.outputPath('messaging-storage.png'), fullPage: true });
   await fits(page);
   const theme = page.getByLabel('Color theme');
   await theme.selectOption('paper');

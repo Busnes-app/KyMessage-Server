@@ -119,3 +119,15 @@ The smoke CI job also runs `python3 scripts/backup-acceptance.py`, a three-minut
 disposable test of actual scheduler ticks, local-copy failures and live schedule
 changes. CI builds/runs the container, checks dependencies and verifies committed frontend
 assets. It publishes no image while the first-release gates remain open.
+
+## Messaging storage preview
+
+The administrator's Overview shows read-only messaging storage totals, room limits
+and up to 100 rooms, with rooms near capacity listed first. Retention frees stored
+events and ciphertext; lifetime retry receipts remain. These counts exclude actual
+database overhead, audit logs, backup copies and browser history. Errors remain
+visible instead of showing zero usage. Refresh explicitly for a new snapshot.
+
+The encrypted client remains isolated and under review. [Transport measurements](docs/MESSAGING-LOAD.md)
+and [browser evidence](docs/BROWSER-EVIDENCE.md) describe the tested subset and open
+release gates; they do not establish deployed production E2EE.

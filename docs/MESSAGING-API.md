@@ -20,7 +20,7 @@ Configure the existing suite OIDC integration with `KY_KYSIGNON_ISSUER`,
 Messaging requires an active suite account with an OIDC subject and no local
 password. Generic OIDC accounts and local bootstrap administrators are excluded.
 
-Every route requires the existing session cookie or session Bearer credential.
+Every `/api/messaging/` route requires the existing session cookie or session Bearer credential.
 Cookie writes also require the base's CSRF cookie/header pair. When supplied,
 Origin must match `KY_APP_URL`. Authenticated messaging responses use `no-store`.
 Account budgets are separate: 2,400 GET requests/minute and 120 write requests/minute,
@@ -469,3 +469,32 @@ preserves drafts and unresolved sends, and closes on lock, room switch or hidden
 offline state. This is single-instance delivery, without a broker or durable socket
 queue. The server uses pinned [coder/websocket](https://github.com/coder/websocket)
 for framing and control messages; MLS content remains in the existing HTTP protocol.
+
+## Operator storage visibility
+
+`GET /api/admin/messaging/usage` is a separate admin-only endpoint. A local operator
+can inspect server metadata but gains no device enrollment or room-message access.
+The response is `no-store`, with a five-second query deadline:
+
+```json
+{
+  "room_count": 1,
+  "totals": {"active_events": 12, "retained_bytes": 4096, "receipts": 20},
+  "limits": {"active_events": 4096, "retained_bytes": 33554432, "receipts": 1000000},
+  "rooms": [{"id": "room-id", "name": "Team", "retired": false, "active_events": 12, "retained_bytes": 4096, "receipts": 20}],
+  "sampled_at": "2026-09-27T12:00:00Z"
+}
+```
+
+Global totals and the first 100 rooms come from one room-metadata statement.
+Rooms at 80% of any limit appear first, then the largest stored ciphertext sizes.
+Counts include retired rooms and expired data awaiting cleanup; this GET does not
+run cleanup. Active events include commits. Stored bytes count encoded ciphertext
+and Welcomes, not database indexes, audits, backups, or recipient copies. Lifetime
+receipts survive expiry to preserve exact-retry behavior; reaching that limit
+requires a new room. A next event can exceed the remaining byte allowance before
+the displayed byte limit is reached. No message bodies, device keys or membership
+lists appear here. Failed reads are errors, not invented empty storage.
+
+The admin overview renders these values with an explicit refresh and room limits.
+It does not add message deletion, retention-policy changes or cryptographic access.

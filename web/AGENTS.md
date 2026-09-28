@@ -7,6 +7,11 @@ React 19 + TypeScript + Vite PWA frontend embedding KySecurity color tokens (Bus
 Owns user interface components, service worker caching, PWA installation manifests, and frontend theme switching.
 
 ## Local Contracts
+- `MessagingUsage.tsx` adds a read-only admin overview of server storage metadata.
+  Validate the usage DTO at the HTTP boundary; distinguish unavailable/loading
+  from zero usage, abort on unmount, refresh explicitly and preserve the opened
+  room-details disclosure. Members neither render nor fetch this operator view.
+  Explain receipt retention separately from ciphertext cleanup and actual disk use.
 - Product names, document title and manifest use KyMessages. The current embedded
   shell is the operator console and explicitly states that encrypted chat is not
   included; do not imply a successful backup/crypto review from static dashboard text.

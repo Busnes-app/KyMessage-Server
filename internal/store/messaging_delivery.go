@@ -209,7 +209,7 @@ func (m *messagingStore) AppendEvent(ctx context.Context, actor MessagingActor, 
 		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_events WHERE room_id = ? AND payload <> ''`), room).Scan(&active); err != nil {
 			return err
 		}
-		if active >= 4096 || state.Sequence >= 1_000_000 || retained+size > 32*1024*1024 {
+		if active >= MessagingActiveEventLimit || state.Sequence >= MessagingReceiptLimit || retained+size > MessagingRetainedByteLimit {
 			return ErrMessagingLimit
 		}
 		now := time.Now().Unix()

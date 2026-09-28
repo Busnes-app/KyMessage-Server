@@ -70,7 +70,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `4549b82`; current implementation remains a server scaffold plus
+- CI green through `3d57834`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -129,3 +129,12 @@ Full API race tests and vet pass on SQLite; all messaging API race tests pass on
 an owned disposable PostgreSQL 17 instance. The new rate-limit regression covers
 receive traffic above the old budget, retained write abuse limits, and reads after
 write exhaustion. The opt-in load test remains separate from ordinary CI timing.
+
+Operator storage evidence: the admin overview now reads `/api/admin/messaging/usage`
+for global totals and up to 100 rooms, prioritizing 80%-of-limit rooms. A single
+metadata SELECT keeps totals consistent with a truncated list; it neither scans
+ciphertext nor performs cleanup. Shared constants keep append limits and reporting
+aligned. Counts include retired rooms and pending cleanup; receipts remain distinct
+from retained data and physical disk use. SQLite/PostgreSQL tests cover access,
+bounds, priority and actual retention rows. Full store/API race suites and vet pass;
+15 frontend tests and four production-CSP responsive browser cases pass.

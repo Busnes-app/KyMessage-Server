@@ -32,7 +32,7 @@ passes with production E2EE approval.
   are implemented. The drill is `scripts/backup-acceptance.py` (~3 minutes).
 
 Authoritative contracts: `PRODUCT.md`, `MESSAGING-API.md`, `RESTORE.md`, and the
-nearest DOX documents. CI is green through `4549b82`; recent implementation slices
+nearest DOX documents. CI is green through `3d57834`; recent implementation slices
 are `195f949` (backup outcomes), `280ebcf` (interop), `e27924f` (packaging),
 `3d26ccc` (local removal), `fc309a0`/`01ad7de` (restore).
 
@@ -71,10 +71,27 @@ pass on an owned disposable PostgreSQL 17 instance. API DOX and wire documentati
 now state separate budgets. Root/store/web DOX and child indexes intentionally stay
 unchanged: no ownership, storage or UI contract changed in this runtime slice.
 
-Next: verify the pushed transport commit in CI, then address remaining independent
-operator acceptance work. Keep external/dependency gates below open. Production
-client integration depends on reviewed cryptographic/application bindings, not
-another prototype-only test pass.
+## Operator storage checkpoint
+
+Admin Overview now shows storage totals, common room limits, an explicit refresh,
+and up to 100 room metadata entries (near-limit rooms first). The separate admin
+route `/api/admin/messaging/usage` is no-store and has a five-second query deadline.
+It returns no ciphertext, membership or credentials. Members never render/fetch it.
+Failed reads stay visibly unavailable. Room details stay open after refresh.
+
+Store Usage reads room metadata in one windowed SELECT; global totals stay complete
+when the room list truncates. The ordered retention prefix supplies the active-event
+count without scanning payloads. Include retired rooms and data awaiting cleanup;
+usage never performs cleanup. Append checks/reporting share capacity constants.
+Store/API tests verify limits, empty/retired state, actual rows before/after expiry,
+metadata shape and role denial on SQLite and disposable PostgreSQL 17. Full
+store/API race suites and vet pass. Fifteen frontend tests and four real-server,
+production-CSP width/theme cases pass. The committed embedded bundle is rebuilt.
+Store/API/web/browser DOX updated; root/index ownership remains unchanged.
+
+Next: verify this operator slice in CI. Keep external/dependency gates below open.
+Production client integration depends on reviewed cryptographic/application
+bindings, not another prototype-only test pass.
 
 ## Open release gates
 

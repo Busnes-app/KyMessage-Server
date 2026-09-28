@@ -7,6 +7,11 @@ Exposes HTTP REST routes, authentication endpoints, Single Sign-On callbacks, SC
 Owns HTTP routing, request parsing, session cookie validation, CORS headers, and error response formatting.
 
 ## Local Contracts
+- `GET /api/admin/messaging/usage` is admin-only (separate from suite member
+  messaging access), `no-store`, with a five-second query deadline. Return totals,
+  shared per-room limits, a bounded room metadata list and sample time. Exclude
+  ciphertext, device credentials, membership and audit contents. Failed reads
+  return an error, never zero usage. Role regression coverage includes this route.
 - `/api/messaging/` routes use `requireMessaging`: suite OIDC only (persisted provider `kysignon`, no local password), live session, matching browser Origin and account rate limits. Existing cookie CSRF applies. `X-KyMessages-Device` supplements the session for approval and room operations; enrollment, listing and revoking one's own devices need only the suite session.
 - Messaging GETs and writes have separate per-account process-local budgets:
   2,400 reads/minute and 120 writes/minute. Receiving a busy room cannot exhaust

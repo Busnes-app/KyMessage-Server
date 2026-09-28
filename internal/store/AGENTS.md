@@ -7,6 +7,13 @@ Provides the unified Database Abstraction Layer (DAL) supporting pluggable backe
 Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `MessagingStore`, `GroupStore`, `AuditStore`, `SettingsStore`), dialect translations, and schema migrations.
 
 ## Local Contracts
+- `MessagingStore.Usage` is a read-only operator snapshot over room metadata,
+  including retired rooms and ciphertext awaiting cleanup. The ordered retained
+  prefix makes `sequence - retained_from + 1` the active-event count; preserve this
+  invariant when changing retention. One windowed SELECT returns global totals
+  with at most 100 rooms, prioritizing rooms at 80% of any limit, then stored bytes.
+  Never scan/return ciphertext or mutate retention to render usage. Append and
+  reporting share the exported messaging capacity constants.
 - `AuditStore.LatestAuditRecord(action)` reads the latest inserted row for one
   exact action, returning `ErrNotFound` when absent. Migration 13 indexes `(action,
   id)`; insertion order handles timestamp ties/backwards clocks without scanning

@@ -48,6 +48,7 @@ type MessagingMember struct {
 }
 
 type MessagingStore interface {
+	Usage(context.Context) (MessagingUsage, error)
 	ExpireMessages(context.Context) error
 	BeginRecoveryAuthentication(context.Context, MessagingActor, MessagingRecoveryAuthentication) error
 	RecoveryAuthentication(context.Context, MessagingActor, string) (MessagingRecoveryAuthentication, error)

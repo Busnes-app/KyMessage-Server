@@ -48,13 +48,16 @@ func TestMessagingRetentionPreservesReceiptsAndRequiresRejoin(t *testing.T) {
 	if len(page.Events) != 1 || page.Events[0].ExpiresAt-page.Events[0].CreatedAt != 86400 {
 		t.Fatal(page)
 	}
+	assertMessagingUsageMatchesRows(t, st, db)
 	// Age actual stored ciphertext. No production clock override or test-only API.
 	_, err = db.ExecContext(ctx, `UPDATE messaging_events SET expires_at = 1`)
 	must(err)
+	assertMessagingUsageMatchesRows(t, st, db) // Usage is read-only even when rows await expiry.
 	if _, err := st.Messaging().ReadEvents(ctx, b, "retained", 0); !errors.Is(err, store.ErrMessagingHistoryGone) {
 		t.Fatal("expired Welcome was offered", err)
 	}
 	must(st.Messaging().ExpireMessages(ctx))
+	assertMessagingUsageMatchesRows(t, st, db)
 	var payloads, welcomes, bytes, floor int64
 	must(db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messaging_events WHERE payload <> ''`).Scan(&payloads))
 	must(db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messaging_welcomes`).Scan(&welcomes))

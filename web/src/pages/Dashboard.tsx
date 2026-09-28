@@ -1,9 +1,10 @@
 import React from 'react';
+import { MessagingUsage } from './MessagingUsage';
 import { Key, Archive, Database, Users, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface DashboardProps {
-  settings: any;
-  user: any;
+  settings: {app_name?: string; db_driver?: string; scim_enabled?: boolean; sso_enabled?: boolean} | null;
+  user: {display_name?: string; username?: string; role?: string} | null;
   onNavigate: (tab: string) => void;
 }
 
@@ -92,6 +93,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
           );
         })}
       </div>
+      {user?.role === 'admin' && <MessagingUsage />}
     </div>
   );
 };
