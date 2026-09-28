@@ -25,7 +25,7 @@ prototype test is not production approval.
    remain discoverable after membership removal; explicit passphrase-only history
    mode reads local ciphertext without server requests in an already loaded app. Client-only Markdown with HTML/images disabled and HTTP(S)-only links
    is implemented and browser-tested.
-3. **Live delivery and retention — in progress.** Authenticated WebSocket wakeups
+3. **Live delivery and retention — implemented in the isolated prototype.** Authenticated WebSocket wakeups
    now back the cookie-mode prototype with durable HTTP cursor reads. Origin checks,
    session/device revocation, connection quotas, shutdown and reconnect are tested.
    Foreground polling remains fallback. Server retention now clears expired ciphertext
@@ -41,10 +41,12 @@ prototype test is not production approval.
    Apply KyMessages identity/coordinates, HTTPS setup, responsive keyboard UX,
    browser support declaration and reproducible embedded assets. Keep the disposable
    fixture and experimental unaudited client out of deployment until their gates pass.
-5. **Operations and recovery — open.** Wire the inherited sealed-backup adapter to
-   product identity, verify schedules/local copies/receipts, include retention-aware
-   SQLite restoration and prevent restored state from silently rolling clients back.
-   Document upgrades, storage bounds, key loss, deployment and restore.
+5. **Operations and recovery — in progress.** SQLite capsule restoration now prunes
+   expired ciphertext, invalidates restored grants and permanently retires old rooms.
+   Fresh identity recovery and new rooms avoid resuming stale MLS state. A real
+   sealed-capsule round trip and SQLite/PostgreSQL grant-policy tests pass. Product
+   identity wiring, schedule/local-copy/receipt acceptance and deployment docs remain
+   open; the source-build restore runbook records the implemented recovery policy.
 6. **Release evidence — open.** Run CI on both database engines, production browser
    regressions, dependency checks, recovery drills, declared-host load tests and
    protocol/application-binding security review. Record actual supported browsers
@@ -61,7 +63,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `e13cf7f`; current implementation remains a server scaffold plus
+- CI green through `e4f5caf`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required

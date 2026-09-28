@@ -243,9 +243,14 @@ server's encryption key in a capsule is an operational key, not a message key.
 The existing adapter snapshots the whole SQLite database, so future ciphertext
 tables will be included unless collection changes. Backup copies may outlive room
 retention; disclose their independent retention and custodian access to metadata.
-Restore must prune expired content before serving traffic. Never roll back live MLS
-client state to a server backup: detect missing/forked history, reconcile against
-surviving clients, or require an explicit room reset. Drill this behavior.
+The restore command now prunes expired content and invalidates restored grants
+before reporting success. It permanently retires all restored room ownership and
+membership; first-release recovery uses fresh suite authentication, confirmed
+identity recovery, independent new-key verification and new rooms. Existing browser
+vaults remain untouched. This conservative policy avoids resuming a potentially
+forked or revoked MLS identity from a server snapshot. Raw database rollback and
+resuming restored rooms are unsupported. Native sealed-capsule and store drills
+exercise this policy; deployment and live-issuer recovery remain separate gates.
 
 ## Architecture on this base
 

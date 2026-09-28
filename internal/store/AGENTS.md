@@ -45,6 +45,18 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - `messaging_key_packages.go` and migration 7 own the content-addressed, bounded KeyPackage pool. Preserve claimed/expired rows as anti-republication tombstones, including after account deletion; their device IDs intentionally have no cascading foreign key. Claims require an eligible current-epoch device (or initial room owner), bind retries to caller/request ID, room, target and membership generation, and audit atomically. PostgreSQL claims lock a candidate with `FOR UPDATE SKIP LOCKED` so different rooms cannot allocate the same row.
 - `CompletePasswordChange` atomically compares the old password, updates a flagged local account, clears the flag, deletes sessions/MFA challenges/device pairings and records `auth.password_changed`. Session/MFA issuance locks the same user row against the verified hash; MFA challenges persist the creation-time password hash, and consumption returns that snapshot to reject stale completions. Migration 4 discards preexisting challenges because their credential snapshot is unknown.
 - `ResetAdminPassword` reactivates a local administrator with the replacement flag set and shares the atomic grant purge and audit path with `CompletePasswordChange`; it also works for disabled accounts.
+- `InvalidateRestoredGrants` runs only on an offline restored database. Atomically
+  delete sessions, MFA challenges, device pairings, messaging recovery requests and
+  reset receipts; revoke every messaging device without deleting verified-key
+  tombstones; expire all packages and remove all room memberships. Set restored
+  room ownership generation to zero (identities are strictly positive), permanently
+  retiring those rooms even after later resets. Preserve ciphertext/receipt metadata
+  subject to ordinary retention and audit `restore.grants_invalidated`. Fresh suite
+  sign-in, confirmed identity recovery and new rooms are required. Current-generation
+  ownership alone counts toward the 100-room creation limit.
+- SQLite file-URI directory setup decodes the URI path; never create a literal
+  `file:` directory. This permits read/write-only restoration of paths with reserved
+  characters without accidentally opening a different database.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
 - SQLite runs in WAL mode with foreign keys enabled.
 - PostgreSQL queries are rebound dynamically from standard positional parameters.

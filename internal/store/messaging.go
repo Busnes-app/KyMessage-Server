@@ -299,7 +299,7 @@ func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, r
 			}
 		}
 		var count int
-		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_rooms WHERE owner_id = ?`), actor.UserID).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_rooms WHERE owner_id = ? AND owner_identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = ?)`), actor.UserID, actor.UserID).Scan(&count); err != nil {
 			return err
 		}
 		if count >= 100 {

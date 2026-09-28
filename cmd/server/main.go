@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -398,13 +397,6 @@ func runExportCapsule(args []string) {
 		log.Fatalf("Write: %v", err)
 	}
 	log.Printf("✓ Capsule %s sealed to recovery key %s, written to %s (%d bytes)", m.CapsuleID, m.RecoveryKeyID, path, len(raw))
-}
-
-// restore is the product-side half of the ceremony, owned by the lib: k custodian shares
-// combined, used once, dropped; a capsule from another service refused before the key is
-// touched; the authenticated manifest printed for comparison with KyRecovery's record.
-func restore(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
-	return recoveryclient.Restore(capsulePath, targetDir, expectService, shares, stdout)
 }
 
 // stdinIsTerminal reports whether a human is typing, so a pipeline gets no stray prompt.

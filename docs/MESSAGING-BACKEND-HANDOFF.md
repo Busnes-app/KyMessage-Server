@@ -164,8 +164,8 @@ Chromium/Firefox drills pass for both established and never-joined browsers,
 including reload, disabled sends and future-only rejoin. Full HTTP/UI suite passed
 39 cases with one intentional duplicate-engine skip. The final six gap/rollback
 cases and all eight OIDC cases passed on both engines after the UI status fix.
-The rollback response test preserves pending bytes across reload; a real restored
-server drill remains required. Fixture vet and proof build passed.
+The rollback response test preserves pending bytes across reload. The later native
+sealed-capsule drill below covers the supported offline server restore. Fixture vet and proof build passed.
 Server-retention CI passed: https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364733298
 
 Local transcript expiry is implemented: new confirmed transcript/inbox copies carry
@@ -180,14 +180,35 @@ Six selected expiry/legacy parsing cases and all 18 core lifecycle cases passed 
 Chromium/Firefox. Full HTTP/UI regressions passed 47 cases with one intentional
 duplicate-engine skip; all eight OIDC cases passed. Typecheck/build and diff checks pass.
 
-Next: final local-data lifecycle and restore rollback protections. KyMessages is not deployed yet, confirmed by the user. Keep
+Restore now calls the library for custodian handling/extraction, requires the
+restored database/deployment key, opens/migrates/prunes SQLite, and atomically
+invalidates sessions, MFA challenges, pairings, recovery requests/receipts and all
+messaging device grants. Keep verified-key tombstones, expire packages, remove
+memberships and set room ownership generation to zero (identities stay positive).
+These rooms are permanently retired; recovery requires fresh suite authentication,
+confirmed identity reset, new keys/fingerprints and new rooms. No browser rollback.
+Raw database copying and PostgreSQL capsule restore remain unsupported. The command
+reports success only after preparation and store close; failures keep the target offline.
+
+Current-generation ownership alone counts toward the room quota, so retired rooms
+do not prevent new-room creation. SQLite URI directory parsing now decodes paths;
+the actual capsule test uses spaces and reserved path characters. `docs/RESTORE.md`
+now describes this checkout's tested source-build flow instead of directing users
+to an upstream image that lacks the policy.
+
+Verification: full store/API/cmd race suites and vet passed; restore/identity-reset
+store tests passed on disposable PostgreSQL 17. A real 2-of-3 capsule round trip
+checks expired ciphertext/Welcome removal and stale-grant retirement. A failed-audit
+injection proves grant invalidation rolls back as a unit. Existing wrong-service,
+wrong-kit and insufficient-share refusals still pass. CI is green through `e4f5caf`:
+https://github.com/Busnes-app/KyMessage-Server/actions/runs/36366144269
+
+Next: final local-data removal/lifecycle and product identity/operations wiring. KyMessages is not deployed yet, confirmed by the user. Keep
 live issuer checks open while independent implementation continues.
 
-Product embedding, installation, restore and
-load/security evidence remain open. The unaudited `ts-mls` experiment and private
+Product embedding, installation, deployed recovery and load/security evidence remain open. The unaudited `ts-mls` experiment and private
 GroupInfo extension stay out of production. Deployed issuer interaction, independent
-protocol review/interop, full supported-browser evidence and restored metadata
-rollback remain explicit release gates. Reset is not lost-history recovery.
+protocol review/interop and full supported-browser evidence remain explicit release gates. Reset is not lost-history recovery.
 
 DOX updated store/API/config/proof/fixture contracts and product/wire documents.
 Root already records the full-release/commit preference; auth/SSO/web contracts and

@@ -165,4 +165,12 @@ in the shipped deployment instead of assuming a supervisor grace period;
 `TestComposeGracePeriodCoversTheShutdownBudget` keeps the three in step. Past the deadline the
 work is abandoned with a log line rather than killed silently.
 
+`cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
+requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
+then opens the offline SQLite snapshot (migration/startup pruning), invalidates
+restored grants and closes it before reporting success. Keep the target offline on
+failure. Restored messaging rooms are permanently retired; users recover identity
+with fresh suite authentication and create new independently verified rooms.
+Never restore or rewind browser MLS state. Root owns this policy and `docs/RESTORE.md`.
+
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator document: `docs/RESTORE.md` (the inherited restore runbook). `README.md` introduces the product definition; product-specific installation and configuration documentation is a release gate, not yet a shipped guide.

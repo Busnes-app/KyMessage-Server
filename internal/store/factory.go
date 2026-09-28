@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,16 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (Store, error) {
 
 func openSQLite(ctx context.Context, dsn string) (Store, error) {
 	filePath := dsn
-	if idx := strings.Index(dsn, "?"); idx != -1 {
+	if strings.HasPrefix(dsn, "file:") {
+		u, err := url.Parse(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SQLite URI: %w", err)
+		}
+		filePath = u.Path
+		if u.Opaque != "" {
+			filePath = u.Opaque
+		}
+	} else if idx := strings.Index(dsn, "?"); idx != -1 {
 		filePath = dsn[:idx]
 	}
 

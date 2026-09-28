@@ -22,6 +22,7 @@ type Store interface {
 	Settings() SettingsStore
 	Messaging() MessagingStore
 
+	InvalidateRestoredGrants(context.Context) error
 	Driver() string
 	Ping(ctx context.Context) error
 	Close() error
