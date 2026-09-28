@@ -261,7 +261,7 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     await first.page.getByLabel('Device to revoke').selectOption(current);
     first.page.once('dialog',async dialog => {
       expect(dialog.message()).toContain('current browser');
-      expect(dialog.message()).toContain('identity reset is not implemented');
+      expect(dialog.message()).toContain('identity reset requires fresh suite authentication');
       await dialog.accept();
     });
     await click(first.page,'Revoke device','Device revoked');
@@ -271,7 +271,7 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     try {
       await expect(replacement.page.locator('#signed-in')).toContainText('pending');
       await expect(replacement.page.locator('#room-state')).toContainText('needs approval');
-      await expect(replacement.page.locator('#device-recovery')).toContainText('cannot approve a replacement');
+      await expect(replacement.page.locator('#device-recovery')).toContainText('pending replacement can request an identity reset');
       await expect(replacement.page.locator('#approve-own')).toBeDisabled();
     } finally { await replacement.context.close(); }
 
