@@ -39,7 +39,9 @@ one fixed peer, require consent and key verification, and reject third-account
 membership and client rosters. Repeated starts reopen an existing visible pair;
 concurrent starts can create separate rooms. Retention gaps now require explicit
 verified reinvitation or a new room. New local transcripts expire on access or
-unlocked timers, preserving pending sends. Automatic replenishment,
+unlocked timers, preserving pending sends. Confirmed whole-profile local-data removal
+clears keys/history/pending entries and locks other tabs; it does not revoke server
+access or bypass replacement approval. Automatic replenishment,
 live KyIdentity deployment and reviewed
 product client integration remain open. This is not production E2EE.
 

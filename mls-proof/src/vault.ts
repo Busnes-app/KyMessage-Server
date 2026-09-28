@@ -107,18 +107,47 @@ async function read(db: IDBDatabase, entry = 'device'): Promise<unknown> {
   });
 }
 
-async function write(db: IDBDatabase, value: unknown, entry: string, createOnly = false): Promise<void> {
+async function write(db: IDBDatabase, value: {version:number;salt:string;iv:string;ciphertext:string}, entry: string, createOnly = false): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('vault', 'readwrite', { durability: 'strict' });
     const store = transaction.objectStore('vault');
     let failure: Error | undefined;
-    if (createOnly) {
-      // IndexedDB serializes this short allocation transaction, not room ratchets.
-      const count = store.count();
-      count.onsuccess = () => { if (count.result >= 100) { failure = new Error('Local room capacity reached; existing conversations remain available'); transaction.abort(); } else store.add(value,entry); };
-    } else store.put(value,entry);
+    const root = store.get('device');
+    root.onsuccess = () => {
+      try {
+        // A deletion/replacement can win while this room encrypts outside IndexedDB.
+        // Check the original vault generation inside the write transaction.
+        if (!(createOnly && entry === 'device') && (root.result === undefined || string(object(root.result).salt) !== value.salt)) throw new Error('Vault removed or replaced; lock and unlock again');
+        if (createOnly) {
+          const count = store.count();
+          count.onsuccess = () => { if (count.result >= 100) { failure = new Error('Local room capacity reached; existing conversations remain available'); transaction.abort(); } else store.add(value,entry); };
+        } else store.put(value,entry);
+      } catch (error) { failure = error instanceof Error ? error : new Error('Invalid root vault'); transaction.abort(); }
+    };
     transaction.oncomplete = () => resolve();
     transaction.onabort = () => reject(failure ?? transaction.error ?? new Error('Write aborted'));
+  });
+}
+
+export async function forgetVault(unlocked: UnlockedVault) {
+  return navigator.locks.request(databaseName,async () => {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve,reject) => {
+        const tx = db.transaction('vault','readwrite',{durability:'strict'});
+        const entries = tx.objectStore('vault');
+        const root = entries.get('device');
+        let failure: Error | undefined;
+        root.onsuccess = () => {
+          try {
+            if (root.result === undefined || string(object(root.result).salt) !== unlocked.salt) throw new Error('Vault changed before removal; unlock it again');
+            entries.clear();
+          } catch (error) { failure = error instanceof Error ? error : new Error('Invalid root vault'); tx.abort(); }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error('Vault removal aborted'));
+      });
+    } finally { db.close(); }
   });
 }
 
@@ -195,7 +224,7 @@ export async function initializeVault(passphrase: string, create: () => Promise<
       const salt = crypto.getRandomValues(new Uint8Array(16));
       const key = await derive(passphrase, salt);
       const record = await create();
-      await seal(db, record, salt, key);
+      await seal(db, record, salt, key,'device',true);
       return {wire:record.keyPackage, unlocked:{key,salt:base64(salt),identity:record.identity}};
     } finally {
       db.close();

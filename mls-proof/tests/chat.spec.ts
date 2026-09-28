@@ -716,3 +716,46 @@ test('offline local history expires on its timer and clearing requires confirmat
     expect(requests).toEqual([]);
   } finally { await context.close(); }
 });
+
+test('confirmed local-data removal works offline, locks other tabs and does not reapprove a replacement',async ({browser}) => {
+  const user = 'forget-ui-' + crypto.randomUUID().slice(0,8);
+  const {context,page} = await start(browser,user);
+  const other = await context.newPage();
+  try {
+    await page.getByLabel('New room name').fill('Forget this room');
+    await click(page,'Create room','Room created');
+    await click(page,'Apply verified membership','Verified membership applied');
+    await page.route('**/api/messaging/rooms/*/events',async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      expect((await route.fetch()).status()).toBe(200); await route.abort('failed');
+    },{times:1});
+    await page.getByLabel('Message',{exact:true}).fill('Unconfirmed send will be lost');
+    await page.getByRole('button',{name:'Send encrypted message',exact:true}).click();
+    await expect(page.locator('#pending-text')).toContainText('Unconfirmed send will be lost');
+    await other.goto('/chat.html');
+    await unlock(other,user);
+    page.once('dialog',dialog => dialog.dismiss());
+    await click(page,'Remove this browser’s local messaging data','Local data removal cancelled');
+    await expect(page.locator('#pending-text')).toContainText('Unconfirmed send will be lost');
+    await context.setOffline(true);
+    const requests: string[] = [];
+    page.on('request',request => { if (request.url().includes('/api/')) requests.push(request.url()); });
+    page.once('dialog',async dialog => {
+      expect(dialog.message()).toContain('pending sends');
+      expect(dialog.message()).toContain('does not revoke server access');
+      await dialog.accept();
+    });
+    await click(page,'Remove this browser’s local messaging data','Local messaging data removed');
+    await expect(page.locator('#workspace')).toBeHidden();
+    await expect(other.locator('#workspace')).toBeHidden();
+    await expect(other.getByRole('status')).toContainText('removed in another tab');
+    await expect(page.locator('#pending-text')).toBeEmpty();
+    expect(requests).toEqual([]);
+    await context.setOffline(false);
+    await page.getByLabel('Test account',{exact:true}).fill(user);
+    await page.getByLabel('Local passphrase').fill(password);
+    await click(page,'Create test device','Test device connected');
+    await expect(page.locator('#signed-in')).toContainText('Device pending');
+    await expect(page.locator('#account-devices')).toContainText('approved');
+  } finally { await context.close(); }
+});

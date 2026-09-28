@@ -74,7 +74,15 @@ It is a local interactive prototype, excluded from the embedded app and Docker.
 
 **Lock and disconnect** clears the visible transcript, drafts, fingerprints and
 memory-only session/wrapping key for the current tab. Other open tabs stay unlocked.
-The encrypted vault survives. The theme follows
+The encrypted vault survives ordinary locking. **Remove this browser’s local
+messaging data** is a separate confirmed action: it deletes all saved room entries,
+keys and unresolved sends, including offline, and locks other open prototype tabs.
+It does not revoke the server device or sign out of the suite. Use **Your devices**
+to revoke it separately. A replacement still needs normal approval or identity
+recovery; deletion cannot reset the server's verified-device tombstones. In-flight
+writes check the vault generation at commit and cannot resurrect deleted records.
+Deletion is best effort and cannot erase copies outside this browser's active store.
+The theme follows
 OS appearance until a local Light/Dark choice is saved. The UI does not export the
 manual harness's `window.proof` or `window.delivery` test surfaces.
 

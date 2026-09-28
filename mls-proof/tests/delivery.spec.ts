@@ -486,3 +486,48 @@ test('legacy transcript parsing preserves unknown expiry and rejects invalid dea
     expect(() => connection({...saved,messages:[{...saved.messages[0],expiresAt}]})).toThrow('Invalid transcript expiry');
   }
 });
+
+test('removing a vault prevents an in-flight room write from reviving it after replacement',async ({browser}) => {
+  const alice = await device(browser,'forget-race');
+  const other = await alice.context.newPage();
+  try {
+    await alice.page.evaluate(() => window.delivery.createRoom('Root room'));
+    await alice.page.evaluate(() => window.delivery.stageCommit());
+    await accept(alice.page);
+    const second = await alice.page.evaluate(() => window.delivery.createRoom('Separate room'));
+    await alice.page.evaluate(() => window.delivery.stageCommit());
+    await accept(alice.page);
+    await other.goto('/');
+    await other.waitForFunction(() => Boolean(window.delivery));
+    await other.evaluate(async ({password,session,room}) => {
+      await window.proof.unlock(password);
+      window.delivery.connect(session);
+      await window.delivery.selectRoom(room);
+      const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+      crypto.subtle.encrypt = async (...args: Parameters<SubtleCrypto['encrypt']>) => {
+        crypto.subtle.encrypt = encrypt;
+        document.body.dataset.encryptionPaused = 'true';
+        await new Promise<void>(resolve => window.addEventListener('release-encryption',() => resolve(),{once:true}));
+        return encrypt(...args);
+      };
+    },{password,session:alice.session,room:second});
+    const pending = other.evaluate(() => window.delivery.stageSend('Must never return as durable ciphertext')).then(() => 'unexpected success',error => String(error));
+    await expect(other.locator('body')).toHaveAttribute('data-encryption-paused','true');
+    await alice.page.evaluate(() => window.proof.forget());
+    await alice.page.evaluate(password => window.proof.initialize('replacement-identity',password),password);
+    await other.evaluate(() => window.dispatchEvent(new Event('release-encryption')));
+    expect(await pending).toContain('Vault removed or replaced');
+    expect((await alice.page.evaluate(() => window.proof.status())).identity).toBe('replacement-identity');
+    const entries = await alice.page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve,reject) => {
+        const open = indexedDB.open('kymessages-mls-proof-v1',1);
+        open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
+      });
+      try { return await new Promise<IDBValidKey[]>((resolve,reject) => {
+        const tx = db.transaction('vault','readonly'); const keys = tx.objectStore('vault').getAllKeys();
+        tx.oncomplete = () => resolve(keys.result); tx.onabort = () => reject(tx.error);
+      }); } finally { db.close(); }
+    });
+    expect(entries).toEqual(['device']);
+  } finally { await alice.context.close(); }
+});

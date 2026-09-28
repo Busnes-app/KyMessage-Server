@@ -23,6 +23,13 @@ retains the manual wire harness. Root owns product decisions and research in `do
   entries authenticate that entry name as AES-GCM associated data, preventing swaps.
   A short native allocation transaction caps total entries at 100; per-entry 2 MiB
   and list bounds remain. The non-secret selected-entry hint is tab-local sessionStorage.
+- Confirm before removing all local messaging data. Clear every room entry in one
+  strict IndexedDB transaction, retain no unlocked key, and notify same-origin tabs
+  to lock. Device revocation and suite sign-out remain separate explicit actions.
+  The root envelope salt identifies the vault generation: check it in every room
+  write transaction so encryption already in flight cannot resurrect a removed
+  vault or append old rooms to a replacement. Serialize root creation/removal using
+  the existing root lock; do not serialize unrelated room ratchets globally.
 - Derive the non-extractable AES wrapping key only at setup/unlock; retain no
   passphrase between operations and never persist the key. Lock invalidates pending
   unlock/setup results so late KDF completion cannot reopen a locked device.

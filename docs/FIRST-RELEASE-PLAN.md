@@ -16,12 +16,14 @@ prototype test is not production approval.
    independent replacement verification are implemented. SQLite/PostgreSQL race
    tests and Chromium/Firefox reset/rejoin drills pass. The default-off server gate
    still needs deployed issuer assurance and restore/rollback evidence.
-2. **Durable conversations — in progress.** Isolated proof has verified opaque delivery,
+2. **Durable conversations — implemented in the isolated prototype.** Isolated proof has verified opaque delivery,
    encrypted local history, outbox retry, rejoin and room switching. Each room owns
    its encrypted record/ratchet, scoped join packages and pending sends; local storage
    is bounded. Unlock retains only a non-extractable wrapping key. Direct
-   conversations with immutable peer accounts are implemented. The final production
-   unlock/local-data lifecycle remains open. Saved conversations
+   conversations with immutable peer accounts are implemented. Confirmed local-data
+   removal deletes all vault entries, locks other tabs and prevents in-flight writes
+   from reviving them; replacement approval remains required. Production integration
+   remains gated under step 4. Saved conversations
    remain discoverable after membership removal; explicit passphrase-only history
    mode reads local ciphertext without server requests in an already loaded app. Client-only Markdown with HTML/images disabled and HTTP(S)-only links
    is implemented and browser-tested.

@@ -15,7 +15,7 @@ import { processPrivateMessage } from 'ts-mls/processMessages.js';
 import { zeroOutUint8Array } from 'ts-mls/util/byteArray.js';
 import { mlsExporter } from 'ts-mls/keySchedule.js';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
-import { base64, unbase64, initializeVault, unlockVault, ensureRoomVault, inspectVaults, withVault, type UnlockedVault, type DeviceRecord } from './vault';
+import { base64, unbase64, initializeVault, unlockVault, forgetVault, ensureRoomVault, inspectVaults, withVault, type UnlockedVault, type DeviceRecord } from './vault';
 import { accountID } from './delivery-wire';
 
 export const encoder = new TextEncoder();
@@ -24,6 +24,13 @@ export const suite = getCiphersuiteImpl(getCiphersuiteFromName('MLS_128_DHKEMX25
 let unlocked: UnlockedVault | null = null;
 let unlockGeneration = 0;
 let activeEntry = 'device';
+const removalChannel = new BroadcastChannel('kymessages-proof-vault-removal');
+removalChannel.onmessage = (event: MessageEvent<unknown>) => {
+  if (typeof event.data !== 'string' || event.data.length !== 24) return;
+  if (unlocked !== null && unlocked.salt !== event.data) return;
+  proof.lock();
+  window.dispatchEvent(new Event('kymessages-vault-removed'));
+};
 try {
   const saved = sessionStorage.getItem('kymessages-active-room');
   if (saved && /^room:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(saved)) activeEntry = saved;
@@ -184,6 +191,16 @@ export const proof = {
   },
 
   lock() { unlockGeneration++; unlocked = null; },
+
+  async forget() {
+    if (!unlocked) throw new Error('Unlock the device before removing its local data');
+    const previous = unlocked;
+    proof.lock();
+    await forgetVault(previous);
+    activeEntry = 'device';
+    try { sessionStorage.removeItem('kymessages-active-room'); } catch { /* Selection is reset in memory. */ }
+    removalChannel.postMessage(previous.salt);
+  },
 
   async inspectKeyPackage(wire: string) {
     const pin = pinFor(wire);

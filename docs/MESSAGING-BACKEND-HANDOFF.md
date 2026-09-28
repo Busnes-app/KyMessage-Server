@@ -203,7 +203,26 @@ injection proves grant invalidation rolls back as a unit. Existing wrong-service
 wrong-kit and insufficient-share refusals still pass. CI is green through `e4f5caf`:
 https://github.com/Busnes-app/KyMessage-Server/actions/runs/36366144269
 
-Next: final local-data removal/lifecycle and product identity/operations wiring. KyMessages is not deployed yet, confirmed by the user. Keep
+Confirmed whole-profile local-data removal is implemented, including offline.
+Delete every vault entry in one strict IndexedDB transaction; root creation/removal
+uses the existing root lock. All room writes check the root envelope salt inside
+that transaction so delayed encryption cannot resurrect a deleted vault or append
+old entries to a new identity. Broadcast removal to other tabs, cancel pending
+unlocks and clear their UI. Revocation/sign-out remain separate; a replacement
+still needs normal server approval or identity recovery. The confirmation explicitly
+covers loss of pending sends and keys. Ordinary lock still preserves saved data.
+
+Verification: 18 core lifecycle tests, 51 HTTP/UI tests (one intentional duplicate
+engine skip), and eight OIDC tests passed across Chromium/Firefox. New cases cover
+cancel/confirm, offline deletion, other-tab locking, pending text loss, replacement
+remaining pending and a delayed room write racing a newly initialized vault.
+
+CI caught the moved restore command's stale decrypt-guard path. `fc309a0` updates
+only the allowlisted filename to `cmd/server/restore.go`; the sole allowed function
+remains `restore`. Full backup race tests passed after the correction.
+
+Next: product identity/operations wiring (being prepared locally); production client
+embedding still requires the independent MLS/application-profile review gates. KyMessages is not deployed yet, confirmed by the user. Keep
 live issuer checks open while independent implementation continues.
 
 Product embedding, installation, deployed recovery and load/security evidence remain open. The unaudited `ts-mls` experiment and private

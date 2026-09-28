@@ -130,6 +130,7 @@ function controls() {
   field('message').disabled = !backgroundWork && button('send').disabled;
   button('lock').disabled = false;
   button('refresh').disabled = localOnly || busy;
+  button('forget-device').disabled = !opened || busy;
   button('clear-history').disabled = !opened || busy || !snapshot?.room;
   button('commit').disabled = !activeRoom || Boolean(snapshot?.historyGap) || busy || snapshot?.epoch === null || snapshot?.pending === true || snapshot?.rejoining === true;
   button('publish').disabled = !approved || busy || (snapshot?.epoch !== null && !snapshot?.rejoining);
@@ -376,7 +377,7 @@ function lockLocal() {
   clearTimeout(expiryTimer);
   proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
   for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms','retention-state','history-gap','local-retention']) element(id).replaceChildren();
-  for (const id of ['message','password','history-password','peer-fingerprint','account-fingerprint','invite-account','room-name']) field(id).value = '';
+  for (const id of ['message','password','history-password','peer-fingerprint','account-fingerprint','invite-account','direct-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
   element('workspace').hidden = true; element('access').hidden = false;
 }
@@ -385,6 +386,19 @@ button('lock').addEventListener('click',() => {
   element('notice').textContent = 'Device locked. Unlock with the original account and local passphrase.';
 });
 window.addEventListener('pagehide',lockLocal);
+window.addEventListener('kymessages-vault-removed',() => {
+  lockLocal(); controls();
+  element('notice').textContent = 'This browser’s local messaging data was removed in another tab. Its keys and saved messages are no longer available.';
+});
+button('forget-device').addEventListener('click',() => {
+  if (busy || !opened) return;
+  if (!confirm('Permanently remove ALL messaging keys, saved rooms and pending sends from this browser profile? Other tabs will lock. Lost keys and unconfirmed sends cannot be recovered here. This does not revoke server access: use Your devices from a signed-in browser to revoke this device separately.')) {
+    element('notice').textContent = 'Local data removal cancelled.'; return;
+  }
+  const removal = proof.forget();
+  lockLocal();
+  void action(async () => { await removal; },'Local messaging data removed. Server device revocation is separate. A replacement browser needs approval or identity recovery.');
+});
 button('sign-out').addEventListener('click',() => {
   if (busy) return;
   lockLocal();
