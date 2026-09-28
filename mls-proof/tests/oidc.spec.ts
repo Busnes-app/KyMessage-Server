@@ -43,7 +43,7 @@ async function unlock(page: Page) {
 
 test('suite redirect and signed callback bind cookie-authenticated devices, chat and reauthentication',async ({browser}) => {
   const subject = 'oidc-alice-' + crypto.randomUUID().slice(0,8);
-  const alice = await open(browser,subject);
+  const alice = await open(browser,subject,true);
   const bob = await open(browser,'oidc-bob-' + crypto.randomUUID().slice(0,8));
   try {
     expect((await alice.page.request.post('/proof-fixture/session/bypass')).status()).toBe(404);
@@ -115,7 +115,6 @@ test('suite redirect and signed callback bind cookie-authenticated devices, chat
     await unlock(alice.page);
     await expect(alice.page.locator('#messages')).toContainText(secret);
     expect(await alice.page.locator('#own-fingerprint').innerText()).toBe(alice.fingerprint);
-    await alice.page.clock.install();
     await alice.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await alice.context.clearCookies();
     await alice.page.clock.runFor(10_000);

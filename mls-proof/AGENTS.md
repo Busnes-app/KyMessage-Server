@@ -191,6 +191,12 @@ retains the manual wire harness. Root owns product decisions and research in `do
 
 ## Verification
 
+- Install controlled Playwright clocks before navigation, before app timers exist.
+- `tests/native-crypto.spec.ts` exercises repeated Ed25519 generation on a blank
+  page without retries. Linux WebKit currently fails this native primitive; keep
+  it outside the verified subset. Read `docs/BROWSER-EVIDENCE.md` before changing
+  browser support claims. Actual Safari/iOS evidence is separate.
+
 - `npm ci`, `npm run build`, and `npm test` from this directory.
 - `npm run test:interop -- --project=chromium --project=firefox` requires the pinned
   external fixture paths documented in `docs/MLS-INTEROP-RESEARCH.md`; it is excluded

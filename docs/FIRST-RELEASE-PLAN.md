@@ -70,7 +70,7 @@ prototype test is not production approval.
   single-use completion and atomic reset tested on SQLite and PostgreSQL; browser
   reset/rejoin tests cover future-only access, original-session preservation and
   generation-2 enrollment.
-- CI green through `195f949`; current implementation remains a server scaffold plus
+- CI green through `4549b82`; current implementation remains a server scaffold plus
   an isolated MLS experiment, not a deployed encrypted-chat product.
 
 ## External evidence still required
@@ -110,5 +110,8 @@ including 260 real encrypted messages, reload, rolling replay hashes and an inta
 pending outbox. Full HTTP/UI tests pass 55 cases with one intentional duplicate
 engine skip; eight OIDC cases pass. A seeded display-cache boundary test preserves
 live ratchets/cursor and pending ciphertext; it is not server load evidence. Escaped
-control characters count toward the serialized-byte limit. Linux WebKit checks are
-being run in an isolated supported container; real Safari/iOS remains unverified.
+control characters count toward the serialized-byte limit. Linux WebKit container checks now isolate an intermittent native Ed25519
+`generateKey` failure on a blank page. Its 10 lifecycle and four OIDC cases passed,
+but the full HTTP/UI run had two key-creation failures; WebKit remains outside the
+verified subset. Controlled clocks now install before app startup. See
+`BROWSER-EVIDENCE.md`; real Safari/iOS remains unverified.

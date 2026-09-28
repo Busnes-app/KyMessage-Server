@@ -1,310 +1,90 @@
 **Repo:** KyMessage-Server
 **Worktree:** /home/yoshi/git/busnes.app/KyMessage-Server (branch master)
 
-The user explicitly requested completion of the encrypted-chat first release, with
-commits at each completed slice or unavoidable break. Continue the full execution
-plan in `docs/FIRST-RELEASE-PLAN.md`; do not stop at the device-recovery subset.
-Remote: https://github.com/Busnes-app/KyMessage-Server.git. No deployment occurred.
+User scope: complete the small-team encrypted-chat first release; commit each
+completed slice and before unavoidable breaks. Commit/push are authorized. Remote:
+https://github.com/Busnes-app/KyMessage-Server.git. KyMessages is not deployed
+(user-confirmed). Continue `docs/FIRST-RELEASE-PLAN.md`; never equate prototype test
+passes with production E2EE approval.
 
-## Completed checkpoint
+## Current implementation
 
-Migration 9 and `messaging_reset.go` bind devices, invitations, ownership and reset
-requests to identity generations. Confirmed reset atomically advances the generation,
-revokes prior devices, retires unclaimed packages, removes memberships and stores an
-idempotent original-session receipt. Old ownership is not inherited. Browser pins
-and MLS metadata use generation-sensitive v2 bindings; accepted legacy v1 events
-retain their original hash profile. This is an experimental protocol transition.
+- Source-built KyMessages operator console, local Compose/image identity and
+  reproducible embedded assets. The MLS client remains isolated in `mls-proof/`
+  and excluded from production/image publication.
+- Real MLS suite-1 prototype over authenticated opaque HTTP delivery: device
+  verification, immutable direct peers, private rooms, membership CAS, scoped
+  one-use join packages, independent fingerprint pins and authenticated bindings.
+- Identity-generation reset requires confirmed fresh suite authentication, binds
+  the original session and replacement key, revokes old devices and inherits no
+  rooms. Production gate remains off pending deployed issuer assurance.
+- Room-owned encrypted vault entries preserve ratchets, pending messages, cursor
+  and history across reload and switching. Explicit local history works offline.
+  Confirmed vault deletion locks other tabs and prevents late writes resurrecting
+  deleted/replaced entries. Recent display history rolls at 256 entries/256 KiB;
+  eviction is permanent and visible, with keys/pending traffic retained.
+- Cookie-mode WebSocket wakeups lead to durable HTTP reads; polling is fallback.
+  Server retention (1/7/30 days), local expiry, explicit gap recovery, rejoin,
+  device/account removal and safe local Markdown are implemented and tested.
+- SQLite capsule restore prunes expiry, invalidates grants and retires restored
+  rooms. Fresh identities/new rooms avoid stale MLS rollback. Scheduled/local
+  backups, latest recorded outcome UI and a real running-server scheduler drill
+  are implemented. The drill is `scripts/backup-acceptance.py` (~3 minutes).
 
-The recovery API seals explicit reset intent and requires freshly signed suite
-reauthentication. `KY_MESSAGING_IDENTITY_RESET_ENABLED` defaults false and is enforced
-both at initiation and completion. Authentication-only completion is never reset
-authority. A completed reset callback replays its receipt without exchanging the
-spent code or mutating again. HTML success returns only to `/`; no new session is
-issued. The OIDC fixture enables the gate with disposable accounts, not production
-identity assurance.
+Authoritative contracts: `PRODUCT.md`, `MESSAGING-API.md`, `RESTORE.md`, and the
+nearest DOX documents. CI is green through `4549b82`; recent implementation slices
+are `195f949` (backup outcomes), `280ebcf` (interop), `e27924f` (packaging),
+`3d26ccc` (local removal), `fc309a0`/`01ad7de` (restore).
 
-The prototype confirms lost access/ownership/history, locks before issuer navigation,
-and unlocks the existing replacement vault afterward. Old readable local history
-remains on revoked browsers. Remaining room members see a server-reported identity
-change until the removal commit; a reinvited replacement requires independent
-fingerprint approval and receives future messages only. Later device enrollment
-uses the new generation immediately in its local self pin.
+## Browser checkpoint
 
-## Verification
+Clock-controlled tests now install clocks before navigation. Chromium/Firefox pass
+55 HTTP/UI cases (one intentional duplicate skip), eight OIDC cases and the added
+native diagnostic (256 Ed25519 generations each). Earlier manual lifecycle suite:
+20 cases passed, including 260 encrypted messages and retained pending sends.
 
-- Full race suites passed for store, API, SSO and config.
-- Messaging race suites passed on disposable PostgreSQL 17; fixture container removed.
-- Go vet passed for changed backend and build-tagged fixture packages.
-- Proof typecheck/build passed. Chromium/Firefox OIDC suite passed before the final
-  added generation-2 enrollment scenario; that expanded reset scenario also passed
-  on both browsers after correcting its selector and respecting other-device trust.
-- Earlier complete delivery suite: 25 passed, one intentional duplicate-engine skip.
-- CI for `ad21d59` passed: https://github.com/Busnes-app/KyMessage-Server/actions/runs/36359795108
+Linux WebKit in the pinned supported container passes 10 manual lifecycle and four
+OIDC cases, but the full HTTP/UI suite has two key-creation failures. A blank-page
+native regression reproduces `generateKey('Ed25519', ...)` OperationError without
+MLS/application code. Do not retry around this failure or claim Safari/iOS support.
+`docs/BROWSER-EVIDENCE.md` records pins, commands and the container offline pitfall.
 
-## Durable-conversation progress
+## Work in progress / next
 
-`6b6eabe` derives the wrapping key only during unlock/setup and retains no passphrase
-between operations. Lock cancels late unlock completion. `954b10d` adds migration 10's
-optional KeyPackage publication room scope: active membership required, immutable
-scope, no claims from another room, existing device quotas retained. Its CI passed:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36360773559
+Constrained-host transport acceptance is being added in
+`internal/api/messaging_load_test.go` (opt-in `KY_MESSAGING_LOAD=1`). Initial real
+100-device/50-account test hit HTTP 429 after 64 messages: reads and writes shared
+120 requests/minute. Working edits separate reads (2,400/minute/account) and writes
+(120/minute/account), preserving enrollment limits. A first constrained 2-CPU/2-GiB
+run then delivered 700 messages to all devices; the final check now reports sustained
+and burst latency separately, including producer backlog. Finish verification,
+record exact evidence/limits, update API/DOX and commit this separate runtime slice.
+These pending API edits are not part of the browser checkpoint.
 
-The latest client slice switches rooms using separate encrypted IndexedDB entries
-and Web Locks. The legacy first room stays in `device`; subsequent `room:<UUID>`
-entries authenticate their entry name as AES-GCM associated data. Up to 100 entries,
-2 MiB per entry, existing 256-element list bounds; full storage refuses writes and
-never silently deletes history. All entries use the root's non-extractable wrapping
-key and salt with fresh IVs. The tab-local selected-entry hint contains no secret.
+## Open release gates
 
-New rooms generate fresh init/HPKE keys under the same enrolled signing identity.
-Publications are room-scoped; retained older unscoped publication retries remain
-compatible. Already verified root pins carry their identity generation into new
-rooms. Switching preserves unresolved sends and histories; drafts require explicit
-confirmation before discard. Lost room-creation acknowledgement recovers by refreshing
-and opening the empty owned room; published join material/nonzero epochs cannot be
-used to initialize another group.
+- Independent assessment of the MLS implementation and KyMessages application
+  profile. ts-mls 1.6.4 remains unaudited; prototype success is not this evidence.
+- Unmodified OpenMLS interoperability fails: ts-mls rejects valid unknown protocol
+  version 999 in capabilities. The MLS-1.0-only fixture passes exchange, updates,
+  add/remove and live-secret agreement in both browsers, but this is constrained
+  evidence. Custom GroupInfo `0xff01` binding remains unverified independently.
+  See `MLS-INTEROP-RESEARCH.md`; never strip signed incoming bytes as a workaround.
+- Deployed HTTPS/KyIdentity callback and fresh-authentication semantics. No hostname
+  has been provisioned; do not repeat the already answered deployment question.
+- Reviewed production client integration, actual target-platform support, deployed
+  end-to-end/load evidence, and live remote KyRecovery acceptance.
 
-Final multi-room verification: typecheck/build; 18 manual MLS tests; 29 HTTP/UI tests
-plus one intentional duplicate cross-engine skip; 6 OIDC tests, all passed across
-Chromium/Firefox. New cases prove two-room history/outbox persistence, reload and
-draft handling, lost creation acknowledgement, independent room locks and rejection
-of swapped encrypted entries. Scoped package race tests passed on SQLite/PostgreSQL.
-The stale device-loss wording assertions from the reset slice were fixed in `b93d89d`.
+## Working constraints
 
-## Next and constraints
-
-Client-side Markdown is now implemented with pinned markdown-it 15.0.2, raw HTML
-and image rendering disabled, and only HTTP(S) links active with no opener/referrer.
-Four Chromium/Firefox cases passed for formatting, HTML/script links, tracking
-images, reload and mobile layout; npm audit reported no vulnerabilities.
-
-Saved conversations now enumerate encrypted room records independently of server
-membership. Names are cached encrypted; unreadable entries are reported individually.
-Explicit passphrase-only history mode disconnects delivery and makes no server
-requests, hides sending/account controls, and clears history/keys on lock. This works
-in an already loaded app offline; cold offline startup is not implemented. Root vault
-corruption still prevents unlocking. Ordinary online unlock retains suite-account checks.
-
-Verification: proof build passed; four selected HTTP/UI cases, four local lifecycle
-cases and all six OIDC cases passed across Chromium/Firefox. The new case covers
-removed membership, damaged sibling records, wrong passphrase, offline local selection,
-no API requests during 60 seconds and lock clearing history.
-
-Migration 11 adds immutable direct-room peer bindings. Creation and the invitation
-commit together; a third account is denied even after peer removal/deletion. The
-client reuses an existing visible pair, requires consent and fingerprints, persists
-its counterpart, and rejects extra-account MLS rosters. Concurrent starts can create
-separate rooms; ownership/reset rules remain unchanged. Ordinary rooms remain groups.
-
-Verification: messaging race suites pass on SQLite and PostgreSQL 17, and Go vet and
-proof build pass. The full browser run exposed an obsolete removed-member button
-expectation and a duplicate key in the new injected-roster test; those expectations
-were corrected without weakening server denial or roster validation. Both corrected cases pass in Chromium and Firefox; the other 31 cases passed in
-the full run (one intentional duplicate-engine skip). Full store/API race suites
-also pass. Only the selected room receives automatic
-checks; client server-room discovery reads one page of 100.
-
-WebSocket wakeups now serve the selected active room in cookie mode. The endpoint
-requires a live suite session and exact configured Origin before upgrade, then the
-64-byte hex device credential in a first text frame within five seconds. No URL
-credentials. Four connections/account, 256/process, one coalescing signal each; every
-notice rechecks session/device/ACL and contains only sequence/epoch/roster hash.
-Successful mutations signal after commit; a 15-second heartbeat catches external
-changes and revoked sessions. HTTP cursor reads still verify/persist actual MLS.
-
-`StopMessaging` runs before HTTP shutdown and cancels upgraded connections; the
-existing detached counter tracks them before authentication and drains before store
-close. The fixture follows the same shutdown order. The proof opens no stream in
-local-history or bearer-fixture mode and closes on lock/room switch/hidden/offline.
-Queued notices coalesce with foreground work; cursor and directory-hash comparisons
-avoid redundant requests. Polling remains fallback. Dependency: coder/websocket 1.8.15.
-
-Verification: native WebSocket race tests pass on SQLite/PostgreSQL for origins,
-first-frame limits, cross-account credentials, missing membership, quotas, reconnect,
-revocation and shutdown. Full API/cmd race suites and vet pass. Eight Chromium/Firefox
-OIDC cases pass, including frozen-timer live receive, offline catch-up, draft/focus
-preservation, no plaintext socket frames and lock closure. All 35 delivery regressions also pass
-(one intentional duplicate-engine skip). `govulncheck` reports no affected call paths
-(three findings exist in required modules outside imported vulnerable packages).
-
-Migration 12 implements server ciphertext retention: immutable per-room 1/7/30-day
-policy (default 30), ordered expiry, retained prefix floor, payload/Welcome clearing,
-and 410 `history_expired` for missed history. Preserve receipt hashes and sequence
-metadata after expiry; exact retries still acknowledge the same event. Active limits
-are 4,096 events/32 MiB per room; lifetime receipt limit is 1,000,000. Neither backup
-copies nor audit/receipt metadata are erased by message retention. Local expiry
-remains open; client gap handling is described below.
-
-Store initialization prunes before returning, including restored SQLite databases.
-The daemon sweeps idle rooms every minute with a 30-second operation deadline. Its
-completion joins the backup scheduler before the existing bounded shutdown drain;
-failed store initialization closes its database handle. Operations use room locks
-and short transactions; failed user operations can roll back incidental cleanup,
-but cannot expose expired ciphertext. Independent sweeps complete physical row updates.
-
-Verification: full store/API/cmd race suites passed. Messaging race suites also passed
-on disposable PostgreSQL 17. Retention cases cover expired Welcome denial, receipt
-replay/tampering, retained-byte accounting, explicit remove/reinvite history floors,
-startup cleanup, idempotent sweeps, backward clocks and concurrent append/cleanup
-across connections. Go vet and diff checks pass.
-
-CI for the live-delivery checkpoint passed:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364009571
-
-The isolated client now offers 1/7/30-day retention for new rooms/direct chats,
-caches policy encrypted, and persists 410/409 gaps without changing saved ratchets,
-cursors, transcripts or pending bytes. Sending and automatic reads pause; reload
-preserves the warning. Explicit reinvitation must advance membership generation,
-including when the original Welcome expired. Save attempted generations so another
-missed join cannot reuse that generation. Only a fully verified fresh Welcome
-clears the gap; missing messages are not recovered.
-
-The build-tagged bearer fixture ages a chosen room then invokes real cleanup.
-Chromium/Firefox drills pass for both established and never-joined browsers,
-including reload, disabled sends and future-only rejoin. Full HTTP/UI suite passed
-39 cases with one intentional duplicate-engine skip. The final six gap/rollback
-cases and all eight OIDC cases passed on both engines after the UI status fix.
-The rollback response test preserves pending bytes across reload. The later native
-sealed-capsule drill below covers the supported offline server restore. Fixture vet and proof build passed.
-Server-retention CI passed: https://github.com/Busnes-app/KyMessage-Server/actions/runs/36364733298
-
-Local transcript expiry is implemented: new confirmed transcript/inbox copies carry
-server/local-policy-clamped deadlines; selected-room transactions and an unlocked
-UI timer clear both. Local-only mode makes no network requests. Keep ratchets,
-cursors, pins and unresolved pending text. Legacy string inboxes/undated transcript
-entries remain readable until explicit clearing. The confirmed clear-history action
-only clears the selected entry's transcript/inbox, never its keys or pending send.
-Other tabs may keep visible copies until refreshed; physical erasure is not promised.
-
-Six selected expiry/legacy parsing cases and all 18 core lifecycle cases passed on
-Chromium/Firefox. Full HTTP/UI regressions passed 47 cases with one intentional
-duplicate-engine skip; all eight OIDC cases passed. Typecheck/build and diff checks pass.
-
-Restore now calls the library for custodian handling/extraction, requires the
-restored database/deployment key, opens/migrates/prunes SQLite, and atomically
-invalidates sessions, MFA challenges, pairings, recovery requests/receipts and all
-messaging device grants. Keep verified-key tombstones, expire packages, remove
-memberships and set room ownership generation to zero (identities stay positive).
-These rooms are permanently retired; recovery requires fresh suite authentication,
-confirmed identity reset, new keys/fingerprints and new rooms. No browser rollback.
-Raw database copying and PostgreSQL capsule restore remain unsupported. The command
-reports success only after preparation and store close; failures keep the target offline.
-
-Current-generation ownership alone counts toward the room quota, so retired rooms
-do not prevent new-room creation. SQLite URI directory parsing now decodes paths;
-the actual capsule test uses spaces and reserved path characters. `docs/RESTORE.md`
-now describes this checkout's tested source-build flow instead of directing users
-to an upstream image that lacks the policy.
-
-Verification: full store/API/cmd race suites and vet passed; restore/identity-reset
-store tests passed on disposable PostgreSQL 17. A real 2-of-3 capsule round trip
-checks expired ciphertext/Welcome removal and stale-grant retirement. A failed-audit
-injection proves grant invalidation rolls back as a unit. Existing wrong-service,
-wrong-kit and insufficient-share refusals still pass. CI is green through `e4f5caf`:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36366144269
-
-Confirmed whole-profile local-data removal is implemented, including offline.
-Delete every vault entry in one strict IndexedDB transaction; root creation/removal
-uses the existing root lock. All room writes check the root envelope salt inside
-that transaction so delayed encryption cannot resurrect a deleted vault or append
-old entries to a new identity. Broadcast removal to other tabs, cancel pending
-unlocks and clear their UI. Revocation/sign-out remain separate; a replacement
-still needs normal server approval or identity recovery. The confirmation explicitly
-covers loss of pending sends and keys. Ordinary lock still preserves saved data.
-
-Verification: 18 core lifecycle tests, 51 HTTP/UI tests (one intentional duplicate
-engine skip), and eight OIDC tests passed across Chromium/Firefox. New cases cover
-cancel/confirm, offline deletion, other-tab locking, pending text loss, replacement
-remaining pending and a delayed room write racing a newly initialized vault.
-
-CI caught the moved restore command's stale decrypt-guard path. `fc309a0` updates
-only the allowlisted filename to `cmd/server/restore.go`; the sole allowed function
-remains `restore`. Full backup race tests passed after the correction.
-
-Product packaging now uses `kymessages`, `KyMessages` and one shared 0.1.0-dev
-version. Explicit legacy service-name overrides still work for existing recovery
-pins. Compose is a loopback-only source-built SQLite preview; its build overlay
-preserves existing DNS/static-IP chains. CI checks the product image without
-publishing it. The embedded operator console identifies the preview and does not
-include the unaudited encrypted-chat client. `make clean` preserves runtime data
-and backups. README and the restore runbook now describe this product.
-
-Verification: full Go race suite, vet/module verification, seven frontend tests,
-four production-CSP/responsive Chromium cases, dependency checks, CLI/server smoke
-and final container HTTP/assets checks pass. The final container serves the exact
-built frontend bundle and excludes mls-proof. All Compose overlay combinations
-validate. CI is green through `3d26ccc`:
-https://github.com/Busnes-app/KyMessage-Server/actions/runs/36367330888
-
-Next: independent-implementation interop evidence and operational acceptance.
-Production client embedding still requires independent MLS/application-profile
-assessment. KyMessages is not deployed yet, confirmed by the user. Live issuer,
-real supported-browser and constrained-host checks remain open. Reset is not
-lost-history recovery. Never equate prototype test passes with production approval.
-
-DOX updated root, API, config and web contracts for product packaging. Existing
-child indexes and other domain contracts stay unchanged because ownership and
-runtime messaging/backup semantics did not change. Mirror before an actual pause.
-
-Independent-implementation checkpoint: `mls-proof/tests/interop.spec.ts` launches an
-owned loopback OpenMLS fixture and calls pinned grpcurl with JSON on stdin; native
-private response fields are never logged. `proof.interopState` returns only hashes
-of the live authenticator and a fixed-label exporter. The optional suite stays out
-of normal tests/deployment; setup is in `docs/MLS-INTEROP-RESEARCH.md`.
-
-Unmodified OpenMLS 0.9.0 failed on both browsers: its valid advertised future
-protocol version 999 is rejected by ts-mls 1.6.4's closed capability decoder. Keep
-this dependency defect open. The committed `openmls-mls10-only.patch` removes that
-advertisement in the synthetic fixture before signing; it does not modify received
-wire bytes or either cryptographic implementation. With that explicit constraint,
-the full bidirectional lifecycle and live-secret agreement cases pass in Chromium
-and Firefox. All 18 existing lifecycle cases pass. The private HTTP GroupInfo binding
-and independent security assessment remain unverified; this is partial evidence.
-
-Next: persistently expose the latest scheduled/manual backup result. The current
-screen's last remote receipt can conceal a later scheduled failure. Remaining
-client bounds, browser/deployment evidence and measured resource limits also stay
-open. Product packaging CI `e27924f` is green. Root/proof DOX updated; production
-API/store/web contracts remain unchanged in this isolated test slice.
-
-Backup status checkpoint: migration 13 indexes audit action/insertion ID; status
-reads the latest recorded backup attempt from the existing append-only audit log.
-It reports outcome/trigger/time/capsule ID, never raw remote errors. Partial local
-or receipt failures show warnings; legacy records stay unknown. The UI separates
-this result from older successful remote receipts and validates the new fields.
-Backup controls wrap naturally on small screens.
-
-`scripts/backup-acceptance.py` runs the built binary with a minimal environment,
-owned loopback port and disposable SQLite/local directories (~3 minutes). Real
-ticks prove admin schedule override, scheduled local sealing, injected destination
-failure, retry timing, turning the scheduler off, manual runs, product identity,
-0600 copies, pruning and clean shutdown. Only its own scratch last-attempt row is
-aged for the failure case. It uses a public test key, no shares or remote service.
-The check passed and is added to the smoke CI job.
-
-Verification: full store/API/cmd race suites and vet pass; latest-result tests also
-pass on disposable PostgreSQL 17. Nine frontend tests and four production-browser
-cases pass with actual local sealing and responsive screenshots. Generated assets
-are rebuilt. Root/store/API/web/browser DOX updated; other contracts/indexes unchanged.
-CI through `280ebcf` is green. Deployment and independent crypto review remain open.
-Next: local transcript capacity and constrained-host acceptance; do not mistake the
-isolated client's existing bounds for measured small-team capacity.
-
-Recent-history checkpoint: the isolated client keeps newest 256 messages/256 KiB
-of serialized transcript; it drops old cache entries rather than failing the next
-receive. Notices at setup/in-room disclose permanent loss and a persisted counter.
-Ratchets, pending sends/commits, cursors and pins remain unchanged. New inbox copies
-carry sequence IDs so eviction removes copies below the visible transcript floor;
-legacy copies have no sequence and share their own bound. Undated legacy text has
-no expiry timer but shares the capacity policy. Clear-history resets the counter.
-Manual wire replay hashes now roll with a cursor-derived offset; older replays fail.
-
-Verification: 20 manual cases (including 260 actual encrypted messages), 55 HTTP/UI
-cases plus one intentional duplicate-engine skip, and eight OIDC cases pass on
-Chromium/Firefox. Full-cache HTTP coverage seeds only synthetic display history,
-then proves live encrypted receive, pending send, reload and subsequent delivery;
-this is explicitly not a throughput result. JSON-byte tests include escaped control
-characters. Typecheck/build and whitespace checks pass. CI `195f949` is green.
-Proof DOX/product/cache notices updated; production domains/indexes unchanged.
-Next: finish Linux WebKit container evidence, then constrained-host transport/load
-acceptance. Container checks are running separately; no deployed-instance change.
+- All host MLS suites share ports 4178/4179; run sequentially and don't rebuild dist
+  during a suite. Container suites use their own network namespace.
+- Never restore browser MLS state from a server capsule or bypass independent key
+  verification. Keep synthetic test identities separate from live accounts.
+- Preserve explicit legacy `KY_APP_NAME` values for existing recovery pins. No
+  published product image exists; use the source-build Compose overlay for preview.
+- Leave unrelated PostgreSQL containers and runtime data alone. Use owned disposable
+  containers/directories for tests; `make clean` preserves data/backups.
+- Mirror this file and `FIRST-RELEASE-PLAN.md` to shared folder
+  `kymessages-product-definition` using myslop-handoff. Owner `copperfinch`, author
+  note `Usagi / GPT-6 / copperfinch`. On actual handoff release to `open`, owner null.

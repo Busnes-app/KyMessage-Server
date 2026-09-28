@@ -10,6 +10,8 @@ async function click(page: Page, name: string, result: string) {
 async function start(browser: Browser, user: string) {
   const context = await browser.newContext();
   const page = await context.newPage();
+  // Install before navigation: replacing timers after app startup is undefined.
+  await page.clock.install();
   await page.goto('/chat.html');
   await page.getByLabel('Test account',{exact:true}).fill(user);
   await page.getByLabel('Local passphrase').fill(password);
@@ -61,7 +63,6 @@ test('clickable chat: verified invitation, ciphertext retry, durable history, lo
     await verify(bob.page,aliceName,alice.fingerprint);
     await click(alice.page,'Apply verified membership','Verified membership applied');
     await click(bob.page,'Check for messages','Messages checked');
-    await bob.page.clock.install();
     await bob.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     const secret = 'Synthetic <img src=x onerror="alert(1)"> chat message';
     const requests: string[] = [];
@@ -234,7 +235,6 @@ test('a second browser needs fingerprint-checked approval from its existing devi
     await expect(first.page.getByRole('status')).not.toHaveText('Working…');
     await expect(first.page.locator('#account-devices li').filter({hasText:id})).toContainText('revoked');
     await expect(first.page.locator('#send')).toBeDisabled();
-    await second.page.clock.install();
     await second.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await second.page.clock.runFor(10_000);
     await expect(second.page.locator('#room-state')).toContainText('device was revoked');
@@ -561,7 +561,6 @@ test('saved conversations remain readable after removal and a damaged sibling en
     await expect(bob.page.locator('#refresh')).toBeDisabled();
     await click(bob.page,'List saved conversations','Saved conversations listed');
     await click(bob.page,'Open saved Archived team','Saved conversation opened');
-    await bob.page.clock.install();
     await bob.page.clock.runFor(60_000);
     expect(attempts).toEqual([]);
     await click(bob.page,'Lock and disconnect','Device locked');
@@ -628,7 +627,6 @@ for (const joined of [true,false]) test(`expired history requires explicit recov
   const owner = await start(browser,ownerName), member = await start(browser,memberName);
   try {
     // Pause receive timers so this browser really misses the encrypted history.
-    await member.page.clock.install();
     await member.page.clock.pauseAt(new Date());
     await owner.page.getByLabel('Retention for new conversations').selectOption('1');
     await owner.page.getByLabel('New room name').fill('Expiring room');
@@ -699,7 +697,6 @@ test('offline local history expires on its timer and clearing requires confirmat
     await click(page,'Clear saved history in this room','History clearing cancelled');
     await expect(page.locator('#messages')).toContainText('Copy held until its deadline');
     await click(page,'Lock and disconnect','Device locked');
-    await page.clock.install();
     await page.reload();
     await context.setOffline(true);
     const requests: string[] = [];

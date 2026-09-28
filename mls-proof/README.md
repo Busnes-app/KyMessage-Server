@@ -20,7 +20,9 @@ npm test
 On a supported Linux distribution, `npx playwright install --with-deps chromium
 firefox webkit` installs browser prerequisites too. This machine is CachyOS; the
 downloaded Ubuntu WebKit binary cannot start without `libicu74`, `libxml2`, and
-`libflite1`. Run the available subset here with:
+`libflite1`. A supported-container run now exposes an intermittent native Ed25519
+key-generation failure in Linux WebKit; [browser evidence and reproduction](../docs/BROWSER-EVIDENCE.md)
+record the open gate. Safari/iOS remain unverified. Run the verified subset here with:
 
 ```sh
 npm test -- --project=chromium --project=firefox

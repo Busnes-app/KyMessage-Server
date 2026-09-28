@@ -8,6 +8,7 @@ const password = 'disposable MLS HTTP integration passphrase';
 async function device(browser: Browser, name: string, loseEnrollmentReply = false) {
   const context = await browser.newContext();
   const page = await context.newPage();
+  await page.clock.install();
   await page.goto('/');
   await page.waitForFunction(() => Boolean(window.delivery));
   const user = name + '-' + crypto.randomUUID().slice(0,8);
@@ -458,7 +459,6 @@ test('local expiry removes both transcript copies without changing keys or pendi
     expect(before.messages).toHaveLength(2);
     expect(before.inbox).toHaveLength(1);
     const now = Date.now();
-    await bob.page.clock.install();
     await bob.page.clock.setSystemTime(new Date(now+31*86400_000));
     const expired = await bob.page.evaluate(() => window.delivery.status());
     expect(expired).toEqual({...before,messages:[],inbox:[]});
