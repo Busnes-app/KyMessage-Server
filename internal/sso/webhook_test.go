@@ -59,7 +59,12 @@ func scimUser(subject, role string, active bool, revision int64) []byte {
 }
 
 func (d *directory) send(eventType string, body []byte) error {
-	h, err := syncauth.Sign([]byte(webhookSecret), time.Now(), eventType, uuid.NewString(), body)
+	return d.sendID(uuid.NewString(), eventType, body)
+}
+
+// sendID signs a delivery with a given event ID, as KyIdentity's outbox does on every retry.
+func (d *directory) sendID(eventID, eventType string, body []byte) error {
+	h, err := syncauth.Sign([]byte(webhookSecret), time.Now(), eventType, eventID, body)
 	if err != nil {
 		d.t.Fatal(err)
 	}
@@ -203,5 +208,30 @@ func TestDirectoryWebhookCannotResurrectDeletedSubject(t *testing.T) {
 	d.must("user.created", scimUser("kid-erin", "user", true, 4))
 	if d.user("kid-erin") == nil {
 		t.Fatal("a newer creation after deletion was refused")
+	}
+}
+
+// A -1 resend resets the order, so a redelivered copy after a later demotion must not restore
+// the old role, including after a restart. A different restore event still applies.
+func TestDirectoryWebhookAppliesEachRestoreEventOnce(t *testing.T) {
+	d := newDirectory(t)
+	d.must("user.created", scimUser("kid-gail", "user", true, 5))
+	restore := uuid.NewString()
+	if err := d.sendID(restore, "user.updated", scimUser("kid-gail", "admin", true, -1)); err != nil {
+		t.Fatal(err)
+	}
+	d.must("user.updated", scimUser("kid-gail", "user", true, 1)) // demotion after the restore
+	d.restart()
+	if err := d.sendID(restore, "user.updated", scimUser("kid-gail", "admin", true, -1)); err != nil {
+		t.Fatalf("a duplicate must still be acknowledged: %v", err)
+	}
+	if u := d.user("kid-gail"); u.Role != "user" {
+		t.Fatalf("a redelivered restore event undid the demotion: %+v", u)
+	}
+	if err := d.sendID(uuid.NewString(), "user.updated", scimUser("kid-gail", "admin", true, -1)); err != nil {
+		t.Fatal(err)
+	}
+	if u := d.user("kid-gail"); u.Role != "admin" {
+		t.Fatalf("a new restore event was refused: %+v", u)
 	}
 }

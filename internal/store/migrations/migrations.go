@@ -231,7 +231,8 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	// must survive deletion, or a replayed older update could recreate the account.
 	{Version: 15, Name: "directory_sync_order", SQLite: directorySyncStateSchema, Postgres: directorySyncStateSchema},
 	// KyIdentity orders directory updates by a per-user revision, not a timestamp. Stored
-	// timestamps would outrank every revision, so they are discarded.
+	// timestamps would outrank every revision, so they are discarded. directory_sync_resets
+	// remembers every applied post-restore (-1) event, which resets the order, so none applies twice.
 	{Version: 16, Name: "directory_sync_revision", SQLite: directorySyncRevision, Postgres: directorySyncRevision},
 }
 
@@ -356,4 +357,9 @@ CREATE TABLE directory_sync_state (
 const directorySyncRevision = `
 DELETE FROM directory_sync_state;
 ALTER TABLE directory_sync_state RENAME COLUMN synced_at TO revision;
+CREATE TABLE directory_sync_resets (
+    provider VARCHAR(32) NOT NULL,
+    event_id VARCHAR(255) NOT NULL,
+    PRIMARY KEY (provider, event_id)
+);
 `

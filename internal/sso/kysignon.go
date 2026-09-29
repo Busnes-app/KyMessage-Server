@@ -120,12 +120,13 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, headers syncauth
 		return ErrSyncMalformed
 	}
 	revision, _ := strconv.ParseInt(match[1], 10, 64)
+	ev := store.DirectoryEvent{ID: event.ID, Revision: revision}
 
 	k.syncMu.Lock()
 	defer k.syncMu.Unlock()
 	switch event.Type {
 	case "user.created", "user.updated", "user.mfa_reset":
-		return k.upsertDirectoryUser(ctx, user, revision)
+		return k.upsertDirectoryUser(ctx, user, ev)
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -136,13 +137,13 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, headers syncauth
 		if err != nil {
 			return err
 		}
-		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, revision)
+		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, ev)
 		return err
 	}
 	return nil // other event types (groups) are not for this product
 }
 
-func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, revision int64) error {
+func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent) error {
 	// KyIdentity sends this app's roles when it defines any, else the user's global role.
 	role := "user"
 	if primaryValue(in.Roles) == "admin" {
@@ -163,7 +164,7 @@ func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUs
 		_, err = k.store.Users().CreateDirectoryUser(ctx, &store.User{
 			ID: fmt.Sprintf("usr_%s", crypto.RandomHex(12)), Username: in.UserName, Email: email,
 			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kysignon", SSOSubject: in.ID,
-		}, revision)
+		}, ev)
 		return err
 	}
 	if err != nil {
@@ -171,7 +172,7 @@ func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUs
 	}
 	updated := *existing
 	updated.Username, updated.Email, updated.DisplayName, updated.Role, updated.Status = in.UserName, email, displayName, role, status
-	applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, revision)
+	applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, ev)
 	if err != nil || !applied {
 		return err
 	}
