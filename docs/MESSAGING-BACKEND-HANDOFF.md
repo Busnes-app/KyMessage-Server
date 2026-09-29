@@ -24,7 +24,7 @@ passes with production E2EE approval.
   deleted/replaced entries. Recent display history rolls at 256 entries/256 KiB;
   eviction is permanent and visible, with keys/pending traffic retained.
 - Cookie-mode WebSocket wakeups lead to durable HTTP reads; polling is fallback.
-  Server retention (1/7/30 days), local expiry, explicit gap recovery, rejoin,
+  Server retention (Off/1/7/30/90 days, owner-changeable), local expiry, explicit gap recovery, rejoin,
   device/account removal and safe local Markdown are implemented and tested.
 - SQLite capsule restore prunes expiry, invalidates grants and retires restored
   rooms. Fresh identities/new rooms avoid stale MLS rollback. Scheduled/local

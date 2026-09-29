@@ -221,11 +221,10 @@ and verify clock alignment; the consumer intentionally gives no clock-skew grace
 
 #### Retention and server backups
 
-The backend now defaults to 30-day ciphertext retention, with 24-hour and 7-day
-policies chosen at room creation. Room policy is immutable in this version; a new
-policy needs a new room. Expired ciphertext and Welcome data leave active fetches;
-retry hashes, sequence metadata and audits have separate lifetimes. Startup and
-periodic sweeps are implemented. The isolated client persists gaps and requires
+The backend defaults to 90-day ciphertext retention; rooms choose Off, 1, 7, 30 or
+90 days at creation, and the owner or a direct peer can change it later (shortening
+purges at once). A purge deletes expired events, Welcomes, retry receipts and event
+audit rows; startup and periodic sweeps are implemented. The isolated client persists gaps and requires
 explicit verified reinvitation. New local transcript/inbox copies expire on room
 access and unlocked timers, including offline. The isolated client keeps only the
 newest 256 messages or 256 KiB of serialized transcript per room, whichever fills
@@ -364,7 +363,7 @@ Measure binary/image size; remove the unverified less-than-35-MB promise.
 
 The recommended defaults are: one organization per deployment; KyIdentity-only
 member login; no anonymous guests; visible device approval; no historical key escrow;
-30-day ciphertext retention; SQLite for the first supported deployment. Validate
+90-day default ciphertext retention; SQLite for the first supported deployment. Validate
 these with the pilot team, especially the loss-of-all-devices experience.
 
 The base currently has local administrator login. Decide and test an operator-only

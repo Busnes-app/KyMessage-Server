@@ -38,6 +38,7 @@ func (s *Server) messagingRoutes() {
 	s.mux.HandleFunc("POST /api/messaging/devices/{device}/approve", s.requireMessaging(s.handleMessagingApprove))
 	s.mux.HandleFunc("DELETE /api/messaging/devices/{device}", s.requireMessaging(s.handleMessagingRevoke))
 	s.mux.HandleFunc("POST /api/messaging/rooms", s.requireMessaging(s.handleMessagingCreateRoom))
+	s.mux.HandleFunc("PATCH /api/messaging/rooms/{room}", s.requireMessaging(s.handleMessagingSetRetention))
 	s.mux.HandleFunc("GET /api/messaging/rooms", s.requireMessaging(s.handleMessagingRooms))
 	s.mux.HandleFunc("GET /api/messaging/rooms/{room}/members", s.requireMessaging(s.handleMessagingMembers))
 	s.mux.HandleFunc("POST /api/messaging/rooms/{room}/members", s.requireMessaging(s.handleMessagingInvite))
@@ -242,11 +243,35 @@ func messagingUserID(id string) bool {
 	return len(id) > 0 && len(id) <= 64 && !strings.ContainsFunc(id, unicode.IsControl)
 }
 
+func messagingRetention(days int64) bool {
+	return days == 0 || days == 1 || days == 7 || days == 30 || days == 90
+}
+
+func (s *Server) handleMessagingSetRetention(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
+	var request struct {
+		RetentionDays *int64 `json:"retention_days"`
+	}
+	if !s.messagingJSON(w, r, &request) {
+		return
+	}
+	if request.RetentionDays == nil || !messagingRetention(*request.RetentionDays) {
+		s.writeError(w, http.StatusBadRequest, "Retention must be 0 (off), 1, 7, 30 or 90 days")
+		return
+	}
+	room := r.PathValue("room")
+	if err := s.store.Messaging().SetRoomRetention(r.Context(), actor, room, *request.RetentionDays); err != nil {
+		s.messagingError(w, err)
+		return
+	}
+	s.wakeMessaging(room)
+	s.writeJSON(w, http.StatusOK, map[string]any{"retention_days": *request.RetentionDays})
+}
+
 func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
 	var request struct {
 		Name          string `json:"name"`
 		PeerUserID    string `json:"peer_user_id"`
-		RetentionDays int64  `json:"retention_days"`
+		RetentionDays *int64 `json:"retention_days"`
 	}
 	if !s.messagingJSON(w, r, &request) {
 		return
@@ -259,14 +284,15 @@ func (s *Server) handleMessagingCreateRoom(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, http.StatusBadRequest, "Valid peer account ID required")
 		return
 	}
-	if request.RetentionDays == 0 {
-		request.RetentionDays = 30
+	days := int64(90)
+	if request.RetentionDays != nil {
+		days = *request.RetentionDays
 	}
-	if request.RetentionDays != 1 && request.RetentionDays != 7 && request.RetentionDays != 30 {
-		s.writeError(w, http.StatusBadRequest, "Retention must be 1, 7 or 30 days")
+	if !messagingRetention(days) {
+		s.writeError(w, http.StatusBadRequest, "Retention must be 0 (off), 1, 7, 30 or 90 days")
 		return
 	}
-	room := store.MessagingRoom{ID: uuid.NewString(), Name: request.Name, OwnerID: actor.UserID, CreatedAt: time.Now().Unix(), Membership: "active", PeerUserID: request.PeerUserID, RetentionDays: request.RetentionDays}
+	room := store.MessagingRoom{ID: uuid.NewString(), Name: request.Name, OwnerID: actor.UserID, CreatedAt: time.Now().Unix(), Membership: "active", PeerUserID: request.PeerUserID, RetentionDays: days}
 	if err := s.store.Messaging().CreateRoom(r.Context(), actor, room); err != nil {
 		s.messagingError(w, err)
 		return

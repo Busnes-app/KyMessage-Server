@@ -25,8 +25,7 @@ Cookie writes also require the base's CSRF cookie/header pair. When supplied,
 Origin must match `KY_APP_URL`. Authenticated messaging responses use `no-store`.
 Account budgets are separate: 2,400 GET requests/minute and 120 write requests/minute,
 with enrollment additionally limited to 10 requests/5 minutes and event appends to
-5,000 per account per 24 hours, because event metadata outlives ciphertext retention
-and fills the backup capsule. Declared epochs have no fixed ceiling; the store's
+5,000 per account per 24 hours, because event metadata fills the backup capsule until purged. Declared epochs have no fixed ceiling; the store's
 current-epoch check bounds them. Receiving traffic
 cannot consume the write budget. These limits use the base's process-local limiter;
 WebSocket admission also has per-account/server connection caps. The transport
@@ -171,6 +170,7 @@ unless marked 201. All routes require the suite session described above.
 | GET `/recovery-auth/callback?state=…&code=…` | Authentication result or reset receipt above | Original suite session; fresh signed OIDC evidence and unchanged device registry |
 | POST `/devices/key-packages` | `{payload,expires_at}` → `{package_id,expires_at}` | Approved publishing device |
 | POST `/rooms` | `{name,peer_user_id?,retention_days?}` → 201 room | Approved device |
+| PATCH `/rooms/{room}` | `{retention_days}` → `{retention_days}` | Approved device; owner (current generation) or direct peer |
 | GET `/rooms?offset=0` | `{rooms:[...]}` | Approved device; own invited/active memberships only |
 | GET `/rooms/{room}/members` | `{members:[{user_id,status,identity_generation,current_identity_generation}]}` | Approved device and active membership |
 | POST `/rooms/{room}/members` | `{user_id}` → `{invited:true}` | Approved device and room ownership |
@@ -365,7 +365,7 @@ below preserves the same store checks; no mobile push is implemented.
 
 Event POST bodies are capped at 768 KiB; payload and individual Welcome values are
 canonical standard base64 of 1–65,536 bytes each. Their aggregate encoded size is
-at most 512 KiB. Each room retains at most 4,096 nonexpired events and 32 MiB of
+at most 512 KiB. Each room retains at most 100,000 active events and 512 MiB of
 encoded payload plus Welcome data. The cap includes commits and returns 409 without
 evicting unexpired state. Retry receipt metadata has a separate lifetime cap of
 1,000,000 accepted events per room; reaching it requires a new room. These are
@@ -373,24 +373,29 @@ bounded prototype defaults pending workload measurements, not measured capacity.
 
 ### Ciphertext retention
 
-Migration 12 adds immutable `retention_days` at room creation: 1, 7 or 30; omitted
-or zero selects 30. Existing rooms get 30 days and existing event expiries derive
-from their original creation time. This policy applies to both application events
-and MLS control/Welcome material. Delivery state exposes `retention_days` and
-`retained_from`; event responses expose Unix-second `expires_at`. Expiry remains
+Retention is 0 (Off), 1, 7, 30 or 90 days, default 90: omitting `retention_days`
+selects 90 and an explicit 0 means Off. Other values return 400. It applies to
+application events and MLS control/Welcome material. Delivery state exposes
+`retention_days` and `retained_from`. Event `expires_at` is Unix-second
+`created_at` plus the window and is absent when retention is Off. Expiry remains
 ordered if the server clock moves backward, so a missing prefix cannot masquerade
-as a complete transcript. Changing a room's policy requires creating a new room.
+as a complete transcript.
 
-Room operations clear expired payloads and Welcomes under the same room lock;
+The owner (current identity generation) or a direct-room peer can change the
+policy at any time with `PATCH /rooms/{room}`; other members get 403, non-members
+404. Shortening purges at once. A purge deletes, as a prefix, event rows, Welcomes,
+retry receipts and `messaging.event_accepted` audit rows; `retained_from` stays the
+floor. A retry of a purged event appends again, so clients drop pending sends older
+than the window.
+
+Room operations purge expired events under the same room lock;
 `store.Open` sweeps before returning, and the daemon sweeps idle rooms each minute.
 Sweeps use per-room transactions and a 30-second background deadline, then retry
 on the next tick. An operation that returns an error can roll back its incidental
 cleanup, but cannot return expired ciphertext; the independent sweep clears it.
 
-Keep event IDs, request hashes, sequence/epoch/roster metadata and timestamps after
-payload expiry. Exact retries still return the original receipt; changing their
-bytes still conflicts. Retention does not mean those metadata, audit records or
-backup copies disappear. Logical removal is not guaranteed physical disk erasure.
+Backup copies are not purged, and logical removal is not guaranteed physical disk
+erasure.
 
 An authorized cursor behind an expired prefix returns 410 with
 `{code:"history_expired",error:...}`. Never advance a client ratchet past that gap.
@@ -489,7 +494,7 @@ The response is `no-store`, with a five-second query deadline:
 {
   "room_count": 1,
   "totals": {"active_events": 12, "retained_bytes": 4096, "receipts": 20},
-  "limits": {"active_events": 4096, "retained_bytes": 33554432, "receipts": 1000000},
+  "limits": {"active_events": 100000, "retained_bytes": 536870912, "receipts": 1000000},
   "rooms": [{"id": "room-id", "name": "Team", "retired": false, "active_events": 12, "retained_bytes": 4096, "receipts": 20}],
   "sampled_at": "2026-09-27T12:00:00Z"
 }
@@ -506,4 +511,4 @@ the displayed byte limit is reached. No message bodies, device keys or membershi
 lists appear here. Failed reads are errors, not invented empty storage.
 
 The admin overview renders these values with an explicit refresh and room limits.
-It does not add message deletion, retention-policy changes or cryptographic access.
+It does not add message deletion or cryptographic access.
