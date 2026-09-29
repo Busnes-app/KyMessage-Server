@@ -367,8 +367,8 @@ Event POST bodies are capped at 768 KiB; payload and individual Welcome values a
 canonical standard base64 of 1–65,536 bytes each. Their aggregate encoded size is
 at most 512 KiB. Each room retains at most 100,000 active events and 512 MiB of
 encoded payload plus Welcome data. The cap includes commits and returns 409 without
-evicting unexpired state. Retry receipt metadata has a separate lifetime cap of
-1,000,000 accepted events per room; reaching it requires a new room. These are
+evicting unexpired state. The lifetime append counter (`sequence`) is capped at
+1,000,000 per room; reaching it requires a new room. Receipts are purged with their events. These are
 bounded prototype defaults pending workload measurements, not measured capacity.
 
 ### Ciphertext retention
@@ -504,9 +504,9 @@ Global totals and the first 100 rooms come from one room-metadata statement.
 Rooms at 80% of any limit appear first, then the largest stored ciphertext sizes.
 Counts include retired rooms and expired data awaiting cleanup; this GET does not
 run cleanup. Active events include commits. Stored bytes count encoded ciphertext
-and Welcomes, not database indexes, audits, backups, or recipient copies. Lifetime
-receipts survive expiry to preserve exact-retry behavior; reaching that limit
-requires a new room. A next event can exceed the remaining byte allowance before
+and Welcomes, not database indexes, audits, backups, or recipient copies. `receipts` is the room's lifetime
+append counter (`sequence`), not a stored-row count; purged events still count toward
+its 1,000,000 limit, and reaching it requires a new room. A next event can exceed the remaining byte allowance before
 the displayed byte limit is reached. No message bodies, device keys or membership
 lists appear here. Failed reads are errors, not invented empty storage.
 

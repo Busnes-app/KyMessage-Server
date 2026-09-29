@@ -32,9 +32,9 @@ prototype test is not production approval.
 3. **Live delivery and retention — implemented in the isolated prototype.** Authenticated WebSocket wakeups
    now back the cookie-mode prototype with durable HTTP cursor reads. Origin checks,
    session/device revocation, connection quotas, shutdown and reconnect are tested.
-   Foreground polling remains fallback. Server retention now clears expired ciphertext
-   and Welcomes on access, startup and periodic sweeps; missed prefixes return 410
-   and retry receipts survive cleanup. The client offers retention policy at creation,
+   Foreground polling remains fallback. Server retention now purges expired events,
+   Welcomes, retry receipts and event audit rows on access, startup and periodic
+   sweeps; missed prefixes return 410. The client offers retention policy at creation,
    persists missing/rollback gaps and pauses until explicit verified recovery.
    Chromium/Firefox drills cover expired initial Welcomes and established sessions.
    New local transcript/inbox copies now expire on room access and unlocked timers,
@@ -134,7 +134,7 @@ Operator storage evidence: the admin overview now reads `/api/admin/messaging/us
 for global totals and up to 100 rooms, prioritizing 80%-of-limit rooms. A single
 metadata SELECT keeps totals consistent with a truncated list; it neither scans
 ciphertext nor performs cleanup. Shared constants keep append limits and reporting
-aligned. Counts include retired rooms and pending cleanup; receipts remain distinct
+aligned. Counts include retired rooms and pending cleanup; receipts (the lifetime append counter) are distinct
 from retained data and physical disk use. SQLite/PostgreSQL tests cover access,
 bounds, priority and actual retention rows. Full store/API race suites and vet pass;
 15 frontend tests and four production-CSP responsive browser cases pass.
