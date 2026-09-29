@@ -68,7 +68,7 @@ func TestMessagingRetentionHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.ExecContext(context.Background(), `UPDATE messaging_events SET expires_at = 1`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `UPDATE messaging_events SET created_at = created_at - 400*86400`); err != nil {
 		t.Fatal(err)
 	}
 	w := messagingRequest(t, srv, "GET", "/api/messaging/rooms", session, d.Token, nil)

@@ -3,8 +3,8 @@ package store
 import "context"
 
 const (
-	MessagingActiveEventLimit  = 4096
-	MessagingRetainedByteLimit = 32 * 1024 * 1024
+	MessagingActiveEventLimit  = 100_000
+	MessagingRetainedByteLimit = 512 << 20
 	MessagingReceiptLimit      = 1_000_000
 )
 

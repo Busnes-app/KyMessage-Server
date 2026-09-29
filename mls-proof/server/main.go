@@ -85,7 +85,7 @@ func serve() error {
 				http.Error(w, "invalid room", 400)
 				return
 			}
-			if _, err := aging.ExecContext(r.Context(), "UPDATE messaging_events SET expires_at = 1 WHERE room_id = ?", room); err != nil {
+			if _, err := aging.ExecContext(r.Context(), "UPDATE messaging_events SET created_at = created_at - 400*86400 WHERE room_id = ?", room); err != nil {
 				http.Error(w, "fixture aging failed", 500)
 				return
 			}

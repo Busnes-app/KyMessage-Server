@@ -287,9 +287,6 @@ func (m *messagingStore) invite(ctx context.Context, tx *sql.Tx, actor Messaging
 }
 
 func (m *messagingStore) CreateRoom(ctx context.Context, actor MessagingActor, room MessagingRoom) error {
-	if room.RetentionDays == 0 {
-		room.RetentionDays = 30
-	}
 	return m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
 		if room.PeerUserID != "" {
 			if room.PeerUserID == actor.UserID {

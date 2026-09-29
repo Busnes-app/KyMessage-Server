@@ -9,36 +9,44 @@ import (
 
 var ErrMessagingHistoryGone = errors.New("required encrypted history expired")
 
-// The caller holds the room row lock. Keep receipt hashes and sequence metadata:
-// an expired accepted event must never become a new append on an exact retry.
-func (m *messagingStore) expireRoom(ctx context.Context, tx *sql.Tx, room string, now int64) error {
-	var bytes, last int64
-	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(SUM(LENGTH(payload)), 0), COALESCE(MAX(sequence), 0) FROM messaging_events WHERE room_id = ? AND expires_at <= ? AND payload <> ''`), room, now).Scan(&bytes, &last); err != nil {
+// purgeRoom deletes the room's events older than its retention window: rows, Welcomes and
+// their per-event audit rows. created_at is monotonic per room, so this is a sequence prefix
+// and retained_from stays an exact floor. The caller holds the room row lock.
+func (m *messagingStore) purgeRoom(ctx context.Context, tx *sql.Tx, room string, now int64) error {
+	var days int64
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT retention_days FROM messaging_rooms WHERE id = ?`), room).Scan(&days); err != nil || days == 0 {
 		return err
 	}
-	if last == 0 {
-		return nil
+	cutoff := now - days*86400
+	var last, bytes int64
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(MAX(sequence), 0), COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_events WHERE room_id = ? AND created_at <= ?`), room, cutoff).Scan(&last, &bytes); err != nil || last == 0 {
+		return err
 	}
 	var welcomes int64
-	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(SUM(LENGTH(w.payload)), 0) FROM messaging_welcomes w JOIN messaging_events e ON e.room_id = w.room_id AND e.sequence = w.sequence WHERE e.room_id = ? AND e.expires_at <= ?`), room, now).Scan(&welcomes); err != nil {
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_welcomes WHERE room_id = ? AND sequence <= ?`), room, last).Scan(&welcomes); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, m.store.rebind(`DELETE FROM messaging_welcomes WHERE room_id = ? AND sequence IN (SELECT sequence FROM messaging_events WHERE room_id = ? AND expires_at <= ?)`), room, room, now); err != nil {
-		return err
+	for _, q := range []string{
+		`DELETE FROM messaging_welcomes WHERE room_id = ? AND sequence <= ?`,
+		`DELETE FROM messaging_events WHERE room_id = ? AND sequence <= ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(q), room, last); err != nil {
+			return err
+		}
 	}
-	if _, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_events SET payload = '' WHERE room_id = ? AND expires_at <= ? AND payload <> ''`), room, now); err != nil {
+	if _, err := tx.ExecContext(ctx, m.store.rebind(`DELETE FROM audit_records WHERE action = 'messaging.event_accepted' AND resource = ? AND created_at <= ?`), room, time.Unix(cutoff, 0).UTC()); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_rooms SET retained_bytes = retained_bytes - ?, retained_from = CASE WHEN retained_from < ? THEN ? ELSE retained_from END WHERE id = ?`), bytes+welcomes, last+1, last+1, room)
 	return err
 }
 
-// ExpireMessages clears expired ciphertext and Welcomes in short per-room
-// transactions. Active fetches enforce expiry independently of this sweep.
+// ExpireMessages purges every room with events past its window, in short per-room
+// transactions. Room operations also purge under their own lock.
 func (m *messagingStore) ExpireMessages(ctx context.Context) error {
-	now := time.Now().Unix()
 	for {
-		rows, err := m.store.db.QueryContext(ctx, m.store.rebind(`SELECT DISTINCT room_id FROM messaging_events WHERE expires_at <= ? AND payload <> '' LIMIT 100`), now)
+		now := time.Now().Unix()
+		rows, err := m.store.db.QueryContext(ctx, m.store.rebind(`SELECT r.id FROM messaging_rooms r WHERE r.retention_days > 0 AND EXISTS (SELECT 1 FROM messaging_events e WHERE e.room_id = r.id AND e.created_at <= ? - r.retention_days * 86400) LIMIT 100`), now)
 		if err != nil {
 			return err
 		}
@@ -54,20 +62,18 @@ func (m *messagingStore) ExpireMessages(ctx context.Context) error {
 			err = rows.Err()
 		}
 		rows.Close()
-		if err != nil {
+		if err != nil || len(rooms) == 0 {
 			return err
 		}
-		if len(rooms) == 0 {
-			return nil
-		}
 		for _, room := range rooms {
-			if err := m.expireRoomTransaction(ctx, room, now); err != nil {
+			if err := m.purgeOne(ctx, room, now); err != nil {
 				return err
 			}
 		}
 	}
 }
-func (m *messagingStore) expireRoomTransaction(ctx context.Context, room string, now int64) error {
+
+func (m *messagingStore) purgeOne(ctx context.Context, room string, now int64) error {
 	tx, err := m.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -80,7 +86,7 @@ func (m *messagingStore) expireRoomTransaction(ctx context.Context, room string,
 		}
 		return err
 	}
-	if err := m.expireRoom(ctx, tx, room, now); err != nil {
+	if err := m.purgeRoom(ctx, tx, room, now); err != nil {
 		return err
 	}
 	return tx.Commit()

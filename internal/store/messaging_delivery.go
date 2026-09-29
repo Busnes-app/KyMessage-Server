@@ -56,7 +56,7 @@ func (m *messagingStore) deliveryState(ctx context.Context, tx *sql.Tx, actor Me
 	if member != 1 {
 		return state, "", 0, ErrNotFound
 	}
-	if err := m.expireRoom(ctx, tx, room, time.Now().Unix()); err != nil {
+	if err := m.purgeRoom(ctx, tx, room, time.Now().Unix()); err != nil {
 		return state, "", 0, err
 	}
 	var committed, owner string
@@ -204,25 +204,21 @@ func (m *messagingStore) AppendEvent(ctx context.Context, actor MessagingActor, 
 		for _, welcome := range input.Welcomes {
 			size += int64(len(welcome))
 		}
-		// Bound active ciphertext separately from permanent retry receipts.
-		var active int
-		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_events WHERE room_id = ? AND payload <> ''`), room).Scan(&active); err != nil {
-			return err
-		}
-		if active >= MessagingActiveEventLimit || state.Sequence >= MessagingReceiptLimit || retained+size > MessagingRetainedByteLimit {
+		// The ordered retained prefix makes sequence - retained_from + 1 the active count.
+		if state.Sequence-state.RetainedFrom+1 >= MessagingActiveEventLimit || state.Sequence >= MessagingReceiptLimit || retained+size > MessagingRetainedByteLimit {
 			return ErrMessagingLimit
 		}
 		now := time.Now().Unix()
-		expires := now + state.RetentionDays*86400
-		var previousExpiry int64
-		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(MAX(expires_at), 0) FROM messaging_events WHERE room_id = ? AND sequence = ?`), room, state.Sequence).Scan(&previousExpiry); err != nil {
+		// Keep created_at monotonic per room if the wall clock moves back, so a purge by
+		// age is always a sequence prefix.
+		var lastCreated int64
+		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(MAX(created_at), 0) FROM messaging_events WHERE room_id = ? AND sequence = ?`), room, state.Sequence).Scan(&lastCreated); err != nil {
 			return err
 		}
-		// Keep expiry ordered if the wall clock moves back.
-		if expires < previousExpiry {
-			expires = previousExpiry
+		if now < lastCreated {
+			now = lastCreated
 		}
-		_, err = tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_events (room_id, sequence, device_id, event_id, kind, epoch, roster_hash, payload, request_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), room, receipt.Sequence, device, input.ID, input.Kind, receipt.Epoch, input.RosterHash, input.Payload, requestHash, now, expires)
+		_, err = tx.ExecContext(ctx, m.store.rebind(`INSERT INTO messaging_events (room_id, sequence, device_id, event_id, kind, epoch, roster_hash, payload, request_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), room, receipt.Sequence, device, input.ID, input.Kind, receipt.Epoch, input.RosterHash, input.Payload, requestHash, now)
 		if err != nil {
 			return err
 		}
@@ -282,7 +278,7 @@ func (m *messagingStore) ReadEvents(ctx context.Context, actor MessagingActor, r
 		if page.Next < prior.joined-1 {
 			page.Next = prior.joined - 1
 		}
-		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT e.sequence, e.device_id, e.event_id, e.kind, e.epoch, e.roster_hash, e.payload, e.created_at, e.expires_at, COALESCE(w.payload, '') FROM messaging_events e LEFT JOIN messaging_welcomes w ON w.room_id = e.room_id AND w.sequence = e.sequence AND w.device_id = ? WHERE e.room_id = ? AND e.sequence > ? AND e.payload <> '' ORDER BY e.sequence LIMIT 50`), device, room, page.Next)
+		rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT e.sequence, e.device_id, e.event_id, e.kind, e.epoch, e.roster_hash, e.payload, e.created_at, COALESCE(w.payload, '') FROM messaging_events e LEFT JOIN messaging_welcomes w ON w.room_id = e.room_id AND w.sequence = e.sequence AND w.device_id = ? WHERE e.room_id = ? AND e.sequence > ? ORDER BY e.sequence LIMIT 50`), device, room, page.Next)
 		if err != nil {
 			return err
 		}
@@ -290,8 +286,11 @@ func (m *messagingStore) ReadEvents(ctx context.Context, actor MessagingActor, r
 		size := 0
 		for rows.Next() {
 			var e MessagingEvent
-			if err := rows.Scan(&e.Sequence, &e.DeviceID, &e.ID, &e.Kind, &e.Epoch, &e.RosterHash, &e.Payload, &e.CreatedAt, &e.ExpiresAt, &e.Welcome); err != nil {
+			if err := rows.Scan(&e.Sequence, &e.DeviceID, &e.ID, &e.Kind, &e.Epoch, &e.RosterHash, &e.Payload, &e.CreatedAt, &e.Welcome); err != nil {
 				return err
+			}
+			if state.RetentionDays > 0 {
+				e.ExpiresAt = e.CreatedAt + state.RetentionDays*86400
 			}
 			size += len(e.Payload) + len(e.Welcome)
 			if size > 1024*1024 && len(page.Events) > 0 {

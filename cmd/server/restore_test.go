@@ -53,7 +53,7 @@ func sealFixture(t *testing.T, service string) (string, []string) {
 		`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('old-device','alice','old','synthetic-public-key','approved','','',1,'old-device-token',1,1)`,
 		`INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes) VALUES ('old-room','old','alice',1,1,1,8)`,
 		`INSERT INTO messaging_members (room_id,user_id,status,generation) VALUES ('old-room','alice','active',1)`,
-		`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at,expires_at) VALUES ('old-room',1,'old-device','old-event','commit',1,'synthetic','b2xk','synthetic',1,1)`,
+		`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES ('old-room',1,'old-device','old-event','commit',1,'synthetic','b2xk','synthetic',1)`,
 		`INSERT INTO messaging_welcomes (room_id,sequence,device_id,payload) VALUES ('old-room',1,'old-device','b2xk')`,
 	} {
 		if _, err := db.Exec(query); err != nil {
