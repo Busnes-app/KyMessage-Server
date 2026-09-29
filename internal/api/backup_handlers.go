@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -509,6 +510,14 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 		out["recovery_key_error"] = "recovery.pub does not match the pinned key ID"
 	case recoveryclient.HasPairing(settings):
 		out["recovery_key_error"] = "paired, but recovery.pub is missing; restore it or re-pair"
+	case !errors.Is(err, recoveryclient.ErrNotPaired):
+		out["recovery_key_error"] = "the pinned recovery key could not be read"
+	default:
+		// A failed write can leave the key file without its record. It still refuses other
+		// keys, so an unexplained "not pinned" would hide why a pin attempt gets 409.
+		if _, statErr := os.Stat(recoveryclient.RecoveryKeyPath(s.config.Database.DataDir)); statErr == nil {
+			out["recovery_key_error"] = "recovery.pub is on disk but its pin was not recorded; pin or pair again with the same key to finish it"
+		}
 	}
 	if last, ok, err := recoveryclient.LastDeposit(settings); err == nil && ok {
 		out["last_deposit"] = last

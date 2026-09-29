@@ -227,6 +227,9 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 12, Name: "messaging_retention", SQLite: messagingRetentionSchema, Postgres: messagingRetentionSchema},
 	{Version: 13, Name: "audit_latest_action", SQLite: `CREATE INDEX idx_audit_action_id ON audit_records(action, id);`, Postgres: `CREATE INDEX idx_audit_action_id ON audit_records(action, id);`},
 	{Version: 14, Name: "pairing_secret_only", SQLite: pairingSecretOnlySQLite, Postgres: pairingSecretOnlyPostgres},
+	// The newest directory-webhook update applied per subject. It is not a users column: it
+	// must survive deletion, or a replayed older update could recreate the account.
+	{Version: 15, Name: "directory_sync_order", SQLite: directorySyncStateSchema, Postgres: directorySyncStateSchema},
 }
 
 // Run executes all pending migrations for the specified database driver.
@@ -336,4 +339,13 @@ CREATE TABLE device_pairings (
     authenticated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX idx_pairings_expires ON device_pairings(expires_at);
+`
+
+const directorySyncStateSchema = `
+CREATE TABLE directory_sync_state (
+    provider VARCHAR(32) NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    synced_at BIGINT NOT NULL,
+    PRIMARY KEY (provider, subject)
+);
 `

@@ -120,3 +120,113 @@ func TestSAMLServiceProvider(t *testing.T) {
 	}
 
 }
+
+// A captured or delayed delivery must not undo a later one, even after a restart: replaying an
+// old promotion after a demotion would restore admin.
+func TestKySignOnWebhookIgnoresReplayAndStaleUpdates(t *testing.T) {
+	st, err := store.Open(context.Background(), testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const secret = "webhook-secret"
+	cfg := config.SSOConfig{KySignOnHMACSecret: secret}
+	sign := func(subject, role string, ts int64) ([]byte, string) {
+		body, _ := json.Marshal(sso.KySignOnSyncPayload{Event: "user.updated", ID: subject, Username: subject, Role: role, Status: "active", Timestamp: ts})
+		return body, crypto.ComputeHMACSHA256(body, secret)
+	}
+	deliver := func(client *sso.KySignOnClient, body []byte, sig string) {
+		t.Helper()
+		if err := client.HandleSyncWebhook(context.Background(), body, sig); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roleOf := func(subject string) string {
+		t.Helper()
+		u, err := st.Users().GetUserBySSO(context.Background(), "kysignon", subject)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u.Role
+	}
+	now := time.Now().Unix()
+
+	client := sso.NewKySignOnClient(cfg, st)
+	promote, promoteSig := sign("carol", "admin", now-2)
+	deliver(client, promote, promoteSig)
+	demote, demoteSig := sign("carol", "user", now-1)
+	deliver(client, demote, demoteSig)
+	// A restarted process keeps the order, because it lives with the user row.
+	restarted := sso.NewKySignOnClient(cfg, st)
+	deliver(restarted, promote, promoteSig)
+	delayed, delayedSig := sign("carol", "admin", now-3)
+	deliver(restarted, delayed, delayedSig)
+	if got := roleOf("carol"); got != "user" {
+		t.Fatalf("role is %q after replayed and stale promotions, want user", got)
+	}
+
+	// Same-second updates cannot be ordered, so a tie may only lower privilege, in either
+	// delivery order.
+	for _, order := range [][2]string{{"admin", "user"}, {"user", "admin"}} {
+		subject := "dave-" + order[0]
+		base, baseSig := sign(subject, "user", now-10)
+		deliver(client, base, baseSig)
+		for _, role := range order {
+			body, sig := sign(subject, role, now)
+			deliver(client, body, sig)
+		}
+		if got := roleOf(subject); got != "user" {
+			t.Errorf("same-second updates delivered as %v left role %q, want user", order, got)
+		}
+	}
+	later, laterSig := sign("dave-admin", "admin", now+1)
+	deliver(client, later, laterSig)
+	if got := roleOf("dave-admin"); got != "admin" {
+		t.Fatalf("a strictly newer promotion was refused: %q", got)
+	}
+}
+
+// Deleting an account must not delete its ordering record: a superseded creation or update,
+// replayed later or after a restart, would otherwise bring the account back.
+func TestKySignOnWebhookCannotResurrectDeletedSubject(t *testing.T) {
+	st, err := store.Open(context.Background(), testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const secret = "webhook-secret"
+	cfg := config.SSOConfig{KySignOnHMACSecret: secret}
+	send := func(client *sso.KySignOnClient, event, subject, role string, ts int64) {
+		t.Helper()
+		body, _ := json.Marshal(sso.KySignOnSyncPayload{Event: event, ID: subject, Username: subject, Role: role, Status: "active", Timestamp: ts})
+		if err := client.HandleSyncWebhook(context.Background(), body, crypto.ComputeHMACSHA256(body, secret)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(subject string) bool {
+		_, err := st.Users().GetUserBySSO(context.Background(), "kysignon", subject)
+		return err == nil
+	}
+	now := time.Now().Unix()
+
+	client := sso.NewKySignOnClient(cfg, st)
+	send(client, "user.created", "erin", "admin", now-3)
+	send(client, "user.deleted", "erin", "", now-1)
+	restarted := sso.NewKySignOnClient(cfg, st)
+	send(restarted, "user.created", "erin", "admin", now-3)
+	send(restarted, "user.updated", "erin", "admin", now-2)
+	send(restarted, "user.created", "erin", "admin", now-1) // a tie never recreates
+	if exists("erin") {
+		t.Fatal("a superseded update recreated a deleted subject")
+	}
+	// A deletion for a subject never seen here still blocks an older creation.
+	send(restarted, "user.deleted", "frank", "", now-1)
+	send(restarted, "user.created", "frank", "admin", now-2)
+	if exists("frank") {
+		t.Fatal("an older creation beat a recorded deletion")
+	}
+	send(restarted, "user.created", "erin", "user", now)
+	if !exists("erin") {
+		t.Fatal("a newer creation after deletion was refused")
+	}
+}

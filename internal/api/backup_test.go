@@ -904,3 +904,21 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 		}
 	}
 }
+
+// A settings write failing after the key file lands leaves a pin that refuses other keys but
+// has no record. Status must say so instead of reporting nothing pinned.
+func TestStatusReportsHalfWrittenPin(t *testing.T) {
+	srv, st, _ := setupSQLiteServer(t)
+	session := loginAs(t, srv, st, "alice", "admin")
+	priv, _ := recoverykey.Generate()
+	if w := adminDo(t, srv, session, "POST", "/api/backup/pin-key", pinBody(priv.Public(), 2, 3)); w.Code != http.StatusOK {
+		t.Fatalf("pin: %d %s", w.Code, w.Body.String())
+	}
+	if err := st.Settings().DeleteSetting(context.Background(), "kyrecovery_key_id"); err != nil {
+		t.Fatal(err)
+	}
+	status := statusOf(t, srv, session)
+	if status["key_pinned"] != false || !strings.Contains(fmt.Sprint(status["recovery_key_error"]), "pin was not recorded") {
+		t.Fatalf("half-written pin not reported: %v", status)
+	}
+}

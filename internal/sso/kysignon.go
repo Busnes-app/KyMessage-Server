@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/oauth2"
+	"sync"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"golang.org/x/oauth2"
 )
 
 // KySignOnClient manages interactions with the central KySignOn identity provider.
@@ -18,6 +19,10 @@ type KySignOnClient struct {
 	config config.SSOConfig
 	store  store.Store
 	flow   *oauthFlow
+
+	// syncMu applies directory updates one at a time, so a read and its conditional write
+	// see the same row. Ordering itself is persisted with the user (directory_synced_at).
+	syncMu sync.Mutex
 }
 
 func NewKySignOnClient(cfg config.SSOConfig, st store.Store) *KySignOnClient {
@@ -78,6 +83,28 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 		return errors.New("webhook timestamp is missing or expired")
 	}
 
+	k.syncMu.Lock()
+	defer k.syncMu.Unlock()
+	return k.applySync(ctx, payload)
+}
+
+// recordAbsent stamps a deactivation or deletion for a subject with no local account, so an
+// older creation delivered later cannot bring it into existence. The delete matches no row.
+func (k *KySignOnClient) recordAbsent(ctx context.Context, payload KySignOnSyncPayload) error {
+	_, err := k.store.Users().DeleteDirectoryUser(ctx, &store.User{SSOProvider: "kysignon", SSOSubject: payload.ID}, payload.Timestamp)
+	return err
+}
+
+// raisesPrivilege reports whether a directory update would grant admin or reactivate. Updates
+// carry second-resolution timestamps and no revision, so two in the same second cannot be
+// ordered; a tie may only lower privilege, and a captured same-second promotion cannot
+// undo a demotion.
+func raisesPrivilege(existing *store.User, role, status string) bool {
+	return (role == "admin" && existing.Role != "admin") || (status == "active" && existing.Status != "active")
+}
+
+func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayload) error {
+
 	switch payload.Event {
 	case "user.created", "user.updated":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
@@ -96,12 +123,17 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 
 		if existing != nil {
 			privilegesChanged := existing.Role != role || existing.Status != status
-			existing.Username = payload.Username
-			existing.Email = payload.Email
-			existing.DisplayName = payload.DisplayName
-			existing.Role = role
-			existing.Status = status
-			if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
+			allowTie := !raisesPrivilege(existing, role, status)
+			updated := *existing
+			updated.Username = payload.Username
+			updated.Email = payload.Email
+			updated.DisplayName = payload.DisplayName
+			updated.Role = role
+			updated.Status = status
+			// A replayed or superseded update applies nothing and still succeeds, so the
+			// sender stops retrying.
+			applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, payload.Timestamp, allowTie)
+			if err != nil || !applied {
 				return err
 			}
 			if privilegesChanged {
@@ -120,25 +152,34 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 			SSOProvider: "kysignon",
 			SSOSubject:  payload.ID,
 		}
-		return k.store.Users().CreateUser(ctx, newUser)
+		_, err = k.store.Users().CreateDirectoryUser(ctx, newUser, payload.Timestamp)
+		return err
 
 	case "user.deactivated":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			return k.recordAbsent(ctx, payload)
+		}
 		if err != nil {
-			return nil // User might not exist locally
+			return err
 		}
 		existing.Status = "inactive"
-		if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
+		applied, err := k.store.Users().ApplyDirectoryProfile(ctx, existing, payload.Timestamp, true)
+		if err != nil || !applied {
 			return err
 		}
 		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
 
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
-		if err != nil {
-			return nil
+		if errors.Is(err, store.ErrNotFound) {
+			return k.recordAbsent(ctx, payload)
 		}
-		return k.store.Users().DeleteUser(ctx, existing.ID)
+		if err != nil {
+			return err
+		}
+		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, payload.Timestamp)
+		return err
 	}
 
 	return nil
