@@ -20,9 +20,10 @@ type MessagingUsage struct {
 }
 
 // Usage is operator metadata only. One statement gives a consistent snapshot and
-// global totals even when the bounded room list is truncated. Expiry clears an
+// global totals even when the bounded room list is truncated. Purges delete an
 // ordered prefix, so the retained floor counts active events without scanning
-// ciphertext or lifetime receipt rows. It never triggers cleanup or reads bodies.
+// event rows; the room sequence is the lifetime append count. It never triggers
+// cleanup or reads bodies.
 func (m *messagingStore) Usage(ctx context.Context) (MessagingUsage, error) {
 	usage := MessagingUsage{LargestRooms: []MessagingRoomUsage{}}
 	rows, err := m.store.db.QueryContext(ctx, m.store.rebind(`SELECT id, name,

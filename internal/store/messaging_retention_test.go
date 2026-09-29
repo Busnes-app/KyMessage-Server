@@ -377,3 +377,65 @@ func TestShorteningRetentionPurgesImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPurgeRemovesOnlyTheExpiredPrefix(t *testing.T) {
+	ctx, st, db, driver := retentionDB(t)
+	a, _ := purgeRoomFixture(t, st, "partial", 1)
+	if err := st.Messaging().CreateRoom(ctx, a, store.MessagingRoom{ID: "longer", Name: "longer", RetentionDays: 30}); err != nil {
+		t.Fatal(err)
+	}
+	appendDelivery(t, st, a, "longer", deliveryInput(t, st, a, "longer", "commit"))
+	appendDelivery(t, st, a, "longer", deliveryInput(t, st, a, "longer", "application"))
+	q := func(s string) string {
+		if driver != "pgx" {
+			return s
+		}
+		return strings.Replace(strings.Replace(s, "?", "$1", 1), "?", "$2", 1)
+	}
+	then := time.Now().Add(-2 * 24 * time.Hour)
+	// Only sequences 1 and 2 of "partial" (and all of "longer") are past one day.
+	for _, step := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE messaging_events SET created_at = ? WHERE room_id = ? AND sequence <= 2`, []any{then.Unix(), "partial"}},
+		{`UPDATE messaging_events SET created_at = ? WHERE room_id = ?`, []any{then.Unix(), "longer"}},
+		{`UPDATE audit_records SET created_at = ? WHERE action = 'messaging.event_accepted' AND resource = ? AND (details LIKE '% sequence=1 %' OR details LIKE '% sequence=2 %')`, []any{then.UTC(), "partial"}},
+		{`UPDATE audit_records SET created_at = ? WHERE action = 'messaging.event_accepted' AND resource = ?`, []any{then.UTC(), "longer"}},
+	} {
+		if _, err := db.Exec(q(step.query), step.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Messaging().ExpireMessages(ctx); err != nil {
+		t.Fatal(err)
+	}
+	events := `SELECT COUNT(*) FROM messaging_events WHERE room_id = ?`
+	accepted := `SELECT COUNT(*) FROM audit_records WHERE action = 'messaging.event_accepted' AND resource = ?`
+	for _, c := range []struct {
+		query, room string
+		want        int64
+	}{
+		{events, "partial", 1},
+		{`SELECT sequence FROM messaging_events WHERE room_id = ?`, "partial", 3},
+		{accepted, "partial", 1},
+		{`SELECT COUNT(*) FROM audit_records WHERE action = 'messaging.event_accepted' AND resource = ? AND details LIKE '% sequence=3 %'`, "partial", 1},
+		{`SELECT retained_from FROM messaging_rooms WHERE id = ?`, "partial", 3},
+		{`SELECT COUNT(*) FROM messaging_welcomes WHERE room_id = ?`, "partial", 0},
+		{events, "longer", 2},
+		{accepted, "longer", 2},
+		{`SELECT retained_from FROM messaging_rooms WHERE id = ?`, "longer", 1},
+	} {
+		if got := count(t, db, driver, c.query, c.room); got != c.want {
+			t.Errorf("%s [%s] = %d, want %d", c.query, c.room, got, c.want)
+		}
+	}
+	for _, room := range []string{"partial", "longer"} {
+		stored := count(t, db, driver, `SELECT retained_bytes FROM messaging_rooms WHERE id = ?`, room)
+		rows := count(t, db, driver, `SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_events WHERE room_id = ?`, room) +
+			count(t, db, driver, `SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_welcomes WHERE room_id = ?`, room)
+		if stored != rows || rows == 0 {
+			t.Errorf("%s retained_bytes %d, rows hold %d", room, stored, rows)
+		}
+	}
+}

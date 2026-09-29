@@ -103,8 +103,9 @@ func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
 	if err := recoveryclient.SQLiteSnapshot(ctx, db, path); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNoDatabaseSnapshot, err)
 	}
-	// Restores retire every room. Keep topology and retry metadata, not delivery
-	// payloads that cannot be resumed. Mutate only this owned, consistent copy.
+	// Restores retire every room. Keep room topology, not delivery payloads that
+	// cannot be resumed; the emptied event rows go when retention purges them.
+	// Mutate only this owned, consistent copy.
 	snapshot, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err

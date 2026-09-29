@@ -31,7 +31,7 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(stdout, "Expired ciphertext pruned. Restored sessions, challenges and pairings invalidated; messaging devices revoked and old rooms retired. Sign in freshly and recover messaging identity with new keys, verification and rooms. Browser keys/history were not restored.")
+	_, err := fmt.Fprintln(stdout, "Messages past room retention purged. Restored sessions, challenges and pairings invalidated; messaging devices revoked and old rooms retired. Sign in freshly and recover messaging identity with new keys, verification and rooms. Browser keys/history were not restored.")
 	return err
 }
 

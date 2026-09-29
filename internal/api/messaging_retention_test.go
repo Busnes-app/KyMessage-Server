@@ -128,4 +128,13 @@ func TestRoomRetentionAPI(t *testing.T) {
 	b := messagingLogin(t, st, "bob")
 	bd := verifyEnrollment(t, srv, b, requestEnrollment(t, srv, b))
 	messagingCode(t, messagingRequest(t, srv, "PATCH", path, b, bd.Token, map[string]any{"retention_days": 0}), 404)
+	// An active member of a group room who is not its owner cannot change retention.
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", a, ad.Token, map[string]string{"user_id": "bob"}), 200)
+	messagingCode(t, messagingRequest(t, srv, "POST", path+"/join", b, bd.Token, nil), 200)
+	messagingCode(t, messagingRequest(t, srv, "PATCH", path, b, bd.Token, map[string]any{"retention_days": 0}), 403)
+	w = messagingRequest(t, srv, "GET", path+"/delivery", b, bd.Token, nil)
+	messagingCode(t, w, 200)
+	if !strings.Contains(w.Body.String(), `"retention_days":7`) {
+		t.Fatal("a refused change altered retention:", w.Body.String())
+	}
 }

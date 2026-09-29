@@ -44,7 +44,9 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   Keep the binding after peer deletion so a direct room cannot become a group.
 - Migrations 12 and 17 own room retention: 0 (Off), 1, 7, 30 or 90 days in
   `messaging_rooms.retention_days`; `CreateRoom` no longer defaults (the API supplies it;
-  0 means Off). Migration 17 dropped `messaging_events.expires_at`: expiry derives from
+  0 means Off). Migration 17 deleted events the old sweep had blanked, with their
+  `messaging.event_accepted` audit rows (matched by `sequence=N` in details), and dropped
+  `messaging_events.expires_at`: expiry derives from
   `created_at + days*86400` (`MessagingEvent.ExpiresAt` is 0 when Off), and `created_at`
   stays monotonic per room if the clock moves back, so an age purge is a sequence prefix.
   `purgeRoom` (under the room lock, called by `deliveryState` and the sweep) deletes expired
@@ -92,6 +94,8 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 ## Verification
 - `go test -v ./internal/store/...`
 - `go test -race ./internal/store` checks first-device enrollment across separate connections and concurrent cross-invitations; run with `KY_TEST_POSTGRES_DSN` as well as the SQLite default.
+- `migrations/migrations_test.go` builds a v16 database through the test-only
+  `RunThrough` seam (`export_test.go`) and checks migration 17 on both engines.
 - Delivery tests cover competing commits across connections, deduplication, Welcome isolation, removal/rejoin history floors, device revocation and directory deactivation.
 - KeyPackage tests cover cross-room claims on separate connections, lost-ack retries, rejoin/expiry/revocation denial, publication ownership and pool capacity.
 
