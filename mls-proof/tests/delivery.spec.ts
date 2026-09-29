@@ -476,6 +476,17 @@ test('local expiry removes both transcript copies without changing keys or pendi
 });
 
 
+test('a pending send older than the retention window is dropped once, not on every retry',async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    await bob.page.evaluate(() => window.delivery.stageSend('Stale pending'));
+    await bob.page.clock.setSystemTime(new Date(Date.now()+91*86400_000));
+    await expect(bob.page.evaluate(() => window.delivery.submit())).rejects.toThrow('was not sent');
+    expect((await bob.page.evaluate(() => window.delivery.status())).pending).toBe(false);
+    await expect(bob.page.evaluate(() => window.delivery.submit())).rejects.toThrow('No pending delivery');
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
 test('legacy transcript parsing preserves unknown expiry and rejects invalid deadlines',() => {
   const old = {version:1,identity:'legacy',keyPackage:'',keys:null,pins:[],state:null,pending:null,inbox:['Keep legacy text'],outbox:[],cursor:0,awaitingCommit:false,received:[]};
   expect(parseRecord(old).inbox).toEqual([{text:'Keep legacy text',expiresAt:null,sequence:null}]);

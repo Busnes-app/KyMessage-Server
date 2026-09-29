@@ -520,7 +520,7 @@ export const delivery = {
       // The server forgets purged events, so an older retry would append a duplicate.
       if (d.retentionDays > 0 && d.pending.createdAt !== null && d.pending.createdAt < Math.floor(Date.now()/1000) - d.retentionDays*86400) {
         d.pending = null;
-        throw new Error('This message is older than the conversation keeps messages and was not sent');
+        return {stale:true as const};
       }
       const body: unknown = JSON.parse(d.pending.request);
       const result = await request(roomPath(d) + '/events',d.token,'POST',body);
@@ -528,6 +528,7 @@ export const delivery = {
       else if (result.status !== 200) throw new Error(`Delivery HTTP ${result.status}: ${text(object(result.value).error)}`);
       return result;
     });
+    if ('stale' in result) throw new Error('This message is older than the conversation keeps messages and was not sent');
     if (result.status === 409) throw new Error('Commit conflict; apply winner before retry');
     const receipt = object(result.value);
     return {sequence:integer(receipt.sequence),epoch:integer(receipt.epoch)};
