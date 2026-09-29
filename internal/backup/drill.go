@@ -50,20 +50,48 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 			return recipeFailure("expected_env omits " + name)
 		}
 	}
+	if message := memberFailure(dir, opened, required, sqlitePaths); message != "" {
+		return recipeFailure(message)
+	}
+	checks := fileChecks(dir, required, sqlitePaths)
+	for _, name := range env {
+		_, found := os.LookupEnv(name)
+		message := "Missing"
+		if found {
+			message = "Configured"
+		}
+		checks = append(checks, recoveryclient.Check{Name: "Environment: " + name, Passed: found, Message: message})
+	}
+	return checks
+}
+
+func recipeFailure(message string) []recoveryclient.Check {
+	return []recoveryclient.Check{{Name: "Verification Recipe", Message: message}}
+}
+
+// memberFailure requires every capsule member to be listed and every named file to be a
+// clean relative capsule member; it returns the recipe failure, or "" when both hold.
+func memberFailure(dir string, opened capsule.Manifest, required, sqlitePaths []string) string {
 	members := make(map[string]bool, len(opened.Files))
 	for _, file := range opened.Files {
 		members[file.Path] = true
 		if !slices.Contains(required, file.Path) {
-			return recipeFailure("required_files omits a capsule member")
+			return "required_files omits a capsule member"
 		}
 	}
 	for _, paths := range [][]string{required, sqlitePaths} {
 		for _, name := range paths {
 			if _, safe := drillPath(dir, name); !safe || !members[name] {
-				return recipeFailure("File check must name a clean relative capsule member")
+				return "File check must name a clean relative capsule member"
 			}
 		}
 	}
+	return ""
+}
+
+// fileChecks reports each required file present and each SQLite path's integrity; the
+// paths must already have passed memberFailure.
+func fileChecks(dir string, required, sqlitePaths []string) []recoveryclient.Check {
 	var checks []recoveryclient.Check
 	allFound := true
 	for _, name := range required {
@@ -81,19 +109,7 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 		full, _ := drillPath(dir, name)
 		checks = append(checks, sqliteIntegrityCheck(name, full))
 	}
-	for _, name := range env {
-		_, found := os.LookupEnv(name)
-		message := "Missing"
-		if found {
-			message = "Configured"
-		}
-		checks = append(checks, recoveryclient.Check{Name: "Environment: " + name, Passed: found, Message: message})
-	}
 	return checks
-}
-
-func recipeFailure(message string) []recoveryclient.Check {
-	return []recoveryclient.Check{{Name: "Verification Recipe", Message: message}}
 }
 
 // Open JSON-decodes lists as []any. []string also supports in-memory fixtures.

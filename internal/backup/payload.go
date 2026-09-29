@@ -93,20 +93,11 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 // connection. The scaffold opens its own handle from the DSN because store.Store exposes no
 // *sql.DB.
 func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
-	db, err := sql.Open("sqlite", dsn)
+	path, cleanup, err := snapshotFile(ctx, dsn, dataDir)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
-	dir, err := os.MkdirTemp(dataDir, "snapshot-*")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(dir)
-	path := filepath.Join(dir, "ky_server.db")
-	if err := recoveryclient.SQLiteSnapshot(ctx, db, path); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrNoDatabaseSnapshot, err)
-	}
+	defer cleanup()
 	// Mutate only this owned, consistent copy.
 	snapshot, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -136,6 +127,27 @@ func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
 		return nil, capsule.ErrCapsuleTooLarge
 	}
 	return os.ReadFile(path)
+}
+
+// snapshotFile writes a consistent copy of the live database into a fresh scratch
+// directory under dataDir. cleanup removes the directory and anything built beside the copy.
+func snapshotFile(ctx context.Context, dsn, dataDir string) (string, func(), error) {
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return "", nil, err
+	}
+	defer db.Close()
+	dir, err := os.MkdirTemp(dataDir, "snapshot-*")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	path := filepath.Join(dir, "ky_server.db")
+	if err := recoveryclient.SQLiteSnapshot(ctx, db, path); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("%w: %v", ErrNoDatabaseSnapshot, err)
+	}
+	return path, cleanup, nil
 }
 
 // Members names what a capsule carries, for the screen; it is what Collect would seal now.

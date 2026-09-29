@@ -4,12 +4,12 @@
 Adapts the scaffold to `github.com/Busnes-app/ky-primitives/recoveryclient`, which owns the
 KyRecovery pairing, sealing, deposit, restore and drill contract. This package supplies only
 what differs per product: a `Settings` adapter over `store.SettingsStore`, a `Sealer` under the
-deployment key, the payload the scaffold seals (`Collect`), and the drill's verification
-checks (`Checks`).
+deployment key, the payloads the scaffold seals (`Collect` for people, `CollectMessages` for
+messages), and each kind's drill checks (`Checks`, `MessagesChecks`).
 
 ## Ownership
-Owns the settings adapter (`settings.go`), payload collection (`payload.go`), and restore-drill
-checks (`drill.go`) and serialized drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
+Owns the settings adapter (`settings.go`), payload collection (`payload.go`, `messages.go`),
+restore-drill checks (`drill.go`, `messages.go`) and serialized drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
 live in `recoveryclient` and in the settings rows it reads and writes through the adapter.
 
 ## Local Contracts
@@ -28,12 +28,22 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   initial snapshot disk space still scales with the complete live database. It also carries the encryption key (`data/encryption.key`, required — restores
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key
   (`data/recovery.pub`, only when paired).
+- `CollectMessages` is the opt-in messages capsule, from the same `snapshotFile` snapshot and
+  the same driver refusal. Members: `data/messages/accounts.db` (identities, devices, rooms,
+  members, epoch devices; devices only `approved`/`revoked`, never `pending`/`unverified`)
+  and `data/messages/events-NNN.db` parts (events plus their Welcomes). Parts are contiguous
+  per-room sequence ranges cut at `messagesPartBudget` (file cap minus 4 MiB), counting every
+  column's bytes plus a per-row allowance; each part is compacted and refused above
+  `MaxCapsuleFileBytes`. Past `MaxCapsuleTotalBytes` it fails with `ErrCapsuleTooLarge` naming
+  the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
+  reset receipts. Recipe `kind: "messages"`; every member is required and SQLite-checked.
+  `MessagesChecks` requires the kind, accounts.db and every `.db` member in `sqlite_paths`.
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment
   checks cannot be disabled. File checks accept only clean relative manifest members;
   SQLite opens read-only and missing/empty databases fail.
-- HTTP and CLI call `RunDrill`, which holds an OS advisory lock on `<data dir>/drill.lock`
+- HTTP and CLI call `RunDrill` with the kind's checks function; it holds an OS advisory lock on `<data dir>/drill.lock`
   across scratch preparation and the library drill. Contention returns `ErrDrillBusy`;
   closing the descriptor or process exit releases ownership. Keep the lock file in place.
   The Unix lock matches the Linux container deployment.
@@ -55,6 +65,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
 - The decrypt guard allows only `restore` in `cmd/server/restore.go` to invoke
   suite-key capsule opening. HTTP/scheduled product code never receives shares.
 - `go test -v ./internal/backup/...` covers decoded seal/open checks, malformed recipes,
+  messages-capsule splitting, row accounting and total limit (budgets lowered via
+  `export_test.go`; `seedMessagingFixture` is the shared messaging fixture),
   subprocess lock contention/exit, scratch cleanup and the synthetic v0.5.0 pairing fixture
   in `testdata/pairing-v050.json`. The fixture uses a 32-byte 0x01 deployment key and retains
   no recovery private key.

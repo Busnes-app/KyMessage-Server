@@ -347,7 +347,7 @@ func runBackupDrill(args []string) {
 	defer st.Close()
 
 	payload := collectFiles(ctx, cfg)
-	result, err := backup.RunDrill(ctx, cfg, payload)
+	result, err := backup.RunDrill(ctx, cfg, payload, backup.Checks)
 	if err != nil {
 		log.Fatalf("Drill execution error: %v", err)
 	}

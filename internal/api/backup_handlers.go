@@ -121,7 +121,7 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Failed to collect backup files")
 		return
 	}
-	result, err := backup.RunDrill(ctx, s.config, payload)
+	result, err := backup.RunDrill(ctx, s.config, payload, backup.Checks)
 	if errors.Is(err, backup.ErrDrillBusy) {
 		s.writeError(w, http.StatusConflict, "A restore drill is already running")
 		return
