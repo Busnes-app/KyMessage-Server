@@ -352,6 +352,12 @@ func TestSetRoomRetentionAuthority(t *testing.T) {
 	if err := st.Messaging().SetRoomRetention(ctx, c, "direct", 0); err != nil {
 		t.Fatalf("direct peer refused: %v", err)
 	}
+	if err := st.Messaging().RemoveMember(ctx, a, "direct", c.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Messaging().SetRoomRetention(ctx, c, "direct", 7); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("removed peer changed retention: %v", err)
+	}
 }
 
 func TestShorteningRetentionPurgesImmediately(t *testing.T) {

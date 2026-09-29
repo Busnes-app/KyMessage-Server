@@ -446,8 +446,10 @@ func (m *messagingStore) SetRoomRetention(ctx context.Context, actor MessagingAc
 			return err
 		}
 		if peer != actor.UserID {
-			if err := m.ownRoom(ctx, tx, actor, room); err != nil {
+			if err := m.ownRoom(ctx, tx, actor, room); errors.Is(err, ErrNotFound) {
 				return ErrMessagingDenied
+			} else if err != nil {
+				return err
 			}
 		}
 		if _, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_rooms SET retention_days = ? WHERE id = ?`), days, room); err != nil {
