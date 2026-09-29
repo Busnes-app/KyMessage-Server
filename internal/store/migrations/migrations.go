@@ -379,4 +379,5 @@ DROP INDEX messaging_events_room_expiry;
 ALTER TABLE messaging_events DROP COLUMN expires_at;
 DELETE FROM messaging_events WHERE payload = '';
 CREATE INDEX messaging_events_room_created ON messaging_events(room_id, created_at);
+CREATE INDEX audit_action_resource_created ON audit_records(action, resource, created_at);
 `

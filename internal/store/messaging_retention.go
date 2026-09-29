@@ -19,7 +19,11 @@ func (m *messagingStore) purgeRoom(ctx context.Context, tx *sql.Tx, room string,
 	}
 	cutoff := now - days*86400
 	var last, bytes int64
-	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(MAX(sequence), 0), COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_events WHERE room_id = ? AND created_at <= ?`), room, cutoff).Scan(&last, &bytes); err != nil || last == 0 {
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(MAX(sequence), 0) FROM messaging_events WHERE room_id = ? AND created_at <= ?`), room, cutoff).Scan(&last); err != nil || last == 0 {
+		return err
+	}
+	// Same bound as the deletes: pre-migration rows may have non-monotonic created_at.
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_events WHERE room_id = ? AND sequence <= ?`), room, last).Scan(&bytes); err != nil {
 		return err
 	}
 	var welcomes int64

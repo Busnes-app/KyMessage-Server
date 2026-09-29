@@ -285,3 +285,35 @@ func TestCreatedAtStaysMonotonicWhenClockMovesBack(t *testing.T) {
 		t.Fatalf("created_at went backwards: %d < %d", got, ahead)
 	}
 }
+
+func TestPurgeBytesMatchDeletedRowsWhenCreatedAtNonMonotonic(t *testing.T) {
+	ctx, st, db, driver := retentionDB(t)
+	purgeRoomFixture(t, st, "skew", 1)
+	set := `UPDATE messaging_events SET created_at = ? WHERE room_id = ? AND sequence = ?`
+	if driver == "pgx" {
+		set = `UPDATE messaging_events SET created_at = $1 WHERE room_id = $2 AND sequence = $3`
+	}
+	now := time.Now().Unix()
+	// Sequence 1 is recent, sequence 3 is past the window: pre-migration skew.
+	for seq, at := range map[int]int64{1: now, 2: now, 3: now - 2*86400} {
+		if _, err := db.Exec(set, at, "skew", seq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Messaging().ExpireMessages(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var bytes, payloads, welcomes int64
+	if err := db.QueryRow(`SELECT retained_bytes FROM messaging_rooms WHERE id = 'skew'`).Scan(&bytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_events WHERE room_id = 'skew'`).Scan(&payloads); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_welcomes WHERE room_id = 'skew'`).Scan(&welcomes); err != nil {
+		t.Fatal(err)
+	}
+	if bytes != payloads+welcomes {
+		t.Fatalf("retained_bytes %d, rows hold %d", bytes, payloads+welcomes)
+	}
+}

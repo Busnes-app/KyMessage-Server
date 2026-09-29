@@ -48,7 +48,8 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   `created_at + days*86400` (`MessagingEvent.ExpiresAt` is 0 when Off), and `created_at`
   stays monotonic per room if the clock moves back, so an age purge is a sequence prefix.
   `purgeRoom` (under the room lock, called by `deliveryState` and the sweep) deletes expired
-  events, their Welcomes and `messaging.event_accepted` audit rows and raises `retained_from`;
+  events, their Welcomes and `messaging.event_accepted` audit rows (migration 17 indexes
+  audit `(action, resource, created_at)` for that delete) and raises `retained_from`;
   receipt rows are gone after purge, so a stale-epoch retry is refused. Keep the cursor
   monotonic and return `ErrMessagingHistoryGone` when a device missed the retained prefix.
   Ordinary remove/reinvite supplies a new generation and Welcome floor; never skip MLS state.
