@@ -36,7 +36,7 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(usage.getByRole('button', { name: 'Refresh storage usage' })).toBeEnabled();
   await usage.getByText('Room limits and busiest rooms', { exact: true }).click();
   await expect(usage.getByText('No messaging rooms.', { exact: true })).toBeVisible();
-  await expect(usage).toContainText('4,096 retained events');
+  await expect(usage).toContainText('100,000 retained events');
   await usage.getByRole('button', { name: 'Refresh storage usage' }).click();
   await expect(usage.getByRole('button', { name: 'Refresh storage usage' })).toBeEnabled();
   await expect(usage.getByText('No messaging rooms.', { exact: true })).toBeVisible();
