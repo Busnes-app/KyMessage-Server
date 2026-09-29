@@ -246,6 +246,7 @@ func (s *Server) handlePairRemoteRecovery(w http.ResponseWriter, r *http.Request
 			s.writeError(w, http.StatusConflict, "Already paired to a different recovery key")
 			return
 		}
+		s.auditBackup(ctx, actor, r, "backup.pair_failed", target, "error=recovery key not saved: "+err.Error())
 		s.writeError(w, http.StatusInternalServerError, "Failed to save recovery key")
 		return
 	}
@@ -368,8 +369,9 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	ctx := r.Context()
+	// Detached like pairing, so a dropped connection cannot leave an unaudited unpair.
 	actor := s.actorID(r)
+	ctx := context.WithoutCancel(r.Context())
 	settings := backup.Settings(ctx, s.store.Settings())
 	target, _ := s.store.Settings().GetSetting(ctx, "kyrecovery_url")
 	target = recoveryclient.AuditSafe(target)
@@ -407,14 +409,15 @@ func (s *Server) handlePinKey(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON request body")
 		return
 	}
-	key, err := recoveryclient.ParsePinRequest(req.PublicKey, req.Threshold, req.TotalShares)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	// Write-once like pairing, so the pin and its audit row outlive the request too.
 	actor := s.actorID(r)
 	ctx := context.WithoutCancel(r.Context())
+	key, err := recoveryclient.ParsePinRequest(req.PublicKey, req.Threshold, req.TotalShares)
+	if err != nil {
+		s.auditBackup(ctx, actor, r, "admin.backup_key_pin", "", "error="+err.Error())
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	settings := backup.Settings(ctx, s.store.Settings())
 	if err := recoveryclient.StoreRecoveryKey(s.config.Database.DataDir, settings, key); err != nil {
 		if errors.Is(err, fs.ErrExist) {
@@ -422,6 +425,7 @@ func (s *Server) handlePinKey(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusConflict, "Already pinned to a different recovery key")
 			return
 		}
+		s.auditBackup(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(), "error=recovery key not saved: "+err.Error())
 		s.writeError(w, http.StatusInternalServerError, "Failed to save recovery key")
 		return
 	}

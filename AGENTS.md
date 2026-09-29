@@ -169,7 +169,7 @@ returns with `scheduler disabled: ...` if that fails, because a run that never s
 attempt would log and audit the same failure every minute forever. It closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
-WebSocket handlers and the pair, pin-key and deposit handlers, which detach from their requests and so outlive
+WebSocket handlers and the pair, pin-key, unpair and deposit handlers, which detach from their requests and so outlive
 `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
 `messagingMaintenanceLoop` sweeps expired ciphertext every minute with a 30-second

@@ -259,13 +259,15 @@ func (s *Server) routes() {
 	// Feature 0 KyBackup & Restore Drills. Capsules carry site data and keys: admins only.
 	// Method patterns: only the declared method reaches a handler. Export is a POST so the
 	// CSRF check covers a download that carries the whole instance.
+	// Routes that move, pin, disable or export the recovery trust root also need a recent
+	// sign-in, so a stolen or long-lived session cannot redirect every future capsule.
 	s.mux.HandleFunc("POST /api/backup/drill", s.requireAdmin(s.handleBackupDrill))
-	s.mux.HandleFunc("POST /api/backup/export-capsule", s.requireAdmin(s.handleExportCapsule))
-	s.mux.HandleFunc("POST /api/backup/pair-remote", s.tracked(s.requireAdmin(s.handlePairRemoteRecovery)))
-	s.mux.HandleFunc("POST /api/backup/deposit", s.tracked(s.requireAdmin(s.handleRunBackup)))
-	s.mux.HandleFunc("DELETE /api/backup/pairing", s.requireAdmin(s.handleUnpair))
-	s.mux.HandleFunc("POST /api/backup/pin-key", s.tracked(s.requireAdmin(s.handlePinKey)))
-	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireAdmin(s.handleSetSchedule))
+	s.mux.HandleFunc("POST /api/backup/export-capsule", s.requireFreshAdmin(s.handleExportCapsule))
+	s.mux.HandleFunc("POST /api/backup/pair-remote", s.tracked(s.requireFreshAdmin(s.handlePairRemoteRecovery)))
+	s.mux.HandleFunc("POST /api/backup/deposit", s.tracked(s.requireFreshAdmin(s.handleRunBackup)))
+	s.mux.HandleFunc("DELETE /api/backup/pairing", s.tracked(s.requireFreshAdmin(s.handleUnpair)))
+	s.mux.HandleFunc("POST /api/backup/pin-key", s.tracked(s.requireFreshAdmin(s.handlePinKey)))
+	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireFreshAdmin(s.handleSetSchedule))
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
 	s.mux.HandleFunc("GET /api/admin/messaging/usage", s.requireAdmin(s.handleMessagingUsage))
 
@@ -280,10 +282,19 @@ func (s *Server) routes() {
 	s.mux.Handle("/", web.Handler())
 }
 
+// stepUpWindow is how recent a sign-in must be for requireFreshAdmin. Signing in again is the
+// step-up: it repeats the password and TOTP, or the suite login, the session was issued on.
+const stepUpWindow = 10 * time.Minute
+
 // requireAdmin rejects requests without a valid session, or with a non-admin one.
-func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {
+func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc { return s.admin(h, false) }
+
+// requireFreshAdmin is requireAdmin with step-up: the session must be younger than stepUpWindow.
+func (s *Server) requireFreshAdmin(h http.HandlerFunc) http.HandlerFunc { return s.admin(h, true) }
+
+func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, _, err := s.sessions.AuthenticateRequest(r)
+		user, sess, err := s.sessions.AuthenticateRequest(r)
 		if err != nil {
 			if errors.Is(err, auth.ErrPasswordChangeRequired) {
 				s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Change your password before continuing", "code": "password_change_required"})
@@ -294,6 +305,10 @@ func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {
 		}
 		if user.Role != "admin" {
 			s.writeError(w, http.StatusForbidden, "Administrator role required")
+			return
+		}
+		if fresh && time.Since(sess.CreatedAt) > stepUpWindow {
+			s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in again to confirm this change: backup changes need a sign-in from the last 10 minutes", "code": "reauthentication_required"})
 			return
 		}
 		h(w, r)
