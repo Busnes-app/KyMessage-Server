@@ -158,6 +158,10 @@ const (
 
 func importRows(ctx context.Context, conn *sql.Conn, parts int) (ImportCounts, error) {
 	var c ImportCounts
+	// Again under the write lock: another import may have committed since the first check.
+	if err := refuseMessagingData(conn.QueryRowContext(ctx, messagingRows)); err != nil {
+		return c, err
+	}
 	type step struct {
 		n     *int
 		query string

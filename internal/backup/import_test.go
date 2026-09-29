@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -27,6 +28,11 @@ func openedMessages(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return writeOpened(t, payload)
+}
+
+func writeOpened(t *testing.T, payload recoveryclient.Payload) string {
+	t.Helper()
 	dir := t.TempDir()
 	for _, f := range payload.Files {
 		path := filepath.Join(dir, filepath.FromSlash(f.Path))
@@ -235,5 +241,39 @@ func TestImportMessagesRefusesBadInputBeforeWriting(t *testing.T) {
 				t.Fatalf("refusal wrote rows:\n%s\n%s", before, after)
 			}
 		})
+	}
+}
+
+// One room spans two parts; the Welcome at sequence 5 travels with its event in the first.
+func TestImportMessagesAcrossParts(t *testing.T) {
+	const events, size = 10, 32 << 10
+	backup.SetMessagesBudgets(t, 200<<10, recoveryclient.MaxCapsuleTotalBytes)
+	cfg, _ := sqliteInstance(t)
+	seedRoom(t, rawDB(t, cfg), "big", events, size)
+	payload, err := backup.CollectMessages(context.Background(), cfg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := eventParts(payload)
+	if len(parts) != 2 {
+		t.Fatalf("parts: %v", parts)
+	}
+	first := openMember(t, payload, parts[0])
+	if count(t, first, `SELECT COUNT(*) FROM messaging_welcomes WHERE sequence = 5`) != 1 || count(t, first, `SELECT COUNT(*) FROM messaging_events WHERE sequence = 5`) != 1 {
+		t.Fatal("the Welcome at sequence 5 is not in the first part with its event")
+	}
+	path, db := importTarget(t, "owner-big")
+	counts, err := backup.ImportMessages(context.Background(), path, writeOpened(t, payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Rooms != 1 || counts.Events != events {
+		t.Fatalf("counts %+v", counts)
+	}
+	if n := count(t, db, `SELECT COUNT(*) FROM messaging_events WHERE room_id = 'big'`); n != events {
+		t.Fatalf("events %d", n)
+	}
+	if n := count(t, db, `SELECT COUNT(*) FROM messaging_welcomes WHERE room_id = 'big'`); n != 2 {
+		t.Fatalf("welcomes %d", n)
 	}
 }

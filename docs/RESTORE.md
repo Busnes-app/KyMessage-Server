@@ -61,6 +61,8 @@ SQLite copies and database rollbacks bypass the preparation below and are unsupp
    time). The current default is `KyMessages`; older test capsules may use `Busnes.app`. The service check runs before combining
    shares. Paste one `ky2-...` share per line, then Ctrl-D; do not supply them as flags.
    The library verifies the capsule and key binding and refuses a nonempty target.
+   A messages capsule is refused here and its decrypted files removed; restore the
+   people capsule first, then use `restore-messages`.
 4. Compare the printed authenticated manifest's capsule ID, service, creation time,
    recovery key ID and payload hash with your trusted records. Payload hash and the
    downloaded container's SHA-256 are different checks. Preserve the receipt.
@@ -102,7 +104,9 @@ restore before it serves. Skip this section to return with no threads.
    not a messages capsule (no `data/messages/accounts.db`, or a people database, more
    than 8 event parts, unexpected member names, symlinks), migrates the people
    database and imports in one transaction. The opened directory is removed on
-   success and on failure.
+   success, on failure, and on Ctrl-C or SIGTERM, which roll the import back. If the
+   process was killed hard (SIGKILL, power loss), delete any leftover
+   `restored/messages-*` directory: it holds decrypted ciphertext and metadata.
 3. Compare the printed manifest with your records, and keep the printed counts. The
    import is audited as `restore.messages_imported` with the same counts.
 

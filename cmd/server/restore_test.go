@@ -218,11 +218,11 @@ func TestRestoreMessagesAfterPeople(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The people capsule is not a messages capsule.
-	if err := restoreMessages(people, target, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+	if err := restoreMessages(context.Background(), people, target, "busnes_app", shares, &bytes.Buffer{}); err == nil {
 		t.Fatal("restore-messages accepted a people capsule")
 	}
 	var out bytes.Buffer
-	if err := restoreMessages(messages, target, "busnes_app", shares, &out); err != nil {
+	if err := restoreMessages(context.Background(), messages, target, "busnes_app", shares, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"busnes_app", "rooms=1", "dropped_members=1", "dropped_devices=1", "events=2", "suspended"} {
@@ -260,7 +260,7 @@ func TestRestoreMessagesAfterPeople(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restoreMessages(messages, target, "busnes_app", shares, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "already has messaging data") {
+	if err := restoreMessages(context.Background(), messages, target, "busnes_app", shares, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "already has messaging data") {
 		t.Fatalf("second run: %v", err)
 	}
 	if after, err := os.ReadFile(dbFile); err != nil || !bytes.Equal(before, after) {
@@ -270,8 +270,20 @@ func TestRestoreMessagesAfterPeople(t *testing.T) {
 
 func TestRestoreMessagesNeedsAPeopleRestore(t *testing.T) {
 	_, messages, shares := messagesFixture(t)
-	err := restoreMessages(messages, t.TempDir(), "busnes_app", shares, &bytes.Buffer{})
+	err := restoreMessages(context.Background(), messages, t.TempDir(), "busnes_app", shares, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "people restore") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRestoreRefusesAMessagesCapsule(t *testing.T) {
+	_, messages, shares := messagesFixture(t)
+	target := filepath.Join(t.TempDir(), "restored")
+	err := restore(messages, target, "busnes_app", shares, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "this is a messages capsule") {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(target, backup.MessagesDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("decrypted messages left behind: %v", err)
 	}
 }

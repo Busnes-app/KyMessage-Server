@@ -26,13 +26,19 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	if err := recoveryclient.Restore(capsulePath, targetDir, expectService, shares, &manifest); err != nil {
 		return err
 	}
+	if _, err := os.Lstat(filepath.Join(targetDir, backup.MessagesAccounts)); err == nil {
+		// Decrypted ciphertext and metadata must not stay behind a refusal.
+		return errors.Join(errors.New("this is a messages capsule; restore the people capsule first, then use restore-messages"),
+			os.RemoveAll(filepath.Join(targetDir, backup.MessagesDir)))
+	}
 	if err := prepareRestoredData(targetDir); err != nil {
 		return fmt.Errorf("restored files are NOT ready to serve: %w; keep the target offline", err)
 	}
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(stdout, "Messages past room retention purged. Restored sessions, challenges and pairings invalidated; messaging devices revoked and old rooms retired. Sign in freshly and recover messaging identity with new keys, verification and rooms. Browser keys/history were not restored.")
+	_, err := fmt.Fprintf(stdout, "Restored sessions, challenges and pairings invalidated. A people capsule holds no threads or messaging devices; any from an older capsule were revoked and their rooms retired. Sign in freshly. Browser keys/history were not restored.\n"+
+		"If a messages capsule exists, run `restore-messages -capsule <file> -into %s` before serving.\n", targetDir)
 	return err
 }
 
@@ -71,7 +77,7 @@ func prepareRestoredData(target string) error {
 // restoreMessages imports a messages capsule into a people-restored target, offline. The
 // opened capsule holds ciphertext and metadata, so it lives in a private temp directory
 // that is removed whatever happens.
-func restoreMessages(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
+func restoreMessages(ctx context.Context, capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
 	dbPath, err := filepath.Abs(filepath.Join(targetDir, "data", "ky_server.db"))
 	if err != nil {
 		return err
@@ -79,8 +85,6 @@ func restoreMessages(capsulePath, targetDir, expectService string, shares []stri
 	if info, err := os.Lstat(dbPath); err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("%s is missing; run the people restore first", dbPath)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
 	if err := backup.CheckMessagesTarget(ctx, dbPath); err != nil {
 		return err
 	}
@@ -98,6 +102,10 @@ func restoreMessages(capsulePath, targetDir, expectService string, shares []stri
 	}
 	if _, err := os.Lstat(filepath.Join(opened, "data", "ky_server.db")); err == nil {
 		return errors.New("not a messages capsule: it holds a people database; use restore")
+	}
+	// Recovery does not take a context; stop here if a signal arrived while it ran.
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	// Migrate the people snapshot to this build's schema before importing into it.
 	st, err := store.Open(ctx, config.DatabaseConfig{Driver: "sqlite", DSN: (&url.URL{Scheme: "file", Path: dbPath, RawQuery: "mode=rw"}).String()})

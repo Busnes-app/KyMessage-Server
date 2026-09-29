@@ -45,7 +45,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   messaging rooms, devices or identities (`ErrMessagingDataPresent`; `CheckMessagesTarget` is the
   read-only preflight), members other than `accounts.db`/`events-NNN.db`, more than 8 parts, and any
   member that is not a regular, non-symlinked file inside `openedDir`; then it attaches them
-  read-only. The result must equal deleting every missing person under the schema's ON DELETE
+  read-only. It repeats the messaging-data refusal after `BEGIN IMMEDIATE`, before any write, so
+  two concurrent imports cannot both succeed. The result must equal deleting every missing person under the schema's ON DELETE
   CASCADE rules: identities, devices and memberships of missing people and rooms of missing owners
   (with their events) go; epoch devices and Welcomes naming unimported devices stay. Devices keep
   status with `token_hash` NULL (approved = suspended); `retained_bytes` is recomputed.

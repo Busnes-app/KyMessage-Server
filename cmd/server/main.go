@@ -482,7 +482,13 @@ func runRestore(args []string) {
 }
 
 func runRestoreMessages(args []string) {
-	restoreCommand(args, "restore-messages", "into", "directory a people restore wrote", restoreMessages)
+	restoreCommand(args, "restore-messages", "into", "directory a people restore wrote", func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
+		// SIGINT/SIGTERM cancel the import and return through the cleanup of the opened
+		// capsule instead of killing the process with plaintext on disk.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return restoreMessages(ctx, capsulePath, targetDir, expectService, shares, stdout)
+	})
 }
 
 // restoreCommand parses a restore command's flags and reads custodian shares from stdin.

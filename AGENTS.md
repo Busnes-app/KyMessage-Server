@@ -190,10 +190,12 @@ work is abandoned with a log line rather than killed silently.
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (migration/startup pruning), invalidates
 restored grants and closes it before reporting success. Keep the target offline on
-failure. A people restore contains no messaging rooms or devices. The optional
+failure. Plain `restore` refuses a messages capsule and removes its decrypted
+`data/messages`. A people restore contains no messaging rooms or devices. The optional
 `restore-messages` (`restoreMessages`, also on the decrypt-guard allowlist) runs next,
 offline: it refuses a target without `data/ky_server.db` or with messaging rows before
-opening the capsule, opens it into a removed-on-exit `messages-*` temp directory,
+opening the capsule, opens it into a `messages-*` temp directory removed on return
+(SIGINT/SIGTERM cancel through `signal.NotifyContext`; hard kills leave it for the operator),
 refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
 approved devices are suspended (no token) until their owners resume them; rooms of
 missing owners are not imported. Without it, users recover identity with fresh suite
