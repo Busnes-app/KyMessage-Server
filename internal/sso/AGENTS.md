@@ -17,7 +17,7 @@ Owns the application adapters around OAuth/OIDC login, KySignOn HMAC-SHA256 sign
   a request younger than five minutes. No `iat` fallback or clock-skew allowance;
   comparisons use Unix seconds. Ordinary login does not require `auth_time`.
 - `ReauthenticationRequest` is server-owned state. The messaging recovery-auth API
-  seals it, binds it to the originating live session and pending device/registry,
+  seals it, binds it to the originating live session, browser binder cookie and pending device/registry,
   and binds the current identity generation. After verification, the store atomically
   consumes it; an explicitly confirmed, default-off identity reset also increments
   the generation and revokes prior devices and memberships. Verification without

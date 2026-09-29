@@ -125,9 +125,14 @@ cascades its requests. Device registry changes invalidate existing snapshots, ev
 if unrelated to the target; this deliberately conservative rule supplements identity
 generation binding and remains fail-closed during reset.
 
+Initiation also sets an HttpOnly, SameSite=Lax `ky_reauth_<state prefix>` cookie scoped
+to the callback path for five minutes; the sealed state holds its hash. A stolen copy of
+the session can start a request but cannot finish it in the owner's browser.
+
 Callback requires one canonical 64-character state and one nonempty code of at most
 4096 bytes. It uses the original suite session, without a device token or a new login
-session. Validate stored bindings before the OIDC exchange; require fresh signed
+session, plus the initiating browser's binder cookie. Validate stored bindings before
+the OIDC exchange; require fresh signed
 `auth_time`, matching subject and nonce; then recheck the live session, target and
 registry while atomically deleting the request and auditing completion. OIDC calls
 run outside database transactions. Confirmed reset calls the atomic generation/reset transaction instead; authentication-only
@@ -137,7 +142,7 @@ logout, account changes, revocation and registry changes cannot become an approv
 
 Invalid callbacks return 400; missing/different/expired original bindings return
 403; changed registry returns 409; failed signed authentication or corrupt sealed
-state returns 401. Discovery failure returns 502. A lost authentication-only acknowledgement requires a new request. A completed
+state, or a missing binder cookie, returns 401. Discovery failure returns 502. A lost authentication-only acknowledgement requires a new request. A completed
 reset returns its persisted receipt to the same still-live original session on
 callback retry, without exchanging the consumed code or mutating again. Receipt
 replay works even after disabling further resets. Browser HTML callbacks redirect

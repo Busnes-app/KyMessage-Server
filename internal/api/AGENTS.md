@@ -27,8 +27,10 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - `messaging_recovery.go` owns recovery-authentication initiation and callback.
   Initiation requires the target pending device's token; callback keeps the original
   suite session and never issues another. Seal server-owned OIDC state with the
-  `messaging-recovery-auth` derived key. Check saved account/session/device/subject,
-  callback/state and creation time before exchange; the store rechecks bindings and
+  `messaging-recovery-auth` derived key. Initiation sets a
+  callback-scoped HttpOnly Lax binder cookie whose hash is sealed; the callback requires it,
+  so a stolen session cannot finish a flow in the owner's browser. Check saved
+  account/session/device/subject, callback/state and creation time before exchange; the store rechecks bindings and
   atomically consumes after verification. Explicit `confirm_identity_reset` binds the reset intent in both sealed state and
   the store; the default-off config gate is checked at initiation and callback.
   Reset consumes fresh authentication in the atomic reset transaction. Its session-bound
