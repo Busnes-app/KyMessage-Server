@@ -67,8 +67,8 @@ func (s *Server) handleMessagingAppend(w http.ResponseWriter, r *http.Request, a
 		s.writeError(w, http.StatusBadRequest, "Event payload limit or kind violation")
 		return
 	}
-	// Event metadata, receipts and audit rows outlive ciphertext retention and fill the backup
-	// capsule. A daily cap keeps one account from doing that in hours.
+	// Events, receipts and audit rows live as long as the room keeps messages (forever when
+	// Off) and fill the backup capsule. A daily cap keeps one account from doing that in hours.
 	if !s.allowAccountAttempt("messaging:daily-events:"+actor.UserID, messagingDailyEventLimit, 24*time.Hour) {
 		s.writeError(w, http.StatusTooManyRequests, "Daily message limit reached for this account")
 		return

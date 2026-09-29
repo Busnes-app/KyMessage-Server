@@ -90,7 +90,7 @@ export function connection(value: unknown) {
       return {id:text(m.id),sender:text(m.sender),text:text(m.text),sequence:integer(m.sequence),expiresAt:expiry(m.expiresAt)};
     }),
     historyPruned: d.historyPruned === undefined ? 0 : integer(d.historyPruned),
-    pending: p === null ? null : { request: text(p.request), state: p.state === null ? null : text(p.state), plaintext:p.plaintext === undefined || p.plaintext === null ? null : text(p.plaintext), createdAt: p.createdAt === undefined || p.createdAt === null ? null : integer(p.createdAt) },
+    pending: p === null ? null : { request: text(p.request), state: p.state === null ? null : text(p.state), plaintext:p.plaintext === undefined || p.plaintext === null ? null : text(p.plaintext), createdAt: p.createdAt === undefined || p.createdAt === null ? Math.floor(Date.now()/1000) : integer(p.createdAt) },
   };
 }
 export type Connection = ReturnType<typeof connection>;

@@ -643,6 +643,59 @@ test('retention defaults to 90 days and the owner can turn it off',async ({brows
   } finally { await owner.context.close(); await member.context.close(); }
 });
 
+test('retention form follows the room, is owner-only and confirms shortening',async ({browser}) => {
+  const ownerName = 'ret-form-owner-' + crypto.randomUUID().slice(0,8);
+  const memberName = 'ret-form-member-' + crypto.randomUUID().slice(0,8);
+  const owner = await start(browser,ownerName), member = await start(browser,memberName);
+  try {
+    await expect(owner.page.locator('#retention-form')).toBeHidden();
+    await owner.page.getByLabel('New room name').fill('Retention form room');
+    await click(owner.page,'Create room','Room created');
+    await expect(owner.page.locator('#retention-form')).toBeVisible();
+    await expect(owner.page.locator('#room-retention')).toHaveValue('90');
+    const patches: string[] = [];
+    owner.page.on('request',r => { if (r.method() === 'PATCH') patches.push(r.url()); });
+    await owner.page.locator('#room-retention').selectOption('7');
+    let warning = '';
+    owner.page.once('dialog',dialog => { warning = dialog.message(); void dialog.dismiss(); });
+    await click(owner.page,'Change','Retention change cancelled');
+    expect(warning).toContain('permanently deleted from the server for everyone');
+    expect(patches).toEqual([]);
+    await expect(owner.page.locator('#room-retention')).toHaveValue('90');
+    await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(owner.page.locator('#retention-state')).toContainText('90 days');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await owner.page.getByLabel("Teammate's account ID").fill(memberName);
+    await click(owner.page,'Invite teammate','Invitation sent');
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(member.page,'Accept Retention form room','Room selected');
+    await expect(member.page.locator('#retention-state')).toContainText('90 days');
+    await expect(member.page.locator('#retention-form')).toBeHidden();
+  } finally { await owner.context.close(); await member.context.close(); }
+});
+
+test('a member with the room open sees a retention change on the next refresh',async ({browser}) => {
+  const ownerName = 'ret-open-owner-' + crypto.randomUUID().slice(0,8);
+  const memberName = 'ret-open-member-' + crypto.randomUUID().slice(0,8);
+  const owner = await start(browser,ownerName), member = await start(browser,memberName);
+  try {
+    await owner.page.getByLabel('New room name').fill('Open retention room');
+    await click(owner.page,'Create room','Room created');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await owner.page.getByLabel("Teammate's account ID").fill(memberName);
+    await click(owner.page,'Invite teammate','Invitation sent');
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(member.page,'Accept Open retention room','Room selected');
+    await expect(member.page.locator('#retention-state')).toContainText('90 days');
+    await owner.page.locator('#room-retention').selectOption('30');
+    owner.page.on('dialog',dialog => dialog.accept());
+    await click(owner.page,'Change','Retention changed');
+    await expect(owner.page.locator('#retention-state')).toContainText('30 days');
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(member.page.locator('#retention-state')).toContainText('30 days');
+  } finally { await owner.context.close(); await member.context.close(); }
+});
+
 for (const joined of [true,false]) test(`expired history requires explicit recovery, previously joined ${joined}`,async ({browser}) => {
   const ownerName = 'expiry-owner-' + crypto.randomUUID().slice(0,8);
   const memberName = 'expiry-member-' + crypto.randomUUID().slice(0,8);

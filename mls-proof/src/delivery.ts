@@ -107,6 +107,7 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
   if (d.historyGap) throw new Error('Missing encrypted history: rejoin explicitly or create a new room');
   if (!d.room || !d.device || d.pending || d.rejoinGeneration !== null || r.awaitingCommit || r.pending || r.outbox.length) throw new Error('Resolve pending delivery first');
   const v = await api(roomPath(d) + '/delivery', d.token);
+  d.retentionDays = retentionDays(v.retention_days);
   const devices = roster(v.devices);
   const epoch = integer(v.epoch);
   if (integer(v.sequence) !== r.cursor) throw new Error('Catch up before sending');
@@ -159,6 +160,7 @@ async function openRoom(room: string, expectedPeer?: string) {
     // initialize a group with join material that has already been published.
     if (!r.state && selected.owner_id === r.identity && !d.publication) {
       const remote = await api(roomPath(d) + '/delivery',d.token);
+      d.retentionDays = retentionDays(remote.retention_days);
       if (integer(remote.epoch) === 0) {
         const group = await createGroup(encoder.encode(room),keyPackage(r.keyPackage),privateKeys(r),[],await suite,config(r));
         r.state = base64(encodeGroupState(group));
@@ -337,6 +339,7 @@ export const delivery = {
       if (selected?.membership === 'invited') await api(roomPath(d) + '/join',d.token,'POST');
       else if (selected?.membership !== 'active') throw new Error('A new room invitation is required');
       const directory = await api(roomPath(d) + '/delivery',d.token);
+      d.retentionDays = retentionDays(directory.retention_days);
       const own = roster(directory.devices).find(x => x.id === d.device);
       const old = keyPackage(r.keyPackage);
       if (!own || own.user_id !== r.identity || own.public_key !== base64(old.leafNode.signaturePublicKey) || own.generation <= previous) throw new Error('Rejoin requires a newer membership generation');
@@ -372,6 +375,7 @@ export const delivery = {
     return transaction(async (_r,d) => {
       const current = await api(roomPath(d) + '/delivery',d.token);
       if (typeof current.paused !== 'boolean') throw new Error('Invalid room pause state');
+      d.retentionDays = retentionDays(current.retention_days);
       const peers = await Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,identity_generation:device.identity_generation,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key && p.identityGeneration === device.identity_generation)})));
       return {peers,paused:current.paused,room:d.room,rosterHash:text(current.roster_hash)};
     });
@@ -379,6 +383,7 @@ export const delivery = {
   async approveDevice(device: string, expectedFingerprint: string) {
     return transaction(async (r,d) => {
       const current = await api(roomPath(d) + '/delivery',d.token);
+      d.retentionDays = retentionDays(current.retention_days);
       const target = roster(current.devices).find(x => x.id === device);
       if (!target || await hash(unbase64(target.public_key)) !== expectedFingerprint) throw new Error('Device fingerprint mismatch');
       if (!r.pins.some(p => p.identity === target.user_id && p.key === target.public_key && p.identityGeneration === target.identity_generation)) r.pins.push({identity:target.user_id,key:target.public_key,identityGeneration:target.identity_generation});
@@ -390,6 +395,7 @@ export const delivery = {
       if ((r.state && d.rejoinGeneration === null) || !r.keys) throw new Error('KeyPackage already consumed');
       if (d.joinGeneration === null) {
         const remote = await api(roomPath(d) + '/delivery',d.token);
+        d.retentionDays = retentionDays(remote.retention_days);
         const own = roster(remote.devices).find(device => device.id === d.device);
         if (!own || own.user_id !== r.identity || own.public_key !== base64(keyPackage(r.keyPackage).leafNode.signaturePublicKey)) throw new Error('Missing bound join device');
         d.joinGeneration = own.generation;
@@ -518,7 +524,9 @@ export const delivery = {
     const result = await transaction(async (r,d) => {
       if (!d.pending) throw new Error('No pending delivery');
       // The server forgets purged events, so an older retry would append a duplicate.
-      if (d.retentionDays > 0 && d.pending.createdAt !== null && d.pending.createdAt < Math.floor(Date.now()/1000) - d.retentionDays*86400) {
+      // Read the current window: another member may have shortened it.
+      d.retentionDays = retentionDays((await api(roomPath(d) + '/delivery',d.token)).retention_days);
+      if (d.retentionDays > 0 && d.pending.createdAt < Math.floor(Date.now()/1000) - d.retentionDays*86400) {
         d.pending = null;
         return {stale:true as const};
       }

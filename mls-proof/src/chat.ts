@@ -120,6 +120,8 @@ let devices: Awaited<ReturnType<typeof delivery.accountDevices>> = [];
 let members: Awaited<ReturnType<typeof delivery.members>> = [];
 let roomPaused = false;
 let rooms: Awaited<ReturnType<typeof delivery.rooms>> = [];
+// Room and value last written to the retention select, so polling never resets a pending choice.
+let retentionShown = '';
 
 function controls() {
   document.querySelectorAll('button, input, textarea, select').forEach(node => {
@@ -285,6 +287,10 @@ async function render() {
   element('room-tools').hidden = localOnly || s.room === null;
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
+  // Only the owner or direct peer may change retention; the server enforces it too.
+  element('retention-form').hidden = localOnly || !room || room.membership !== 'active' || (room.owner !== s.identity && room.peer !== s.identity);
+  const shown = `${s.room}:${s.retentionDays}`;
+  if (retentionShown !== shown) { field('room-retention').value = String(s.retentionDays); retentionShown = shown; }
   element('retention-state').textContent = s.room ? (s.retentionDays === 0 ? 'Server retention: off. Messages stay until the owner turns purging on.' : `Server retention: ${s.retentionDays === 1 ? '24 hours' : s.retentionDays + ' days'}. Older messages are deleted from the server; downloaded copies and backups may outlive them.`) : '';
   element('history-gap').hidden = s.historyGap === null;
   element('history-gap').textContent = s.historyGap === 'rollback'
@@ -377,7 +383,7 @@ function lockLocal() {
   viewGeneration++;
   stopPolling();
   clearTimeout(expiryTimer);
-  proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false;
+  proof.lock(); delivery.disconnect(); localOnly = false; opened = false; snapshot = null; devices = []; rooms = []; members = []; roomPaused = false; retentionShown = '';
   for (const id of ['messages','peers','rooms','account-devices','pending-text','own-fingerprint','signed-in','room-title','room-state','poll-state','members','device-recovery','saved-rooms','retention-state','history-gap','local-retention']) element(id).replaceChildren();
   for (const id of ['message','password','history-password','peer-fingerprint','account-fingerprint','invite-account','direct-account','room-name']) field(id).value = '';
   options('peer-device',[]); options('pending-device',[]); options('remove-member',[],'Choose a member'); options('revoke-device',[],'Choose a device to revoke');
@@ -444,7 +450,17 @@ click('saved-refresh',async () => {
   }));
 },'Saved conversations listed.');
 click('refresh',refresh,'Rooms and devices refreshed.');
-form('retention-form',async () => { await delivery.setRetention(Number(field('room-retention').value)); await refresh(); },'Retention changed.');
+form('retention-form',async () => {
+  const days = Number(field('room-retention').value);
+  const span = (value: number) => value === 0 ? Infinity : value;
+  const label = days === 1 ? '24 hours' : days + ' days';
+  if (snapshot && span(days) < span(snapshot.retentionDays) && !confirm(`Keep messages for ${label}? Messages older than ${label} will be permanently deleted from the server for everyone in this conversation. This cannot be undone.`)) {
+    retentionShown = ''; // Show the current value again.
+    throw new Error('Retention change cancelled.');
+  }
+  await delivery.setRetention(days);
+  await refresh();
+},'Retention changed.');
 form('direct-form',async () => { confirmDraftDiscard(); await delivery.directRoom(field('direct-account').value,Number(field('retention-days').value)); field('message').value = ''; field('direct-account').value = ''; await refresh(); },'Direct conversation selected. The recipient must accept; verify fingerprints before messaging.');
 form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim(),Number(field('retention-days').value)); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');

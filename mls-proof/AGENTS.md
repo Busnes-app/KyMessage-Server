@@ -81,10 +81,15 @@ retains the manual wire harness. Root owns product decisions and research in `do
   join clears the gap. Never rewind a cursor or epoch to fit restored server data.
   This does not recover revoked devices or the missing messages.
 - New room/direct creation offers Off, 24 hours, 7, 30 or 90 days (default 90). The
-  owner (or direct peer) changes it with `setRetention` (`PATCH /rooms/{room}`). Cache
-  the policy encrypted; older records with 1/7/30 and pendings without `createdAt` still
-  parse. Off means no local expiry deadline either. `submit` drops a pending send older
-  than the window (the server forgets purged receipts, so a retry would duplicate).
+  owner (or direct peer) changes it with `setRetention` (`PATCH /rooms/{room}`); the chat
+  form shows the room's current value, is hidden from everyone else, and confirms any
+  shortening (Off counts as longest) because it deletes history for everyone. Cache
+  the policy encrypted and refresh it from every `/delivery` read; older records with
+  1/7/30 still parse, and a pending without `createdAt` is stamped when loaded (so it
+  expires one window later). Off means no local expiry deadline either. `submit`
+  re-reads the window, then drops a pending send older than it (the server forgets
+  purged receipts, so a retry would duplicate). Background polls and live wakes do not
+  re-read it; the displayed value updates on refresh, open, send or submit.
   Distinguish server cleanup from recipient copies and backups.
 - Keep fixture proxying opt-in with `MLS_PROOF_DELIVERY=1`; the normal manual
   harness stays offline. Production `web/` and authentication semantics remain untouched.
