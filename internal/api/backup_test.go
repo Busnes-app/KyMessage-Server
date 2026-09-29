@@ -872,6 +872,32 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.Database.DataDir, "recovery.pub")); err == nil {
 		t.Fatal("a stale session pinned a key")
 	}
+	// Pairing verifies no credentials, so a session it mints must not look like a fresh sign-in.
+	init := adminDo(t, srv, stale, "POST", "/api/devices/pair/init", nil)
+	if init.Code != http.StatusOK {
+		t.Fatalf("pair init: %d %s", init.Code, init.Body.String())
+	}
+	var pairing struct{ Secret string }
+	if err := json.Unmarshal(init.Body.Bytes(), &pairing); err != nil {
+		t.Fatal(err)
+	}
+	verify := postJSON(t, srv, "/api/devices/pair/verify", "192.0.2.20:1000", map[string]string{"secret": pairing.Secret, "platform": "pwa"})
+	var paired struct {
+		Token string `json:"session_token"`
+	}
+	if err := json.Unmarshal(verify.Body.Bytes(), &paired); err != nil || paired.Token == "" {
+		t.Fatalf("pair verify: %d %s", verify.Code, verify.Body.String())
+	}
+	derived := &http.Cookie{Name: auth.SessionCookieName, Value: paired.Token}
+	for _, rt := range []struct{ method, path string }{
+		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
+		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
+	} {
+		w := adminDo(t, srv, derived, rt.method, rt.path, pinBody(pub, 2, 3))
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
+			t.Errorf("%s %s with a session paired from a stale one: got %d %s", rt.method, rt.path, w.Code, w.Body.String())
+		}
+	}
 	for _, path := range []string{"/api/backup/status"} {
 		if w := adminDo(t, srv, stale, "GET", path, nil); w.Code != http.StatusOK {
 			t.Errorf("GET %s should not need step-up: %d", path, w.Code)

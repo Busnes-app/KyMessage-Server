@@ -316,7 +316,8 @@ CREATE TABLE device_pairings (
     push_token TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL,
-    expires_at DATETIME NOT NULL
+    expires_at DATETIME NOT NULL,
+    authenticated_at DATETIME NOT NULL
 );
 CREATE INDEX idx_pairings_expires ON device_pairings(expires_at);
 `
@@ -331,7 +332,8 @@ CREATE TABLE device_pairings (
     push_token TEXT NOT NULL DEFAULT '',
     status VARCHAR(32) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL,
+    authenticated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX idx_pairings_expires ON device_pairings(expires_at);
 `

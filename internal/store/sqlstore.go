@@ -554,19 +554,19 @@ func (d *deviceStore) CreatePairing(ctx context.Context, p *DevicePairing) error
 	}
 
 	q := d.store.rebind(`
-INSERT INTO device_pairings (secret, user_id, device_name, platform, push_token, status, created_at, expires_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO device_pairings (secret, user_id, device_name, platform, push_token, status, created_at, expires_at, authenticated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 	_, err := d.store.db.ExecContext(ctx, q,
 		p.Secret, p.UserID, p.DeviceName, p.Platform, p.PushToken,
-		p.Status, p.CreatedAt, p.ExpiresAt,
+		p.Status, p.CreatedAt, p.ExpiresAt, p.AuthenticatedAt,
 	)
 	return err
 }
 
 func (d *deviceStore) GetPairingBySecret(ctx context.Context, secret string) (*DevicePairing, error) {
 	q := d.store.rebind(`
-SELECT secret, user_id, device_name, platform, push_token, status, created_at, expires_at
+SELECT secret, user_id, device_name, platform, push_token, status, created_at, expires_at, authenticated_at
 FROM device_pairings WHERE secret = ?
 `)
 	return d.scanPairing(d.store.db.QueryRowContext(ctx, q, secret))
@@ -576,7 +576,7 @@ func (d *deviceStore) scanPairing(row interface{ Scan(...any) error }) (*DeviceP
 	var p DevicePairing
 	err := row.Scan(
 		&p.Secret, &p.UserID, &p.DeviceName, &p.Platform,
-		&p.PushToken, &p.Status, &p.CreatedAt, &p.ExpiresAt,
+		&p.PushToken, &p.Status, &p.CreatedAt, &p.ExpiresAt, &p.AuthenticatedAt,
 	)
 	if err != nil {
 		if errorsIs(err, sql.ErrNoRows) {
