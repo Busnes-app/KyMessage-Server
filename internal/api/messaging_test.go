@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
+	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -402,4 +404,166 @@ func TestMessagingDirectRoomBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", alice, a.Token, map[string]string{"user_id": "direct-charlie"}), 403)
+}
+
+// suspend clears a device's credential as restore-messages imports it.
+func suspend(t *testing.T, cfg *config.Config, id string) {
+	t.Helper()
+	driver := cfg.Database.Driver
+	if driver == "postgres" {
+		driver = "pgx"
+	}
+	db, err := sql.Open(driver, cfg.Database.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(), `UPDATE messaging_devices SET token_hash = NULL WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// messagingSessionAt adds a suite session for an existing account, signed in at signedIn.
+func messagingSessionAt(t *testing.T, st store.Store, user string, signedIn time.Time) string {
+	t.Helper()
+	token := crypto.RandomHex(32)
+	if err := st.Sessions().CreateSession(context.Background(), &store.Session{TokenHash: crypto.SHA256Hex([]byte(token)), UserID: user, CreatedAt: signedIn.UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func deviceStatusHTTP(t *testing.T, srv *api.Server, session, id string) string {
+	t.Helper()
+	w := messagingRequest(t, srv, "GET", "/api/messaging/devices", session, "", nil)
+	messagingCode(t, w, 200)
+	var list struct{ Devices []struct{ ID, Status string } }
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range list.Devices {
+		if d.ID == id {
+			return d.Status
+		}
+	}
+	t.Fatalf("device %s missing", id)
+	return ""
+}
+
+func TestMessagingResumeSuspendedDevice(t *testing.T) {
+	srv, st, cfg := setupTestServer(t)
+	other := messagingLogin(t, st, "alice")
+	d := verifyEnrollment(t, srv, other, requestEnrollment(t, srv, other))
+	pending := verifyEnrollment(t, srv, other, requestEnrollment(t, srv, other))
+	suspend(t, cfg, d.ID)
+	if got := deviceStatusHTTP(t, srv, other, d.ID); got != "suspended" {
+		t.Fatal(got)
+	}
+	// The imported device's old credential is dead for reads and approvals.
+	messagingCode(t, messagingRequest(t, srv, "GET", "/api/messaging/rooms/any/delivery", other, d.Token, nil), 403)
+	messagingCode(t, messagingRequest(t, srv, "POST", "/api/messaging/devices/"+pending.ID+"/approve", other, d.Token, nil), 403)
+	stale := messagingSessionAt(t, st, "alice", time.Now().Add(-11*time.Minute))
+
+	token := crypto.RandomHex(32)
+	body := map[string]string{"token_hash": crypto.SHA256Hex([]byte(token))}
+	w := messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume", stale, "", body)
+	messagingCode(t, w, 403)
+	if !strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kysignon/login?fresh=1"`) {
+		t.Fatal(w.Body.String())
+	}
+	fresh := messagingSessionAt(t, st, "alice", time.Now())
+	messagingCode(t, messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume", fresh, "", map[string]string{"token_hash": "nothex"}), 400)
+	w = messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume", fresh, "", body)
+	messagingCode(t, w, 200)
+	var started struct {
+		SigningInput string `json:"signing_input"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	input, err := base64.StdEncoding.DecodeString(started.SigningInput)
+	if err != nil || !strings.Contains(string(input), `"Domain":"KyMessages resume v1"`) || !strings.Contains(string(input), d.ID) {
+		t.Fatalf("%s %v", input, err)
+	}
+	if left := time.Until(time.Unix(started.ExpiresAt, 0)); left <= 4*time.Minute || left > 5*time.Minute {
+		t.Fatal(left)
+	}
+	d.Input = started.SigningInput
+	path := "/api/messaging/devices/" + d.ID + "/resume/verify"
+	wrong := d
+	_, wrong.Key, _ = ed25519.GenerateKey(rand.Reader)
+	messagingCode(t, messagingRequest(t, srv, "POST", path, fresh, "", enrollmentProof(t, wrong)), 403)
+	if got := deviceStatusHTTP(t, srv, fresh, d.ID); got != "suspended" {
+		t.Fatal(got)
+	}
+	// The resume is bound to the session that started it.
+	messagingCode(t, messagingRequest(t, srv, "POST", path, other, "", enrollmentProof(t, d)), 404)
+	w = messagingRequest(t, srv, "POST", path, fresh, "", enrollmentProof(t, d))
+	messagingCode(t, w, 200)
+	if !strings.Contains(w.Body.String(), `"status":"approved"`) {
+		t.Fatal(w.Body.String())
+	}
+	messagingCode(t, messagingRequest(t, srv, "GET", "/api/messaging/rooms", fresh, token, nil), 200)
+	messagingCode(t, messagingRequest(t, srv, "GET", "/api/messaging/rooms", fresh, d.Token, nil), 403)
+	messagingCode(t, messagingRequest(t, srv, "POST", path, fresh, "", enrollmentProof(t, d)), 404)
+	list := messagingRequest(t, srv, "GET", "/api/messaging/devices", fresh, "", nil)
+	for _, forbidden := range []string{token, crypto.SHA256Hex([]byte(token)), "resume_token_hash", "token_hash"} {
+		if strings.Contains(list.Body.String(), forbidden) {
+			t.Fatalf("list leaked %q", forbidden)
+		}
+	}
+}
+
+func TestMessagingAdminSuspendedDevices(t *testing.T) {
+	srv, st, cfg := setupTestServer(t)
+	alice := messagingLogin(t, st, "alice")
+	d := verifyEnrollment(t, srv, alice, requestEnrollment(t, srv, alice))
+	bob := messagingLogin(t, st, "bob")
+	live := verifyEnrollment(t, srv, bob, requestEnrollment(t, srv, bob))
+	suspend(t, cfg, d.ID)
+	admin := loginAs(t, srv, st, "operator", "admin")
+	messagingCode(t, adminDo(t, srv, admin, "GET", "/api/admin/messaging/devices", nil), 400)
+	w := adminDo(t, srv, admin, "GET", "/api/admin/messaging/devices?status=suspended", nil)
+	messagingCode(t, w, 200)
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("admin device list cacheable")
+	}
+	var list struct {
+		Devices []map[string]any `json:"devices"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Devices) != 1 || list.Devices[0]["id"] != d.ID || list.Devices[0]["username"] != "alice" || list.Devices[0]["fingerprint"] == "" {
+		t.Fatal(w.Body.String())
+	}
+	for _, forbidden := range []string{"public_key", "token", "challenge", "session"} {
+		if strings.Contains(w.Body.String(), forbidden) {
+			t.Fatalf("admin list leaked %q: %s", forbidden, w.Body.String())
+		}
+	}
+	messagingCode(t, adminDo(t, srv, admin, "POST", "/api/admin/messaging/devices/"+live.ID+"/revoke", nil), 404)
+	messagingCode(t, messagingRequest(t, srv, "GET", "/api/messaging/rooms", bob, live.Token, nil), 200)
+	messagingCode(t, adminDo(t, srv, admin, "POST", "/api/admin/messaging/devices/"+d.ID+"/revoke", nil), 200)
+	if got := deviceStatusHTTP(t, srv, alice, d.ID); got != "revoked" {
+		t.Fatal(got)
+	}
+	if rows := auditRows(t, st, "messaging.device_revoked_by_admin"); len(rows) != 1 || rows[0].Resource != d.ID || rows[0].UserID != "usr_operator" {
+		t.Fatalf("%+v", rows)
+	}
+	// Revoking needs a recent sign-in.
+	operator, err := st.Users().GetUserByID(context.Background(), "usr_operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := crypto.RandomHex(32)
+	if err := st.Sessions().CreateSession(context.Background(), &store.Session{TokenHash: crypto.SHA256Hex([]byte(stale)), UserID: operator.ID, CreatedAt: time.Now().UTC().Add(-11 * time.Minute), ExpiresAt: time.Now().UTC().Add(time.Hour)}, operator.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	staleCookie := &http.Cookie{Name: auth.SessionCookieName, Value: stale}
+	w = adminDo(t, srv, staleCookie, "POST", "/api/admin/messaging/devices/"+d.ID+"/revoke", nil)
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "reauthentication_required") {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
 }

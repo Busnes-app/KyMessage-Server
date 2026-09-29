@@ -89,7 +89,7 @@ func (m *messagingStore) ResetIdentity(ctx context.Context, actor MessagingActor
 		if _, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_key_packages SET expires_at = ? WHERE claim_id = '' AND device_id IN (SELECT id FROM messaging_devices WHERE user_id = ?)`), now, actor.UserID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_devices SET status = 'revoked', token_hash = NULL, challenge = '', enrollment_session = '' WHERE user_id = ? AND id <> ?`), actor.UserID, r.DeviceID); err != nil {
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_devices SET `+revokeDeviceSet+` WHERE user_id = ? AND id <> ?`), actor.UserID, r.DeviceID); err != nil {
 			return err
 		}
 		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_devices SET status = 'approved', approved_by = '', identity_generation = ? WHERE id = ? AND user_id = ? AND status = 'pending' AND public_key = ?`), r.IdentityGeneration+1, r.DeviceID, actor.UserID, r.PublicKey)); err != nil {

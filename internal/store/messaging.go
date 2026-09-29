@@ -23,6 +23,7 @@ var (
 // A device credential supplements that session; it cannot replace it.
 type MessagingActor struct {
 	UserID, SessionHash, DeviceTokenHash, IP string
+	SessionCreatedAt                         int64 // credential time (Session.CreatedAt), for step-up
 }
 
 type MessagingDevice struct {
@@ -60,6 +61,10 @@ type MessagingStore interface {
 	ListDevices(context.Context, MessagingActor) ([]MessagingDevice, error)
 	ApproveDevice(context.Context, MessagingActor, string) error
 	RevokeDevice(context.Context, MessagingActor, string) error
+	StartDeviceResume(ctx context.Context, actor MessagingActor, id, tokenHash, challenge string, expiresAt int64) error
+	ResumeDevice(ctx context.Context, actor MessagingActor, id string, signature []byte) (*MessagingDevice, error)
+	SuspendedDevices(context.Context) ([]SuspendedDevice, error)
+	RevokeSuspendedDevice(ctx context.Context, adminID, ip, id string) error
 	CreateRoom(context.Context, MessagingActor, MessagingRoom) error
 	SetRoomRetention(ctx context.Context, actor MessagingActor, room string, days int64) error
 	ListRooms(context.Context, MessagingActor, int) ([]MessagingRoom, error)
@@ -178,7 +183,14 @@ func (m *messagingStore) EnrollDevice(ctx context.Context, actor MessagingActor,
 	})
 }
 
-const deviceColumns = `id, user_id, name, public_key, status, approved_by, created_at, identity_generation`
+// An approved device without a credential was imported by restore-messages: it is
+// suspended until its owner re-proves its key (ResumeDevice).
+const deviceStatusColumn = `CASE WHEN status = 'approved' AND token_hash IS NULL THEN 'suspended' ELSE status END`
+
+const deviceColumns = `id, user_id, name, public_key, ` + deviceStatusColumn + `, approved_by, created_at, identity_generation`
+
+// revokeDeviceSet is every revocation's SET clause: no credential, pending challenge or resume survives.
+const revokeDeviceSet = `status = 'revoked', token_hash = NULL, challenge = '', enrollment_session = '', resume_token_hash = ''`
 
 func scanMessagingDevice(row interface{ Scan(...any) error }) (*MessagingDevice, error) {
 	var d MessagingDevice
@@ -261,7 +273,7 @@ func (m *messagingStore) ApproveDevice(ctx context.Context, actor MessagingActor
 // It cannot approve a replacement or reset the bootstrap history.
 func (m *messagingStore) RevokeDevice(ctx context.Context, actor MessagingActor, id string) error {
 	return m.transaction(ctx, actor, false, func(tx *sql.Tx, _ string) error {
-		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_devices SET status = 'revoked', token_hash = NULL, challenge = '', enrollment_session = '' WHERE id = ? AND user_id = ? AND status <> 'revoked'`), id, actor.UserID)); err != nil {
+		if err := messagingChanged(tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_devices SET `+revokeDeviceSet+` WHERE id = ? AND user_id = ? AND status <> 'revoked'`), id, actor.UserID)); err != nil {
 			return err
 		}
 		return m.audit(ctx, tx, actor, "messaging.device_revoked", id, "")

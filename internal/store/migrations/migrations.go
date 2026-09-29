@@ -239,7 +239,11 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	// events outright, so expiry derives from created_at instead of a stored column.
 	// Column-level CHECKs drop with their column; a table rebuild would cascade-delete rooms.
 	{Version: 17, Name: "thread_auto_purge", SQLite: threadAutoPurgeSQLite, Postgres: threadAutoPurgePostgres},
+	// A suspended device's proposed credential waits here until its key signature verifies.
+	{Version: 18, Name: "messaging_device_resume", SQLite: messagingDeviceResume, Postgres: messagingDeviceResume},
 }
+
+const messagingDeviceResume = `ALTER TABLE messaging_devices ADD COLUMN resume_token_hash TEXT NOT NULL DEFAULT '';`
 
 // Run executes all pending migrations for the specified database driver.
 func Run(ctx context.Context, db *sql.DB, driver string) error {
