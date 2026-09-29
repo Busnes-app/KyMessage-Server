@@ -227,6 +227,9 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 12, Name: "messaging_retention", SQLite: messagingRetentionSchema, Postgres: messagingRetentionSchema},
 	{Version: 13, Name: "audit_latest_action", SQLite: `CREATE INDEX idx_audit_action_id ON audit_records(action, id);`, Postgres: `CREATE INDEX idx_audit_action_id ON audit_records(action, id);`},
 	{Version: 14, Name: "pairing_secret_only", SQLite: pairingSecretOnlySQLite, Postgres: pairingSecretOnlyPostgres},
+	// The newest directory-webhook timestamp applied per user, persisted so a restart cannot
+	// reopen a replay window.
+	{Version: 15, Name: "directory_sync_order", SQLite: `ALTER TABLE users ADD COLUMN directory_synced_at BIGINT NOT NULL DEFAULT 0;`, Postgres: `ALTER TABLE users ADD COLUMN directory_synced_at BIGINT NOT NULL DEFAULT 0;`},
 }
 
 // Run executes all pending migrations for the specified database driver.

@@ -121,8 +121,8 @@ func TestSAMLServiceProvider(t *testing.T) {
 
 }
 
-// A captured or delayed delivery must not undo a later one: replaying an old promotion after a
-// demotion would restore admin.
+// A captured or delayed delivery must not undo a later one, even after a restart: replaying an
+// old promotion after a demotion would restore admin.
 func TestKySignOnWebhookIgnoresReplayAndStaleUpdates(t *testing.T) {
 	st, err := store.Open(context.Background(), testdb.Config(t))
 	if err != nil {
@@ -130,27 +130,58 @@ func TestKySignOnWebhookIgnoresReplayAndStaleUpdates(t *testing.T) {
 	}
 	defer st.Close()
 	const secret = "webhook-secret"
-	client := sso.NewKySignOnClient(config.SSOConfig{KySignOnHMACSecret: secret}, st)
-	deliver := func(role string, ts int64) (body []byte, sig string) {
-		body, _ = json.Marshal(sso.KySignOnSyncPayload{Event: "user.updated", ID: "ext-carol", Username: "carol", Role: role, Status: "active", Timestamp: ts})
-		sig = crypto.ComputeHMACSHA256(body, secret)
+	cfg := config.SSOConfig{KySignOnHMACSecret: secret}
+	sign := func(subject, role string, ts int64) ([]byte, string) {
+		body, _ := json.Marshal(sso.KySignOnSyncPayload{Event: "user.updated", ID: subject, Username: subject, Role: role, Status: "active", Timestamp: ts})
+		return body, crypto.ComputeHMACSHA256(body, secret)
+	}
+	deliver := func(client *sso.KySignOnClient, body []byte, sig string) {
+		t.Helper()
 		if err := client.HandleSyncWebhook(context.Background(), body, sig); err != nil {
 			t.Fatal(err)
 		}
-		return body, sig
+	}
+	roleOf := func(subject string) string {
+		t.Helper()
+		u, err := st.Users().GetUserBySSO(context.Background(), "kysignon", subject)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u.Role
 	}
 	now := time.Now().Unix()
-	promote, promoteSig := deliver("admin", now-2)
-	deliver("user", now-1)
-	if err := client.HandleSyncWebhook(context.Background(), promote, promoteSig); err != nil {
-		t.Fatalf("replay should be ignored, not fail: %v", err)
+
+	client := sso.NewKySignOnClient(cfg, st)
+	promote, promoteSig := sign("carol", "admin", now-2)
+	deliver(client, promote, promoteSig)
+	demote, demoteSig := sign("carol", "user", now-1)
+	deliver(client, demote, demoteSig)
+	// A restarted process keeps the order, because it lives with the user row.
+	restarted := sso.NewKySignOnClient(cfg, st)
+	deliver(restarted, promote, promoteSig)
+	delayed, delayedSig := sign("carol", "admin", now-3)
+	deliver(restarted, delayed, delayedSig)
+	if got := roleOf("carol"); got != "user" {
+		t.Fatalf("role is %q after replayed and stale promotions, want user", got)
 	}
-	deliver("admin", now-3) // a delayed retry older than the demotion
-	u, err := st.Users().GetUserBySSO(context.Background(), "kysignon", "ext-carol")
-	if err != nil {
-		t.Fatal(err)
+
+	// Same-second updates cannot be ordered, so a tie may only lower privilege, in either
+	// delivery order.
+	for _, order := range [][2]string{{"admin", "user"}, {"user", "admin"}} {
+		subject := "dave-" + order[0]
+		base, baseSig := sign(subject, "user", now-10)
+		deliver(client, base, baseSig)
+		for _, role := range order {
+			body, sig := sign(subject, role, now)
+			deliver(client, body, sig)
+		}
+		if got := roleOf(subject); got != "user" {
+			t.Errorf("same-second updates delivered as %v left role %q, want user", order, got)
+		}
 	}
-	if u.Role != "user" {
-		t.Fatalf("role is %q after replayed and stale promotions, want user", u.Role)
+	later, laterSig := sign("dave-admin", "admin", now+1)
+	deliver(client, later, laterSig)
+	if got := roleOf("dave-admin"); got != "admin" {
+		t.Fatalf("a strictly newer promotion was refused: %q", got)
 	}
 }

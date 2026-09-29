@@ -259,6 +259,33 @@ func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 	return nil
 }
 
+func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, at int64, allowTie bool) (bool, error) {
+	order := "<"
+	if allowTie {
+		order = "<="
+	}
+	now := time.Now().UTC()
+	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ?, directory_synced_at = ? WHERE id = ? AND directory_synced_at ` + order + ` ?`)
+	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, now, at, user.ID, at)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err == nil && rows == 1 {
+		user.UpdatedAt = now
+	}
+	return rows == 1, err
+}
+
+func (u *userStore) DeleteDirectoryUser(ctx context.Context, id string, at int64) (bool, error) {
+	res, err := u.store.db.ExecContext(ctx, u.store.rebind(`DELETE FROM users WHERE id = ? AND directory_synced_at <= ?`), id, at)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	return rows == 1, err
+}
+
 func (u *userStore) UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error {
 	q := u.store.rebind("UPDATE users SET recovery_codes_hash = ?, updated_at = ? WHERE id = ? AND recovery_codes_hash = ?")
 	res, err := u.store.db.ExecContext(ctx, q, newHashes, time.Now().UTC(), userID, oldHashes)

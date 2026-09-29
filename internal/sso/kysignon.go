@@ -20,12 +20,9 @@ type KySignOnClient struct {
 	store  store.Store
 	flow   *oauthFlow
 
-	// syncMu applies directory updates one at a time. seen holds signatures inside the
-	// timestamp window, so a captured delivery cannot be replayed; latest holds each
-	// subject's newest applied timestamp, so a delayed retry cannot restore an old role.
+	// syncMu applies directory updates one at a time, so a read and its conditional write
+	// see the same row. Ordering itself is persisted with the user (directory_synced_at).
 	syncMu sync.Mutex
-	seen   map[string]int64
-	latest map[string]int64
 }
 
 func NewKySignOnClient(cfg config.SSOConfig, st store.Store) *KySignOnClient {
@@ -88,25 +85,15 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 
 	k.syncMu.Lock()
 	defer k.syncMu.Unlock()
-	if k.seen == nil {
-		k.seen, k.latest = map[string]int64{}, map[string]int64{}
-	}
-	now := time.Now().Unix()
-	for sig, ts := range k.seen {
-		if now-ts > 600 {
-			delete(k.seen, sig)
-		}
-	}
-	// Replays and superseded updates succeed without effect, so the sender stops retrying.
-	if _, dup := k.seen[signature]; dup || payload.Timestamp < k.latest[payload.ID] {
-		return nil
-	}
-	if err := k.applySync(ctx, payload); err != nil {
-		return err
-	}
-	k.seen[signature] = payload.Timestamp
-	k.latest[payload.ID] = payload.Timestamp
-	return nil
+	return k.applySync(ctx, payload)
+}
+
+// raisesPrivilege reports whether a directory update would grant admin or reactivate. Updates
+// carry second-resolution timestamps and no revision, so two in the same second cannot be
+// ordered; a tie may only lower privilege, and a captured same-second promotion cannot
+// undo a demotion.
+func raisesPrivilege(existing *store.User, role, status string) bool {
+	return (role == "admin" && existing.Role != "admin") || (status == "active" && existing.Status != "active")
 }
 
 func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayload) error {
@@ -129,12 +116,17 @@ func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayl
 
 		if existing != nil {
 			privilegesChanged := existing.Role != role || existing.Status != status
-			existing.Username = payload.Username
-			existing.Email = payload.Email
-			existing.DisplayName = payload.DisplayName
-			existing.Role = role
-			existing.Status = status
-			if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
+			allowTie := !raisesPrivilege(existing, role, status)
+			updated := *existing
+			updated.Username = payload.Username
+			updated.Email = payload.Email
+			updated.DisplayName = payload.DisplayName
+			updated.Role = role
+			updated.Status = status
+			// A replayed or superseded update applies nothing and still succeeds, so the
+			// sender stops retrying.
+			applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, payload.Timestamp, allowTie)
+			if err != nil || !applied {
 				return err
 			}
 			if privilegesChanged {
@@ -153,7 +145,11 @@ func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayl
 			SSOProvider: "kysignon",
 			SSOSubject:  payload.ID,
 		}
-		return k.store.Users().CreateUser(ctx, newUser)
+		if err := k.store.Users().CreateUser(ctx, newUser); err != nil {
+			return err
+		}
+		_, err = k.store.Users().ApplyDirectoryProfile(ctx, newUser, payload.Timestamp, true)
+		return err
 
 	case "user.deactivated":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
@@ -161,7 +157,8 @@ func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayl
 			return nil // User might not exist locally
 		}
 		existing.Status = "inactive"
-		if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
+		applied, err := k.store.Users().ApplyDirectoryProfile(ctx, existing, payload.Timestamp, true)
+		if err != nil || !applied {
 			return err
 		}
 		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
@@ -171,7 +168,8 @@ func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayl
 		if err != nil {
 			return nil
 		}
-		return k.store.Users().DeleteUser(ctx, existing.ID)
+		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing.ID, payload.Timestamp)
+		return err
 	}
 
 	return nil

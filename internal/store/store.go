@@ -53,6 +53,12 @@ type UserStore interface {
 	UpdateUser(ctx context.Context, u *User) error
 	// UpdateProfile writes username, email, display name, role and status only.
 	UpdateProfile(ctx context.Context, u *User) error
+	// ApplyDirectoryProfile is UpdateProfile for a directory update stamped at (Unix seconds).
+	// It applies, and records at, only if at is newer than the last applied update, or equal
+	// when allowTie. It reports whether it applied.
+	ApplyDirectoryProfile(ctx context.Context, u *User, at int64, allowTie bool) (bool, error)
+	// DeleteDirectoryUser deletes a user unless a newer directory update was applied.
+	DeleteDirectoryUser(ctx context.Context, id string, at int64) (bool, error)
 	ResetAdminPassword(ctx context.Context, userID, newHash string) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
 	UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error

@@ -26,7 +26,7 @@ Owns the application adapters around OAuth/OIDC login, KySignOn HMAC-SHA256 sign
   the generation and revokes prior devices and memberships. Verification without
   reset intent only consumes and audits authentication; it grants no reset or approval.
 - SAML assertion parsing is not implemented locally; metadata XML uses `encoding/xml` and no ACS route is exposed until a maintained SAML service-provider library is configured.
-- Directory webhook timestamps are accepted only within five minutes; status or role changes revoke the user's sessions. Updates apply one at a time; an exact replay (same signature within the window) or an update older than the subject's last applied timestamp succeeds without effect, so the sender stops retrying and a delayed delivery cannot restore an old role. This state is process-local.
+- Directory webhook timestamps are accepted only within five minutes; status or role changes revoke the user's sessions. Updates apply one at a time and only through `ApplyDirectoryProfile`/`DeleteDirectoryUser`, which compare against the user's persisted `directory_synced_at`: an update older than the last applied one succeeds without effect (so the sender stops retrying), across restarts. Timestamps have second resolution and carry no revision, so an update tied with the last applied one may only lower privilege (never grant admin or reactivate); a same-second promotion waits for a newer update.
 
 ## Verification
 - `go test -v ./internal/sso/...`
