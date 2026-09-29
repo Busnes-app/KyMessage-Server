@@ -163,3 +163,38 @@ func TestMessagingIdentityResetOptIn(t *testing.T) {
 		}
 	}
 }
+
+// Operators often set an https app URL behind a TLS proxy and never touch KY_ENV. Cookies must
+// still be Secure there, and production must not silently run insecure over plain HTTP.
+func TestCookieSecureFollowsTheAppURL(t *testing.T) {
+	for _, tc := range []struct {
+		env, url, secure string
+		want, fails      bool
+	}{
+		{"", "https://chat.example.com", "", true, false},
+		{"", "http://localhost:8080", "", false, false},
+		{"production", "https://chat.example.com", "", true, false},
+		{"production", "http://chat.lan", "", false, true},
+		{"production", "http://chat.lan", "false", false, false},
+		{"", "https://chat.example.com", "false", false, false},
+	} {
+		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_SESSION_SECRET", "a-durable-secret-for-this-test")
+		t.Setenv("KY_ENV", tc.env)
+		t.Setenv("KY_APP_URL", tc.url)
+		t.Setenv("KY_COOKIE_SECURE", tc.secure)
+		cfg, err := config.LoadFromEnv()
+		if tc.fails {
+			if err == nil {
+				t.Errorf("%+v: loaded, want a startup error", tc)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%+v: %v", tc, err)
+		}
+		if cfg.Security.CookieSecure != tc.want {
+			t.Errorf("%+v: CookieSecure=%v, want %v", tc, cfg.Security.CookieSecure, tc.want)
+		}
+	}
+}

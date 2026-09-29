@@ -164,6 +164,14 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("KY_BACKUP_KEEP: must be at least 1, got %d", backupKeep)
 	}
 
+	// An https app URL means browsers reach it over TLS, so cookies are Secure (and HSTS sent)
+	// whatever KY_ENV says. Production over plain HTTP must be an explicit choice.
+	https := strings.HasPrefix(strings.ToLower(appURL), "https://")
+	cookieSecure := getEnvBool("KY_COOKIE_SECURE", env == "production" || https)
+	if env == "production" && !https && cookieSecure {
+		return nil, fmt.Errorf("KY_APP_URL must be https in production (set KY_COOKIE_SECURE=false to serve plain HTTP deliberately)")
+	}
+
 	trustedProxies, err := ParseTrustedProxies(getEnv("KY_TRUSTED_PROXIES", ""))
 	if err != nil {
 		return nil, fmt.Errorf("KY_TRUSTED_PROXIES: %w", err)
@@ -190,7 +198,7 @@ func LoadFromEnv() (*Config, error) {
 		Security: SecurityConfig{
 			SessionSecret:  sessionSecret,
 			EncryptionKey:  encryptionKey,
-			CookieSecure:   getEnvBool("KY_COOKIE_SECURE", env == "production"),
+			CookieSecure:   cookieSecure,
 			CookieDomain:   getEnv("KY_COOKIE_DOMAIN", ""),
 			SessionTTL:     7 * 24 * time.Hour,
 			TrustedProxies: trustedProxies,
@@ -248,12 +256,14 @@ func getEnvInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
+// getEnvBool treats an empty value as unset, like getEnv: a compose file's `${X:-}` must not
+// silently turn off a security default such as Secure cookies.
 func getEnvBool(key string, defaultVal bool) bool {
-	if val, ok := os.LookupEnv(key); ok {
-		lower := strings.ToLower(strings.TrimSpace(val))
-		return lower == "true" || lower == "1" || lower == "yes" || lower == "on"
+	lower := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if lower == "" {
+		return defaultVal
 	}
-	return defaultVal
+	return lower == "true" || lower == "1" || lower == "yes" || lower == "on"
 }
 
 // getEnvDuration parses a Go duration such as "24h" or "90m". Negative is refused; "0" disables.
