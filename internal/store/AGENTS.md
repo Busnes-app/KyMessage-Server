@@ -69,6 +69,8 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - SQLite file-URI directory setup decodes the URI path; never create a literal
   `file:` directory. This permits read/write-only restoration of paths with reserved
   characters without accidentally opening a different database.
+- `GetLocalUserByUsername` returns only `sso_provider = 'local'` rows, preferring an exact-case match. Usernames are unique only case-sensitively, so password login and `init-admin` must never resolve an SSO row.
+- Migration 14 rebuilds `device_pairings` without the six-digit code column; pending pairings (90 s) are dropped on upgrade.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
 - SQLite runs in WAL mode with foreign keys enabled.
 - PostgreSQL queries are rebound dynamically from standard positional parameters.

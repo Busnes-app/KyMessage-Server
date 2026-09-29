@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -28,18 +30,21 @@ type recoveryClient interface {
 }
 
 type Server struct {
-	config     *config.Config
-	store      store.Store
-	sessions   *auth.SessionManager
-	pairing    *devices.PairingService
-	kysignon   *sso.KySignOnClient
-	oidc       *sso.GenericOIDCClient
-	saml       *sso.SAMLServiceProvider
-	scim       *scim.Server
-	recovery   recoveryClient
-	mux        *http.ServeMux
-	attemptsMu sync.Mutex
-	attempts   map[string]attemptWindow
+	config   *config.Config
+	store    store.Store
+	sessions *auth.SessionManager
+	pairing  *devices.PairingService
+	kysignon *sso.KySignOnClient
+	oidc     *sso.GenericOIDCClient
+	saml     *sso.SAMLServiceProvider
+	scim     *scim.Server
+	recovery recoveryClient
+	mux      *http.ServeMux
+	// clientAttempts throttles anonymous callers by address; accountAttempts throttles by
+	// user ID. Separate maps, so anonymous traffic filling one cannot evict the other.
+	clientAttempts  attemptLimiter
+	accountAttempts attemptLimiter
+	pow             auth.PoWSpender
 	// detached counts the requests running on a context deliberately separated from their
 	// connection. http.Server.Shutdown does not know about them, so runServer waits on this
 	// before the store closes.
@@ -115,19 +120,27 @@ type attemptWindow struct {
 	reset time.Time
 }
 
-// attemptsCap bounds the limiter map. Unauthenticated callers influence the keys, so the map
-// is itself attack surface. At the cap we evict, never refuse: refusing every unknown key
+type attemptLimiter struct {
+	mu sync.Mutex
+	m  map[string]attemptWindow
+	// cap bounds the map when callers influence the keys; zero means unbounded.
+	cap int
+}
+
+// attemptsCap bounds the client limiter. Unauthenticated callers influence its keys, so the
+// map is itself attack surface. At the cap we evict, never refuse: refusing every unknown key
 // would let one caller fill the map and lock every new client out of login.
 //
 // The trade-off: memory is bounded, but an attacker who fills the map shortens other clients'
-// windows, since an evicted counter starts again from zero. That weakens throttling while the
-// attack runs; it never locks anyone out, which is the failure mode worth avoiding.
+// windows, since an evicted counter starts again from zero. Per-account windows live in the
+// separate, uncapped account limiter, whose keys are existing user IDs, so no flood of
+// anonymous keys can reset them.
 //
 // Eviction is deliberately blind to how much of a window is left. Picking the entry nearest to
 // expiry would always sacrifice the shortest windows first, so a caller minting keys with a
 // long window could keep the one-minute login counter from ever reaching its limit. Every key
-// is therefore equally likely to go. The real defence is that no key carries caller-supplied
-// bytes, so filling the map costs an attacker one slot per IP.
+// is therefore equally likely to go. No key carries caller-supplied bytes, and IPv6 clients
+// share one key per /64, so filling the map costs an attacker a distinct IPv4 address or /64.
 const attemptsCap = 10000
 
 func NewServer(cfg *config.Config, st store.Store) *Server {
@@ -140,52 +153,70 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 	recovery := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
 
 	s := &Server{
-		config:   cfg,
-		store:    st,
-		sessions: sessions,
-		pairing:  pairing,
-		kysignon: kysignon,
-		oidc:     oidc,
-		saml:     saml,
-		scim:     scimSrv,
-		recovery: recovery,
-		mux:      http.NewServeMux(),
-		attempts: make(map[string]attemptWindow),
+		config:          cfg,
+		store:           st,
+		sessions:        sessions,
+		pairing:         pairing,
+		kysignon:        kysignon,
+		oidc:            oidc,
+		saml:            saml,
+		scim:            scimSrv,
+		recovery:        recovery,
+		mux:             http.NewServeMux(),
+		clientAttempts:  attemptLimiter{m: make(map[string]attemptWindow), cap: attemptsCap},
+		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
 	}
 
 	s.routes()
 	return s
 }
 
-func (s *Server) allowAttempt(key string, limit int, window time.Duration) bool {
+func (l *attemptLimiter) allow(key string, limit int, window time.Duration) bool {
 	now := time.Now()
-	s.attemptsMu.Lock()
-	defer s.attemptsMu.Unlock()
-	if _, known := s.attempts[key]; !known && len(s.attempts) >= attemptsCap {
-		s.makeRoom(now)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, known := l.m[key]; !known && l.cap > 0 && len(l.m) >= l.cap {
+		l.makeRoom(now)
 	}
-	entry := bumpWindow(s.attempts[key], now, window)
-	s.attempts[key] = entry
+	entry := bumpWindow(l.m[key], now, window)
+	l.m[key] = entry
 	return entry.count <= limit
 }
 
 // makeRoom frees a slot for a new key: it drops every expired window, and if the map is still
 // full it drops one live entry chosen at random, never the one nearest expiry. Caller holds
-// attemptsMu. The scan is O(attemptsCap) and only runs for a new key while the map is full;
-// 10 000 entries is microseconds.
-func (s *Server) makeRoom(now time.Time) {
-	for candidate, w := range s.attempts {
+// mu. The scan is O(cap) and only runs for a new key while the map is full; 10 000 entries is
+// microseconds.
+func (l *attemptLimiter) makeRoom(now time.Time) {
+	for candidate, w := range l.m {
 		if now.After(w.reset) {
-			delete(s.attempts, candidate)
+			delete(l.m, candidate)
 		}
 	}
-	if len(s.attempts) >= attemptsCap {
+	if len(l.m) >= l.cap {
 		// Go randomises map iteration, so the first entry is an unbiased victim.
-		for candidate := range s.attempts {
-			delete(s.attempts, candidate)
+		for candidate := range l.m {
+			delete(l.m, candidate)
 			break
 		}
 	}
+}
+
+// allowClientAttempt throttles an anonymous route per client. An IPv6 client is keyed by its
+// /64: a single subscriber usually holds at least that much, and one key per address would let
+// it mint a fresh window for every request.
+func (s *Server) allowClientAttempt(scope string, r *http.Request, limit int, window time.Duration) bool {
+	client := s.requestIP(r)
+	if addr, err := netip.ParseAddr(client); err == nil && addr.Is6() {
+		client = netip.PrefixFrom(addr, 64).Masked().String()
+	}
+	return s.clientAttempts.allow(scope+":"+client, limit, window)
+}
+
+// allowAccountAttempt throttles by an existing user's ID. Callers must never pass a
+// caller-supplied string: this map is unbounded because its keys are not attacker-minted.
+func (s *Server) allowAccountAttempt(key string, limit int, window time.Duration) bool {
+	return s.accountAttempts.allow(key, limit, window)
 }
 
 func bumpWindow(entry attemptWindow, now time.Time, window time.Duration) attemptWindow {
@@ -196,9 +227,9 @@ func bumpWindow(entry attemptWindow, now time.Time, window time.Duration) attemp
 	return entry
 }
 
-// requestIP is the limiter's key for unauthenticated routes. It resolves to the same address
-// a session is bound to, and honours X-Forwarded-For only from a configured trusted proxy:
-// keying on a caller-supplied header would make every limit here bypassable.
+// requestIP is the client address behind the limiter keys and audit rows. It resolves to the
+// same address a session is bound to, and honours X-Forwarded-For only from a configured
+// trusted proxy: keying on a caller-supplied header would make every limit here bypassable.
 func (s *Server) requestIP(r *http.Request) string {
 	return auth.ClientIP(r, s.config.Security.TrustedProxies)
 }
@@ -310,6 +341,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Routes that mint a session carry no CSRF token. Requiring a JSON body forces a CORS
+	// preflight, which foreign origins fail, so a cross-site form cannot log a victim into
+	// the attacker's account.
+	if r.Method == http.MethodPost && mintsSession(r.URL.Path) && !jsonRequest(r) {
+		s.writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
 	if isUnsafeMethod(r.Method) && hasSessionCookie(r) && !csrfExempt(r.URL.Path) && !auth.ValidateCSRF(r) {
 		s.writeError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
@@ -338,6 +376,15 @@ func hasSessionCookie(r *http.Request) bool {
 
 func csrfExempt(path string) bool {
 	return path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/mfa/") || path == "/api/sso/kysignon/sync"
+}
+
+func mintsSession(path string) bool {
+	return path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/mfa/") || path == "/api/devices/pair/verify"
+}
+
+func jsonRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
 }
 
 func sameOrigin(origin, appURL string) bool {

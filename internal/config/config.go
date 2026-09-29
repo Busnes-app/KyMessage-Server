@@ -98,11 +98,9 @@ type BackupConfig struct {
 	AllowPrivateRecovery bool `json:"allow_private_recovery"`
 }
 
-// CaptchaConfig holds anti-abuse settings (PoW default, Turnstile, Friendly).
+// CaptchaConfig holds anti-abuse settings for password login.
 type CaptchaConfig struct {
-	Provider      string `json:"provider"` // "pow", "turnstile", "friendly", "none"
-	SiteKey       string `json:"site_key"`
-	SecretKey     string `json:"secret_key"`
+	Provider      string `json:"provider"` // "pow" or "none"
 	DifficultyPoW int    `json:"difficulty_pow"`
 }
 
@@ -223,10 +221,12 @@ func LoadFromEnv() (*Config, error) {
 		},
 		Captcha: CaptchaConfig{
 			Provider:      getEnv("KY_CAPTCHA_PROVIDER", "pow"),
-			SiteKey:       getEnv("KY_CAPTCHA_SITE_KEY", ""),
-			SecretKey:     getEnv("KY_CAPTCHA_SECRET_KEY", ""),
-			DifficultyPoW: getEnvInt("KY_CAPTCHA_POW_DIFFICULTY", 4),
+			DifficultyPoW: getEnvInt("KY_CAPTCHA_POW_DIFFICULTY", 50000),
 		},
+	}
+	// Login verifies only proof-of-work. Accepting another name would silently disable it.
+	if p := cfg.Captcha.Provider; p != "pow" && p != "none" {
+		return nil, fmt.Errorf("KY_CAPTCHA_PROVIDER: %q is not supported (use pow or none)", p)
 	}
 
 	return cfg, nil

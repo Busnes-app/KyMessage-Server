@@ -16,22 +16,22 @@ func SetStoreForTest(s *Server, st store.Store) { s.store = st }
 // AttemptsCapForTest is the limiter's hard bound on distinct keys.
 const AttemptsCapForTest = attemptsCap
 
-// AttemptKeysForTest returns the limiter's live keys. Test-only: this file is not part of the
+// AttemptKeysForTest returns the client limiter's live keys. Test-only: this file is not part of the
 // package build.
 func AttemptKeysForTest(s *Server) []string {
-	s.attemptsMu.Lock()
-	defer s.attemptsMu.Unlock()
-	keys := make([]string, 0, len(s.attempts))
-	for k := range s.attempts {
+	s.clientAttempts.mu.Lock()
+	defer s.clientAttempts.mu.Unlock()
+	keys := make([]string, 0, len(s.clientAttempts.m))
+	for k := range s.clientAttempts.m {
 		keys = append(keys, k)
 	}
 	return keys
 }
 
-// AllowAttemptForTest drives the limiter directly so a test can fill it without paying for
-// 10 000 HTTP requests. Test-only.
+// AllowAttemptForTest drives the client limiter directly so a test can fill it without paying
+// for 10 000 HTTP requests. Test-only.
 func AllowAttemptForTest(s *Server, key string, limit int, window time.Duration) bool {
-	return s.allowAttempt(key, limit, window)
+	return s.clientAttempts.allow(key, limit, window)
 }
 
 // RegisterDetachedForTest registers one detached handler and returns its unregister func, so a

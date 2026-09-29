@@ -32,7 +32,7 @@ type Store interface {
 type UserStore interface {
 	CreateUser(ctx context.Context, u *User) error
 	GetUserByID(ctx context.Context, id string) (*User, error)
-	GetUserByUsername(ctx context.Context, username string) (*User, error)
+	GetLocalUserByUsername(ctx context.Context, username string) (*User, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserBySSO(ctx context.Context, provider, subject string) (*User, error)
 	UpdateUser(ctx context.Context, u *User) error
@@ -61,7 +61,6 @@ type SessionStore interface {
 // DeviceStore handles 90s ephemeral QR pairing sessions and paired push clients.
 type DeviceStore interface {
 	CreatePairing(ctx context.Context, p *DevicePairing) error
-	GetPairingByCode(ctx context.Context, code string) (*DevicePairing, error)
 	GetPairingBySecret(ctx context.Context, secret string) (*DevicePairing, error)
 	ConsumePairing(ctx context.Context, secret, deviceName, platform, pushToken string) error
 	CleanExpiredPairings(ctx context.Context) error

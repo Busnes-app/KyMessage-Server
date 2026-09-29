@@ -40,7 +40,7 @@ func TestConfigLoadFromEnvOverrides(t *testing.T) {
 	t.Setenv("KY_DB_DRIVER", "postgres")
 	t.Setenv("KY_DB_DSN", "postgres://user:pass@localhost:5432/testdb")
 	t.Setenv("KY_APP_NAME", "CustomBusnesApp")
-	t.Setenv("KY_CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("KY_CAPTCHA_PROVIDER", "none")
 
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
@@ -59,8 +59,20 @@ func TestConfigLoadFromEnvOverrides(t *testing.T) {
 	if cfg.Server.AppName != "CustomBusnesApp" {
 		t.Errorf("expected custom app name, got %s", cfg.Server.AppName)
 	}
-	if cfg.Captcha.Provider != "turnstile" {
-		t.Errorf("expected captcha provider turnstile, got %s", cfg.Captcha.Provider)
+	if cfg.Captcha.Provider != "none" {
+		t.Errorf("expected captcha provider none, got %s", cfg.Captcha.Provider)
+	}
+}
+
+// Login verifies only proof-of-work, so any other provider name would silently turn the
+// check off. Startup must refuse it instead.
+func TestUnverifiedCaptchaProviderFailsStartup(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	for _, provider := range []string{"turnstile", "friendly", "POW"} {
+		t.Setenv("KY_CAPTCHA_PROVIDER", provider)
+		if _, err := config.LoadFromEnv(); err == nil {
+			t.Errorf("provider %q loaded; want a startup error", provider)
+		}
 	}
 }
 

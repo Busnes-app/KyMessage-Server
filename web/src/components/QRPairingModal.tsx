@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Smartphone, CheckCircle, X, Copy, Check } from 'lucide-react';
+import { Smartphone, CheckCircle, X } from 'lucide-react';
 import { secureFetch } from '../api';
 
 interface QRPairingModalProps {
@@ -15,11 +15,9 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
     dialog?.showModal();
     return () => dialog?.close();
   }, []);
-  const [code, setCode] = useState<string>('');
   const [secondsLeft, setSecondsLeft] = useState<number>(90);
   const [paired, setPaired] = useState<boolean>(false);
   const [deviceName, setDeviceName] = useState<string>('');
-  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     let timer: any;
@@ -29,7 +27,6 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
       try {
         const resp = await secureFetch('/api/devices/pair/init', { method: 'POST' });
         const data = await resp.json();
-        setCode(data.code);
 
         if (canvasRef.current && data.qr_payload) {
           QRCode.toCanvas(canvasRef.current, data.qr_payload, {
@@ -54,7 +51,7 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
             const pollResp = await fetch(`/api/devices/pair/poll?secret=${data.secret}`);
             if (pollResp.ok) {
               const p = await pollResp.json();
-              if (p.status === 'approved') {
+              if (p.status === 'consumed') {
                 setPaired(true);
                 setDeviceName(p.device_name || 'Mobile Device');
                 clearInterval(pollInterval);
@@ -75,12 +72,6 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
       clearInterval(pollInterval);
     };
   }, []);
-
-  const copyCode = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   return (
     <dialog ref={dialogRef} className="modal-window" aria-labelledby="pairing-title" onCancel={onClose}
@@ -112,7 +103,7 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
         ) : (
           <div>
             <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
-              Pair a compatible suite client using this QR code or PIN. Encrypted-chat browser approval is a separate fingerprint-checked step.
+              Scan this QR code with a compatible suite client. Encrypted-chat browser approval is a separate fingerprint-checked step.
             </p>
 
             <div
@@ -127,19 +118,6 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
               }}
             >
               <canvas ref={canvasRef} />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--ink)' }}>Pairing PIN</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', fontFamily: 'var(--font-mono)', letterSpacing: '2px', color: 'var(--accent)' }}>
-                  {code || '••••••'}
-                </div>
-              </div>
-              <button type="button" className="btn-secondary" onClick={copyCode}>
-                {copied ? <Check size={16} /> : <Copy size={16} />}
-                {copied ? 'Copied' : 'Copy PIN'}
-              </button>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--ink)' }}>

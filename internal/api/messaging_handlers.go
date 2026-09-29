@@ -80,7 +80,7 @@ func (s *Server) requireMessaging(next messagingHandler) http.HandlerFunc {
 		if r.Method == http.MethodGet {
 			bucket, limit = "messaging:read:", 2400
 		}
-		if !s.allowAttempt(bucket+user.ID, limit, time.Minute) {
+		if !s.allowAccountAttempt(bucket+user.ID, limit, time.Minute) {
 			s.writeError(w, http.StatusTooManyRequests, "Too many messaging requests")
 			return
 		}
@@ -161,7 +161,7 @@ func (s *Server) handleMessagingEnroll(w http.ResponseWriter, r *http.Request, a
 		s.writeError(w, http.StatusBadRequest, "Valid name, Ed25519 public key and SHA-256 token hash required")
 		return
 	}
-	if !s.allowAttempt("messaging-enroll:"+actor.UserID, 10, 5*time.Minute) {
+	if !s.allowAccountAttempt("messaging-enroll:"+actor.UserID, 10, 5*time.Minute) {
 		s.writeError(w, http.StatusTooManyRequests, "Too many device enrollments")
 		return
 	}

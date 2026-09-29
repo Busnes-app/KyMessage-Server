@@ -173,15 +173,18 @@ FROM users WHERE id = ?
 	return u.scanUser(u.store.db.QueryRowContext(ctx, q, id))
 }
 
-func (u *userStore) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+// GetLocalUserByUsername finds a password account. Usernames are unique only case-sensitively,
+// so an SSO row named as a case variant of a local account must never be returned here.
+func (u *userStore) GetLocalUserByUsername(ctx context.Context, username string) (*User, error) {
 	q := u.store.rebind(`
 SELECT id, username, email, display_name, password_hash, role, status,
        sso_provider, sso_subject, totp_secret_enc, totp_enabled,
        recovery_codes_hash, push_device_id, must_change_password,
        totp_last_counter, created_at, updated_at, last_login_at
-FROM users WHERE LOWER(username) = LOWER(?)
+FROM users WHERE sso_provider = 'local' AND LOWER(username) = LOWER(?)
+ORDER BY username = ? DESC, id LIMIT 1
 `)
-	return u.scanUser(u.store.db.QueryRowContext(ctx, q, username))
+	return u.scanUser(u.store.db.QueryRowContext(ctx, q, username, username))
 }
 
 func (u *userStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
@@ -544,27 +547,19 @@ func (d *deviceStore) CreatePairing(ctx context.Context, p *DevicePairing) error
 	}
 
 	q := d.store.rebind(`
-INSERT INTO device_pairings (secret, code, user_id, device_name, platform, push_token, status, created_at, expires_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO device_pairings (secret, user_id, device_name, platform, push_token, status, created_at, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `)
 	_, err := d.store.db.ExecContext(ctx, q,
-		p.Secret, p.Code, p.UserID, p.DeviceName, p.Platform, p.PushToken,
+		p.Secret, p.UserID, p.DeviceName, p.Platform, p.PushToken,
 		p.Status, p.CreatedAt, p.ExpiresAt,
 	)
 	return err
 }
 
-func (d *deviceStore) GetPairingByCode(ctx context.Context, code string) (*DevicePairing, error) {
-	q := d.store.rebind(`
-SELECT secret, code, user_id, device_name, platform, push_token, status, created_at, expires_at
-FROM device_pairings WHERE code = ?
-`)
-	return d.scanPairing(d.store.db.QueryRowContext(ctx, q, code))
-}
-
 func (d *deviceStore) GetPairingBySecret(ctx context.Context, secret string) (*DevicePairing, error) {
 	q := d.store.rebind(`
-SELECT secret, code, user_id, device_name, platform, push_token, status, created_at, expires_at
+SELECT secret, user_id, device_name, platform, push_token, status, created_at, expires_at
 FROM device_pairings WHERE secret = ?
 `)
 	return d.scanPairing(d.store.db.QueryRowContext(ctx, q, secret))
@@ -573,7 +568,7 @@ FROM device_pairings WHERE secret = ?
 func (d *deviceStore) scanPairing(row interface{ Scan(...any) error }) (*DevicePairing, error) {
 	var p DevicePairing
 	err := row.Scan(
-		&p.Secret, &p.Code, &p.UserID, &p.DeviceName, &p.Platform,
+		&p.Secret, &p.UserID, &p.DeviceName, &p.Platform,
 		&p.PushToken, &p.Status, &p.CreatedAt, &p.ExpiresAt,
 	)
 	if err != nil {
