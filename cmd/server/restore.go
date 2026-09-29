@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -65,4 +66,56 @@ func prepareRestoredData(target string) error {
 		return err
 	}
 	return errors.Join(st.InvalidateRestoredGrants(ctx), st.Close())
+}
+
+// restoreMessages imports a messages capsule into a people-restored target, offline. The
+// opened capsule holds ciphertext and metadata, so it lives in a private temp directory
+// that is removed whatever happens.
+func restoreMessages(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
+	dbPath, err := filepath.Abs(filepath.Join(targetDir, "data", "ky_server.db"))
+	if err != nil {
+		return err
+	}
+	if info, err := os.Lstat(dbPath); err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is missing; run the people restore first", dbPath)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if err := backup.CheckMessagesTarget(ctx, dbPath); err != nil {
+		return err
+	}
+	opened, err := os.MkdirTemp(targetDir, "messages-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(opened)
+	var manifest bytes.Buffer
+	if err := recoveryclient.Restore(capsulePath, opened, expectService, shares, &manifest); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(opened, backup.MessagesAccounts)); err != nil {
+		return errors.New("not a messages capsule: it has no " + backup.MessagesAccounts)
+	}
+	if _, err := os.Lstat(filepath.Join(opened, "data", "ky_server.db")); err == nil {
+		return errors.New("not a messages capsule: it holds a people database; use restore")
+	}
+	// Migrate the people snapshot to this build's schema before importing into it.
+	st, err := store.Open(ctx, config.DatabaseConfig{Driver: "sqlite", DSN: (&url.URL{Scheme: "file", Path: dbPath, RawQuery: "mode=rw"}).String()})
+	if err != nil {
+		return err
+	}
+	if err := st.Close(); err != nil {
+		return err
+	}
+	counts, err := backup.ImportMessages(ctx, dbPath, opened)
+	if err != nil {
+		return fmt.Errorf("messages NOT imported: %w", err)
+	}
+	if _, err := io.Copy(stdout, &manifest); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "Imported rooms=%d retired_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d\n"+
+		"Restored devices are suspended until their owners sign in and resume them in the messaging client. Review and revoke unknown devices first.\n",
+		counts.Rooms, counts.RetiredRooms, counts.Members, counts.DroppedMembers, counts.Devices, counts.DroppedDevices, counts.Events)
+	return err
 }

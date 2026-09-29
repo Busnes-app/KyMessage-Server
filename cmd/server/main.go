@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -42,6 +43,9 @@ func main() {
 			return
 		case "restore":
 			runRestore(os.Args[2:])
+			return
+		case "restore-messages":
+			runRestoreMessages(os.Args[2:])
 			return
 		case "version":
 			fmt.Printf("kymessages %s\n", appVersion)
@@ -474,14 +478,23 @@ func stdinIsTerminal() bool {
 }
 
 func runRestore(args []string) {
-	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	restoreCommand(args, "restore", "to", "empty directory to restore into", restore)
+}
+
+func runRestoreMessages(args []string) {
+	restoreCommand(args, "restore-messages", "into", "directory a people restore wrote", restoreMessages)
+}
+
+// restoreCommand parses a restore command's flags and reads custodian shares from stdin.
+func restoreCommand(args []string, name, dirFlag, dirUsage string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	capsulePath := fs.String("capsule", "", "path to the .kycap file")
-	target := fs.String("to", "", "empty directory to restore into")
+	target := fs.String(dirFlag, "", dirUsage)
 	service := fs.String("service", "", "expected service name (default: $KY_APP_NAME)")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "Usage: kymessages restore -capsule <file.kycap> -to <dir> [-service <name>]\n\n"+
+		fmt.Fprintf(os.Stderr, "Usage: kymessages %s -capsule <file.kycap> -%s <dir> [-service <name>]\n\n"+
 			"Custodian shares are read from stdin, one ky2-... share per line, and never from\n"+
-			"the command line: argv is world-readable and lands in shell history.\n\n")
+			"the command line: argv is world-readable and lands in shell history.\n\n", name, dirFlag)
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -511,7 +524,7 @@ func runRestore(args []string) {
 	if len(shares) == 0 {
 		log.Fatal("Error: no custodian shares on stdin")
 	}
-	if err := restore(*capsulePath, *target, *service, shares, os.Stdout); err != nil {
-		log.Fatalf("Restore failed: %v", err)
+	if err := run(*capsulePath, *target, *service, shares, os.Stdout); err != nil {
+		log.Fatalf("%s failed: %v", name, err)
 	}
 }

@@ -1,7 +1,7 @@
 # KyMessages server restore
 
 KyMessages is not deployed yet. These instructions cover the source-built server's
-SQLite capsule restore, which is tested with disposable custodian keys. The MLS
+two-step SQLite capsule restore (people, then optionally messages), which is tested with disposable custodian keys. The MLS
 client remains an isolated experiment. No published KyMessages image or production
 identity/deployment verification is implied by this runbook. Do not substitute the
 upstream `ky-server-base` image: it does not contain this repository's restore policy.
@@ -27,6 +27,12 @@ ciphertext beyond room retention. Preparation still prunes expired payloads befo
 serving. The compacted snapshot has a 64 MiB limit; an oversized snapshot fails backup
 explicitly. Initial snapshot scratch space still needs room
 for the complete live database.
+
+The opt-in messages capsule is separate: `data/messages/accounts.db` (messaging
+identities, approved and revoked devices without their bearer tokens or enrollment
+state, rooms, members and epoch devices) and `data/messages/events-NNN.db` parts
+(events and Welcomes). It has no deployment key, people database, KeyPackages,
+recovery-authentication requests or reset receipts.
 
 Only SQLite capsule backup/restore is supported here. The collector refuses
 PostgreSQL because it cannot produce its consistent snapshot. PostgreSQL store
@@ -75,6 +81,54 @@ A preparation error says the files are **not ready to serve**. Keep the target
 offline, investigate, and repeat restoration into another empty directory. Do not
 use partially prepared files. The command never silently falls back to the old grants.
 
+## Restore messages (optional)
+
+Threads come back only from a messages capsule, imported into the prepared people
+restore before it serves. Skip this section to return with no threads.
+
+1. Obtain the messages capsule and check its receipt as in step 1 above. It may be
+   older or newer than the people capsule; anything that no longer references a
+   restored person is dropped and counted.
+2. With the target still offline, run:
+
+   ```sh
+   ./kymessages restore-messages -capsule ./messages.kycap -into ./restored -service 'KyMessages'
+   ```
+
+   Shares are read from stdin exactly as for `restore`. The command requires
+   `restored/data/ky_server.db` and refuses a target that already has messaging rooms,
+   devices or identities, before asking the library to open anything. It opens the
+   capsule into a private `restored/messages-*` directory, refuses anything that is
+   not a messages capsule (no `data/messages/accounts.db`, or a people database, more
+   than 8 event parts, unexpected member names, symlinks), migrates the people
+   database and imports in one transaction. The opened directory is removed on
+   success and on failure.
+3. Compare the printed manifest with your records, and keep the printed counts. The
+   import is audited as `restore.messages_imported` with the same counts.
+
+The import leaves the database as if every person missing from the people restore
+had been deleted: their identities, devices and memberships are dropped, and a room
+whose owner is missing is not imported at all, with its events (counted as
+`retired_rooms`). Epoch-device and Welcome rows that name a device which was not
+imported stay, as account deletion would leave them. Room epoch, sequence and
+retained floor are kept; stored byte counts are recomputed. Messages past each
+room's retention are purged when the server next starts. KeyPackages,
+recovery-authentication requests, reset receipts and sessions are not imported.
+
+Every imported approved device is **suspended**: it keeps its status and identity
+generation but has no delivery token, so it cannot read, send or approve. Revoked
+devices stay revoked. Before reopening access, review the restored devices with
+their owners and revoke any that are lost or unrecognized. After a fresh sign-in,
+an owner resumes a device in the messaging client, which proves possession of the
+device's enrollment key. A thread resumes for a device whose MLS state matches the
+restored epoch. A thread that advanced after the snapshot stays paused for clients
+that are ahead of it; the server never rewinds client state, so those members start
+a new thread.
+
+A failed import rolls back and leaves the people restore unchanged. Rerunning
+`restore-messages` on a target it already imported into is refused and changes
+nothing.
+
 ## Return to service
 
 Do not run old and restored servers simultaneously behind the same origin. Stop the
@@ -94,14 +148,15 @@ records. Token revocation at KyRecovery still applies to any restored pairing to
 This repository's production HTTPS/KyIdentity deployment gate remains open. Verify
 that deployment separately before allowing real teams onto it.
 
-All users must sign in freshly. A people restore leaves no threads or messaging
-devices; threads come back only through the messages capsule. Messaging resumes through
-**new rooms**. Preserve surviving browser profiles for local history and pending
+All users must sign in freshly. A people restore alone leaves no threads or
+messaging devices; without a messages import, messaging resumes through **new
+rooms**. Preserve surviving browser profiles for local history and pending
 text; never rewind their ratchets or copy server data into browser vaults. An
 unresolved send in a retired room remains unresolved and must not be resent as the
 same ciphertext in another room.
 
-In a separate browser profile, enroll a replacement device and perform the confirmed,
+Without a messages import, or for a device that was not restored, enroll a
+replacement device in a separate browser profile and perform the confirmed,
 freshly authenticated identity-reset flow. This requires the operator-enabled
 `KY_MESSAGING_IDENTITY_RESET_ENABLED` gate and verified KyIdentity reauthentication
 policy. Create new rooms, invite members and independently verify replacement
@@ -119,9 +174,13 @@ according to the operator's storage policy; deletion is not a physical-erasure g
 ## Verification
 
 `go test -race ./cmd/server ./internal/store` includes a real 2-of-3 capsule round
-trip, wrong-service/key/threshold refusals, startup expiry, restored-grant invalidation,
+trip, a people restore followed by `restore-messages` with a repeat refused,
+wrong-service/key/threshold refusals, startup expiry, restored-grant invalidation,
 verified-key tombstones, future identity recovery and new-room creation. The store
 policy is also tested on PostgreSQL; capsule extraction remains SQLite-only.
+`go test ./internal/backup` covers the import: dropped people, a room without its
+owner, suspended devices, and refusals (too many or misnamed parts, symlinks, a
+foreign-key failure) that write nothing.
 `backup-drill` uses a throwaway key, so a successful automated drill does not prove
 that the real custodian cards are available. A controlled ceremony restore with the
 actual cards, and the deployed identity checks, remain operator acceptance work.

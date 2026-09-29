@@ -9,7 +9,8 @@ messages), and each kind's drill checks (`Checks`, `MessagesChecks`).
 
 ## Ownership
 Owns the settings adapter (`settings.go`), payload collection (`payload.go`, `messages.go`),
-restore-drill checks (`drill.go`, `messages.go`) and serialized drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
+restore-drill checks (`drill.go`, `messages.go`), serialized drill entry point (`run_drill.go`) and the
+offline messages import (`import.go`). It holds no private key, no share, and no pairing state of its own — those
 live in `recoveryclient` and in the settings rows it reads and writes through the adapter.
 
 ## Local Contracts
@@ -39,6 +40,18 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
   reset receipts. Recipe `kind: "messages"`; every member is required and SQLite-checked.
   `MessagesChecks` requires the kind, accounts.db and every `.db` member in `sqlite_paths`.
+- `ImportMessages(ctx, dbPath, openedDir)` imports an opened messages capsule into a
+  people-restored, migrated SQLite database. Before `BEGIN IMMEDIATE` it refuses a target with
+  messaging rooms, devices or identities (`ErrMessagingDataPresent`; `CheckMessagesTarget` is the
+  read-only preflight), members other than `accounts.db`/`events-NNN.db`, more than 8 parts, and any
+  member that is not a regular, non-symlinked file inside `openedDir`; then it attaches them
+  read-only. The result must equal deleting every missing person under the schema's ON DELETE
+  CASCADE rules: identities, devices and memberships of missing people and rooms of missing owners
+  (with their events) go; epoch devices and Welcomes naming unimported devices stay. Devices keep
+  status with `token_hash` NULL (approved = suspended); `retained_bytes` is recomputed.
+  KeyPackages, recovery-auth, reset receipts and anything session-bound are never imported.
+  `PRAGMA main.foreign_key_check` must be empty before COMMIT; the audit row
+  `restore.messages_imported` carries the `ImportCounts`.
 - `MessagesSettings` prefixes only `backup_interval_sec`, `backup_last_attempt` and
   `kyrecovery_last_deposit` with `messages_`; pairing, token and key pin are shared with people.
   `MessagesRunConfig` puts local copies in `<backup dir>/messages/` because the lib prunes by app
@@ -67,10 +80,10 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   nothing else.
 
 ## Verification
-- The decrypt guard allows only `restore` in `cmd/server/restore.go` to invoke
+- The decrypt guard allows only `restore` and `restoreMessages` in `cmd/server/restore.go` to invoke
   suite-key capsule opening. HTTP/scheduled product code never receives shares.
 - `go test -v ./internal/backup/...` covers decoded seal/open checks, malformed recipes,
-  messages-capsule splitting, row accounting and total limit (budgets lowered via
+  messages-capsule splitting, row accounting and total limit, the messages import and its refusals (budgets lowered via
   `export_test.go`; `seedMessagingFixture` is the shared messaging fixture),
   subprocess lock contention/exit, scratch cleanup and the synthetic v0.5.0 pairing fixture
   in `testdata/pairing-v050.json`. The fixture uses a 32-byte 0x01 deployment key and retains

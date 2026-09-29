@@ -242,9 +242,11 @@ manual key pinning, scheduled backups, local sealed copies, receipt checking,
 write-once trust, unpairing, and drills. The suite ceremony supplies k-of-n; 3-of-5
 is not hardcoded. Keep the existing minimum scheduling interval and admin control.
 
-Server recovery restores configuration, database metadata and audit records. New
-capsules omit event, Welcome and KeyPackage payloads; older capsules may contain
-retained ciphertext. It restores neither browser MLS
+Server recovery is two capsules. The people capsule restores configuration, accounts,
+settings and non-messaging audit records, with no messaging rows. The opt-in messages
+capsule carries threads (rooms, members, devices without tokens, events and Welcomes)
+and is imported afterwards by `restore-messages`; neither carries KeyPackages. Older
+people capsules may contain retained ciphertext. Neither restores browser MLS
 secrets nor the ability to decrypt history after all client keys are lost. The
 server's encryption key in a capsule is an operational key, not a message key.
 
@@ -255,14 +257,20 @@ and audit growth can still exceed it and fail backup explicitly. The 5,000 event
 account per day cap slows but does not stop that growth. Snapshot disk space
 still scales with the whole live database. Backup copies have independent retention
 and custodian access to metadata; older capsules may outlive ciphertext retention.
-The restore command now prunes expired content and invalidates restored grants
-before reporting success. It permanently retires all restored room ownership and
-membership; first-release recovery uses fresh suite authentication, confirmed
-identity recovery, independent new-key verification and new rooms. Existing browser
-vaults remain untouched. This conservative policy avoids resuming a potentially
-forked or revoked MLS identity from a server snapshot. Raw database rollback and
-resuming restored rooms are unsupported. Native sealed-capsule and store drills
-exercise this policy; deployment and live-issuer recovery remain separate gates.
+The restore command prunes expired content and invalidates restored grants before
+reporting success; rooms in an older people capsule stay permanently retired. The
+optional `restore-messages` step then imports a messages capsule offline in one
+transaction, dropping rows for people missing from the restore and every room whose
+owner is missing. Imported devices are suspended (no delivery token) until their
+owners sign in freshly and resume them by proving the device's enrollment key;
+admins review and revoke unknown devices first. A thread whose MLS state moved past
+the snapshot stays paused for clients that are ahead, and those members start a new
+thread; the server never rewinds client state. Without messages, recovery uses fresh
+suite authentication, confirmed identity recovery, independent new-key verification
+and new rooms. Existing browser vaults remain untouched. Raw database rollback is
+unsupported. Native sealed-capsule and store drills exercise this policy; the
+independent MLS review must still assess resumption, and deployment and live-issuer
+recovery remain separate gates.
 
 ## Architecture on this base
 

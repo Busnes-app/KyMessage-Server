@@ -190,8 +190,14 @@ work is abandoned with a log line rather than killed silently.
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (migration/startup pruning), invalidates
 restored grants and closes it before reporting success. Keep the target offline on
-failure. A people restore contains no messaging rooms or devices; users recover identity
-with fresh suite authentication and create new independently verified rooms.
-Never restore or rewind browser MLS state. Root owns this policy and `docs/RESTORE.md`.
+failure. A people restore contains no messaging rooms or devices. The optional
+`restore-messages` (`restoreMessages`, also on the decrypt-guard allowlist) runs next,
+offline: it refuses a target without `data/ky_server.db` or with messaging rows before
+opening the capsule, opens it into a removed-on-exit `messages-*` temp directory,
+refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
+approved devices are suspended (no token) until their owners resume them; rooms of
+missing owners are not imported. Without it, users recover identity with fresh suite
+authentication and new independently verified rooms. Never restore or rewind browser
+MLS state. Root owns this policy and `docs/RESTORE.md`.
 
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.
