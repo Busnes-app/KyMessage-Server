@@ -87,7 +87,7 @@ instance; the current operator-console preview is not an encrypted-chat release:
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
 | `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS |
 | `KY_KYSIGNON_ISSUER`, `KY_KYSIGNON_CLIENT_ID`, `KY_KYSIGNON_SECRET` | Suite KyIdentity integration; inherited environment names remain supported |
-| `KY_KYSIGNON_HMAC_SECRET` | Shared secret for authenticated suite directory webhooks |
+| `KY_KYSIGNON_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kysignon/sync` |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
 | `KY_MESSAGING_IDENTITY_RESET_ENABLED` | Off until deployed fresh-authentication/callback behavior is verified |
 | `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |

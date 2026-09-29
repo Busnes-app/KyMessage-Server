@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"sync"
-	"time"
 
+	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -21,7 +23,7 @@ type KySignOnClient struct {
 	flow   *oauthFlow
 
 	// syncMu applies directory updates one at a time, so a read and its conditional write
-	// see the same row. Ordering itself is persisted with the user (directory_synced_at).
+	// see the same row. Ordering itself is persisted per subject (directory_sync_state).
 	syncMu sync.Mutex
 }
 
@@ -53,134 +55,129 @@ func (k *KySignOnClient) ExchangeCode(ctx context.Context, code, verifier, redir
 	return claims, nil
 }
 
-// KySignOnSyncPayload defines the schema received during automatic directory replication webhooks.
-type KySignOnSyncPayload struct {
-	Event       string `json:"event"` // "user.created", "user.updated", "user.deactivated", "user.deleted"
+// DirectoryUser is the SCIM 2.0 User resource KyIdentity sends to a suite webhook. The event
+// type and ID travel in the signed headers, not the body.
+type DirectoryUser struct {
 	ID          string `json:"id"`
-	Username    string `json:"username"`
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-	Timestamp   int64  `json:"timestamp"`
+	UserName    string `json:"userName"`
+	DisplayName string `json:"displayName"`
+	Name        *struct {
+		Formatted string `json:"formatted"`
+	} `json:"name"`
+	Emails []scimValue `json:"emails"`
+	Roles  []scimValue `json:"roles"`
+	Active bool        `json:"active"`
+	Meta   *struct {
+		Version string `json:"version"`
+	} `json:"meta"`
 }
 
-// HandleSyncWebhook processes inbound HMAC-SHA256 signed user updates from KySignOn server.
-func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, signature string) error {
+type scimValue struct {
+	Value   string `json:"value"`
+	Primary bool   `json:"primary"`
+}
+
+// primaryValue is the value marked primary, else the first, else "".
+func primaryValue(values []scimValue) string {
+	for _, v := range values {
+		if v.Primary {
+			return v.Value
+		}
+	}
+	if len(values) > 0 {
+		return values[0].Value
+	}
+	return ""
+}
+
+var (
+	// ErrSyncUnauthorized covers a missing secret or a failed signature, timestamp or event check.
+	ErrSyncUnauthorized = errors.New("directory webhook not authenticated")
+	// ErrSyncMalformed is an authenticated body that is not a usable SCIM User.
+	ErrSyncMalformed = errors.New("directory webhook body is not a usable SCIM user")
+)
+
+// revisionPattern matches KyIdentity's meta.version, W/"<n>": a per-user counter that rises on
+// every change. -1 marks state resent after a KyIdentity restore.
+var revisionPattern = regexp.MustCompile(`^W/"(-1|0|[1-9][0-9]{0,17})"$`)
+
+// HandleSyncWebhook applies one signed directory event from KyIdentity. Superseded and
+// duplicate events succeed without effect, so the sender's outbox stops retrying them.
+func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, headers syncauth.Headers, body []byte) error {
 	if k.config.KySignOnHMACSecret == "" {
-		return errors.New("webhook HMAC secret is not configured")
+		return fmt.Errorf("%w: KY_KYSIGNON_HMAC_SECRET is not set", ErrSyncUnauthorized)
 	}
-
-	if !crypto.VerifyHMACSHA256(body, k.config.KySignOnHMACSecret, signature) {
-		return errors.New("invalid webhook signature")
+	event, err := syncauth.Verify([]byte(k.config.KySignOnHMACSecret), headers, body, syncauth.Options{})
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrSyncUnauthorized, err)
 	}
-
-	var payload KySignOnSyncPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return fmt.Errorf("invalid json payload: %w", err)
+	var user DirectoryUser
+	if err := json.Unmarshal(body, &user); err != nil || user.ID == "" || user.Meta == nil {
+		return ErrSyncMalformed
 	}
-	if payload.Timestamp == 0 || time.Since(time.Unix(payload.Timestamp, 0)).Abs() > 5*time.Minute {
-		return errors.New("webhook timestamp is missing or expired")
+	match := revisionPattern.FindStringSubmatch(user.Meta.Version)
+	if match == nil {
+		return ErrSyncMalformed
 	}
+	revision, _ := strconv.ParseInt(match[1], 10, 64)
+	ev := store.DirectoryEvent{ID: event.ID, Revision: revision}
 
 	k.syncMu.Lock()
 	defer k.syncMu.Unlock()
-	return k.applySync(ctx, payload)
-}
-
-// recordAbsent stamps a deactivation or deletion for a subject with no local account, so an
-// older creation delivered later cannot bring it into existence. The delete matches no row.
-func (k *KySignOnClient) recordAbsent(ctx context.Context, payload KySignOnSyncPayload) error {
-	_, err := k.store.Users().DeleteDirectoryUser(ctx, &store.User{SSOProvider: "kysignon", SSOSubject: payload.ID}, payload.Timestamp)
-	return err
-}
-
-// raisesPrivilege reports whether a directory update would grant admin or reactivate. Updates
-// carry second-resolution timestamps and no revision, so two in the same second cannot be
-// ordered; a tie may only lower privilege, and a captured same-second promotion cannot
-// undo a demotion.
-func raisesPrivilege(existing *store.User, role, status string) bool {
-	return (role == "admin" && existing.Role != "admin") || (status == "active" && existing.Status != "active")
-}
-
-func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayload) error {
-
-	switch payload.Event {
-	case "user.created", "user.updated":
-		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return err
-		}
-
-		role := payload.Role
-		if role == "" {
-			role = "user"
-		}
-		status := payload.Status
-		if status == "" {
-			status = "active"
-		}
-
-		if existing != nil {
-			privilegesChanged := existing.Role != role || existing.Status != status
-			allowTie := !raisesPrivilege(existing, role, status)
-			updated := *existing
-			updated.Username = payload.Username
-			updated.Email = payload.Email
-			updated.DisplayName = payload.DisplayName
-			updated.Role = role
-			updated.Status = status
-			// A replayed or superseded update applies nothing and still succeeds, so the
-			// sender stops retrying.
-			applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, payload.Timestamp, allowTie)
-			if err != nil || !applied {
-				return err
-			}
-			if privilegesChanged {
-				return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
-			}
-			return nil
-		}
-
-		newUser := &store.User{
-			ID:          fmt.Sprintf("usr_%s", crypto.RandomHex(12)),
-			Username:    payload.Username,
-			Email:       payload.Email,
-			DisplayName: payload.DisplayName,
-			Role:        role,
-			Status:      status,
-			SSOProvider: "kysignon",
-			SSOSubject:  payload.ID,
-		}
-		_, err = k.store.Users().CreateDirectoryUser(ctx, newUser, payload.Timestamp)
-		return err
-
-	case "user.deactivated":
-		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
-		if errors.Is(err, store.ErrNotFound) {
-			return k.recordAbsent(ctx, payload)
-		}
-		if err != nil {
-			return err
-		}
-		existing.Status = "inactive"
-		applied, err := k.store.Users().ApplyDirectoryProfile(ctx, existing, payload.Timestamp, true)
-		if err != nil || !applied {
-			return err
-		}
-		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
-
+	switch event.Type {
+	case "user.created", "user.updated", "user.mfa_reset":
+		return k.upsertDirectoryUser(ctx, user, ev)
 	case "user.deleted":
-		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
+		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
-			return k.recordAbsent(ctx, payload)
+			// Record the deletion anyway, so an older creation delivered later cannot
+			// bring the account into existence. The delete matches no row.
+			existing, err = &store.User{SSOProvider: "kysignon", SSOSubject: user.ID}, nil
 		}
 		if err != nil {
 			return err
 		}
-		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, payload.Timestamp)
+		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, ev)
 		return err
 	}
+	return nil // other event types (groups) are not for this product
+}
 
+func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent) error {
+	// KyIdentity sends this app's roles when it defines any, else the user's global role.
+	role := "user"
+	if primaryValue(in.Roles) == "admin" {
+		role = "admin"
+	}
+	status := "inactive"
+	if in.Active {
+		status = "active"
+	}
+	email := primaryValue(in.Emails)
+	displayName := in.DisplayName
+	if displayName == "" && in.Name != nil {
+		displayName = in.Name.Formatted
+	}
+
+	existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", in.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		_, err = k.store.Users().CreateDirectoryUser(ctx, &store.User{
+			ID: fmt.Sprintf("usr_%s", crypto.RandomHex(12)), Username: in.UserName, Email: email,
+			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kysignon", SSOSubject: in.ID,
+		}, ev)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	updated := *existing
+	updated.Username, updated.Email, updated.DisplayName, updated.Role, updated.Status = in.UserName, email, displayName, role, status
+	applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, ev)
+	if err != nil || !applied {
+		return err
+	}
+	if existing.Role != role || existing.Status != status {
+		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
+	}
 	return nil
 }

@@ -28,6 +28,13 @@ type Store interface {
 	Close() error
 }
 
+// DirectoryEvent identifies one signed directory delivery: the sender's event ID and the
+// per-user revision it carries.
+type DirectoryEvent struct {
+	ID       string
+	Revision int64
+}
+
 // UserFilter selects users by one exact attribute; the zero value matches everyone.
 type UserFilter struct {
 	Field UserField
@@ -53,13 +60,13 @@ type UserStore interface {
 	UpdateUser(ctx context.Context, u *User) error
 	// UpdateProfile writes username, email, display name, role and status only.
 	UpdateProfile(ctx context.Context, u *User) error
-	// Directory updates stamped at (Unix seconds) are ordered per SSO provider and subject by
-	// a record that outlives the user. Each applies only when at is newer than the subject's
-	// last applied update (or equal, when allowTie), atomically with its write, and reports
-	// whether it applied.
-	ApplyDirectoryProfile(ctx context.Context, u *User, at int64, allowTie bool) (bool, error)
-	CreateDirectoryUser(ctx context.Context, u *User, at int64) (bool, error)
-	DeleteDirectoryUser(ctx context.Context, u *User, at int64) (bool, error)
+	// Directory updates are ordered per SSO provider and subject by a record that outlives
+	// the user. Each event ID is used once, whether or not it applied; an event applies only
+	// when its revision is newer than the last applied one or is -1 (the sender's
+	// post-restore resend), atomically with its write, and reports whether it applied.
+	ApplyDirectoryProfile(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
+	CreateDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
+	DeleteDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	ResetAdminPassword(ctx context.Context, userID, newHash string) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
 	UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error

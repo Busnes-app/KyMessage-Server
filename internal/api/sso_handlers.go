@@ -1,11 +1,15 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
+	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
+	"github.com/Busnes-app/ky_server_base/internal/sso"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"golang.org/x/oauth2"
 )
@@ -108,19 +112,22 @@ func (s *Server) handleKySignOnSyncWebhook(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sig := r.Header.Get("X-KySignOn-Signature")
-	if sig == "" {
-		sig = r.Header.Get("X-Signature-SHA256")
-	}
-
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "Failed to read request body")
 		return
 	}
 
-	if err := s.kysignon.HandleSyncWebhook(r.Context(), body, sig); err != nil {
-		s.writeError(w, http.StatusUnauthorized, err.Error())
+	switch err := s.kysignon.HandleSyncWebhook(r.Context(), syncauth.FromRequest(r), body); {
+	case errors.Is(err, sso.ErrSyncUnauthorized):
+		log.Printf("[SSO] directory webhook refused: %v", err)
+		s.writeError(w, http.StatusUnauthorized, "Directory webhook not authenticated")
+		return
+	case errors.Is(err, sso.ErrSyncMalformed):
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	case err != nil:
+		s.writeError(w, http.StatusInternalServerError, "Directory update failed")
 		return
 	}
 
