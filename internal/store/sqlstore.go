@@ -267,19 +267,16 @@ func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 
 // directoryWrite advances the subject's directory order and runs write in one transaction.
 // The order row outlives the user, so a superseded update cannot recreate a deleted account.
-func (u *userStore) directoryWrite(ctx context.Context, user *User, at int64, allowTie bool, write func(*sql.Tx) error) (bool, error) {
+func (u *userStore) directoryWrite(ctx context.Context, user *User, revision int64, write func(*sql.Tx) error) (bool, error) {
 	tx, err := u.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
-	order := "<"
-	if allowTie {
-		order = "<="
-	}
-	res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, synced_at) VALUES (?, ?, ?)
-ON CONFLICT (provider, subject) DO UPDATE SET synced_at = excluded.synced_at
-WHERE directory_sync_state.synced_at `+order+` excluded.synced_at`), user.SSOProvider, user.SSOSubject, at)
+	// -1 is the sender's post-restore resend: it resets the order so later revisions apply.
+	res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, revision) VALUES (?, ?, ?)
+ON CONFLICT (provider, subject) DO UPDATE SET revision = excluded.revision
+WHERE directory_sync_state.revision < excluded.revision OR excluded.revision = -1`), user.SSOProvider, user.SSOSubject, revision)
 	if err != nil {
 		return false, err
 	}
@@ -292,8 +289,8 @@ WHERE directory_sync_state.synced_at `+order+` excluded.synced_at`), user.SSOPro
 	return true, tx.Commit()
 }
 
-func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, at int64, allowTie bool) (bool, error) {
-	return u.directoryWrite(ctx, user, at, allowTie, func(tx *sql.Tx) error {
+func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, revision int64) (bool, error) {
+	return u.directoryWrite(ctx, user, revision, func(tx *sql.Tx) error {
 		user.UpdatedAt = time.Now().UTC()
 		_, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
 			user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)
@@ -301,13 +298,12 @@ func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, at in
 	})
 }
 
-func (u *userStore) CreateDirectoryUser(ctx context.Context, user *User, at int64) (bool, error) {
-	// Creation grants access from nothing, so a tie with a deletion never recreates.
-	return u.directoryWrite(ctx, user, at, false, func(tx *sql.Tx) error { return u.insertUser(ctx, tx, user) })
+func (u *userStore) CreateDirectoryUser(ctx context.Context, user *User, revision int64) (bool, error) {
+	return u.directoryWrite(ctx, user, revision, func(tx *sql.Tx) error { return u.insertUser(ctx, tx, user) })
 }
 
-func (u *userStore) DeleteDirectoryUser(ctx context.Context, user *User, at int64) (bool, error) {
-	return u.directoryWrite(ctx, user, at, true, func(tx *sql.Tx) error {
+func (u *userStore) DeleteDirectoryUser(ctx context.Context, user *User, revision int64) (bool, error) {
+	return u.directoryWrite(ctx, user, revision, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, u.store.rebind(`DELETE FROM users WHERE id = ?`), user.ID)
 		return err
 	})
