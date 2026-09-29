@@ -98,6 +98,12 @@ type userStore struct {
 }
 
 func (u *userStore) CreateUser(ctx context.Context, user *User) error {
+	return u.insertUser(ctx, u.store.db, user)
+}
+
+func (u *userStore) insertUser(ctx context.Context, db interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, user *User) error {
 	now := time.Now().UTC()
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = now
@@ -123,7 +129,7 @@ INSERT INTO users (
 		lastLogin = sql.NullTime{Time: *user.LastLoginAt, Valid: true}
 	}
 
-	_, err := u.store.db.ExecContext(ctx, q,
+	_, err := db.ExecContext(ctx, q,
 		user.ID, user.Username, user.Email, user.DisplayName, user.PasswordHash,
 		user.Role, user.Status, user.SSOProvider, user.SSOSubject,
 		user.TOTPSecretEnc, user.TOTPEnabled, user.RecoveryCodesHash,
@@ -259,31 +265,52 @@ func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 	return nil
 }
 
-func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, at int64, allowTie bool) (bool, error) {
+// directoryWrite advances the subject's directory order and runs write in one transaction.
+// The order row outlives the user, so a superseded update cannot recreate a deleted account.
+func (u *userStore) directoryWrite(ctx context.Context, user *User, at int64, allowTie bool, write func(*sql.Tx) error) (bool, error) {
+	tx, err := u.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
 	order := "<"
 	if allowTie {
 		order = "<="
 	}
-	now := time.Now().UTC()
-	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ?, directory_synced_at = ? WHERE id = ? AND directory_synced_at ` + order + ` ?`)
-	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, now, at, user.ID, at)
+	res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, synced_at) VALUES (?, ?, ?)
+ON CONFLICT (provider, subject) DO UPDATE SET synced_at = excluded.synced_at
+WHERE directory_sync_state.synced_at `+order+` excluded.synced_at`), user.SSOProvider, user.SSOSubject, at)
 	if err != nil {
 		return false, err
 	}
-	rows, err := res.RowsAffected()
-	if err == nil && rows == 1 {
-		user.UpdatedAt = now
+	if rows, err := res.RowsAffected(); err != nil || rows == 0 {
+		return false, err
 	}
-	return rows == 1, err
+	if err := write(tx); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
-func (u *userStore) DeleteDirectoryUser(ctx context.Context, id string, at int64) (bool, error) {
-	res, err := u.store.db.ExecContext(ctx, u.store.rebind(`DELETE FROM users WHERE id = ? AND directory_synced_at <= ?`), id, at)
-	if err != nil {
-		return false, err
-	}
-	rows, err := res.RowsAffected()
-	return rows == 1, err
+func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, at int64, allowTie bool) (bool, error) {
+	return u.directoryWrite(ctx, user, at, allowTie, func(tx *sql.Tx) error {
+		user.UpdatedAt = time.Now().UTC()
+		_, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
+			user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)
+		return err
+	})
+}
+
+func (u *userStore) CreateDirectoryUser(ctx context.Context, user *User, at int64) (bool, error) {
+	// Creation grants access from nothing, so a tie with a deletion never recreates.
+	return u.directoryWrite(ctx, user, at, false, func(tx *sql.Tx) error { return u.insertUser(ctx, tx, user) })
+}
+
+func (u *userStore) DeleteDirectoryUser(ctx context.Context, user *User, at int64) (bool, error) {
+	return u.directoryWrite(ctx, user, at, true, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, u.store.rebind(`DELETE FROM users WHERE id = ?`), user.ID)
+		return err
+	})
 }
 
 func (u *userStore) UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error {

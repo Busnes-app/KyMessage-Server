@@ -71,7 +71,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   characters without accidentally opening a different database.
 - `UpdateProfile` writes only username, email, display name, role and status. SCIM and the KySignOn webhook use it so a stale read cannot revert a concurrent password change or recovery-code redemption. `ListUsers` filters by one exact `UserFilter` field.
 - `GetLocalUserByUsername` returns only `sso_provider = 'local'` rows, preferring an exact-case match. Usernames are unique only case-sensitively, so password login and `init-admin` must never resolve an SSO row.
-- Migration 15 adds `users.directory_synced_at` (Unix seconds of the last applied directory-webhook update). `ApplyDirectoryProfile` and `DeleteDirectoryUser` write only when the update is newer (or tied, when the caller allows it) in the same statement.
+- Migration 15 adds `directory_sync_state` (provider, subject, last applied directory-webhook time). It is deliberately not a users column: it outlives deletion as a tombstone. `ApplyDirectoryProfile`, `CreateDirectoryUser` and `DeleteDirectoryUser` advance it with a conditional upsert and write the user in the same transaction.
 - Migration 14 rebuilds `device_pairings` without the six-digit code column; pending pairings (90 s) are dropped on upgrade.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
 - SQLite runs in WAL mode with foreign keys enabled.

@@ -185,3 +185,48 @@ func TestKySignOnWebhookIgnoresReplayAndStaleUpdates(t *testing.T) {
 		t.Fatalf("a strictly newer promotion was refused: %q", got)
 	}
 }
+
+// Deleting an account must not delete its ordering record: a superseded creation or update,
+// replayed later or after a restart, would otherwise bring the account back.
+func TestKySignOnWebhookCannotResurrectDeletedSubject(t *testing.T) {
+	st, err := store.Open(context.Background(), testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const secret = "webhook-secret"
+	cfg := config.SSOConfig{KySignOnHMACSecret: secret}
+	send := func(client *sso.KySignOnClient, event, subject, role string, ts int64) {
+		t.Helper()
+		body, _ := json.Marshal(sso.KySignOnSyncPayload{Event: event, ID: subject, Username: subject, Role: role, Status: "active", Timestamp: ts})
+		if err := client.HandleSyncWebhook(context.Background(), body, crypto.ComputeHMACSHA256(body, secret)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(subject string) bool {
+		_, err := st.Users().GetUserBySSO(context.Background(), "kysignon", subject)
+		return err == nil
+	}
+	now := time.Now().Unix()
+
+	client := sso.NewKySignOnClient(cfg, st)
+	send(client, "user.created", "erin", "admin", now-3)
+	send(client, "user.deleted", "erin", "", now-1)
+	restarted := sso.NewKySignOnClient(cfg, st)
+	send(restarted, "user.created", "erin", "admin", now-3)
+	send(restarted, "user.updated", "erin", "admin", now-2)
+	send(restarted, "user.created", "erin", "admin", now-1) // a tie never recreates
+	if exists("erin") {
+		t.Fatal("a superseded update recreated a deleted subject")
+	}
+	// A deletion for a subject never seen here still blocks an older creation.
+	send(restarted, "user.deleted", "frank", "", now-1)
+	send(restarted, "user.created", "frank", "admin", now-2)
+	if exists("frank") {
+		t.Fatal("an older creation beat a recorded deletion")
+	}
+	send(restarted, "user.created", "erin", "user", now)
+	if !exists("erin") {
+		t.Fatal("a newer creation after deletion was refused")
+	}
+}

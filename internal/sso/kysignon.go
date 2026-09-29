@@ -88,6 +88,13 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 	return k.applySync(ctx, payload)
 }
 
+// recordAbsent stamps a deactivation or deletion for a subject with no local account, so an
+// older creation delivered later cannot bring it into existence. The delete matches no row.
+func (k *KySignOnClient) recordAbsent(ctx context.Context, payload KySignOnSyncPayload) error {
+	_, err := k.store.Users().DeleteDirectoryUser(ctx, &store.User{SSOProvider: "kysignon", SSOSubject: payload.ID}, payload.Timestamp)
+	return err
+}
+
 // raisesPrivilege reports whether a directory update would grant admin or reactivate. Updates
 // carry second-resolution timestamps and no revision, so two in the same second cannot be
 // ordered; a tie may only lower privilege, and a captured same-second promotion cannot
@@ -145,16 +152,16 @@ func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayl
 			SSOProvider: "kysignon",
 			SSOSubject:  payload.ID,
 		}
-		if err := k.store.Users().CreateUser(ctx, newUser); err != nil {
-			return err
-		}
-		_, err = k.store.Users().ApplyDirectoryProfile(ctx, newUser, payload.Timestamp, true)
+		_, err = k.store.Users().CreateDirectoryUser(ctx, newUser, payload.Timestamp)
 		return err
 
 	case "user.deactivated":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			return k.recordAbsent(ctx, payload)
+		}
 		if err != nil {
-			return nil // User might not exist locally
+			return err
 		}
 		existing.Status = "inactive"
 		applied, err := k.store.Users().ApplyDirectoryProfile(ctx, existing, payload.Timestamp, true)
@@ -165,10 +172,13 @@ func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayl
 
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", payload.ID)
-		if err != nil {
-			return nil
+		if errors.Is(err, store.ErrNotFound) {
+			return k.recordAbsent(ctx, payload)
 		}
-		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing.ID, payload.Timestamp)
+		if err != nil {
+			return err
+		}
+		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, payload.Timestamp)
 		return err
 	}
 
