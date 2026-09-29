@@ -172,8 +172,8 @@ only where it returns, between runs, and `runServer` cancels and waits on that c
 WebSocket handlers and the pair, pin-key, unpair and deposit handlers, which detach from their requests and so outlive
 `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
-`messagingMaintenanceLoop` sweeps expired ciphertext every minute with a 30-second
-operation deadline; startup pruning lives in `store.Open`. Its completion joins the
+`messagingMaintenanceLoop` sweeps expired ciphertext and expired device pairings every
+minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
 backup scheduler's completion before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,

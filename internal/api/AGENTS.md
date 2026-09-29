@@ -15,7 +15,8 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - `/api/messaging/` routes use `requireMessaging`: suite OIDC only (persisted provider `kysignon`, no local password), live session, matching browser Origin and account rate limits. Existing cookie CSRF applies. `X-KyMessages-Device` supplements the session for approval and room operations; enrollment, listing and revoking one's own devices need only the suite session.
 - Messaging GETs and writes have separate per-account process-local budgets:
   2,400 reads/minute and 120 writes/minute. Receiving a busy room cannot exhaust
-  device-management/sending capacity. Enrollment retains its 10/5-minute cap.
+  device-management/sending capacity. Enrollment retains its 10/5-minute cap. Event
+  appends are also capped at 5,000 per account per 24 hours (`messagingDailyEventLimit`).
 - `messaging_handlers.go` owns bounded JSON parsing, Ed25519 enrollment challenges and public DTOs. `store.Messaging()` rechecks authorization transactionally. Follow `docs/MESSAGING-API.md` at the repository root for the wire contract; never expose device token hashes or session bindings in device listings.
 - Room creation accepts optional `peer_user_id` for a direct conversation. Validate
   it like invitation account IDs; return the immutable binding in room DTOs. The

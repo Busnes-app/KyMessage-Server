@@ -24,7 +24,10 @@ Every `/api/messaging/` route requires the existing session cookie or session Be
 Cookie writes also require the base's CSRF cookie/header pair. When supplied,
 Origin must match `KY_APP_URL`. Authenticated messaging responses use `no-store`.
 Account budgets are separate: 2,400 GET requests/minute and 120 write requests/minute,
-with enrollment additionally limited to 10 requests/5 minutes. Receiving traffic
+with enrollment additionally limited to 10 requests/5 minutes and event appends to
+5,000 per account per 24 hours, because event metadata outlives ciphertext retention
+and fills the backup capsule. Declared epochs have no fixed ceiling; the store's
+current-epoch check bounds them. Receiving traffic
 cannot consume the write budget. These limits use the base's process-local limiter;
 WebSocket admission also has per-account/server connection caps. The transport
 acceptance profile and its limits are in [MESSAGING-LOAD.md](MESSAGING-LOAD.md).

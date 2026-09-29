@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"github.com/google/uuid"
@@ -30,6 +31,9 @@ func messagingWirePayload(value string) bool {
 	return err == nil && len(data) > 0 && len(data) <= 64*1024 && base64.StdEncoding.EncodeToString(data) == value
 }
 
+// messagingDailyEventLimit bounds appends per account per day.
+const messagingDailyEventLimit = 5000
+
 func (s *Server) handleMessagingAppend(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
 	var request struct {
 		ID         string            `json:"id"`
@@ -43,7 +47,7 @@ func (s *Server) handleMessagingAppend(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 	id, err := uuid.Parse(request.ID)
-	if err != nil || id.String() != request.ID || request.Epoch == nil || *request.Epoch < 0 || *request.Epoch > 4096 || (request.Kind != "application" && request.Kind != "commit") || !messagingHex(request.RosterHash) || !messagingWirePayload(request.Payload) {
+	if err != nil || id.String() != request.ID || request.Epoch == nil || *request.Epoch < 0 || (request.Kind != "application" && request.Kind != "commit") || !messagingHex(request.RosterHash) || !messagingWirePayload(request.Payload) {
 		s.writeError(w, http.StatusBadRequest, "Valid event ID, kind, epoch, roster hash and base64 payload required")
 		return
 	}
@@ -61,6 +65,12 @@ func (s *Server) handleMessagingAppend(w http.ResponseWriter, r *http.Request, a
 	}
 	if size > 512*1024 || (request.Kind == "application" && len(request.Welcomes) != 0) {
 		s.writeError(w, http.StatusBadRequest, "Event payload limit or kind violation")
+		return
+	}
+	// Event metadata, receipts and audit rows outlive ciphertext retention and fill the backup
+	// capsule. A daily cap keeps one account from doing that in hours.
+	if !s.allowAccountAttempt("messaging:daily-events:"+actor.UserID, messagingDailyEventLimit, 24*time.Hour) {
+		s.writeError(w, http.StatusTooManyRequests, "Daily message limit reached for this account")
 		return
 	}
 	receipt, err := s.store.Messaging().AppendEvent(r.Context(), actor, r.PathValue("room"), store.MessagingEventInput{ID: request.ID, Kind: request.Kind, Epoch: *request.Epoch, RosterHash: request.RosterHash, Payload: request.Payload, Welcomes: request.Welcomes})
