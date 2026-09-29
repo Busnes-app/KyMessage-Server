@@ -273,25 +273,24 @@ func (u *userStore) directoryWrite(ctx context.Context, user *User, ev Directory
 		return false, err
 	}
 	defer tx.Rollback()
-	if ev.Revision == -1 {
-		// A post-restore resend resets the order, so each one must apply at most once:
-		// a redelivered copy after a later demotion would otherwise restore the old role.
-		res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_resets (provider, event_id) VALUES (?, ?) ON CONFLICT (provider, event_id) DO NOTHING`), user.SSOProvider, ev.ID)
-		if err != nil {
-			return false, err
-		}
-		if rows, err := res.RowsAffected(); err != nil || rows == 0 {
-			return false, err
-		}
+	// Every delivered event ID is kept, applied or not. A -1 resend resets the revision
+	// order, which would otherwise make an earlier event eligible to apply again.
+	res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_events (provider, event_id) VALUES (?, ?) ON CONFLICT (provider, event_id) DO NOTHING`), user.SSOProvider, ev.ID)
+	if err != nil {
+		return false, err
 	}
-	res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, revision) VALUES (?, ?, ?)
+	if rows, err := res.RowsAffected(); err != nil || rows == 0 {
+		return false, err
+	}
+	res, err = tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, revision) VALUES (?, ?, ?)
 ON CONFLICT (provider, subject) DO UPDATE SET revision = excluded.revision
 WHERE directory_sync_state.revision < excluded.revision OR excluded.revision = -1`), user.SSOProvider, user.SSOSubject, ev.Revision)
 	if err != nil {
 		return false, err
 	}
 	if rows, err := res.RowsAffected(); err != nil || rows == 0 {
-		return false, err
+		// Superseded: keep only the event ID, so this event stays spent.
+		return false, errors.Join(err, tx.Commit())
 	}
 	if err := write(tx); err != nil {
 		return false, err

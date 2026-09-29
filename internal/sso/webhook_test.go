@@ -235,3 +235,33 @@ func TestDirectoryWebhookAppliesEachRestoreEventOnce(t *testing.T) {
 		t.Fatalf("a new restore event was refused: %+v", u)
 	}
 }
+
+// A -1 reset lowers the stored revision, so revision order alone would let an earlier event
+// apply again. Every delivered event ID stays spent: one applied before the reset, and one
+// refused as stale before it, both remain ineffective across the reset and a restart.
+func TestDirectoryWebhookEventsStaySpentAcrossRevisionReset(t *testing.T) {
+	d := newDirectory(t)
+	promote, stale := uuid.NewString(), uuid.NewString()
+	d.must("user.created", scimUser("kid-hana", "user", true, 1))
+	if err := d.sendID(promote, "user.updated", scimUser("kid-hana", "admin", true, 3)); err != nil {
+		t.Fatal(err)
+	}
+	d.must("user.updated", scimUser("kid-hana", "user", true, 4))
+	if err := d.sendID(stale, "user.updated", scimUser("kid-hana", "admin", true, 2)); err != nil {
+		t.Fatal(err)
+	}
+	d.must("user.updated", scimUser("kid-hana", "user", true, -1)) // KyIdentity restored
+	d.restart()
+	for _, id := range []string{promote, stale} {
+		if err := d.sendID(id, "user.updated", scimUser("kid-hana", "admin", true, map[string]int64{promote: 3, stale: 2}[id])); err != nil {
+			t.Fatalf("a spent event must still be acknowledged: %v", err)
+		}
+	}
+	if u := d.user("kid-hana"); u.Role != "user" {
+		t.Fatalf("an event from before the reset applied again: %+v", u)
+	}
+	d.must("user.updated", scimUser("kid-hana", "admin", true, 1)) // new events still apply
+	if u := d.user("kid-hana"); u.Role != "admin" {
+		t.Fatalf("a new event after the reset was refused: %+v", u)
+	}
+}

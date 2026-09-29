@@ -61,9 +61,9 @@ type UserStore interface {
 	// UpdateProfile writes username, email, display name, role and status only.
 	UpdateProfile(ctx context.Context, u *User) error
 	// Directory updates are ordered per SSO provider and subject by a record that outlives
-	// the user. Each applies only when its revision is newer than the last applied one, or
-	// is -1 (the sender's post-restore resend) with an event ID never applied before,
-	// atomically with its write, and reports whether it applied.
+	// the user. Each event ID is used once, whether or not it applied; an event applies only
+	// when its revision is newer than the last applied one or is -1 (the sender's
+	// post-restore resend), atomically with its write, and reports whether it applied.
 	ApplyDirectoryProfile(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	CreateDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	DeleteDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
