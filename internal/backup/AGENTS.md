@@ -24,7 +24,7 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   never sealed. On the owned snapshot only, blank event/KeyPackage payloads, expire
   KeyPackages, remove Welcomes and advance room retention floors. Preserve event
   receipt hashes, topology and audit records; restore still retires rooms and revokes
-  grants. Compact the copy and reject it above the shared capsule file limit before
+  grants, and startup purges the blanked events by room retention. Compact the copy and reject it above the shared capsule file limit before
   reading it into memory. Metadata/receipt/audit growth remains capped at 64 MiB;
   initial snapshot disk space still scales with the complete live database. It also carries the encryption key (`data/encryption.key`, required — restores
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key

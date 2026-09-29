@@ -107,6 +107,7 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
   if (d.historyGap) throw new Error('Missing encrypted history: rejoin explicitly or create a new room');
   if (!d.room || !d.device || d.pending || d.rejoinGeneration !== null || r.awaitingCommit || r.pending || r.outbox.length) throw new Error('Resolve pending delivery first');
   const v = await api(roomPath(d) + '/delivery', d.token);
+  d.retentionDays = retentionDays(v.retention_days);
   const devices = roster(v.devices);
   const epoch = integer(v.epoch);
   if (integer(v.sequence) !== r.cursor) throw new Error('Catch up before sending');
@@ -159,6 +160,7 @@ async function openRoom(room: string, expectedPeer?: string) {
     // initialize a group with join material that has already been published.
     if (!r.state && selected.owner_id === r.identity && !d.publication) {
       const remote = await api(roomPath(d) + '/delivery',d.token);
+      d.retentionDays = retentionDays(remote.retention_days);
       if (integer(remote.epoch) === 0) {
         const group = await createGroup(encoder.encode(room),keyPackage(r.keyPackage),privateKeys(r),[],await suite,config(r));
         r.state = base64(encodeGroupState(group));
@@ -291,7 +293,14 @@ export const delivery = {
       return d.device;
     });
   },
-  async createRoom(name: string, days: number = 30) {
+  async setRetention(days: number) {
+    await transaction(async (_r,d) => {
+      if (!d.room) throw new Error('Open a conversation first');
+      await api('/rooms/' + encodeURIComponent(d.room),d.token,'PATCH',{retention_days:retentionDays(days)});
+      d.retentionDays = retentionDays(days);
+    });
+  },
+  async createRoom(name: string, days: number = 90) {
     const signal = connectionAbort.signal;
     const token = await transaction(async (_r,d) => d.token);
     const v = await api('/rooms',token,'POST',{name,retention_days:retentionDays(days)});
@@ -300,7 +309,7 @@ export const delivery = {
     await openRoom(room);
     return room;
   },
-  async directRoom(peerValue: string, days: number = 30) {
+  async directRoom(peerValue: string, days: number = 90) {
     const peer = accountID(peerValue);
     const identity = unlockedIdentity();
     if (peer === identity) throw new Error('Choose another account for a direct conversation');
@@ -330,6 +339,7 @@ export const delivery = {
       if (selected?.membership === 'invited') await api(roomPath(d) + '/join',d.token,'POST');
       else if (selected?.membership !== 'active') throw new Error('A new room invitation is required');
       const directory = await api(roomPath(d) + '/delivery',d.token);
+      d.retentionDays = retentionDays(directory.retention_days);
       const own = roster(directory.devices).find(x => x.id === d.device);
       const old = keyPackage(r.keyPackage);
       if (!own || own.user_id !== r.identity || own.public_key !== base64(old.leafNode.signaturePublicKey) || own.generation <= previous) throw new Error('Rejoin requires a newer membership generation');
@@ -365,6 +375,7 @@ export const delivery = {
     return transaction(async (_r,d) => {
       const current = await api(roomPath(d) + '/delivery',d.token);
       if (typeof current.paused !== 'boolean') throw new Error('Invalid room pause state');
+      d.retentionDays = retentionDays(current.retention_days);
       const peers = await Promise.all(roster(current.devices).map(async device => ({id:device.id,user_id:device.user_id,identity_generation:device.identity_generation,fingerprint:await hash(unbase64(device.public_key)),approved:_r.pins.some(p => p.identity === device.user_id && p.key === device.public_key && p.identityGeneration === device.identity_generation)})));
       return {peers,paused:current.paused,room:d.room,rosterHash:text(current.roster_hash)};
     });
@@ -372,6 +383,7 @@ export const delivery = {
   async approveDevice(device: string, expectedFingerprint: string) {
     return transaction(async (r,d) => {
       const current = await api(roomPath(d) + '/delivery',d.token);
+      d.retentionDays = retentionDays(current.retention_days);
       const target = roster(current.devices).find(x => x.id === device);
       if (!target || await hash(unbase64(target.public_key)) !== expectedFingerprint) throw new Error('Device fingerprint mismatch');
       if (!r.pins.some(p => p.identity === target.user_id && p.key === target.public_key && p.identityGeneration === target.identity_generation)) r.pins.push({identity:target.user_id,key:target.public_key,identityGeneration:target.identity_generation});
@@ -383,6 +395,7 @@ export const delivery = {
       if ((r.state && d.rejoinGeneration === null) || !r.keys) throw new Error('KeyPackage already consumed');
       if (d.joinGeneration === null) {
         const remote = await api(roomPath(d) + '/delivery',d.token);
+        d.retentionDays = retentionDays(remote.retention_days);
         const own = roster(remote.devices).find(device => device.id === d.device);
         if (!own || own.user_id !== r.identity || own.public_key !== base64(keyPackage(r.keyPackage).leafNode.signaturePublicKey)) throw new Error('Missing bound join device');
         d.joinGeneration = own.generation;
@@ -490,7 +503,7 @@ export const delivery = {
         const wire = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:result.welcome}));
         for (const id of added) welcomes[id] = wire;
       }
-      d.pending = {request: JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage(result.commit)),welcomes}), state:base64(encodeGroupState(result.newState)),plaintext:null};
+      d.pending = {request: JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage(result.commit)),welcomes}), state:base64(encodeGroupState(result.newState)),plaintext:null,createdAt:Math.floor(Date.now()/1000)};
       result.consumed.forEach(zeroOutUint8Array);
     });
   },
@@ -503,19 +516,27 @@ export const delivery = {
       groupMatches(current,m.room,m.epoch,m.devices);
       const result = await createApplicationMessage(current,bytes,await suite,encoder.encode(JSON.stringify(m)));
       r.state = base64(encodeGroupState(result.newState));
-      d.pending = {request:JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:result.privateMessage})),welcomes:{}}),state:null,plaintext:message};
+      d.pending = {request:JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:result.privateMessage})),welcomes:{}}),state:null,plaintext:message,createdAt:Math.floor(Date.now()/1000)};
       result.consumed.forEach(zeroOutUint8Array);
     });
   },
   async submit() {
     const result = await transaction(async (r,d) => {
       if (!d.pending) throw new Error('No pending delivery');
+      // The server forgets purged events, so an older retry would append a duplicate.
+      // Read the current window: another member may have shortened it.
+      d.retentionDays = retentionDays((await api(roomPath(d) + '/delivery',d.token)).retention_days);
+      if (d.retentionDays > 0 && d.pending.createdAt < Math.floor(Date.now()/1000) - d.retentionDays*86400) {
+        d.pending = null;
+        return {stale:true as const};
+      }
       const body: unknown = JSON.parse(d.pending.request);
       const result = await request(roomPath(d) + '/events',d.token,'POST',body);
       if (result.status === 409) { d.pending = null; r.awaitingCommit = true; }
       else if (result.status !== 200) throw new Error(`Delivery HTTP ${result.status}: ${text(object(result.value).error)}`);
       return result;
     });
+    if ('stale' in result) throw new Error('This message is older than the conversation keeps messages and was not sent');
     if (result.status === 409) throw new Error('Commit conflict; apply winner before retry');
     const receipt = object(result.value);
     return {sequence:integer(receipt.sequence),epoch:integer(receipt.epoch)};
@@ -536,7 +557,9 @@ export const delivery = {
       for (const e of events) {
         // Server deadlines are operational metadata, not authenticated sender time.
         // Never extend local retention beyond receipt time plus the cached room policy.
-        const expiresAt = Math.min(e.expiresAt ?? Infinity,Math.floor(Date.now()/1000) + d.retentionDays*86400);
+        const local = d.retentionDays === 0 ? Infinity : Math.floor(Date.now()/1000) + d.retentionDays*86400;
+        const bound = Math.min(e.expiresAt ?? Infinity,local);
+        const expiresAt = bound === Infinity ? null : bound;
         const joining = r.state === null || d.rejoinGeneration !== null;
         if (e.sequence !== (joining ? floor : r.cursor+1)) throw new Error('Delivery sequence gap');
         const msg = decode(e.payload,decodeMlsMessage);
@@ -594,7 +617,7 @@ export const delivery = {
           if (d.pending.state) r.state = d.pending.state;
           if (!d.room) throw new Error('Missing room');
           groupMatches(state(r),d.room,e.epoch,m.devices);
-          if (e.kind === 'application' && d.pending.plaintext !== null && expiresAt > Date.now()/1000) d.messages.push({id:e.id,sender:r.identity,text:d.pending.plaintext,sequence:e.sequence,expiresAt});
+          if (e.kind === 'application' && d.pending.plaintext !== null && (expiresAt === null || expiresAt > Date.now()/1000)) d.messages.push({id:e.id,sender:r.identity,text:d.pending.plaintext,sequence:e.sequence,expiresAt});
           d.pending = null;
         } else {
           if (d.pending && e.kind === 'commit') throw new Error('Resolve pending submission before winning commit');
@@ -608,7 +631,7 @@ export const delivery = {
             const plaintext = decoder.decode(content.applicationData);
             const sender = m.devices.find(x => x.id === e.device_id);
             if (!sender) throw new Error('Missing authenticated sender');
-            if (expiresAt > Date.now()/1000) {
+            if (expiresAt === null || expiresAt > Date.now()/1000) {
               r.inbox.push({text:plaintext,expiresAt,sequence:e.sequence});
               d.messages.push({id:e.id,sender:sender.user_id,text:plaintext,sequence:e.sequence,expiresAt});
             }

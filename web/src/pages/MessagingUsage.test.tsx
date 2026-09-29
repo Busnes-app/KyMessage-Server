@@ -6,7 +6,7 @@ import { Dashboard } from './Dashboard';
 const empty = {
   room_count:0, rooms:[], sampled_at:'2026-09-27T12:00:00Z',
   totals:{active_events:0,retained_bytes:0,receipts:0},
-  limits:{active_events:4096,retained_bytes:33554432,receipts:1000000},
+  limits:{active_events:100000,retained_bytes:536870912,receipts:1000000},
 };
 function respond(value: unknown, status = 200) {
   return new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});

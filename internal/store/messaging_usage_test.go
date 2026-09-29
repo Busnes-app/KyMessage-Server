@@ -20,7 +20,7 @@ func assertMessagingUsageMatchesRows(t *testing.T, st store.Store, db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_events WHERE payload <> ''`).Scan(&active, &events); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messaging_events`).Scan(&receipts); err != nil {
+	if err := db.QueryRow(`SELECT COALESCE(SUM(sequence), 0) FROM messaging_rooms`).Scan(&receipts); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM messaging_welcomes`).Scan(&welcomes); err != nil {
@@ -64,8 +64,8 @@ func TestMessagingUsageBoundsAndPrioritizesRoomLimits(t *testing.T) {
 	// The retention lifecycle separately compares real rows with metadata totals.
 	for _, statement := range []string{
 		`UPDATE messaging_rooms SET sequence = 900000, retained_from = 900001, owner_identity_generation = 0 WHERE id = 'room-101'`,
-		`UPDATE messaging_rooms SET sequence = 3500, retained_bytes = 3500 WHERE id = 'room-100'`,
-		`UPDATE messaging_rooms SET sequence = 1, retained_bytes = 28000000 WHERE id = 'room-099'`,
+		`UPDATE messaging_rooms SET sequence = 90000, retained_bytes = 90000 WHERE id = 'room-100'`,
+		`UPDATE messaging_rooms SET sequence = 1, retained_bytes = 450000000 WHERE id = 'room-099'`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -75,7 +75,7 @@ func TestMessagingUsageBoundsAndPrioritizesRoomLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usage.Rooms != 102 || len(usage.LargestRooms) != 100 || usage.ActiveEvents != 3501 || usage.Receipts != 903501 || usage.RetainedBytes != 28003500 {
+	if usage.Rooms != 102 || len(usage.LargestRooms) != 100 || usage.ActiveEvents != 90001 || usage.Receipts != 990001 || usage.RetainedBytes != 450090000 {
 		t.Fatal(usage)
 	}
 	for i, id := range []string{"room-099", "room-100", "room-101"} {

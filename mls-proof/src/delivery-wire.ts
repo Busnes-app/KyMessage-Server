@@ -19,8 +19,9 @@ export function integer(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Expected nonnegative integer');
   return value;
 }
-export function retentionDays(value: unknown = 30): 1 | 7 | 30 {
-  if (value !== 1 && value !== 7 && value !== 30) throw new Error('Expected 1, 7 or 30 retention days');
+export type RetentionDays = 0 | 1 | 7 | 30 | 90;
+export function retentionDays(value: unknown = 90): RetentionDays {
+  if (value !== 0 && value !== 1 && value !== 7 && value !== 30 && value !== 90) throw new Error('Expected 0 (off), 1, 7, 30 or 90 retention days');
   return value;
 }
 export function historyGap(value: unknown): 'expired' | 'rollback' | null {
@@ -89,7 +90,7 @@ export function connection(value: unknown) {
       return {id:text(m.id),sender:text(m.sender),text:text(m.text),sequence:integer(m.sequence),expiresAt:expiry(m.expiresAt)};
     }),
     historyPruned: d.historyPruned === undefined ? 0 : integer(d.historyPruned),
-    pending: p === null ? null : { request: text(p.request), state: p.state === null ? null : text(p.state), plaintext:p.plaintext === undefined || p.plaintext === null ? null : text(p.plaintext) },
+    pending: p === null ? null : { request: text(p.request), state: p.state === null ? null : text(p.state), plaintext:p.plaintext === undefined || p.plaintext === null ? null : text(p.plaintext), createdAt: p.createdAt === undefined || p.createdAt === null ? Math.floor(Date.now()/1000) : integer(p.createdAt) },
   };
 }
 export type Connection = ReturnType<typeof connection>;

@@ -192,7 +192,7 @@ func TestSnapshotOmitsDeliveryPayloadsWithoutChangingLiveData(t *testing.T) {
 		id := fmt.Sprintf("room-%d", room)
 		exec("INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes) VALUES (?,?,'owner',1,1,?,?)", id, id, count, count*len(payload))
 		for sequence := 1; sequence <= count; sequence++ {
-			exec("INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at,expires_at) VALUES (?,?,'device',?,'application',1,'roster',?,'retry-hash',1,4102444800)", id, sequence, fmt.Sprint(sequence), payload)
+			exec("INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES (?,?,'device',?,'application',1,'roster',?,'retry-hash',4102444800)", id, sequence, fmt.Sprint(sequence), payload)
 		}
 	}
 	exec("INSERT INTO messaging_welcomes (room_id,sequence,device_id,payload) VALUES ('room-0',1,'device','welcome-canary')")

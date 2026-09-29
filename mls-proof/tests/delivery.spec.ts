@@ -459,7 +459,7 @@ test('local expiry removes both transcript copies without changing keys or pendi
     expect(before.messages).toHaveLength(2);
     expect(before.inbox).toHaveLength(1);
     const now = Date.now();
-    await bob.page.clock.setSystemTime(new Date(now+31*86400_000));
+    await bob.page.clock.setSystemTime(new Date(now+91*86400_000));
     const expired = await bob.page.evaluate(() => window.delivery.status());
     expect(expired).toEqual({...before,messages:[],inbox:[]});
     expect((await bob.page.evaluate(() => window.proof.status())).inbox).toEqual([]);
@@ -475,6 +475,41 @@ test('local expiry removes both transcript copies without changing keys or pendi
   } finally { await alice.context.close(); await bob.context.close(); }
 });
 
+
+test('a pending send older than the retention window is dropped once, not on every retry',async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    await bob.page.evaluate(() => window.delivery.stageSend('Stale pending'));
+    await bob.page.clock.setSystemTime(new Date(Date.now()+91*86400_000));
+    await expect(bob.page.evaluate(() => window.delivery.submit())).rejects.toThrow('was not sent');
+    expect((await bob.page.evaluate(() => window.delivery.status())).pending).toBe(false);
+    await expect(bob.page.evaluate(() => window.delivery.submit())).rejects.toThrow('No pending delivery');
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+test('submit reads the current window, so a retention another member shortened drops a stale pending',async ({browser}) => {
+  const {alice,bob} = await pair(browser);
+  try {
+    await bob.page.evaluate(() => window.delivery.stageSend('Pending under the old window'));
+    await alice.page.evaluate(() => window.delivery.setRetention(1));
+    expect((await bob.page.evaluate(() => window.delivery.status())).retentionDays).toBe(90);
+    await bob.page.clock.setSystemTime(new Date(Date.now()+2*86400_000));
+    await expect(bob.page.evaluate(() => window.delivery.submit())).rejects.toThrow('was not sent');
+    const status = await bob.page.evaluate(() => window.delivery.status());
+    expect(status.pending).toBe(false);
+    expect(status.retentionDays).toBe(1);
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+test('a legacy pending send without a creation time is stamped when loaded',() => {
+  const before = Math.floor(Date.now()/1000);
+  const saved = {device:null,token:'',room:null,roster:null,pending:{request:'{}',state:null,plaintext:'Legacy pending'}};
+  const createdAt = connection(saved).pending?.createdAt ?? 0;
+  expect(createdAt).toBeGreaterThanOrEqual(before);
+  expect(createdAt).toBeLessThanOrEqual(Math.floor(Date.now()/1000));
+  // Once persisted, the stamp is kept rather than renewed.
+  expect(connection({...saved,pending:{...saved.pending,createdAt:before-5}}).pending?.createdAt).toBe(before-5);
+});
 
 test('legacy transcript parsing preserves unknown expiry and rejects invalid deadlines',() => {
   const old = {version:1,identity:'legacy',keyPackage:'',keys:null,pins:[],state:null,pending:null,inbox:['Keep legacy text'],outbox:[],cursor:0,awaitingCommit:false,received:[]};

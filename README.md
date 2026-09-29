@@ -124,8 +124,9 @@ assets. It publishes no image while the first-release gates remain open.
 ## Messaging storage preview
 
 The administrator's Overview shows read-only messaging storage totals, room limits
-and up to 100 rooms, with rooms near capacity listed first. Retention frees stored
-events and ciphertext; lifetime retry receipts remain. These counts exclude actual
+and up to 100 rooms, with rooms near capacity listed first. Retention is per thread (Off, 1, 7, 30 or 90 days, default 90,
+changeable by the owner); purged messages are deleted with their retry receipts and
+per-message audit rows. These counts exclude actual
 database overhead, audit logs, backup copies and browser history. Errors remain
 visible instead of showing zero usage. Refresh explicitly for a new snapshot.
 

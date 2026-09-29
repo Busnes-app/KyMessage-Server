@@ -74,7 +74,7 @@ export function MessagingUsage() {
       <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
         <summary>Room limits and busiest rooms</summary>
         <p>Each room allows {number(state.value.limits.active_events)} retained events, {bytes(state.value.limits.retained_bytes)} stored ciphertext and {number(state.value.limits.receipts)} lifetime receipts. Events include messages and membership changes.</p>
-        <p>Retention frees event and ciphertext space. Receipts remain for retry safety. A room at its receipt limit needs a new conversation; existing local history remains readable. A large next event can exceed the remaining byte allowance before the room is full.</p>
+        <p>Retention deletes events and their receipts. The receipts figure counts every event ever appended. A room at its receipt limit needs a new conversation; existing local history remains readable. A large next event can exceed the remaining byte allowance before the room is full.</p>
         {state.value.roomCount === 0 ? <p>No messaging rooms.</p> : <>
           <p>Showing {number(state.value.rooms.length)} of {number(state.value.roomCount)} rooms. Rooms at 80% of any limit come first, then rooms with the most stored ciphertext.</p>
           <ul style={{listStyle:'none',padding:0}}>

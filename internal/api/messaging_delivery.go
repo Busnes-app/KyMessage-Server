@@ -67,8 +67,8 @@ func (s *Server) handleMessagingAppend(w http.ResponseWriter, r *http.Request, a
 		s.writeError(w, http.StatusBadRequest, "Event payload limit or kind violation")
 		return
 	}
-	// Event metadata, receipts and audit rows outlive ciphertext retention and fill the backup
-	// capsule. A daily cap keeps one account from doing that in hours.
+	// Events, receipts and audit rows live as long as the room keeps messages (forever when
+	// Off) and fill the backup capsule. A daily cap keeps one account from doing that in hours.
 	if !s.allowAccountAttempt("messaging:daily-events:"+actor.UserID, messagingDailyEventLimit, 24*time.Hour) {
 		s.writeError(w, http.StatusTooManyRequests, "Daily message limit reached for this account")
 		return
@@ -100,7 +100,11 @@ func (s *Server) handleMessagingEvents(w http.ResponseWriter, r *http.Request, a
 	}
 	events := make([]map[string]any, 0, len(page.Events))
 	for _, e := range page.Events {
-		events = append(events, map[string]any{"id": e.ID, "device_id": e.DeviceID, "sequence": e.Sequence, "epoch": e.Epoch, "kind": e.Kind, "roster_hash": e.RosterHash, "payload": e.Payload, "welcome": e.Welcome, "created_at": e.CreatedAt, "expires_at": e.ExpiresAt})
+		event := map[string]any{"id": e.ID, "device_id": e.DeviceID, "sequence": e.Sequence, "epoch": e.Epoch, "kind": e.Kind, "roster_hash": e.RosterHash, "payload": e.Payload, "welcome": e.Welcome, "created_at": e.CreatedAt}
+		if e.ExpiresAt > 0 {
+			event["expires_at"] = e.ExpiresAt
+		}
+		events = append(events, event)
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"events": events, "next": page.Next, "start_sequence": page.StartSequence})
 }

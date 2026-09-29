@@ -42,16 +42,28 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   the peer invitation are one transaction; reject self and ineligible accounts.
   Owner invitations can only target that peer, including after removal or deletion.
   Keep the binding after peer deletion so a direct room cannot become a group.
-- Migration 12 fixes each room's ciphertext retention at creation: 1, 7 or 30 days,
-  default 30. Expiries stay ordered if the clock moves back. Clear expired event
-  payloads and Welcomes under the room lock; retain hashes/sequence metadata so
-  exact retries never append again. Keep the cursor monotonic and return
-  `ErrMessagingHistoryGone` when a device missed the retained prefix. Ordinary
-  remove/reinvite supplies a new generation and Welcome floor; never skip MLS state.
-  Cap active data at 4,096 events/32 MiB and lifetime receipt rows at 1,000,000 per
-  room. `ExpireMessages` sweeps idle rooms in short transactions; `store.Open`
-  runs it after migration before returning, including restored databases. Close
-  the database on failed initialization. These caps remain operational release gates.
+- Migrations 12 and 17 own room retention: 0 (Off), 1, 7, 30 or 90 days in
+  `messaging_rooms.retention_days`; `CreateRoom` no longer defaults (the API supplies it;
+  0 means Off). Migration 17 deleted events the old sweep had blanked, with their
+  `messaging.event_accepted` audit rows (matched by `sequence=N` in details), and dropped
+  `messaging_events.expires_at`: expiry derives from
+  `created_at + days*86400` (`MessagingEvent.ExpiresAt` is 0 when Off), and `created_at`
+  stays monotonic per room if the clock moves back, so an age purge is a sequence prefix.
+  `purgeRoom` (under the room lock, called by `deliveryState` and the sweep) deletes expired
+  events, their Welcomes and `messaging.event_accepted` audit rows (migration 17 indexes
+  audit `(action, resource, created_at)` for that delete) and raises `retained_from`;
+  receipt rows are gone after purge, so a stale-epoch retry is refused. Keep the cursor
+  monotonic and return `ErrMessagingHistoryGone` when a device missed the retained prefix.
+  `SetRoomRetention` accepts only those five values (else `ErrMessagingConflict`); the
+  current-generation owner, or the peer of a direct room once active, may change it (a
+  non-member gets `ErrNotFound`, another member `ErrMessagingDenied`). It purges at once
+  in the same transaction and audits `messaging.retention_changed` (`retention_days=N`).
+  Ordinary remove/reinvite supplies a new generation and Welcome floor; never skip MLS state.
+  Cap active data at 100,000 events/512 MiB (active count is `sequence - retained_from + 1`)
+  and lifetime receipts (the room `sequence`) at 1,000,000 per room. `ExpireMessages`
+  sweeps idle rooms in short transactions; `store.Open` runs it after migration before
+  returning, including restored databases. Close the database on failed initialization.
+  These caps remain operational release gates.
 - Room invitations require owner authorization and explicit recipient acceptance. Delivery and membership mutations lock the room after the actor/session. Each accepted invitation increments the member generation, preventing remove/rejoin from restoring old log access.
 - `messaging_delivery.go` and migration 6 own the bounded event log, declared epoch CAS, device-specific Welcome envelopes and history floors. Each append checks the current eligible roster against the requested hash; application events additionally require the committed roster. Exact retries return the original receipt without another audit. MLS transcript validity remains the receiving client's responsibility. Wire limits and lifecycle semantics live in `docs/MESSAGING-API.md` at the repository root.
 - `messaging_key_packages.go` and migration 7 own the content-addressed, bounded KeyPackage pool. Preserve claimed/expired rows as anti-republication tombstones, including after account deletion; their device IDs intentionally have no cascading foreign key. Claims require an eligible current-epoch device (or initial room owner), bind retries to caller/request ID, room, target and membership generation, and audit atomically. PostgreSQL claims lock a candidate with `FOR UPDATE SKIP LOCKED` so different rooms cannot allocate the same row.
@@ -82,6 +94,8 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 ## Verification
 - `go test -v ./internal/store/...`
 - `go test -race ./internal/store` checks first-device enrollment across separate connections and concurrent cross-invitations; run with `KY_TEST_POSTGRES_DSN` as well as the SQLite default.
+- `migrations/migrations_test.go` builds a v16 database through the test-only
+  `RunThrough` seam (`export_test.go`) and checks migration 17 on both engines.
 - Delivery tests cover competing commits across connections, deduplication, Welcome isolation, removal/rejoin history floors, device revocation and directory deactivation.
 - KeyPackage tests cover cross-room claims on separate connections, lost-ack retries, rejoin/expiry/revocation denial, publication ownership and pool capacity.
 

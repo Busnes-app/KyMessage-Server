@@ -235,6 +235,10 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	// keeps every delivered event ID: a -1 resend resets the order, so revision alone cannot
 	// stop an earlier event applying twice.
 	{Version: 16, Name: "directory_sync_revision", SQLite: directorySyncRevision, Postgres: directorySyncRevision},
+	// Retention becomes owner-mutable and may be Off (0) or 90 days, and purging deletes
+	// events outright, so expiry derives from created_at instead of a stored column.
+	// Column-level CHECKs drop with their column; a table rebuild would cascade-delete rooms.
+	{Version: 17, Name: "thread_auto_purge", SQLite: threadAutoPurgeSQLite, Postgres: threadAutoPurgePostgres},
 }
 
 // Run executes all pending migrations for the specified database driver.
@@ -364,3 +368,33 @@ CREATE TABLE directory_sync_events (
     PRIMARY KEY (provider, event_id)
 );
 `
+
+const threadAutoPurge = `
+ALTER TABLE messaging_rooms ADD COLUMN purge_days BIGINT NOT NULL DEFAULT 90 CHECK(purge_days IN (0, 1, 7, 30, 90));
+UPDATE messaging_rooms SET purge_days = retention_days;
+ALTER TABLE messaging_rooms DROP COLUMN retention_days;
+ALTER TABLE messaging_rooms RENAME COLUMN purge_days TO retention_days;
+DROP INDEX messaging_events_expiry;
+DROP INDEX messaging_events_room_expiry;
+ALTER TABLE messaging_events DROP COLUMN expires_at;
+`
+
+const threadAutoPurgeTail = `
+DELETE FROM messaging_events WHERE payload = '';
+CREATE INDEX messaging_events_room_created ON messaging_events(room_id, created_at);
+CREATE INDEX audit_action_resource_created ON audit_records(action, resource, created_at);
+`
+
+// Events the old sweep blanked (empty payload) go with their audit rows, matched by the
+// "sequence=N" in the details; the old floor and byte count already exclude them.
+const threadAutoPurgeSQLite = threadAutoPurge + `
+DELETE FROM audit_records WHERE action = 'messaging.event_accepted' AND EXISTS (
+    SELECT 1 FROM messaging_events e WHERE e.room_id = audit_records.resource AND e.payload = ''
+    AND e.sequence = CAST(substr(audit_records.details, instr(audit_records.details, ' sequence=') + 10) AS INTEGER));
+` + threadAutoPurgeTail
+
+const threadAutoPurgePostgres = threadAutoPurge + `
+DELETE FROM audit_records WHERE action = 'messaging.event_accepted' AND EXISTS (
+    SELECT 1 FROM messaging_events e WHERE e.room_id = audit_records.resource AND e.payload = ''
+    AND e.sequence = CAST(substring(audit_records.details from ' sequence=([0-9]+)') AS BIGINT));
+` + threadAutoPurgeTail
