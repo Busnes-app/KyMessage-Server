@@ -185,3 +185,19 @@ func TestBackupTickInProgressLeavesTheKindDue(t *testing.T) {
 		t.Fatalf("people not due: %v %v %v", next, on, err)
 	}
 }
+
+// The shutdown wait is sized for one run: once the loop's context is cancelled during the
+// first kind, the next kind must not start, and stays unstamped and due.
+func TestBackupTickStopsBetweenKindsOnShutdown(t *testing.T) {
+	st, kinds := tickFixture(t, time.Hour, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	ran := stubRun(t, func(string) error { cancel(); return nil })
+	backupTick(ctx, &config.Config{}, st, kinds, nil)
+	if got := strings.Join(*ran, ","); got != "people" {
+		t.Fatalf("ran %q", got)
+	}
+	next, on, err := recoveryclient.NextRun(time.Hour, kinds[1].settings(context.Background()))
+	if err != nil || !on || next.After(time.Now()) {
+		t.Fatalf("messages not due: %v %v %v", next, on, err)
+	}
+}

@@ -153,6 +153,18 @@ func TestMessagesSettingsKeepOwnScheduleAndReceipt(t *testing.T) {
 	if v, _ := st.Settings().GetSetting(ctx, "messages_backup_interval_sec"); v != "7200" {
 		t.Fatalf("stored key: %q", v)
 	}
+	if err := people.Set("backup_last_attempt", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := messages.Set("backup_last_attempt", "m"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := people.Get("backup_last_attempt"); v != "p" {
+		t.Fatalf("people last attempt overwritten: %q", v)
+	}
+	if v, _ := messages.Get("backup_last_attempt"); v != "m" {
+		t.Fatalf("messages last attempt: %q", v)
+	}
 	if err := messages.Set("kyrecovery_last_deposit", "r"); err != nil {
 		t.Fatal(err)
 	}

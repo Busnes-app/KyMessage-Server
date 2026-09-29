@@ -259,6 +259,9 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 func backupTick(ctx context.Context, cfg *config.Config, st store.Store, kinds []backupKind, client recoveryclient.Depositor) {
 	runCtx := context.WithoutCancel(ctx)
 	for _, k := range kinds {
+		if ctx.Err() != nil {
+			return // shutdown: the wait budget covers one run; later kinds stay due
+		}
 		next, on, err := recoveryclient.NextRun(k.defaultEvery, k.settings(runCtx))
 		if err != nil {
 			log.Printf("[BACKUP] %s schedule unreadable: %s", k.name, recoveryclient.AuditSafe(err.Error()))
