@@ -252,7 +252,8 @@ server's encryption key in a capsule is an operational key, not a message key.
 The adapter takes a consistent SQLite snapshot, then clears delivery payloads only
 in that private copy and compacts it. Event receipt hashes and room topology remain.
 The resulting database must fit the shared 64 MiB file limit; metadata, receipts
-and audit growth can still exceed it and fail backup explicitly. Snapshot disk space
+and audit growth can still exceed it and fail backup explicitly. The 5,000 events per
+account per day cap slows but does not stop that growth. Snapshot disk space
 still scales with the whole live database. Backup copies have independent retention
 and custodian access to metadata; older capsules may outlive ciphertext retention.
 The restore command now prunes expired content and invalidates restored grants

@@ -24,7 +24,7 @@ import (
 
 func TestMessagingRecoveryAuthenticationCallback(t *testing.T) {
 	for _, reset := range []bool{false, true} {
-		for _, scenario := range []string{"success", "wrong subject", "missing auth time", "old auth time", "session revoked during exchange", "registry changed during exchange", "other session", "tampered sealed state", "disabled before callback"} {
+		for _, scenario := range []string{"success", "wrong subject", "missing auth time", "old auth time", "session revoked during exchange", "registry changed during exchange", "other session", "other browser", "tampered sealed state", "disabled before callback"} {
 			t.Run(fmt.Sprintf("reset=%t/%s", reset, scenario), func(t *testing.T) {
 				_, st, cfg := setupTestServer(t)
 				ctx := context.Background()
@@ -119,6 +119,15 @@ func TestMessagingRecoveryAuthenticationCallback(t *testing.T) {
 				}
 				started := messagingRequest(t, srv, "POST", path, session, target.Token, input)
 				messagingCode(t, started, 201)
+				var binder *http.Cookie
+				for _, c := range started.Result().Cookies() {
+					if strings.HasPrefix(c.Name, "ky_reauth_") {
+						binder = c
+					}
+				}
+				if binder == nil || !binder.HttpOnly || binder.Path != "/api/messaging/recovery-auth/callback" {
+					t.Fatalf("no browser binder cookie: %v", started.Result().Cookies())
+				}
 				var reply struct {
 					URL   string `json:"authorization_url"`
 					Reset bool   `json:"identity_reset_available"`
@@ -165,6 +174,10 @@ func TestMessagingRecoveryAuthenticationCallback(t *testing.T) {
 				// A normal browser callback has the original HttpOnly suite cookie and no device token.
 				req = httptest.NewRequest("GET", callback, nil)
 				req.AddCookie(&http.Cookie{Name: "ky_session", Value: callbackSession})
+				// A stolen session can start the flow, but the victim's browser never holds its binder.
+				if scenario != "other browser" {
+					req.AddCookie(&http.Cookie{Name: binder.Name, Value: binder.Value})
+				}
 				response := httptest.NewRecorder()
 				srv.ServeHTTP(response, req)
 				expected := 401

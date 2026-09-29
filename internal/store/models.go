@@ -28,10 +28,12 @@ type User struct {
 
 // Session represents an active authenticated user session.
 type Session struct {
-	TokenHash string    `json:"token_hash"`
-	UserID    string    `json:"user_id"`
-	UserAgent string    `json:"user_agent"`
-	IPAddress string    `json:"ip_address"`
+	TokenHash string `json:"token_hash"`
+	UserID    string `json:"user_id"`
+	UserAgent string `json:"user_agent"`
+	IPAddress string `json:"ip_address"`
+	// CreatedAt is when the credentials behind this session were verified. Step-up reads it,
+	// so a session derived by pairing carries its parent's time, never a fresh one.
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -44,9 +46,8 @@ type MFAChallenge struct {
 
 // DevicePairing represents a 90-second ephemeral session to link mobile/PWA wrappers.
 type DevicePairing struct {
-	// Code, Secret and PushToken never serialise: this record is reached by unauthenticated
+	// Secret and PushToken never serialise: this record is reached by unauthenticated
 	// pair/verify and pair/poll callers. A handler that must return one needs its own type.
-	Code       string    `json:"-"` // 6-digit verification code
 	Secret     string    `json:"-"` // Ephemeral secret for exchange
 	UserID     string    `json:"user_id,omitempty"`
 	DeviceName string    `json:"device_name,omitempty"`
@@ -54,7 +55,9 @@ type DevicePairing struct {
 	PushToken  string    `json:"-"`
 	Status     string    `json:"status"` // "pending", "approved", "consumed", "expired"
 	CreatedAt  time.Time `json:"created_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	// AuthenticatedAt is the initiating session's credential time, inherited by the paired session.
+	AuthenticatedAt time.Time `json:"-"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 // Group represents a SCIM/RBAC user group.

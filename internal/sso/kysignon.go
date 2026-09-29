@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/oauth2"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/config"
@@ -28,7 +29,12 @@ func NewKySignOnClient(cfg config.SSOConfig, st store.Store) *KySignOnClient {
 }
 
 // BuildAuthURL generates the authorization code URL with PKCE for KySignOn.
-func (k *KySignOnClient) BuildAuthURL(ctx context.Context, redirectURI, state, verifier, nonce string) (string, error) {
+// fresh asks the IdP for a new credential interaction instead of reusing its own session.
+func (k *KySignOnClient) BuildAuthURL(ctx context.Context, redirectURI, state, verifier, nonce string, fresh bool) (string, error) {
+	if fresh {
+		return k.flow.authCodeURL(ctx, redirectURI, state, verifier, nonce,
+			oauth2.SetAuthURLParam("prompt", "login"), oauth2.SetAuthURLParam("max_age", "0"))
+	}
 	return k.flow.authCodeURL(ctx, redirectURI, state, verifier, nonce)
 }
 
@@ -95,7 +101,7 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 			existing.DisplayName = payload.DisplayName
 			existing.Role = role
 			existing.Status = status
-			if err := k.store.Users().UpdateUser(ctx, existing); err != nil {
+			if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
 				return err
 			}
 			if privilegesChanged {
@@ -122,7 +128,7 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 			return nil // User might not exist locally
 		}
 		existing.Status = "inactive"
-		if err := k.store.Users().UpdateUser(ctx, existing); err != nil {
+		if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
 			return err
 		}
 		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)

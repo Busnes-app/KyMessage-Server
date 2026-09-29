@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
@@ -70,33 +71,70 @@ func GeneratePoWChallenge(difficulty int, signingSecret string) (*PoWChallenge, 
 	}, nil
 }
 
+// PoWSpender accepts each solved challenge once. Without it one solution buys unlimited
+// logins until the challenge expires.
+type PoWSpender struct {
+	mu    sync.Mutex
+	spent map[string]int64 // challenge signature -> expiry
+}
+
+// Spend verifies a solution and consumes its challenge.
+func (p *PoWSpender) Spend(solutionBase64, signingSecret string) bool {
+	sol, ok := verifyPoWSolution(solutionBase64, signingSecret)
+	if !ok {
+		return false
+	}
+	now := time.Now().Unix()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.spent == nil {
+		p.spent = make(map[string]int64)
+	}
+	if _, used := p.spent[sol.Signature]; used {
+		return false
+	}
+	// Entries are only useful until their challenge expires; each costs a solved puzzle.
+	for sig, exp := range p.spent {
+		if exp < now {
+			delete(p.spent, sig)
+		}
+	}
+	p.spent[sol.Signature] = sol.ExpiresAt
+	return true
+}
+
 // VerifyPoWSolution decodes and validates the client's base64-encoded JSON solution.
 func VerifyPoWSolution(solutionBase64, signingSecret string) bool {
+	_, ok := verifyPoWSolution(solutionBase64, signingSecret)
+	return ok
+}
+
+func verifyPoWSolution(solutionBase64, signingSecret string) (PoWSolution, bool) {
 	data, err := base64.StdEncoding.DecodeString(solutionBase64)
 	if err != nil {
 		data, err = base64.RawStdEncoding.DecodeString(solutionBase64)
 		if err != nil {
-			return false
+			return PoWSolution{}, false
 		}
 	}
 
 	var sol PoWSolution
 	if err := json.Unmarshal(data, &sol); err != nil {
-		return false
+		return PoWSolution{}, false
 	}
 
 	if sol.Algorithm != "SHA-256" || sol.Salt == "" || sol.Challenge == "" || sol.Signature == "" ||
 		sol.Number < 1 || sol.MaxNumber < 1 || sol.Number > sol.MaxNumber || sol.ExpiresAt < time.Now().Unix() {
-		return false
+		return PoWSolution{}, false
 	}
 	signaturePayload := sol.Salt + ":" + sol.Challenge + ":" + strconv.Itoa(sol.MaxNumber) + ":" + strconv.FormatInt(sol.ExpiresAt, 10)
 	if !crypto.VerifyHMACSHA256([]byte(signaturePayload), signingSecret, sol.Signature) {
-		return false
+		return PoWSolution{}, false
 	}
 
 	targetStr := fmt.Sprintf("%s%d", sol.Salt, sol.Number)
 	h := sha256.Sum256([]byte(targetStr))
 	actualChallenge := hex.EncodeToString(h[:])
 
-	return actualChallenge == sol.Challenge
+	return sol, actualChallenge == sol.Challenge
 }

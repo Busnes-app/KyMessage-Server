@@ -299,7 +299,7 @@ func runInitAdmin(args []string) {
 		log.Fatalf("Password hashing error: %v", err)
 	}
 
-	existing, err := st.Users().GetUserByUsername(ctx, *username)
+	existing, err := st.Users().GetLocalUserByUsername(ctx, *username)
 	if err == nil && existing != nil {
 		if err := st.Users().ResetAdminPassword(ctx, existing.ID, hash); err != nil {
 			log.Fatalf("Failed to update admin: %v", err)

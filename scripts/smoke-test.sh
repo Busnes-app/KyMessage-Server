@@ -86,6 +86,10 @@ check "login blocked without captcha token" \
 check "malformed login body rejected" \
   "$(status -X POST -H 'Content-Type: application/json' -d 'not-json' "$BASE/api/auth/login")" "400"
 check "login rejects GET" "$(status "$BASE/api/auth/login")" "405"
+check "login refuses a cross-site form post" \
+  "$(status -X POST -H 'Content-Type: text/plain' -d '{"username":"admin","password":"x"}' "$BASE/api/auth/login")" "415"
+check "pairing verify refuses a six-digit code" \
+  "$(status -X POST -H 'Content-Type: application/json' -d '{"secret":"123456"}' "$BASE/api/devices/pair/verify")" "400"
 check "pow challenge issued" "$(status "$BASE/api/auth/pow-challenge")" "200"
 contains "unauthenticated /me reports not authenticated" "$(curl -s "$BASE/api/auth/me")" '"authenticated":false' 
 check "scim rejects missing bearer" "$(status "$BASE/scim/v2/Users")" "401"

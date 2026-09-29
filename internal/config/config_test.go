@@ -40,7 +40,7 @@ func TestConfigLoadFromEnvOverrides(t *testing.T) {
 	t.Setenv("KY_DB_DRIVER", "postgres")
 	t.Setenv("KY_DB_DSN", "postgres://user:pass@localhost:5432/testdb")
 	t.Setenv("KY_APP_NAME", "CustomBusnesApp")
-	t.Setenv("KY_CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("KY_CAPTCHA_PROVIDER", "none")
 
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
@@ -59,8 +59,20 @@ func TestConfigLoadFromEnvOverrides(t *testing.T) {
 	if cfg.Server.AppName != "CustomBusnesApp" {
 		t.Errorf("expected custom app name, got %s", cfg.Server.AppName)
 	}
-	if cfg.Captcha.Provider != "turnstile" {
-		t.Errorf("expected captcha provider turnstile, got %s", cfg.Captcha.Provider)
+	if cfg.Captcha.Provider != "none" {
+		t.Errorf("expected captcha provider none, got %s", cfg.Captcha.Provider)
+	}
+}
+
+// Login verifies only proof-of-work, so any other provider name would silently turn the
+// check off. Startup must refuse it instead.
+func TestUnverifiedCaptchaProviderFailsStartup(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	for _, provider := range []string{"turnstile", "friendly", "POW"} {
+		t.Setenv("KY_CAPTCHA_PROVIDER", provider)
+		if _, err := config.LoadFromEnv(); err == nil {
+			t.Errorf("provider %q loaded; want a startup error", provider)
+		}
 	}
 }
 
@@ -148,6 +160,41 @@ func TestMessagingIdentityResetOptIn(t *testing.T) {
 		}
 		if cfg.Messaging.IdentityResetEnabled != (value == "true") {
 			t.Fatalf("reset opt-in %q", value)
+		}
+	}
+}
+
+// Operators often set an https app URL behind a TLS proxy and never touch KY_ENV. Cookies must
+// still be Secure there, and production must not silently run insecure over plain HTTP.
+func TestCookieSecureFollowsTheAppURL(t *testing.T) {
+	for _, tc := range []struct {
+		env, url, secure string
+		want, fails      bool
+	}{
+		{"", "https://chat.example.com", "", true, false},
+		{"", "http://localhost:8080", "", false, false},
+		{"production", "https://chat.example.com", "", true, false},
+		{"production", "http://chat.lan", "", false, true},
+		{"production", "http://chat.lan", "false", false, false},
+		{"", "https://chat.example.com", "false", false, false},
+	} {
+		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_SESSION_SECRET", "a-durable-secret-for-this-test")
+		t.Setenv("KY_ENV", tc.env)
+		t.Setenv("KY_APP_URL", tc.url)
+		t.Setenv("KY_COOKIE_SECURE", tc.secure)
+		cfg, err := config.LoadFromEnv()
+		if tc.fails {
+			if err == nil {
+				t.Errorf("%+v: loaded, want a startup error", tc)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%+v: %v", tc, err)
+		}
+		if cfg.Security.CookieSecure != tc.want {
+			t.Errorf("%+v: CookieSecure=%v, want %v", tc, cfg.Security.CookieSecure, tc.want)
 		}
 	}
 }

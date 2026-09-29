@@ -84,7 +84,8 @@ instance; the current operator-console preview is not an encrypted-chat release:
 |---|---|
 | `KY_APP_NAME` | Defaults to `KyMessages`; also the capsule service name, pinned at pairing |
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks and WebSockets |
-| `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and defaults to Secure cookies |
+| `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
+| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS |
 | `KY_KYSIGNON_ISSUER`, `KY_KYSIGNON_CLIENT_ID`, `KY_KYSIGNON_SECRET` | Suite KyIdentity integration; inherited environment names remain supported |
 | `KY_KYSIGNON_HMAC_SECRET` | Shared secret for authenticated suite directory webhooks |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |

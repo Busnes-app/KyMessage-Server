@@ -8,7 +8,8 @@ Owns ephemeral PIN code generation, QR payload creation, device verification, an
 
 ## Local Contracts
 - Verification rejects inactive or password-restricted accounts and returns the pre-consumption user snapshot; session issuance checks that snapshot against concurrent password replacement.
-- Pairing codes are 6-digit random PINs with strict 90-second TTL (`InitPairing`).
+- Pairings are carried only by a 24-byte QR secret with a strict 90-second TTL (`InitPairing`). Never add a short typed code: the anonymous verify route issues a full session, so anything guessable inside the window is an account takeover. Unknown, expired and consumed secrets return the same `ErrPairingNotFound`.
+- A pairing records the initiating session's credential time (`authenticated_at`); the paired session inherits it and is never fresher than its parent.
 - Pairing requires an authenticated initiating account; successful verification atomically consumes the pending pairing and cannot be replayed.
 
 ## Verification

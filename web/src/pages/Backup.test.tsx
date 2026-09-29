@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Backup } from './Backup';
 
 function mockStatus(body: Record<string, unknown>) {
@@ -89,5 +89,25 @@ describe('Backup', () => {
     render(<Backup />);
     await screen.findByText('https://recovery.example');
     expect(screen.queryByText(/Backups do not include the PostgreSQL database/)).toBeNull();
+  });
+
+  it('offers a fresh suite sign-in when a backup change needs step-up', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/backup/status')) return new Response(JSON.stringify(PAIRED), { status: 200 });
+        return new Response(JSON.stringify({
+          error: 'Sign in to KySignOn again to confirm this change', code: 'reauthentication_required',
+          reauth_url: '/api/sso/kysignon/login?fresh=1',
+        }), { status: 403 });
+      }),
+    );
+    render(<Backup />);
+    await screen.findByText('https://recovery.example');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const link = await screen.findByRole('link', { name: 'Sign in to KySignOn again' });
+    expect(link.getAttribute('href')).toBe('/api/sso/kysignon/login?fresh=1');
   });
 });

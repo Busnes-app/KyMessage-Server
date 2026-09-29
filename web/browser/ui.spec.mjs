@@ -73,13 +73,10 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   const dialog = page.getByRole('dialog', { name: 'Link Mobile Device' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Close modal' })).toBeFocused();
-  await page.keyboard.press('Tab');
-  await expect(dialog.getByRole('button', { name: 'Copy PIN' })).toBeFocused();
   // Native modal containment makes the rest of the document inert.
   await pair.evaluate(button => button.focus());
-  await expect(dialog.getByRole('button', { name: 'Copy PIN' })).toBeFocused();
-  await page.keyboard.press('Shift+Tab');
   await expect(dialog.getByRole('button', { name: 'Close modal' })).toBeFocused();
+  await expect(dialog.getByText('Pairing PIN')).toHaveCount(0);
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('dialog.png'), fullPage: true });
   await page.keyboard.press('Escape');

@@ -16,7 +16,7 @@ func (s *Server) handleKySignOnLogin(w http.ResponseWriter, r *http.Request) {
 	verifier := oauth2.GenerateVerifier()
 
 	redirectURI := fmt.Sprintf("%s/api/sso/kysignon/callback", s.config.Server.AppURL)
-	authURL, err := s.kysignon.BuildAuthURL(r.Context(), redirectURI, state, verifier, nonce)
+	authURL, err := s.kysignon.BuildAuthURL(r.Context(), redirectURI, state, verifier, nonce, r.URL.Query().Get("fresh") == "1")
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -92,7 +92,8 @@ func (s *Server) handleKySignOnCallback(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	_, _, err = s.sessions.IssueSession(r.Context(), w, r, user)
+	// The session is as fresh as the IdP's signed auth_time; a missing one never passes step-up.
+	_, _, err = s.sessions.IssueDerivedSession(r.Context(), w, r, user, claims.AuthenticatedAt)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Session creation failed")
 		return

@@ -98,8 +98,10 @@ func TestForcedPasswordReplacement(t *testing.T) {
 		status int
 	}{{oldPassword, 401}, {newPassword, 200}} {
 		b, _ := json.Marshal(map[string]string{"username": "admin", "password": tc.pass})
+		req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(string(b)))
+		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(string(b))))
+		srv.ServeHTTP(w, req)
 		if w.Code != tc.status {
 			t.Fatal("login after replacement", w.Code, w.Body)
 		}

@@ -21,9 +21,13 @@ func messagingMaintenanceLoop(ctx context.Context, st store.Store, done chan<- s
 		case <-ticker.C:
 			run, cancel := context.WithTimeout(ctx, 30*time.Second)
 			err := st.Messaging().ExpireMessages(run)
+			pairErr := st.Devices().CleanExpiredPairings(run)
 			cancel()
 			if err != nil && ctx.Err() == nil {
 				log.Printf("[MESSAGING] ciphertext expiry sweep failed: %v", err)
+			}
+			if pairErr != nil && ctx.Err() == nil {
+				log.Printf("[DEVICES] expired pairing sweep failed: %v", pairErr)
 			}
 		}
 	}
