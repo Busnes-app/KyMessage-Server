@@ -15,7 +15,10 @@ Owns the application adapters around OAuth/OIDC login, KySignOn HMAC-SHA256 sign
   and `ExchangeReauthenticationCode`: same subject/state/nonce, signed integer
   `auth_time` at or after request start, not after token issuance or local now, and
   a request younger than five minutes. No `iat` fallback or clock-skew allowance;
-  comparisons use Unix seconds. Ordinary login does not require `auth_time`.
+  comparisons use Unix seconds. Ordinary login does not require `auth_time`, but a plausible
+  signed one (positive, not after `iat` or now) becomes `IdentityClaims.AuthenticatedAt`, the
+  session's credential time for step-up; the callback time never stands in for it.
+  `BuildAuthURL(..., fresh)` adds `prompt=login` and `max_age=0`.
 - `ReauthenticationRequest` is server-owned state. The messaging recovery-auth API
   seals it, binds it to the originating live session, browser binder cookie and pending device/registry,
   and binds the current identity generation. After verification, the store atomically

@@ -27,6 +27,7 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `Backup.tsx` validates the latest-run DTO at the HTTP boundary and displays the
   recorded outcome independently of the older remote receipt. Local-only results,
   scheduled failures, partial success and unknown history must remain distinguishable.
+- `Backup.tsx` shows the server's same-origin `reauth_url` as a sign-in link when a backup change is refused for step-up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
 
 ## Verification

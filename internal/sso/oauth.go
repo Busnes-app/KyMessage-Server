@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -91,6 +92,7 @@ func claimsFromIDToken(idToken *oidc.IDToken) (*IdentityClaims, error) {
 		Name              string `json:"name"`
 		PreferredUsername string `json:"preferred_username"`
 		Role              string `json:"role"`
+		AuthTime          int64  `json:"auth_time"`
 	}
 	if err := idToken.Claims(&raw); err != nil || raw.Sub == "" {
 		return nil, ErrInvalidIDToken
@@ -102,5 +104,9 @@ func claimsFromIDToken(idToken *oidc.IDToken) (*IdentityClaims, error) {
 	if username == "" {
 		username = raw.Sub
 	}
-	return &IdentityClaims{Subject: raw.Sub, Email: raw.Email, Name: raw.Name, PreferredUsername: username, Role: raw.Role}, nil
+	claims := &IdentityClaims{Subject: raw.Sub, Email: raw.Email, Name: raw.Name, PreferredUsername: username, Role: raw.Role}
+	if raw.AuthTime > 0 && raw.AuthTime <= idToken.IssuedAt.Unix() && raw.AuthTime <= time.Now().Unix() {
+		claims.AuthenticatedAt = time.Unix(raw.AuthTime, 0).UTC()
+	}
+	return claims, nil
 }

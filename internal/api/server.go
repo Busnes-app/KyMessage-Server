@@ -308,7 +308,13 @@ func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 			return
 		}
 		if fresh && time.Since(sess.CreatedAt) > stepUpWindow {
-			s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in again to confirm this change: backup changes need a sign-in from the last 10 minutes", "code": "reauthentication_required"})
+			body := map[string]string{"error": "Sign out and sign in again to confirm this change: backup changes need a sign-in from the last 10 minutes", "code": "reauthentication_required"}
+			if user.SSOProvider == "kysignon" {
+				// A plain SSO login may silently reuse the IdP session; this one forces credentials.
+				body["error"] = "Sign in to KySignOn again to confirm this change: backup changes need a sign-in from the last 10 minutes"
+				body["reauth_url"] = "/api/sso/kysignon/login?fresh=1"
+			}
+			s.writeJSON(w, http.StatusForbidden, body)
 			return
 		}
 		h(w, r)

@@ -32,7 +32,7 @@ func TestOAuthAuthorizationURLUsesDiscoveryAndPKCE(t *testing.T) {
 	issuer = idp.URL
 
 	client := sso.NewKySignOnClient(config.SSOConfig{KySignOnIssuer: issuer, KySignOnClientID: "client"}, nil)
-	authURL, err := client.BuildAuthURL(context.Background(), "https://app.example/callback", "state", "verifier", "nonce")
+	authURL, err := client.BuildAuthURL(context.Background(), "https://app.example/callback", "state", "verifier", "nonce", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,13 @@ func TestOAuthAuthorizationURLUsesDiscoveryAndPKCE(t *testing.T) {
 	}
 	if query.Has("max_age") || query.Has("prompt") {
 		t.Fatal("ordinary login unexpectedly forces reauthentication")
+	}
+	fresh, err := client.BuildAuthURL(context.Background(), "https://app.example/callback", "state", "verifier", "nonce", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed, _ := url.Parse(fresh); parsed.Query().Get("prompt") != "login" || parsed.Query().Get("max_age") != "0" {
+		t.Fatalf("fresh login does not force a credential interaction: %s", fresh)
 	}
 }
 

@@ -123,6 +123,13 @@ function bytes(n: number): string {
   return `${n} B`;
 }
 
+/** A step-up refusal; `url` forces a fresh suite sign-in when the account uses KySignOn. */
+class ReauthRequired extends Error {
+  constructor(message: string, readonly url: string) {
+    super(message);
+  }
+}
+
 /** Reads the server's JSON error, or a status-only message when the body is not JSON. */
 async function apiError(res: Response, fallback: string): Promise<Error> {
   const body: unknown = await res.json().catch(() => ({}));
@@ -130,6 +137,10 @@ async function apiError(res: Response, fallback: string): Promise<Error> {
     typeof body === 'object' && body !== null && 'error' in body
       ? String((body as { error: unknown }).error)
       : `${fallback} (HTTP ${res.status})`;
+  if (typeof body === 'object' && body !== null && 'reauth_url' in body) {
+    const url = String((body as { reauth_url: unknown }).reauth_url);
+    if (url.startsWith('/api/sso/')) return new ReauthRequired(message, url);
+  }
   return new Error(message);
 }
 
@@ -160,6 +171,12 @@ export const Backup: React.FC = () => {
   const [running, setRunning] = useState<boolean>(false);
   const [runMessage, setRunMessage] = useState<string>('');
   const [runError, setRunError] = useState<string>('');
+  const [reauthUrl, setReauthUrl] = useState<string>('');
+  /** errorText for backup changes, which may need a fresh sign-in first. */
+  const changeError = (err: unknown, fallback: string): string => {
+    if (err instanceof ReauthRequired) setReauthUrl(err.url);
+    return errorText(err, fallback);
+  };
 
   const [runningDrill, setRunningDrill] = useState<boolean>(false);
   const [drillResult, setDrillResult] = useState<DrillResult | null>(null);
@@ -215,7 +232,7 @@ export const Backup: React.FC = () => {
       if (res.local_error) setRunError(`The local copy failed: ${res.local_error}`);
       if (res.receipt_unrecorded) setRunError('KyRecovery holds the capsule but the receipt could not be recorded here; check the audit log.');
     } catch (err) {
-      setRunError(errorText(err, 'Backup failed'));
+      setRunError(changeError(err, 'Backup failed'));
     } finally {
       setRunning(false);
       await fetchStatus();
@@ -237,7 +254,7 @@ export const Backup: React.FC = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setRunError(errorText(err, 'Could not download the capsule'));
+      setRunError(changeError(err, 'Could not download the capsule'));
     }
   };
 
@@ -268,7 +285,7 @@ export const Backup: React.FC = () => {
       setScheduleMessage(saved.interval_sec === 0 ? 'Automatic backups are off.' : `Backing up ${every(saved.interval_sec).toLowerCase()}.`);
       await fetchStatus();
     } catch (err) {
-      setScheduleError(errorText(err, 'Could not save the schedule'));
+      setScheduleError(changeError(err, 'Could not save the schedule'));
     } finally {
       setScheduleSaving(false);
     }
@@ -293,7 +310,7 @@ export const Backup: React.FC = () => {
       setPairCode('');
       await fetchStatus();
     } catch (err) {
-      setPairError(errorText(err, 'Pairing failed'));
+      setPairError(changeError(err, 'Pairing failed'));
     } finally {
       setPairing(false);
     }
@@ -314,7 +331,7 @@ export const Backup: React.FC = () => {
       setPairMessage('Unpaired. Off-site backups have stopped; ask the KyRecovery admin to revoke this service there.');
       await fetchStatus();
     } catch (err) {
-      setPairError(errorText(err, 'Could not unpair'));
+      setPairError(changeError(err, 'Could not unpair'));
     } finally {
       setUnpairing(false);
     }
@@ -337,7 +354,7 @@ export const Backup: React.FC = () => {
       setPinKey('');
       await fetchStatus();
     } catch (err) {
-      setPinError(errorText(err, 'Could not pin the key'));
+      setPinError(changeError(err, 'Could not pin the key'));
     } finally {
       setPinning(false);
     }
@@ -361,6 +378,11 @@ export const Backup: React.FC = () => {
         </button>
       </div>
 
+      {reauthUrl && (
+        <Alert kind="warn">
+          Backup changes need a recent sign-in. <a href={reauthUrl}>Sign in to KySignOn again</a>, then return here.
+        </Alert>
+      )}
       {statusError && <Alert kind="error">{statusError}</Alert>}
       {status?.last_run_error && <Alert kind="error">{status.last_run_error}</Alert>}
       {status?.recovery_key_error && <Alert kind="error">{status.recovery_key_error}</Alert>}
