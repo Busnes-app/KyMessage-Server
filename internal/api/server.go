@@ -268,6 +268,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/backup/pairing", s.tracked(s.requireFreshAdmin(s.handleUnpair)))
 	s.mux.HandleFunc("POST /api/backup/pin-key", s.tracked(s.requireFreshAdmin(s.handlePinKey)))
 	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireFreshAdmin(s.handleSetSchedule))
+	s.mux.HandleFunc("POST /api/backup/messages/drill", s.requireAdmin(s.handleMessagesDrill))
+	s.mux.HandleFunc("POST /api/backup/messages/deposit", s.tracked(s.requireFreshAdmin(s.handleRunMessagesBackup)))
+	s.mux.HandleFunc("PUT /api/backup/messages/schedule", s.requireFreshAdmin(s.handleSetMessagesSchedule))
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
 	s.mux.HandleFunc("GET /api/admin/messaging/usage", s.requireAdmin(s.handleMessagingUsage))
 

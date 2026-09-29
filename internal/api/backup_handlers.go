@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +35,34 @@ const privateRecoveryHint = " (set KY_BACKUP_ALLOW_PRIVATE_RECOVERY=true for a K
 // depositWriteBudget is how long the admin's connection may stay open for the receipt: the
 // upload budget plus room for sealing. The listener's WriteTimeout is sized for JSON replies.
 const depositWriteBudget = 16 * time.Minute
+
+// backupKind is one sealable capsule: its own schedule, receipt, local copies and audit action
+// over the pairing and key pin the kinds share.
+type backupKind struct {
+	name         string // schedule audit resource; empty for people
+	runAction    string // audit action override; empty keeps the library's
+	settings     func(context.Context, store.SettingsStore) recoveryclient.Settings
+	runConfig    func(*config.Config, string) (recoveryclient.RunConfig, error)
+	collect      func(context.Context, *config.Config, string) (recoveryclient.Payload, error)
+	checks       func(string, capsule.Manifest) []recoveryclient.Check
+	auditAction  string // action whose latest row is last_run
+	localDir     func(dir string) string
+	defaultEvery func(*config.Config) time.Duration
+}
+
+var peopleBackup = backupKind{
+	settings: backup.Settings, runConfig: backup.RunConfig, collect: backup.Collect, checks: backup.Checks,
+	auditAction: "admin.backup_run", localDir: func(d string) string { return d },
+	defaultEvery: func(c *config.Config) time.Duration { return c.Backup.DepositInterval },
+}
+
+// The messages capsule is opt-in: no env default, so it stays off until an admin sets an interval.
+var messagesBackup = backupKind{
+	name: "messages", runAction: backup.MessagesRunAction,
+	settings: backup.MessagesSettings, runConfig: backup.MessagesRunConfig, collect: backup.CollectMessages, checks: backup.MessagesChecks,
+	auditAction: backup.MessagesRunAction, localDir: func(d string) string { return filepath.Join(d, "messages") },
+	defaultEvery: func(*config.Config) time.Duration { return 0 },
+}
 
 // AuditDetails flattens the lib's details map into the bounded audit column. Locally
 // derived fields go first so a long remote error cannot displace the useful facts.
@@ -101,12 +130,20 @@ func (s *Server) actorID(r *http.Request) string {
 // handleBackupDrill seals the live payload to a throwaway key, opens it in a sandbox and
 // runs the verification recipe. It reports, not proves, whether the suite key is pinned.
 func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
+	s.backupDrill(w, r, peopleBackup)
+}
+
+func (s *Server) handleMessagesDrill(w http.ResponseWriter, r *http.Request) {
+	s.backupDrill(w, r, messagesBackup)
+}
+
+func (s *Server) backupDrill(w http.ResponseWriter, r *http.Request, k backupKind) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 	ctx := r.Context()
-	payload, err := backup.Collect(ctx, s.config, appVersion)
+	payload, err := k.collect(ctx, s.config, appVersion)
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
 		s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
 		return
@@ -121,7 +158,7 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Failed to collect backup files")
 		return
 	}
-	result, err := backup.RunDrill(ctx, s.config, payload, backup.Checks)
+	result, err := backup.RunDrill(ctx, s.config, payload, k.checks)
 	if errors.Is(err, backup.ErrDrillBusy) {
 		s.writeError(w, http.StatusConflict, "A restore drill is already running")
 		return
@@ -283,6 +320,14 @@ func (s *Server) handlePairRemoteRecovery(w http.ResponseWriter, r *http.Request
 // The route wraps it in `tracked`, so it is counted as detached from the moment ServeHTTP
 // dispatches, before requireAdmin authenticates.
 func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
+	s.runBackup(w, r, peopleBackup)
+}
+
+func (s *Server) handleRunMessagesBackup(w http.ResponseWriter, r *http.Request) {
+	s.runBackup(w, r, messagesBackup)
+}
+
+func (s *Server) runBackup(w http.ResponseWriter, r *http.Request, k backupKind) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
@@ -294,17 +339,20 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 	actor := s.actorID(r)
 	ctx := context.WithoutCancel(r.Context())
 
-	rc, err := backup.RunConfig(s.config, appVersion)
+	rc, err := k.runConfig(s.config, appVersion)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to prepare backup configuration")
 		return
 	}
-	settings := backup.Settings(ctx, s.store.Settings())
+	settings := k.settings(ctx, s.store.Settings())
 	res, err := recoveryclient.Run(ctx, rc, settings, func() (recoveryclient.Payload, error) {
-		return backup.Collect(ctx, s.config, appVersion)
+		return k.collect(ctx, s.config, appVersion)
 	}, s.recovery)
 
 	action, outcome, details := recoveryclient.Outcome(res, err)
+	if k.runAction != "" {
+		action = k.runAction
+	}
 	details["outcome"] = outcome
 	s.auditBackup(ctx, actor, r, action, res.Manifest.CapsuleID, AuditDetails(details))
 
@@ -444,6 +492,14 @@ type ScheduleRequest struct {
 // handleSetSchedule stores how often the scheduler backs up. Zero turns it off, so the
 // admin-only, CSRF-protected and audited boundary matters.
 func (s *Server) handleSetSchedule(w http.ResponseWriter, r *http.Request) {
+	s.setSchedule(w, r, peopleBackup)
+}
+
+func (s *Server) handleSetMessagesSchedule(w http.ResponseWriter, r *http.Request) {
+	s.setSchedule(w, r, messagesBackup)
+}
+
+func (s *Server) setSchedule(w http.ResponseWriter, r *http.Request, k backupKind) {
 	if r.Method != http.MethodPut {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
@@ -455,7 +511,7 @@ func (s *Server) handleSetSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	actor := s.actorID(r)
-	settings := backup.Settings(ctx, s.store.Settings())
+	settings := k.settings(ctx, s.store.Settings())
 	if err := recoveryclient.SetInterval(settings, req.IntervalSec); err != nil {
 		if errors.Is(err, recoveryclient.ErrBadInterval) {
 			s.writeError(w, http.StatusBadRequest, err.Error())
@@ -466,13 +522,13 @@ func (s *Server) handleSetSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	// Read back what the store holds, so the audit row and the reply never describe a
 	// schedule the scheduler will not run.
-	stored, err := recoveryclient.Interval(s.config.Backup.DepositInterval, settings)
+	stored, err := recoveryclient.Interval(k.defaultEvery(s.config), settings)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to read the schedule back")
 		return
 	}
 	sec := int64(stored / time.Second)
-	s.auditBackup(ctx, actor, r, "admin.backup_schedule", "", fmt.Sprintf("interval_sec=%d", sec))
+	s.auditBackup(ctx, actor, r, "admin.backup_schedule", k.name, fmt.Sprintf("interval_sec=%d", sec))
 	s.writeJSON(w, http.StatusOK, map[string]any{"interval_sec": sec})
 }
 
@@ -519,10 +575,24 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 			out["recovery_key_error"] = "recovery.pub is on disk but its pin was not recorded; pin or pair again with the same key to finish it"
 		}
 	}
+	s.kindStatus(ctx, peopleBackup, out)
+	if s.config.Backup.Dir != "" {
+		out["local_dir"] = s.config.Backup.Dir
+		out["local_keep"] = s.config.Backup.Keep
+	}
+	msgs := map[string]any{}
+	s.kindStatus(ctx, messagesBackup, msgs)
+	out["messages"] = msgs
+	s.writeJSON(w, http.StatusOK, out)
+}
+
+// kindStatus fills one kind's schedule, last run, receipt and local copies into out.
+func (s *Server) kindStatus(ctx context.Context, k backupKind, out map[string]any) {
+	settings := k.settings(ctx, s.store.Settings())
 	if last, ok, err := recoveryclient.LastDeposit(settings); err == nil && ok {
 		out["last_deposit"] = last
 	}
-	if last, err := s.store.Audit().LatestAuditRecord(ctx, "admin.backup_run"); err == nil {
+	if last, err := s.store.Audit().LatestAuditRecord(ctx, k.auditAction); err == nil {
 		outcome := "unknown"
 		if strings.HasPrefix(last.Details, `outcome="success" `) {
 			outcome = "success"
@@ -546,20 +616,17 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 		out["last_run_error"] = "Could not read the latest backup result"
 	}
 	if s.config.Backup.Dir != "" {
-		out["local_dir"] = s.config.Backup.Dir
-		out["local_keep"] = s.config.Backup.Keep
-		if copies, err := recoveryclient.ListLocalCopies(s.config.Backup.Dir, s.config.Server.AppName); err == nil {
+		if copies, err := recoveryclient.ListLocalCopies(k.localDir(s.config.Backup.Dir), s.config.Server.AppName); err == nil {
 			out["local_copies"] = copies
 		} else {
 			out["local_error"] = recoveryclient.AuditSafe(err.Error())
 		}
 	}
-	if interval, err := recoveryclient.Interval(s.config.Backup.DepositInterval, settings); err == nil {
+	if interval, err := recoveryclient.Interval(k.defaultEvery(s.config), settings); err == nil {
 		out["interval_sec"] = int64(interval / time.Second)
 		out["min_interval_sec"] = int64(recoveryclient.MinInterval / time.Second)
-		if next, ok, err := recoveryclient.NextRun(s.config.Backup.DepositInterval, settings); err == nil && ok {
+		if next, ok, err := recoveryclient.NextRun(k.defaultEvery(s.config), settings); err == nil && ok {
 			out["next_run_at"] = next.Format(time.RFC3339)
 		}
 	}
-	s.writeJSON(w, http.StatusOK, out)
 }

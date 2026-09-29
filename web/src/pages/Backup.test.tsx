@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { Backup } from './Backup';
 
 function mockStatus(body: Record<string, unknown>) {
@@ -105,9 +105,26 @@ describe('Backup', () => {
     );
     render(<Backup />);
     await screen.findByText('https://recovery.example');
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Back up automatically'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const link = await screen.findByRole('link', { name: 'Sign in to KySignOn again' });
     expect(link.getAttribute('href')).toBe('/api/sso/kysignon/login?fresh=1');
+  });
+
+  it('shows the message backups section off by default', async () => {
+    mockStatus({ ...PAIRED, messages: { interval_sec: 0 } });
+    render(<Backup />);
+    const section = await screen.findByRole('region', { name: 'Message backups' });
+    expect(section.querySelector('.badge')?.textContent).toBe('Off');
+    expect((within(section).getByLabelText('Back up messages automatically') as HTMLSelectElement).value).toBe('0');
+    expect(within(section).getByText(/Opt-in\. Holds threads/)).toBeTruthy();
+    expect(within(section).getByRole('button', { name: 'Back up messages now' })).toBeTruthy();
+    expect(within(section).getByRole('button', { name: 'Run message drill' })).toBeTruthy();
+  });
+
+  it('rejects a malformed messages status', async () => {
+    mockStatus({ ...PAIRED, messages: { interval_sec: 'soon' } });
+    render(<Backup />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Invalid message backup status');
   });
 });

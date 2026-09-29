@@ -74,11 +74,11 @@ with tempfile.TemporaryDirectory(prefix='kymessages-backup-acceptance-') as scra
         observed = status()
         return observed if observed.get('last_run') != previous else None
 
-    def make_due():
+    def make_due(key='backup_last_attempt'):
         # Inject time only into this owned scratch database, never adjust host time.
         old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=16)).isoformat(timespec='seconds')
         with sqlite3.connect(data / 'ky_server.db', timeout=5) as db:
-            db.execute('UPDATE server_settings SET value=? WHERE key=?', (old, 'backup_last_attempt'))
+            db.execute('UPDATE server_settings SET value=? WHERE key=?', (old, key))
 
     with (work / 'server.log').open('w') as log:
         process = subprocess.Popen([str(BINARY)], env=env, cwd=work, stdout=log, stderr=log)
@@ -104,6 +104,17 @@ with tempfile.TemporaryDirectory(prefix='kymessages-backup-acceptance-') as scra
             next_run = dt.datetime.fromisoformat(scheduled['next_run_at'])
             check((next_run - dt.datetime.now(dt.timezone.utc)).total_seconds() > 850, 'Next run not based on attempt')
             print('PASS: timer observes admin schedule override and writes a sealed local copy', flush=True)
+
+            # The messages kind is off until enabled and keeps its own schedule and directory.
+            check(scheduled['messages']['interval_sec'] == 0 and 'next_run_at' not in scheduled['messages'], 'Messages schedule not off by default')
+            request('/api/backup/messages/schedule', 'PUT', {'interval_sec': 900})
+            make_due('messages_backup_last_attempt')
+            msgs = wait_for(lambda: status() if status()['messages'].get('last_run') else None)['messages']
+            check(msgs['last_run']['outcome'] == 'success' and msgs['last_run']['trigger'] == 'scheduled', 'Scheduled messages backup failed')
+            check(len(msgs['local_copies']) == 1 and len(list((backups / 'messages').glob('*.kycap'))) == 1, 'Messages copy count wrong')
+            after = status()
+            check(len(after['local_copies']) == 1 and after['last_run'] == first, 'Messages run touched the people copies or result')
+            print('PASS: messages schedule runs on its own timer into <dir>/messages and leaves people untouched', flush=True)
 
             # The configured path becomes a file: a deterministic local-destination failure.
             saved = work / 'saved-backups'
