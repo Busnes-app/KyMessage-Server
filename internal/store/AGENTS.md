@@ -52,6 +52,10 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   audit `(action, resource, created_at)` for that delete) and raises `retained_from`;
   receipt rows are gone after purge, so a stale-epoch retry is refused. Keep the cursor
   monotonic and return `ErrMessagingHistoryGone` when a device missed the retained prefix.
+  `SetRoomRetention` accepts only those five values (else `ErrMessagingConflict`); the
+  current-generation owner, or the peer of a direct room once active, may change it (a
+  non-member gets `ErrNotFound`, another member `ErrMessagingDenied`). It purges at once
+  in the same transaction and audits `messaging.retention_changed` (`retention_days=N`).
   Ordinary remove/reinvite supplies a new generation and Welcome floor; never skip MLS state.
   Cap active data at 100,000 events/512 MiB (active count is `sequence - retained_from + 1`)
   and lifetime receipts (the room `sequence`) at 1,000,000 per room. `ExpireMessages`

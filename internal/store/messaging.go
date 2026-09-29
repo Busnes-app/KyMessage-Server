@@ -61,6 +61,7 @@ type MessagingStore interface {
 	ApproveDevice(context.Context, MessagingActor, string) error
 	RevokeDevice(context.Context, MessagingActor, string) error
 	CreateRoom(context.Context, MessagingActor, MessagingRoom) error
+	SetRoomRetention(ctx context.Context, actor MessagingActor, room string, days int64) error
 	ListRooms(context.Context, MessagingActor, int) ([]MessagingRoom, error)
 	ListMembers(context.Context, MessagingActor, string) ([]MessagingMember, error)
 	InviteMember(context.Context, MessagingActor, string, string) error
@@ -419,4 +420,42 @@ func (m *messagingStore) ListMembers(ctx context.Context, actor MessagingActor, 
 		return rows.Err()
 	})
 	return members, err
+}
+
+var messagingRetentionChoices = map[int64]bool{0: true, 1: true, 7: true, 30: true, 90: true}
+
+// SetRoomRetention changes how long the server keeps a room's events. The current-generation
+// owner may change it; in a direct room so may the peer. Shortening purges at once.
+func (m *messagingStore) SetRoomRetention(ctx context.Context, actor MessagingActor, room string, days int64) error {
+	if !messagingRetentionChoices[days] {
+		return ErrMessagingConflict
+	}
+	return m.transaction(ctx, actor, true, func(tx *sql.Tx, _ string) error {
+		if err := m.lockDeliveryRoom(ctx, tx, room); err != nil {
+			return err
+		}
+		var member int
+		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM messaging_members WHERE room_id = ? AND user_id = ? AND status = 'active' AND identity_generation = (SELECT generation FROM messaging_identities WHERE user_id = ?)`), room, actor.UserID, actor.UserID).Scan(&member); err != nil {
+			return err
+		}
+		if member != 1 {
+			return ErrNotFound
+		}
+		var peer string
+		if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT direct_peer_id FROM messaging_rooms WHERE id = ?`), room).Scan(&peer); err != nil {
+			return err
+		}
+		if peer != actor.UserID {
+			if err := m.ownRoom(ctx, tx, actor, room); err != nil {
+				return ErrMessagingDenied
+			}
+		}
+		if _, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE messaging_rooms SET retention_days = ? WHERE id = ?`), days, room); err != nil {
+			return err
+		}
+		if err := m.purgeRoom(ctx, tx, room, time.Now().Unix()); err != nil {
+			return err
+		}
+		return m.audit(ctx, tx, actor, "messaging.retention_changed", room, fmt.Sprintf("retention_days=%d", days))
+	})
 }

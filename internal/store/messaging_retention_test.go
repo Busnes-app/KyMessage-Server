@@ -317,3 +317,57 @@ func TestPurgeBytesMatchDeletedRowsWhenCreatedAtNonMonotonic(t *testing.T) {
 		t.Fatalf("retained_bytes %d, rows hold %d", bytes, payloads+welcomes)
 	}
 }
+
+func TestSetRoomRetentionAuthority(t *testing.T) {
+	ctx, st, db, driver := retentionDB(t)
+	a, b := purgeRoomFixture(t, st, "group", 30)
+	if err := st.Messaging().SetRoomRetention(ctx, b, "group", 7); !errors.Is(err, store.ErrMessagingDenied) {
+		t.Fatalf("member changed retention: %v", err)
+	}
+	if err := st.Messaging().SetRoomRetention(ctx, a, "group", 5); !errors.Is(err, store.ErrMessagingConflict) {
+		t.Fatalf("invalid choice accepted: %v", err)
+	}
+	if err := st.Messaging().SetRoomRetention(ctx, a, "group", 7); err != nil {
+		t.Fatal(err)
+	}
+	state, err := st.Messaging().DeliveryState(ctx, a, "group")
+	if err != nil || state.RetentionDays != 7 {
+		t.Fatalf("retention not stored: %+v %v", state, err)
+	}
+	if got := count(t, db, driver, `SELECT COUNT(*) FROM audit_records WHERE action = 'messaging.retention_changed' AND resource = ? AND details = 'retention_days=7'`, "group"); got != 1 {
+		t.Fatalf("retention change audit rows: %d", got)
+	}
+
+	// Direct room: an invited peer is not yet a member; after accepting they may change it.
+	c, _ := deliveryDevice(t, st, messagingActor(t, st, "carol"))
+	if err := st.Messaging().CreateRoom(ctx, a, store.MessagingRoom{ID: "direct", Name: "direct", PeerUserID: c.UserID, RetentionDays: 90}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Messaging().SetRoomRetention(ctx, c, "direct", 0); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("invited peer changed retention: %v", err)
+	}
+	if err := st.Messaging().AcceptInvite(ctx, c, "direct"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Messaging().SetRoomRetention(ctx, c, "direct", 0); err != nil {
+		t.Fatalf("direct peer refused: %v", err)
+	}
+}
+
+func TestShorteningRetentionPurgesImmediately(t *testing.T) {
+	ctx, st, db, driver := retentionDB(t)
+	a, b := purgeRoomFixture(t, st, "shorten", 0)
+	age(t, db, driver, "shorten", 2*86400)
+	if err := st.Messaging().SetRoomRetention(ctx, a, "shorten", 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, db, driver, `SELECT COUNT(*) FROM messaging_events WHERE room_id = ?`, "shorten"); got != 0 {
+		t.Fatalf("%d events survived shortening", got)
+	}
+	if got := count(t, db, driver, `SELECT retained_from FROM messaging_rooms WHERE id = ?`, "shorten"); got != 4 {
+		t.Fatalf("floor %d, want 4", got)
+	}
+	if _, err := st.Messaging().ReadEvents(ctx, b, "shorten", 0); !errors.Is(err, store.ErrMessagingHistoryGone) {
+		t.Fatal(err)
+	}
+}
