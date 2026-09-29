@@ -30,7 +30,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   (`data/recovery.pub`, only when paired).
 - `CollectMessages` is the opt-in messages capsule, from the same `snapshotFile` snapshot and
   the same driver refusal. Members: `data/messages/accounts.db` (identities, devices, rooms,
-  members, epoch devices; devices only `approved`/`revoked`, never `pending`/`unverified`)
+  members, epoch devices; devices only `approved`/`revoked`, never `pending`/`unverified`,
+  with `token_hash` NULL and `challenge`/`enrollment_session` empty)
   and `data/messages/events-NNN.db` parts (events plus their Welcomes). Parts are contiguous
   per-room sequence ranges cut at `messagesPartBudget` (file cap minus 4 MiB), counting every
   column's bytes plus a per-row allowance; each part is compacted and refused above

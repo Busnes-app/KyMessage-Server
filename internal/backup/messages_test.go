@@ -37,7 +37,7 @@ func seedMessagingFixture(t *testing.T) (*config.Config, store.Store) {
 		if d[2] == "approved" {
 			token = "'tok-" + d[0] + "'"
 		}
-		statements = append(statements, fmt.Sprintf(`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('%[1]s','%[2]s','%[1]s','pk-%[1]s','%[3]s','','',1,%[4]s,1,1)`, d[0], d[1], d[2], token))
+		statements = append(statements, fmt.Sprintf(`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('%[1]s','%[2]s','%[1]s','pk-%[1]s','%[3]s','ch-%[1]s','sess-%[1]s',1,%[4]s,1,1)`, d[0], d[1], d[2], token))
 	}
 	statements = append(statements, `INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes) VALUES ('room','r','alice',1,1,3,12)`)
 	for _, m := range [][2]string{{"alice", "alice-phone"}, {"bob", "bob-laptop"}, {"carol", "carol-tablet"}} {
@@ -176,6 +176,11 @@ func TestCollectMessagesSplitsAndMarksKind(t *testing.T) {
 	rows.Close()
 	if want := []string{"alice-old", "alice-phone", "bob-laptop", "carol-tablet"}; !slices.Equal(devices, want) {
 		t.Fatalf("devices %v, want %v (pending and unverified dropped)", devices, want)
+	}
+	// Bearer-token hashes and enrollment state never reach a capsule custodians can open.
+	var credentials int
+	if err := db.QueryRow("SELECT COUNT(*) FROM messaging_devices WHERE token_hash IS NOT NULL OR challenge <> '' OR enrollment_session <> ''").Scan(&credentials); err != nil || credentials != 0 {
+		t.Fatalf("%d exported devices carry credentials (%v)", credentials, err)
 	}
 	parts := eventParts(payload)
 	if len(parts) != 1 || parts[0] != backup.MessagesDir+"/events-001.db" {

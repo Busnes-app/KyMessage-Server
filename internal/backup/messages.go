@@ -86,7 +86,11 @@ func CollectMessages(ctx context.Context, cfg *config.Config, appVersion string)
 	for _, table := range messagesAccountTables {
 		query := "CREATE TABLE part." + table + " AS SELECT * FROM main." + table
 		if table == "messaging_devices" {
-			query += " WHERE status IN ('approved', 'revoked')"
+			// Bearer-token hashes and enrollment state stay out of a custodian-openable capsule.
+			query = `CREATE TABLE part.messaging_devices AS SELECT id, user_id, name, public_key, status,
+				'' AS challenge, '' AS enrollment_session, expires_at, NULL AS token_hash, approved_by,
+				created_at, verified_at, identity_generation
+				FROM main.messaging_devices WHERE status IN ('approved', 'revoked')`
 		}
 		accounts = append(accounts, []any{query})
 	}
