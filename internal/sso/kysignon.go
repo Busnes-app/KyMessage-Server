@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/oauth2"
+	"sync"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"golang.org/x/oauth2"
 )
 
 // KySignOnClient manages interactions with the central KySignOn identity provider.
@@ -18,6 +19,13 @@ type KySignOnClient struct {
 	config config.SSOConfig
 	store  store.Store
 	flow   *oauthFlow
+
+	// syncMu applies directory updates one at a time. seen holds signatures inside the
+	// timestamp window, so a captured delivery cannot be replayed; latest holds each
+	// subject's newest applied timestamp, so a delayed retry cannot restore an old role.
+	syncMu sync.Mutex
+	seen   map[string]int64
+	latest map[string]int64
 }
 
 func NewKySignOnClient(cfg config.SSOConfig, st store.Store) *KySignOnClient {
@@ -77,6 +85,31 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 	if payload.Timestamp == 0 || time.Since(time.Unix(payload.Timestamp, 0)).Abs() > 5*time.Minute {
 		return errors.New("webhook timestamp is missing or expired")
 	}
+
+	k.syncMu.Lock()
+	defer k.syncMu.Unlock()
+	if k.seen == nil {
+		k.seen, k.latest = map[string]int64{}, map[string]int64{}
+	}
+	now := time.Now().Unix()
+	for sig, ts := range k.seen {
+		if now-ts > 600 {
+			delete(k.seen, sig)
+		}
+	}
+	// Replays and superseded updates succeed without effect, so the sender stops retrying.
+	if _, dup := k.seen[signature]; dup || payload.Timestamp < k.latest[payload.ID] {
+		return nil
+	}
+	if err := k.applySync(ctx, payload); err != nil {
+		return err
+	}
+	k.seen[signature] = payload.Timestamp
+	k.latest[payload.ID] = payload.Timestamp
+	return nil
+}
+
+func (k *KySignOnClient) applySync(ctx context.Context, payload KySignOnSyncPayload) error {
 
 	switch payload.Event {
 	case "user.created", "user.updated":

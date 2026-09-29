@@ -120,3 +120,37 @@ func TestSAMLServiceProvider(t *testing.T) {
 	}
 
 }
+
+// A captured or delayed delivery must not undo a later one: replaying an old promotion after a
+// demotion would restore admin.
+func TestKySignOnWebhookIgnoresReplayAndStaleUpdates(t *testing.T) {
+	st, err := store.Open(context.Background(), testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const secret = "webhook-secret"
+	client := sso.NewKySignOnClient(config.SSOConfig{KySignOnHMACSecret: secret}, st)
+	deliver := func(role string, ts int64) (body []byte, sig string) {
+		body, _ = json.Marshal(sso.KySignOnSyncPayload{Event: "user.updated", ID: "ext-carol", Username: "carol", Role: role, Status: "active", Timestamp: ts})
+		sig = crypto.ComputeHMACSHA256(body, secret)
+		if err := client.HandleSyncWebhook(context.Background(), body, sig); err != nil {
+			t.Fatal(err)
+		}
+		return body, sig
+	}
+	now := time.Now().Unix()
+	promote, promoteSig := deliver("admin", now-2)
+	deliver("user", now-1)
+	if err := client.HandleSyncWebhook(context.Background(), promote, promoteSig); err != nil {
+		t.Fatalf("replay should be ignored, not fail: %v", err)
+	}
+	deliver("admin", now-3) // a delayed retry older than the demotion
+	u, err := st.Users().GetUserBySSO(context.Background(), "kysignon", "ext-carol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Role != "user" {
+		t.Fatalf("role is %q after replayed and stale promotions, want user", u.Role)
+	}
+}
