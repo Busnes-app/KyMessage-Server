@@ -285,7 +285,7 @@ async function render() {
   element('room-tools').hidden = localOnly || s.room === null;
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
-  element('retention-state').textContent = s.room ? `Server retention: ${s.retentionDays === 1 ? '24 hours' : s.retentionDays + ' days'}. Policy is fixed for this room; downloaded copies and backups may outlive it.` : '';
+  element('retention-state').textContent = s.room ? (s.retentionDays === 0 ? 'Server retention: off. Messages stay until the owner turns purging on.' : `Server retention: ${s.retentionDays === 1 ? '24 hours' : s.retentionDays + ' days'}. Older messages are deleted from the server; downloaded copies and backups may outlive them.`) : '';
   element('history-gap').hidden = s.historyGap === null;
   element('history-gap').textContent = s.historyGap === 'rollback'
     ? 'The server is behind this browser’s saved history. Local state has not been rolled back. Use a new room or a fresh verified invitation; restoring server data cannot restore browser keys.'
@@ -444,6 +444,7 @@ click('saved-refresh',async () => {
   }));
 },'Saved conversations listed.');
 click('refresh',refresh,'Rooms and devices refreshed.');
+form('retention-form',async () => { await delivery.setRetention(Number(field('room-retention').value)); await refresh(); },'Retention changed.');
 form('direct-form',async () => { confirmDraftDiscard(); await delivery.directRoom(field('direct-account').value,Number(field('retention-days').value)); field('message').value = ''; field('direct-account').value = ''; await refresh(); },'Direct conversation selected. The recipient must accept; verify fingerprints before messaging.');
 form('create-form',async () => { confirmDraftDiscard(); await delivery.createRoom(field('room-name').value.trim(),Number(field('retention-days').value)); field('message').value = ''; field('room-name').value = ''; await refresh(); },'Room created. Apply verified membership to activate it.');
 form('invite-form',async () => { await delivery.invite(field('invite-account').value.trim()); field('invite-account').value = ''; },'Invitation sent. Ask your teammate to refresh their rooms.');

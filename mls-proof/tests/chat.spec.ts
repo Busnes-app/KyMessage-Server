@@ -621,6 +621,28 @@ test('direct conversations require consent and verification, then reopen their h
   } finally { await alice.context.close(); await bob.context.close(); }
 });
 
+test('retention defaults to 90 days and the owner can turn it off',async ({browser}) => {
+  const ownerName = 'ret-owner-' + crypto.randomUUID().slice(0,8);
+  const memberName = 'ret-member-' + crypto.randomUUID().slice(0,8);
+  const owner = await start(browser,ownerName), member = await start(browser,memberName);
+  try {
+    await owner.page.getByLabel('New room name').fill('Retention room');
+    await click(owner.page,'Create room','Room created');
+    await expect(owner.page.locator('#retention-state')).toContainText('90 days');
+    await owner.page.locator('#room-retention').selectOption('0');
+    await click(owner.page,'Change','Retention changed');
+    await expect(owner.page.locator('#retention-state')).toContainText('off');
+    await click(owner.page,'Apply verified membership','Verified membership applied');
+    await owner.page.getByLabel("Teammate's account ID").fill(memberName);
+    await click(owner.page,'Invite teammate','Invitation sent');
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await click(member.page,'Accept Retention room','Room selected');
+    await expect(member.page.locator('#retention-state')).toContainText('off');
+    await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+    await expect(member.page.locator('#retention-state')).toContainText('off');
+  } finally { await owner.context.close(); await member.context.close(); }
+});
+
 for (const joined of [true,false]) test(`expired history requires explicit recovery, previously joined ${joined}`,async ({browser}) => {
   const ownerName = 'expiry-owner-' + crypto.randomUUID().slice(0,8);
   const memberName = 'expiry-member-' + crypto.randomUUID().slice(0,8);

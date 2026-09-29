@@ -459,7 +459,7 @@ test('local expiry removes both transcript copies without changing keys or pendi
     expect(before.messages).toHaveLength(2);
     expect(before.inbox).toHaveLength(1);
     const now = Date.now();
-    await bob.page.clock.setSystemTime(new Date(now+31*86400_000));
+    await bob.page.clock.setSystemTime(new Date(now+91*86400_000));
     const expired = await bob.page.evaluate(() => window.delivery.status());
     expect(expired).toEqual({...before,messages:[],inbox:[]});
     expect((await bob.page.evaluate(() => window.proof.status())).inbox).toEqual([]);

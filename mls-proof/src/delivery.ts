@@ -291,7 +291,14 @@ export const delivery = {
       return d.device;
     });
   },
-  async createRoom(name: string, days: number = 30) {
+  async setRetention(days: number) {
+    await transaction(async (_r,d) => {
+      if (!d.room) throw new Error('Open a conversation first');
+      await api('/rooms/' + encodeURIComponent(d.room),d.token,'PATCH',{retention_days:retentionDays(days)});
+      d.retentionDays = retentionDays(days);
+    });
+  },
+  async createRoom(name: string, days: number = 90) {
     const signal = connectionAbort.signal;
     const token = await transaction(async (_r,d) => d.token);
     const v = await api('/rooms',token,'POST',{name,retention_days:retentionDays(days)});
@@ -300,7 +307,7 @@ export const delivery = {
     await openRoom(room);
     return room;
   },
-  async directRoom(peerValue: string, days: number = 30) {
+  async directRoom(peerValue: string, days: number = 90) {
     const peer = accountID(peerValue);
     const identity = unlockedIdentity();
     if (peer === identity) throw new Error('Choose another account for a direct conversation');
@@ -490,7 +497,7 @@ export const delivery = {
         const wire = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:result.welcome}));
         for (const id of added) welcomes[id] = wire;
       }
-      d.pending = {request: JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage(result.commit)),welcomes}), state:base64(encodeGroupState(result.newState)),plaintext:null};
+      d.pending = {request: JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage(result.commit)),welcomes}), state:base64(encodeGroupState(result.newState)),plaintext:null,createdAt:Math.floor(Date.now()/1000)};
       result.consumed.forEach(zeroOutUint8Array);
     });
   },
@@ -503,13 +510,18 @@ export const delivery = {
       groupMatches(current,m.room,m.epoch,m.devices);
       const result = await createApplicationMessage(current,bytes,await suite,encoder.encode(JSON.stringify(m)));
       r.state = base64(encodeGroupState(result.newState));
-      d.pending = {request:JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:result.privateMessage})),welcomes:{}}),state:null,plaintext:message};
+      d.pending = {request:JSON.stringify({id:m.id,kind:m.kind,epoch:m.epoch,roster_hash:m.roster_hash,payload:base64(encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:result.privateMessage})),welcomes:{}}),state:null,plaintext:message,createdAt:Math.floor(Date.now()/1000)};
       result.consumed.forEach(zeroOutUint8Array);
     });
   },
   async submit() {
     const result = await transaction(async (r,d) => {
       if (!d.pending) throw new Error('No pending delivery');
+      // The server forgets purged events, so an older retry would append a duplicate.
+      if (d.retentionDays > 0 && d.pending.createdAt !== null && d.pending.createdAt < Math.floor(Date.now()/1000) - d.retentionDays*86400) {
+        d.pending = null;
+        throw new Error('This message is older than the conversation keeps messages and was not sent');
+      }
       const body: unknown = JSON.parse(d.pending.request);
       const result = await request(roomPath(d) + '/events',d.token,'POST',body);
       if (result.status === 409) { d.pending = null; r.awaitingCommit = true; }
@@ -536,7 +548,9 @@ export const delivery = {
       for (const e of events) {
         // Server deadlines are operational metadata, not authenticated sender time.
         // Never extend local retention beyond receipt time plus the cached room policy.
-        const expiresAt = Math.min(e.expiresAt ?? Infinity,Math.floor(Date.now()/1000) + d.retentionDays*86400);
+        const local = d.retentionDays === 0 ? Infinity : Math.floor(Date.now()/1000) + d.retentionDays*86400;
+        const bound = Math.min(e.expiresAt ?? Infinity,local);
+        const expiresAt = bound === Infinity ? null : bound;
         const joining = r.state === null || d.rejoinGeneration !== null;
         if (e.sequence !== (joining ? floor : r.cursor+1)) throw new Error('Delivery sequence gap');
         const msg = decode(e.payload,decodeMlsMessage);
@@ -594,7 +608,7 @@ export const delivery = {
           if (d.pending.state) r.state = d.pending.state;
           if (!d.room) throw new Error('Missing room');
           groupMatches(state(r),d.room,e.epoch,m.devices);
-          if (e.kind === 'application' && d.pending.plaintext !== null && expiresAt > Date.now()/1000) d.messages.push({id:e.id,sender:r.identity,text:d.pending.plaintext,sequence:e.sequence,expiresAt});
+          if (e.kind === 'application' && d.pending.plaintext !== null && (expiresAt === null || expiresAt > Date.now()/1000)) d.messages.push({id:e.id,sender:r.identity,text:d.pending.plaintext,sequence:e.sequence,expiresAt});
           d.pending = null;
         } else {
           if (d.pending && e.kind === 'commit') throw new Error('Resolve pending submission before winning commit');
@@ -608,7 +622,7 @@ export const delivery = {
             const plaintext = decoder.decode(content.applicationData);
             const sender = m.devices.find(x => x.id === e.device_id);
             if (!sender) throw new Error('Missing authenticated sender');
-            if (expiresAt > Date.now()/1000) {
+            if (expiresAt === null || expiresAt > Date.now()/1000) {
               r.inbox.push({text:plaintext,expiresAt,sequence:e.sequence});
               d.messages.push({id:e.id,sender:sender.user_id,text:plaintext,sequence:e.sequence,expiresAt});
             }
