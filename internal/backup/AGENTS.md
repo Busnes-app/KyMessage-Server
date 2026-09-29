@@ -39,6 +39,10 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
   reset receipts. Recipe `kind: "messages"`; every member is required and SQLite-checked.
   `MessagesChecks` requires the kind, accounts.db and every `.db` member in `sqlite_paths`.
+- `MessagesSettings` prefixes only `backup_interval_sec`, `backup_last_attempt` and
+  `kyrecovery_last_deposit` with `messages_`; pairing, token and key pin are shared with people.
+  `MessagesRunConfig` puts local copies in `<backup dir>/messages/` because the lib prunes by app
+  prefix with one keep count. `MessagesRunAction` is the audit action.
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment

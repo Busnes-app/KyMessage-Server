@@ -164,9 +164,12 @@ Run the same checks locally with `make ci` (`tidy-check lint test-race test-web 
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
-`cmd/server` owns the scheduler: `backupLoop` builds the `RunConfig` and client once and
+`cmd/server` owns the scheduler: `backupLoop` builds both kinds' `RunConfig` and the client once and
 returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
-attempt would log and audit the same failure every minute forever. It closes its `done` channel
+attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
+due kinds in sequence, people then messages (opt-in, default off, own schedule/receipt/audit action
+`admin.backup_run_messages`); a kind whose run returns `ErrInProgress` is logged and left unstamped,
+so it is retried next tick. The `deposit` and `backup-drill` commands take `-messages`. It closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
 WebSocket handlers and the pair, pin-key, unpair and deposit handlers, which detach from their requests and so outlive
