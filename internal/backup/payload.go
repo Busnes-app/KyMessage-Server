@@ -29,6 +29,10 @@ const recoveryPubPath = "data/recovery.pub"
 // database, so a capsule without one is never sealed as if it were a backup.
 var ErrNoDatabaseSnapshot = errors.New("backup: no consistent database snapshot for this driver")
 
+// MessagingTables lists every messaging table, child-first so deletes never violate
+// foreign keys.
+var MessagingTables = []string{"messaging_welcomes", "messaging_events", "messaging_epoch_devices", "messaging_members", "messaging_rooms", "messaging_key_packages", "messaging_recovery_auth", "messaging_reset_receipts", "messaging_devices", "messaging_identities"}
+
 // Collect assembles the payload every sealing caller uses: the local application files
 // (SQLite database, configuration) plus the members that may only ever travel inside a
 // sealed capsule (the encryption key, the pinned recovery public key). Nothing that returns
@@ -103,21 +107,20 @@ func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
 	if err := recoveryclient.SQLiteSnapshot(ctx, db, path); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNoDatabaseSnapshot, err)
 	}
-	// Restores retire every room. Keep room topology, not delivery payloads that
-	// cannot be resumed; the emptied event rows go when retention purges them.
 	// Mutate only this owned, consistent copy.
 	snapshot, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
 	defer snapshot.Close()
-	for _, query := range []string{
-		"DELETE FROM messaging_welcomes",
-		"UPDATE messaging_events SET payload = '' WHERE payload <> ''",
-		"UPDATE messaging_key_packages SET payload = '', expires_at = 1",
-		"UPDATE messaging_rooms SET retained_bytes = 0, retained_from = sequence + 1",
-		"VACUUM",
-	} {
+	// The people capsule restores accounts, access and settings. Threads are the opt-in
+	// messages capsule's job, so nothing messaging-related is sealed here.
+	statements := []string{}
+	for _, table := range MessagingTables {
+		statements = append(statements, "DELETE FROM "+table)
+	}
+	statements = append(statements, "DELETE FROM audit_records WHERE action LIKE 'messaging.%'", "VACUUM")
+	for _, query := range statements {
 		if _, err := snapshot.ExecContext(ctx, query); err != nil {
 			return nil, fmt.Errorf("prepare recovery snapshot: %w", err)
 		}

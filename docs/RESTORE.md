@@ -12,7 +12,7 @@ The inherited `ky-primitives/recoveryclient` adapter seals these files:
 
 | File | Contents |
 |---|---|
-| `data/ky_server.db` | SQLite snapshot: accounts, MFA state, grants, messaging metadata/receipt hashes, audits, settings and sealed recovery token |
+| `data/ky_server.db` | SQLite snapshot: accounts, MFA state, settings, non-messaging audits and sealed recovery token; no messaging data |
 | `data/encryption.key` | Deployment key needed to open stored MFA secrets and the recovery token; not an MLS message key |
 | `data/recovery.pub` | Pinned suite recovery public key, when configured |
 | `config/settings.json` | App name, URL, port and database driver for operator reference; not automatically loaded |
@@ -20,11 +20,12 @@ The inherited `ky-primitives/recoveryclient` adapter seals these files:
 Custodians together can open the capsule, including its operational secrets and
 metadata. KyRecovery cannot. Browser MLS secrets, local histories and pending sends
 are not in the capsule. Losing every browser key still loses access to messages.
-New capsules exclude event, Welcome and KeyPackage payloads from the private
-snapshot; live data is unchanged. Older capsules may contain ciphertext beyond
-room retention. Preparation still prunes expired payloads before serving. The
-compacted snapshot has a 64 MiB limit, including receipts and audits; oversized
-metadata fails backup explicitly. Initial snapshot scratch space still needs room
+New capsules empty every messaging table (rooms, members, devices, events, Welcomes,
+KeyPackages, identities) and drop `messaging.*` audit rows from the private
+snapshot; live data is unchanged. Older capsules may still contain messaging rows and
+ciphertext beyond room retention. Preparation still prunes expired payloads before
+serving. The compacted snapshot has a 64 MiB limit; an oversized snapshot fails backup
+explicitly. Initial snapshot scratch space still needs room
 for the complete live database.
 
 Only SQLite capsule backup/restore is supported here. The collector refuses
@@ -93,8 +94,9 @@ records. Token revocation at KyRecovery still applies to any restored pairing to
 This repository's production HTTPS/KyIdentity deployment gate remains open. Verify
 that deployment separately before allowing real teams onto it.
 
-All users must sign in freshly. Messaging resumes through **new rooms**, not the
-restored rooms. Preserve surviving browser profiles for local history and pending
+All users must sign in freshly. A people restore leaves no threads or messaging
+devices; threads come back only through the messages capsule. Messaging resumes through
+**new rooms**. Preserve surviving browser profiles for local history and pending
 text; never rewind their ratchets or copy server data into browser vaults. An
 unresolved send in a retired room remains unresolved and must not be resent as the
 same ciphertext in another room.
