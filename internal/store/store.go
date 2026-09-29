@@ -28,6 +28,21 @@ type Store interface {
 	Close() error
 }
 
+// UserFilter selects users by one exact attribute; the zero value matches everyone.
+type UserFilter struct {
+	Field UserField
+	Value string
+}
+
+type UserField int
+
+const (
+	UserFieldNone     UserField = iota
+	UserFieldUsername           // case-insensitive
+	UserFieldEmail              // case-insensitive
+	UserFieldSubject            // exact sso_subject (SCIM externalId)
+)
+
 // UserStore defines repository operations for accounts.
 type UserStore interface {
 	CreateUser(ctx context.Context, u *User) error
@@ -36,6 +51,8 @@ type UserStore interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserBySSO(ctx context.Context, provider, subject string) (*User, error)
 	UpdateUser(ctx context.Context, u *User) error
+	// UpdateProfile writes username, email, display name, role and status only.
+	UpdateProfile(ctx context.Context, u *User) error
 	ResetAdminPassword(ctx context.Context, userID, newHash string) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
 	UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error
@@ -43,7 +60,7 @@ type UserStore interface {
 	// not greater than the stored one, which is how a replayed code inside the skew window fails.
 	SpendTOTPCounter(ctx context.Context, userID string, counter int64) error
 	DeleteUser(ctx context.Context, id string) error
-	ListUsers(ctx context.Context, offset, limit int, search string) ([]*User, int, error)
+	ListUsers(ctx context.Context, offset, limit int, filter UserFilter) ([]*User, int, error)
 	CountUsers(ctx context.Context) (int, error)
 }
 

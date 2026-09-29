@@ -117,3 +117,37 @@ func TestAdminPasswordResetRevokesGrants(t *testing.T) {
 		t.Fatal("audit", n, err)
 	}
 }
+
+// Provisioning reads a user, edits it and writes it back. That stale copy must not undo a
+// password change or a spent recovery code that landed in between.
+func TestProfileUpdateKeepsConcurrentCredentialChanges(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	if err := st.Users().CreateUser(ctx, &store.User{
+		ID: "usr_race", Username: "race", PasswordHash: "old", RecoveryCodesHash: `["c1","c2"]`,
+		Role: "admin", Status: "active", SSOProvider: "local", MustChangePassword: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := st.Users().GetUserByID(ctx, "usr_race")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Users().CompletePasswordChange(ctx, "usr_race", "old", "new", "192.0.2.1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Users().UpdateRecoveryCodes(ctx, "usr_race", `["c1","c2"]`, `["c2"]`); err != nil {
+		t.Fatal(err)
+	}
+	stale.DisplayName = "Race Condition"
+	if err := st.Users().UpdateProfile(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Users().GetUserByID(ctx, "usr_race")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PasswordHash != "new" || got.MustChangePassword || got.RecoveryCodesHash != `["c2"]` || got.DisplayName != "Race Condition" {
+		t.Fatalf("profile write reverted credentials: %+v", got)
+	}
+}

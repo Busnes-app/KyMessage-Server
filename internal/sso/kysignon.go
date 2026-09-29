@@ -95,7 +95,7 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 			existing.DisplayName = payload.DisplayName
 			existing.Role = role
 			existing.Status = status
-			if err := k.store.Users().UpdateUser(ctx, existing); err != nil {
+			if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
 				return err
 			}
 			if privilegesChanged {
@@ -122,7 +122,7 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, body []byte, sig
 			return nil // User might not exist locally
 		}
 		existing.Status = "inactive"
-		if err := k.store.Users().UpdateUser(ctx, existing); err != nil {
+		if err := k.store.Users().UpdateProfile(ctx, existing); err != nil {
 			return err
 		}
 		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)

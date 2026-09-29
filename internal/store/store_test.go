@@ -90,7 +90,7 @@ func TestUserStoreLifecycle(t *testing.T) {
 	}
 
 	// 6. List & Count
-	users, count, err := st.Users().ListUsers(ctx, 0, 10, "alice")
+	users, count, err := st.Users().ListUsers(ctx, 0, 10, store.UserFilter{Field: store.UserFieldUsername, Value: "ALICE"})
 	if err != nil {
 		t.Fatalf("ListUsers error: %v", err)
 	}

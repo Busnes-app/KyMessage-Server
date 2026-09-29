@@ -243,6 +243,22 @@ WHERE id = ?
 	return nil
 }
 
+// UpdateProfile writes only directory-owned fields. Provisioning reads a user, edits it and
+// writes it back; including credential columns would let that stale copy undo a concurrent
+// password change or recovery-code redemption.
+func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
+	user.UpdatedAt = time.Now().UTC()
+	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`)
+	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (u *userStore) UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error {
 	q := u.store.rebind("UPDATE users SET recovery_codes_hash = ?, updated_at = ? WHERE id = ? AND recovery_codes_hash = ?")
 	res, err := u.store.db.ExecContext(ctx, q, newHashes, time.Now().UTC(), userID, oldHashes)
@@ -288,7 +304,7 @@ func (u *userStore) DeleteUser(ctx context.Context, id string) error {
 	return nil
 }
 
-func (u *userStore) ListUsers(ctx context.Context, offset, limit int, search string) ([]*User, int, error) {
+func (u *userStore) ListUsers(ctx context.Context, offset, limit int, filter UserFilter) ([]*User, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -296,34 +312,25 @@ func (u *userStore) ListUsers(ctx context.Context, offset, limit int, search str
 		offset = 0
 	}
 
-	var countQuery, listQuery string
-	var countArgs, listArgs []any
-
-	if strings.TrimSpace(search) != "" {
-		like := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
-		countQuery = "SELECT COUNT(1) FROM users WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ? OR LOWER(email) LIKE ?"
-		countArgs = []any{like, like, like}
-
-		listQuery = `
-SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
-FROM users
-WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ? OR LOWER(email) LIKE ?
-ORDER BY created_at DESC LIMIT ? OFFSET ?`
-		listArgs = []any{like, like, like, limit, offset}
-	} else {
-		countQuery = "SELECT COUNT(1) FROM users"
-		listQuery = `
-SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
-FROM users
-ORDER BY created_at DESC LIMIT ? OFFSET ?`
-		listArgs = []any{limit, offset}
+	where, args := "", []any{}
+	switch filter.Field {
+	case UserFieldUsername:
+		where, args = " WHERE LOWER(username) = LOWER(?)", []any{filter.Value}
+	case UserFieldEmail:
+		where, args = " WHERE LOWER(email) = LOWER(?)", []any{filter.Value}
+	case UserFieldSubject:
+		where, args = " WHERE sso_subject = ?", []any{filter.Value}
 	}
+	countQuery := "SELECT COUNT(1) FROM users" + where
+	countArgs := args
+	listQuery := `
+SELECT id, username, email, display_name, password_hash, role, status,
+       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
+       recovery_codes_hash, push_device_id, must_change_password,
+       totp_last_counter, created_at, updated_at, last_login_at
+FROM users` + where + `
+ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	listArgs := append(append([]any{}, args...), limit, offset)
 
 	var total int
 	err := u.store.db.QueryRowContext(ctx, u.store.rebind(countQuery), countArgs...).Scan(&total)

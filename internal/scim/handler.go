@@ -104,18 +104,27 @@ func (h *userResourceHandler) Get(r *http.Request, id string) (protocol.Resource
 	return userResource(user), nil
 }
 
-var equalityFilter = regexp.MustCompile(`(?i)(?:userName|email|displayName)\s+eq\s+"([^"]+)"`)
+// equalityFilter is the whole filter, not a fragment of it: a client asking whether userName X
+// exists links to whatever comes back, so a partial or substring match updates the wrong user.
+var equalityFilter = regexp.MustCompile(`^(?i:(userName|externalId|emails|emails\.value))\s+(?i:eq)\s+"([^"\\]*)"$`)
+
+var filterFields = map[string]store.UserField{
+	"username":     store.UserFieldUsername,
+	"externalid":   store.UserFieldSubject,
+	"emails":       store.UserFieldEmail,
+	"emails.value": store.UserFieldEmail,
+}
 
 func (h *userResourceHandler) GetAll(r *http.Request, params protocol.ListRequestParams) (protocol.Page, error) {
-	search := ""
-	if raw := r.URL.Query().Get("filter"); raw != "" {
+	var filter store.UserFilter
+	if raw := strings.TrimSpace(r.URL.Query().Get("filter")); raw != "" {
 		match := equalityFilter.FindStringSubmatch(raw)
-		if len(match) != 2 {
+		if len(match) != 3 {
 			return protocol.Page{}, protocolErrors.ScimErrorInvalidFilter
 		}
-		search = match[1]
+		filter = store.UserFilter{Field: filterFields[strings.ToLower(match[1])], Value: match[2]}
 	}
-	users, total, err := h.store.Users().ListUsers(r.Context(), params.StartIndex-1, params.Count, search)
+	users, total, err := h.store.Users().ListUsers(r.Context(), params.StartIndex-1, params.Count, filter)
 	if err != nil {
 		return protocol.Page{}, err
 	}
@@ -139,7 +148,7 @@ func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol
 		user.Role = role
 	}
 	user.Status = statusFromActive(attrs)
-	if err := h.store.Users().UpdateUser(r.Context(), user); err != nil {
+	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
 	h.revokeIfPrivilegesChanged(r, user, oldRole, oldStatus)
@@ -168,7 +177,7 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 		}
 		applyUserValue(user, strings.ToLower(op.Path.String()), op.Value)
 	}
-	if err := h.store.Users().UpdateUser(r.Context(), user); err != nil {
+	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
 	h.revokeIfPrivilegesChanged(r, user, oldRole, oldStatus)
