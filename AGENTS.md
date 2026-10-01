@@ -170,16 +170,15 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
-`cmd/server` owns the scheduler: `backupLoop` builds both kinds' `RunConfig` and the client once and
-returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
+`cmd/server` owns the scheduler: `backupLoop` builds the people capsule's `RunConfig` and the client once
+and returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
 attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
-due kinds in sequence, people then messages (opt-in, default off, own schedule/receipt/audit action
-`admin.backup_run_messages`); a kind whose run returns `ErrInProgress` is logged and left unstamped,
-so it is retried next tick, and on shutdown it stops between kinds, leaving later kinds due. The `deposit` and
-`backup-drill` commands take `-messages`; `export-capsule` seals people only. It closes its `done` channel
+people capsule if due; a run that returns `ErrInProgress` is logged and left unstamped, so it is
+retried next tick. The `deposit` and `backup-drill` commands and `export-capsule` seal people only.
+The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
-WebSocket handlers, the pair, pin-key, unpair and both deposit handlers, which detach from their requests,
+WebSocket handlers, the pair, pin-key, unpair and deposit handlers, which detach from their requests,
 and the admin suspended-device revoke; all of them can outlive `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
 `messagingMaintenanceLoop` first revokes suspended messaging devices not resumed within 30 days
@@ -197,20 +196,8 @@ work is abandoned with a log line rather than killed silently.
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (migration/startup pruning), invalidates
-restored grants and closes it before reporting success. It prints the `restore-messages`
-hint only when `CheckMessagesTarget` passes; a pre-split capsule keeps messaging rows, so it
-says restore-messages cannot run there. Keep the target offline on failure. Plain `restore` refuses a messages capsule and removes its decrypted
-`data/messages`. A people restore contains no messaging rooms or devices. The optional
-`restore-messages` (`restoreMessages`, also on the decrypt-guard allowlist) runs next,
-offline (it cannot detect a running server; its usage text says to stop it): it refuses a target without `data/ky_server.db` or with messaging rows before
-opening the capsule, opens it into a `messages-*` temp directory removed on return
-(SIGINT/SIGTERM cancel through `signal.NotifyContext`; hard kills leave it for the operator),
-refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
-approved devices are suspended (no token) until their owners resume them
-(`/api/messaging/devices/{device}/resume`); admins list and revoke suspended devices
-through `/api/admin/messaging/devices`; devices not resumed within 30 days are revoked
-automatically; rooms of missing owners are not imported. Without it, users recover identity with fresh suite
-authentication and new independently verified rooms. Never restore or rewind browser
+restored grants and closes it before reporting success. Keep the target offline on failure.
+Users recover identity with fresh suite authentication; never restore or rewind browser
 MLS state. Root owns this policy and `docs/RESTORE.md`.
 
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.

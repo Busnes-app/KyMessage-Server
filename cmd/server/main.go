@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/api"
@@ -43,9 +42,6 @@ func main() {
 			return
 		case "restore":
 			runRestore(os.Args[2:])
-			return
-		case "restore-messages":
-			runRestoreMessages(os.Args[2:])
 			return
 		case "version":
 			fmt.Printf("kymessages %s\n", appVersion)
@@ -189,41 +185,9 @@ func waitForBackupWork(ctx context.Context, backgroundDone <-chan struct{}, wait
 	}
 }
 
-// backupKind is one capsule the scheduler and CLI can seal: its own schedule, receipt, local
-// directory and drill checks over the pairing and key pin they share.
-type backupKind struct {
-	name, action string
-	rc           recoveryclient.RunConfig
-	settings     func(context.Context) recoveryclient.Settings
-	defaultEvery time.Duration
-	collect      func(context.Context) (recoveryclient.Payload, error)
-	checks       func(string, capsule.Manifest) []recoveryclient.Check
-}
-
-// Built once by callers: a deployment key that cannot seal is a configuration fault, not a
-// run that might succeed next minute.
-func peopleKind(cfg *config.Config, st store.Store) (backupKind, error) {
-	rc, err := backup.RunConfig(cfg, appVersion)
-	return backupKind{name: "people", action: "admin.backup_run", rc: rc, defaultEvery: cfg.Backup.DepositInterval,
-		settings: func(ctx context.Context) recoveryclient.Settings { return backup.Settings(ctx, st.Settings()) },
-		collect:  func(ctx context.Context) (recoveryclient.Payload, error) { return backup.Collect(ctx, cfg, appVersion) },
-		checks:   backup.Checks}, err
-}
-
-// The messages capsule is opt-in: no env default, so it stays off until an admin sets an interval.
-func messagesKind(cfg *config.Config, st store.Store) (backupKind, error) {
-	rc, err := backup.MessagesRunConfig(cfg, appVersion)
-	return backupKind{name: "messages", action: backup.MessagesRunAction, rc: rc,
-		settings: func(ctx context.Context) recoveryclient.Settings { return backup.MessagesSettings(ctx, st.Settings()) },
-		collect: func(ctx context.Context) (recoveryclient.Payload, error) {
-			return backup.CollectMessages(ctx, cfg, appVersion)
-		},
-		checks: backup.MessagesChecks}, err
-}
-
-// runKind is recoveryclient.Run for one kind; tests replace it.
-var runKind = func(ctx context.Context, k backupKind, s recoveryclient.Settings, client recoveryclient.Depositor) (recoveryclient.Result, error) {
-	return recoveryclient.Run(ctx, k.rc, s, func() (recoveryclient.Payload, error) { return k.collect(ctx) }, client)
+// runBackup is recoveryclient.Run for the people capsule; tests replace it.
+var runBackup = func(ctx context.Context, cfg *config.Config, rc recoveryclient.RunConfig, s recoveryclient.Settings, client recoveryclient.Depositor) (recoveryclient.Result, error) {
+	return recoveryclient.Run(ctx, rc, s, func() (recoveryclient.Payload, error) { return backup.Collect(ctx, cfg, appVersion) }, client)
 }
 
 // backupLoop polls the admin's schedule once a minute; a change in the UI needs no restart
@@ -234,17 +198,11 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 	defer close(done)
 	// Run never gets far enough to stamp the attempt on a RunConfig failure, so retrying
 	// would log and audit it every tick forever.
-	people, err := peopleKind(cfg, st)
+	rc, err := backup.RunConfig(cfg, appVersion)
 	if err != nil {
 		log.Printf("[BACKUP] scheduler disabled: %v", err)
 		return
 	}
-	messages, err := messagesKind(cfg, st)
-	if err != nil {
-		log.Printf("[BACKUP] scheduler disabled: %v", err)
-		return
-	}
-	kinds := []backupKind{people, messages}
 	client := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -254,40 +212,37 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 			return
 		case <-ticker.C:
 		}
-		backupTick(ctx, cfg, st, kinds, client)
+		backupTick(ctx, cfg, st, rc, client)
 	}
 }
 
-// backupTick runs each due kind in order. A kind whose run finds the library lock held (an admin
+// backupTick runs the people capsule if due. A run that finds the library lock held (an admin
 // run) is left unstamped and so still due; the next tick retries it.
-func backupTick(ctx context.Context, cfg *config.Config, st store.Store, kinds []backupKind, client recoveryclient.Depositor) {
+func backupTick(ctx context.Context, cfg *config.Config, st store.Store, rc recoveryclient.RunConfig, client recoveryclient.Depositor) {
 	runCtx := context.WithoutCancel(ctx)
-	for _, k := range kinds {
-		if ctx.Err() != nil {
-			return // shutdown: the wait budget covers one run; later kinds stay due
-		}
-		next, on, err := recoveryclient.NextRun(k.defaultEvery, k.settings(runCtx))
-		if err != nil {
-			log.Printf("[BACKUP] %s schedule unreadable: %s", k.name, recoveryclient.AuditSafe(err.Error()))
-			continue
-		}
-		if !on || time.Now().Before(next) {
-			continue
-		}
-		res, err := runKind(runCtx, k, k.settings(runCtx), client)
-		if errors.Is(err, recoveryclient.ErrNotPaired) || errors.Is(err, recoveryclient.ErrNoDestination) {
-			continue // never configured; nothing to report
-		}
-		if errors.Is(err, recoveryclient.ErrInProgress) {
-			log.Printf("[BACKUP] %s: another run is in progress; retrying next tick", k.name)
-			continue
-		}
-		recordRun(runCtx, st, "system", k.action, res, err)
+	settings := backup.Settings(runCtx, st.Settings())
+	next, on, err := recoveryclient.NextRun(cfg.Backup.DepositInterval, settings)
+	if err != nil {
+		log.Printf("[BACKUP] schedule unreadable: %s", recoveryclient.AuditSafe(err.Error()))
+		return
 	}
+	if !on || time.Now().Before(next) {
+		return
+	}
+	res, err := runBackup(runCtx, cfg, rc, settings, client)
+	if errors.Is(err, recoveryclient.ErrNotPaired) || errors.Is(err, recoveryclient.ErrNoDestination) {
+		return // never configured; nothing to report
+	}
+	if errors.Is(err, recoveryclient.ErrInProgress) {
+		log.Println("[BACKUP] another run is in progress; retrying next tick")
+		return
+	}
+	recordRun(runCtx, st, "system", backupRunAction, res, err)
 }
+
+const backupRunAction = "admin.backup_run"
 
 // recordRun audits one run the same way the admin route does, under the actor that started it.
-// action names the kind; the library's own action is the people capsule's.
 func recordRun(ctx context.Context, st store.Store, actor, action string, res recoveryclient.Result, err error) {
 	_, outcome, details := recoveryclient.Outcome(res, err)
 	details["outcome"] = outcome
@@ -298,22 +253,6 @@ func recordRun(ctx context.Context, st store.Store, actor, action string, res re
 		return
 	}
 	log.Printf("[BACKUP] %s: capsule %s (%d bytes) local=%q deposited=%t", actor, res.Manifest.CapsuleID, res.SizeBytes, res.LocalPath, res.Receipt != nil)
-}
-
-// cliKind parses -messages and returns the chosen kind.
-func cliKind(name string, args []string, cfg *config.Config, st store.Store) backupKind {
-	fs := flag.NewFlagSet(name, flag.ExitOnError)
-	messages := fs.Bool("messages", false, "back up the messages capsule instead of the people capsule")
-	_ = fs.Parse(args)
-	build := peopleKind
-	if *messages {
-		build = messagesKind
-	}
-	k, err := build(cfg, st)
-	if err != nil {
-		log.Fatalf("Backup: %v", err)
-	}
-	return k
 }
 
 // runDeposit seals and delivers one capsule now, for cron or an operator at a shell.
@@ -329,10 +268,13 @@ func runDeposit(args []string) {
 	}
 	defer st.Close()
 
-	k := cliKind("deposit", args, cfg, st)
+	rc, err := backup.RunConfig(cfg, appVersion)
+	if err != nil {
+		log.Fatalf("Backup: %v", err)
+	}
 	client := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
-	res, err := runKind(ctx, k, k.settings(ctx), client)
-	recordRun(ctx, st, "cli", k.action, res, err)
+	res, err := runBackup(ctx, cfg, rc, backup.Settings(ctx, st.Settings()), client)
+	recordRun(ctx, st, "cli", backupRunAction, res, err)
 	if err != nil {
 		log.Fatalf("Backup: %v", err)
 	}
@@ -414,12 +356,11 @@ func runBackupDrill(args []string) {
 	}
 	defer st.Close()
 
-	k := cliKind("backup-drill", args, cfg, st)
-	payload, err := k.collect(ctx)
+	payload, err := backup.Collect(ctx, cfg, appVersion)
 	if err != nil {
 		log.Fatalf("Failed to collect backup files: %v", err)
 	}
-	result, err := backup.RunDrill(ctx, cfg, payload, k.checks)
+	result, err := backup.RunDrill(ctx, cfg, payload, backup.Checks)
 	if err != nil {
 		log.Fatalf("Drill execution error: %v", err)
 	}
@@ -478,25 +419,11 @@ func stdinIsTerminal() bool {
 }
 
 func runRestore(args []string) {
-	restoreCommand(args, "restore", "to", "empty directory to restore into", "", restore)
-}
-
-// restoreMessagesNote is in the usage text because the command trusts the operator here.
-const restoreMessagesNote = "Stop the server first. This command cannot detect a running server; it only refuses\n" +
-	"a target that already holds messaging data.\n\n"
-
-func runRestoreMessages(args []string) {
-	restoreCommand(args, "restore-messages", "into", "directory a people restore wrote", restoreMessagesNote, func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
-		// SIGINT/SIGTERM cancel the import and return through the cleanup of the opened
-		// capsule instead of killing the process with plaintext on disk.
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		return restoreMessages(ctx, capsulePath, targetDir, expectService, shares, stdout)
-	})
+	restoreCommand(args, "restore", "to", "empty directory to restore into", restore)
 }
 
 // restoreCommand parses a restore command's flags and reads custodian shares from stdin.
-func restoreCommand(args []string, name, dirFlag, dirUsage, note string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
+func restoreCommand(args []string, name, dirFlag, dirUsage string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	capsulePath := fs.String("capsule", "", "path to the .kycap file")
 	target := fs.String(dirFlag, "", dirUsage)
@@ -504,7 +431,7 @@ func restoreCommand(args []string, name, dirFlag, dirUsage, note string, run fun
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: kymessages %s -capsule <file.kycap> -%s <dir> [-service <name>]\n\n"+
 			"Custodian shares are read from stdin, one ky2-... share per line, and never from\n"+
-			"the command line: argv is world-readable and lands in shell history.\n\n%s", name, dirFlag, note)
+			"the command line: argv is world-readable and lands in shell history.\n\n", name, dirFlag)
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
