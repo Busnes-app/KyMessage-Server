@@ -1,0 +1,85 @@
+# KyMessages on Matrix — platform design
+
+Date: 2026-10-01. Status: approved direction; each sub-project gets its own spec and plan.
+Evidence: `docs/CHAT-PLATFORM-OPTIONS.md` (protocol comparison, Element's withdrawn Teams
+bridge, and the Matrix + KyIdentity spike).
+
+## Intent
+
+KyMessages becomes a Ky-integrated Matrix deployment for small business teams: a self-hosted,
+invite-only chat that signs in only through KyIdentity, encrypts by default, backs up to
+KyRecovery and is run from the Ky admin console. Bridges to other networks are the reason to
+build on Matrix. Teams interop is business-critical but no maintained Teams bridge exists, so
+it is a separate later project (a self-built Teams bot), not part of this design.
+
+## Decisions
+
+1. **Shape — Ky control plane around stock Matrix.** Synapse, Matrix Authentication Service
+   (MAS), PostgreSQL and Element Web run as unmodified upstream containers in KyMessages'
+   Compose. The KyMessages Go server is the control plane: console, KyIdentity integration
+   glue, offboarding sync, KyRecovery backups, health. No fork; AGPL components stay
+   unmodified (licence obligations then stay minimal — not legal advice).
+2. **Homeserver — Synapse + MAS + PostgreSQL.** The spike-validated stack. "SQLite, one
+   instance" stops being the chat target; KyMessages' own console settings may stay in SQLite.
+   Lighter homeservers (Tuwunel) may be trialled later.
+3. **Retire the custom messaging stack** in its own phase: `chat-core/`, `mls-proof/`,
+   `/api/messaging/*` and its tables, the messages capsule, `restore-messages`, suspended
+   devices, resume, the 30-day expiry and the MLS research docs. Git history keeps them;
+   MLS-in-Matrix (MSC2883) stays a watched future option.
+4. **Sign-in — KyIdentity only, through MAS.** Local passwords and open registration off;
+   only users assigned to the app in KyIdentity get in. MAS's compatibility (legacy) login is
+   disabled: only native OIDC clients (current Element Web, Element X).
+5. **Encryption — on by default.** New rooms are encrypted and cannot be made unencrypted
+   where policy requires it. **Gate:** the spike saw one plaintext `m.room.message` in an
+   encrypted room after compatibility sign-in; its cause must be explained and pinned by a
+   test before any "end-to-end encrypted (not independently audited)" label ships.
+6. **Offboarding — webhook plus sweep.** KyIdentity's signed directory webhook
+   (`/api/sso/kyidentity/sync`) deactivate/delete locks the user through the MAS admin API
+   (ends sessions, blocks sign-in); reactivation unlocks. A periodic sweep reconciles
+   KyIdentity's directory with MAS to repair missed deliveries. Every action is audited.
+   (Spike: KyIdentity disable alone leaves live sessions; Synapse deactivate is undone by MAS.)
+7. **Backups — one consistent server capsule.** Synapse and MAS database dumps taken as one
+   point in time, plus MAS secrets (`secrets.encryption`, keys), the Synapse signing key and
+   config secrets, through the existing KyRecovery pairing, schedule, local copies and drills.
+   Media goes to the local backup directory (newest N), outside the capsule. Users restore
+   history with their own security keys; the server never sees plaintext. The people/messages
+   capsule split is retired.
+8. **Usernames.** Matrix localpart = KyIdentity username lowercased with characters Matrix
+   disallows replaced by `_`; display name keeps the original; a collision refuses the second
+   sign-in with a clear message. MAS links accounts by KyIdentity `sub`, so renames do not
+   orphan accounts. Planning checks whether MAS templates can do the mapping.
+9. **Domains — one subdomain per part.** e.g. `matrix.` (Synapse), `auth.` (MAS), `chat.`
+   (Element Web), `admin.` (KyMessages console); user IDs stay `@alice:example.com` through
+   `.well-known` delegation served by KyMessages. Each is a cloudflared hostname on
+   `kymessages-net`; the per-app network model from `docs/Reverse_Proxy_Networking.md` holds.
+10. **Clients — Element, branded by config.** Element Web gets the KyMessages name, logo and
+    Busnes light/dark themes through `config.json`; Element X (mobile) stays Element-branded.
+    Any Matrix client may connect.
+11. **Console v1.** Users (from MAS: list, KyIdentity link, sessions, lock/unlock, end
+    sessions); rooms (Synapse admin API: list, member count, encryption, shut down/delete);
+    server health (Synapse, MAS, Element, PostgreSQL up, versions, network self-check);
+    backups (server capsule, KyRecovery, schedule, drill); settings (branding pushed to
+    Element config, KyIdentity status). Admin mutations need a fresh sign-in and are audited.
+12. **Review process** stays the suite's: security-audit run, PR security reviewer, task and
+    branch reviews. Labels never claim an independent audit.
+
+## Sub-projects (each: spec → plan → build, in order)
+
+1. **Remove the custom messaging stack** (decision 3). "My account" becomes an account page.
+2. **Matrix stack and sign-in** (1, 2, 4, 5, 8, 9, 10): Compose services, generated configs,
+   `.well-known`, KyIdentity → MAS, encryption defaults, compatibility login off, the
+   encryption gate, cloudflared hostname guide.
+3. **Offboarding sync** (6).
+4. **Server capsule backups** (7).
+5. **Console** (11).
+
+Later and separate: Teams bot; other bridges (mautrix, admin-enabled and labelled as
+decrypting); a lighter homeserver trial.
+
+## Risks carried
+
+- The unexplained plaintext message (gate in sub-project 2).
+- MFA enforcement relies on KyIdentity per-app policy; MAS ignores `acr` (untested).
+- AGPL components: unmodified use assumed acceptable — owner to confirm before shipping.
+- Teams: no bridge exists; partner tenants likely need their admin's consent (unverified).
+- Operational weight rises (PostgreSQL + several services) versus the old single binary.
