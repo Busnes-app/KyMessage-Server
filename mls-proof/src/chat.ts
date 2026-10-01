@@ -224,6 +224,7 @@ async function directory() {
 }
 async function refresh() {
   const generation = viewGeneration;
+  await delivery.reconcileResume();
   const listing = await delivery.accountDevices();
   const current = await delivery.status();
   if (!opened || generation !== viewGeneration) return;
@@ -287,7 +288,7 @@ async function render() {
   element('new-conversation-tools').hidden = own?.status !== 'approved';
   element('create-form').hidden = own?.status !== 'approved';
   element('direct-form').hidden = own?.status !== 'approved';
-  element('room-tools').hidden = localOnly || s.room === null;
+  element('room-tools').hidden = localOnly || s.room === null || own?.status !== 'approved';
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
   // Only the owner or direct peer may change retention; the server enforces it too.

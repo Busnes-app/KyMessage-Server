@@ -80,6 +80,28 @@ function privateKeys(r: DeviceRecord) {
 function signingKey(r: DeviceRecord) {
   return r.keys ? unbase64(r.keys.signaturePrivateKey) : state(r).signaturePrivateKey;
 }
+// The pending resume token, from any saved entry of the active entry's device.
+async function resumeState() {
+  const device = await transaction(async (_r,d) => d.device);
+  if (!device) return null;
+  let resumeToken: string | null = null;
+  for (const item of await inspectEntries(r => r.delivery ? connected(r) : null)) {
+    if (item.kind === 'ready' && item.value?.device === device && item.value.resumeToken) resumeToken = item.value.resumeToken;
+  }
+  return {device,resumeToken};
+}
+// Apply one idempotent change to every saved entry of a device. Rerunning repairs an interrupted pass.
+async function everyEntry(device: string, change: (d: Connection) => void) {
+  for (const item of await inspectEntries(r => r.delivery ? connected(r).device : null)) {
+    if (item.kind === 'ready' && item.value === device) await transaction(async (_r,d) => { if (d.device === device) change(d); },item.entry);
+  }
+}
+const promote = (token: string) => (d: Connection) => { d.token = token; d.resumeToken = null; };
+function reauthURL(response: {status:number; value:unknown}) {
+  if (response.status !== 403) return null;
+  const url = object(response.value).reauth_url;
+  return typeof url === 'string' && url.startsWith('/api/sso/') ? url : null;
+}
 function pinned(r: DeviceRecord, devices: Roster) {
   const peer = connected(r).directPeer;
   if (peer && devices.some(device => device.user_id !== r.identity && device.user_id !== peer)) throw new Error('Direct conversation contains another account');
@@ -297,37 +319,54 @@ export const delivery = {
       return d.device;
     });
   },
-  // Re-prove a restored device's key under a new token. The new token replaces the
-  // stored one only after the server verifies the signature.
+  // Re-prove a restored device's key. The new token waits as resumeToken in every
+  // saved entry and becomes the active token only once the server has verified it.
   async resumeDevice(): Promise<{kind:'resumed'} | {kind:'reauth'; url:string}> {
+    const pending = await resumeState();
+    if (!pending) throw new Error('Missing enrolled device ID');
+    const {device} = pending;
+    // Reuse a saved token: a lost verify response may already have activated it.
+    const token = pending.resumeToken ?? hex(crypto.getRandomValues(new Uint8Array(32)));
+    await everyEntry(device,d => { d.resumeToken = token; });
     const outcome = await transaction(async (r,d) => {
-      if (!d.device) throw new Error('Missing enrolled device ID');
-      const own = pinFor(r.keyPackage);
-      const token = hex(crypto.getRandomValues(new Uint8Array(32)));
+      if (d.device !== device || d.resumeToken !== token) throw new Error('Device changed during resume');
       const tokenHash = await hash(encoder.encode(token));
-      const path = '/devices/' + encodeURIComponent(d.device) + '/resume';
+      const path = '/devices/' + encodeURIComponent(device) + '/resume';
       const started = await request(path,d.token,'POST',{token_hash:tokenHash});
+      const startReauth = reauthURL(started);
+      if (startReauth) return {kind:'reauth' as const,url:startReauth};
       const value = object(started.value);
-      if (started.status === 403 && typeof value.reauth_url === 'string' && value.reauth_url.startsWith('/api/sso/')) return {kind:'reauth' as const,url:value.reauth_url};
       if (started.status !== 200) throw new Error(`Delivery HTTP ${started.status}: ${text(value.error)}`);
       const bytes = unbase64(text(value.signing_input));
       const parsed: unknown = JSON.parse(decoder.decode(bytes));
       const c = object(parsed);
-      if (c.Domain !== 'KyMessages resume v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== d.device || c.PublicKey !== own.key || c.TokenHash !== tokenHash || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Resume binding mismatch');
+      if (c.Domain !== 'KyMessages resume v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== device || c.PublicKey !== pinFor(r.keyPackage).key || c.TokenHash !== tokenHash || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Resume binding mismatch');
       const signature = base64(await (await suite).signature.sign(signingKey(r),bytes));
-      const verified = object((await api(path + '/verify',d.token,'POST',{signature})).device);
-      if (verified.id !== d.device || verified.status !== 'approved') throw new Error('Resume was not confirmed');
-      d.token = token;
-      return {kind:'resumed' as const,device:d.device,token};
+      const verified = await request(path + '/verify',d.token,'POST',{signature});
+      const verifyReauth = reauthURL(verified);
+      if (verifyReauth) return {kind:'reauth' as const,url:verifyReauth};
+      if (verified.status !== 200) throw new Error(`Delivery HTTP ${verified.status}: ${text(object(verified.value).error)}`);
+      const confirmed = object(object(verified.value).device);
+      if (confirmed.id !== device || confirmed.status !== 'approved') throw new Error('Resume was not confirmed');
+      return {kind:'resumed' as const};
     });
-    if (outcome.kind === 'reauth') return outcome;
-    // Every saved room entry carries its own copy of the device token.
-    for (const item of await inspectEntries(r => r.delivery ? connected(r) : null)) {
-      if (item.kind === 'ready' && item.value?.device === outcome.device && item.value.token !== outcome.token) {
-        await transaction(async (_r,d) => { if (d.device === outcome.device) d.token = outcome.token; },item.entry);
-      }
-    }
-    return {kind:'resumed'};
+    if (outcome.kind === 'resumed') await everyEntry(device,promote(token));
+    return outcome;
+  },
+  // Finish a resume whose verify response was lost, and repair entries an interrupted
+  // promotion left behind. Idempotent; a still-suspended device keeps its pending token.
+  async reconcileResume() {
+    const pending = await resumeState();
+    if (!pending?.resumeToken) return;
+    const {device,resumeToken} = pending;
+    const current = await transaction(async (_r,d) => d.token);
+    const own = array((await api('/devices',current)).devices,object).find(v => v.id === device);
+    if (own?.status !== 'approved') return;
+    const {status} = await request('/rooms',resumeToken);
+    if (status === 200) await everyEntry(device,promote(resumeToken));
+    // An approved device that refuses the pending token was never resumed with it.
+    else if (status === 403) await everyEntry(device,d => { d.resumeToken = null; });
+    else throw new Error(`Delivery HTTP ${status} while confirming a resumed device`);
   },
   async setRetention(days: number) {
     await transaction(async (_r,d) => {

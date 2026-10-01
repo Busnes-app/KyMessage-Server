@@ -137,12 +137,17 @@ retains the manual wire harness. Root owns product decisions and research in `do
   stop automatic checks and cannot send or receive. Retain the server tombstone: a
   replacement needs an existing approved device or the separately gated identity-reset flow.
 - A `suspended` device (approved, token dropped by `restore-messages`) is reused by
-  enrollment, never re-enrolled. Polling stops and the room shows the suspended notice
-  with `Resume this device`. `resumeDevice` posts a fresh token hash, follows a
-  `/api/sso/` reauthentication URL with the return hint, verifies the `KyMessages resume
-  v1` binding, signs with the vault's enrolled key and stores the new token only after
-  verify succeeds, then copies it to every saved room entry. Ratchets, cursors and
-  history stay; the resumed device continues at the server's epoch.
+  enrollment, never re-enrolled. Polling stops, room tools hide and the room shows the
+  suspended notice with `Resume this device`. `resumeDevice` saves a pending
+  `resumeToken` in every saved entry of the device before networking (reusing one
+  already saved), follows a `/api/sso/` reauthentication URL from either resume step
+  with the return hint, verifies the `KyMessages resume v1` binding and signs with the
+  vault's enrolled key. Only after verify succeeds does it promote the pending token
+  to the active one in every entry. Each refresh, including unlock, reconciles: a
+  pending token on a device the server reports `approved` is confirmed with one
+  token-authenticated read and promoted everywhere (an explicit 403 discards it); a
+  still-suspended device keeps it. Ratchets, cursors and history stay; the resumed
+  device continues at the server's epoch.
 - Recovery help remains available before unlock. Account-specific guidance uses
   the refreshed device list and clears on lock; approval never implies that a
   device is accessible. Follow `docs/PRODUCT.md`'s last-device-loss contract before

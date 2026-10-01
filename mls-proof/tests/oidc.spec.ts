@@ -400,18 +400,48 @@ test('a resumed device follows the epoch its room advanced to while suspended',a
     await click(bob.page,'Apply verified membership','Verified membership applied');
     await bob.page.getByLabel('Message',{exact:true}).fill('Sent in the next epoch');
     await click(bob.page,'Send encrypted message','Message accepted');
-    // A stale suite sign-in sends the browser through fresh authentication first.
-    await alice.page.route('**/api/messaging/devices/*/resume',route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kysignon/login?fresh=1'})}),{times:1});
-    await alice.page.getByRole('button',{name:'Resume this device',exact:true}).click();
-    await alice.page.getByLabel('Test identity').fill(alice.subject);
-    await alice.page.getByRole('button',{name:'Continue to KyMessages'}).click();
-    await alice.page.waitForURL('**/chat.html?auth=oidc');
-    await unlock(alice.page);
-    await expect(alice.page.locator('#room-state')).toContainText('This device is suspended after a server restore');
+    // A stale suite sign-in at either step sends the browser through fresh authentication.
+    for (const step of ['resume','resume/verify']) {
+      await alice.page.route('**/api/messaging/devices/*/' + step,route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kysignon/login?fresh=1'})}),{times:1});
+      await alice.page.getByRole('button',{name:'Resume this device',exact:true}).click();
+      await alice.page.getByLabel('Test identity').fill(alice.subject);
+      await alice.page.getByRole('button',{name:'Continue to KyMessages'}).click();
+      await alice.page.waitForURL('**/chat.html?auth=oidc');
+      await unlock(alice.page);
+      await expect(alice.page.locator('#room-state')).toContainText('This device is suspended after a server restore');
+      await expect(alice.page.locator('#room-tools')).toBeHidden();
+    }
     await click(alice.page,'Resume this device','Device resumed');
     await click(alice.page,'Check for messages','Messages checked');
     await expect(alice.page.locator('#messages')).toContainText('Sent in the next epoch');
-    await expect(alice.page.locator('#poll-state')).not.toContainText('failed');
+    // Only a successful background check after the resume sets this text.
+    await expect(alice.page.locator('#poll-state')).toHaveText('Automatic checks active.',{timeout:20_000});
     await send(alice.page,bob.page,'Caught up after resuming');
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+test('a resume whose verify response was lost recovers on the next unlock',async ({browser}) => {
+  const alice = await open(browser,'lost-a-' + crypto.randomUUID().slice(0,8));
+  const bob = await open(browser,'lost-b-' + crypto.randomUUID().slice(0,8));
+  try {
+    await sharedRoom(alice,bob,'Lost reply team');
+    await send(alice.page,bob.page,'Before the restore');
+    await alice.page.getByLabel('New room name').fill('Second room');
+    await click(alice.page,'Create room','Room created');
+    await click(alice.page,'Open Lost reply team','Room selected');
+    await suspend(alice);
+    // The server commits the resume; the browser never sees the reply.
+    await alice.page.route('**/api/messaging/devices/*/resume/verify',async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    },{times:1});
+    await alice.page.getByRole('button',{name:'Resume this device',exact:true}).click();
+    await expect(alice.page.getByRole('status')).not.toContainText('Working');
+    await expect(alice.page.getByRole('status')).not.toContainText('Device resumed');
+    await alice.page.reload();
+    await unlock(alice.page);
+    await expect(alice.page.locator('#signed-in')).toContainText('Device approved');
+    await send(alice.page,bob.page,'After the lost reply');
+    await click(alice.page,'Open Second room','Room selected');
   } finally { await alice.context.close(); await bob.context.close(); }
 });
