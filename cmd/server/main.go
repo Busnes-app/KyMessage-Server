@@ -478,11 +478,15 @@ func stdinIsTerminal() bool {
 }
 
 func runRestore(args []string) {
-	restoreCommand(args, "restore", "to", "empty directory to restore into", restore)
+	restoreCommand(args, "restore", "to", "empty directory to restore into", "", restore)
 }
 
+// restoreMessagesNote is in the usage text because the command trusts the operator here.
+const restoreMessagesNote = "Stop the server first. This command cannot detect a running server; it only refuses\n" +
+	"a target that already holds messaging data.\n\n"
+
 func runRestoreMessages(args []string) {
-	restoreCommand(args, "restore-messages", "into", "directory a people restore wrote", func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
+	restoreCommand(args, "restore-messages", "into", "directory a people restore wrote", restoreMessagesNote, func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
 		// SIGINT/SIGTERM cancel the import and return through the cleanup of the opened
 		// capsule instead of killing the process with plaintext on disk.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -492,7 +496,7 @@ func runRestoreMessages(args []string) {
 }
 
 // restoreCommand parses a restore command's flags and reads custodian shares from stdin.
-func restoreCommand(args []string, name, dirFlag, dirUsage string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
+func restoreCommand(args []string, name, dirFlag, dirUsage, note string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	capsulePath := fs.String("capsule", "", "path to the .kycap file")
 	target := fs.String(dirFlag, "", dirUsage)
@@ -500,7 +504,7 @@ func restoreCommand(args []string, name, dirFlag, dirUsage string, run func(caps
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: kymessages %s -capsule <file.kycap> -%s <dir> [-service <name>]\n\n"+
 			"Custodian shares are read from stdin, one ky2-... share per line, and never from\n"+
-			"the command line: argv is world-readable and lands in shell history.\n\n", name, dirFlag)
+			"the command line: argv is world-readable and lands in shell history.\n\n%s", name, dirFlag, note)
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)

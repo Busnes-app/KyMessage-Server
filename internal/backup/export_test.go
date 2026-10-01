@@ -9,3 +9,6 @@ func SetMessagesBudgets(t *testing.T, part, total int64) {
 	messagesPartBudget, messagesTotalBudget = part, total
 	t.Cleanup(func() { messagesPartBudget, messagesTotalBudget = oldPart, oldTotal })
 }
+
+// MaxEventParts is the import's part ceiling, which collection and the drill must share.
+const MaxEventParts = maxEventParts

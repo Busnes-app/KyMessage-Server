@@ -46,6 +46,12 @@ SQLite copies and database rollbacks bypass the preparation below and are unsupp
    Record the trusted receipt's capsule ID, creation time and SHA-256 digest. Compare
    `sha256sum backup.kycap` with that receipt before restoration; an intact old capsule
    is not evidence of freshness. Know the exact service name used when it was sealed.
+   People and messages capsules look the same until they are decrypted, so record
+   each capsule ID's kind when it is deposited: the receipts are separate
+   (`kyrecovery_last_deposit` and `messages_kyrecovery_last_deposit`), the audit
+   actions differ (`admin.backup_run` and `admin.backup_run_messages`), and local
+   copies sit in the backup directory and its `messages/` subdirectory. After any
+   refused attempt, restore into a fresh empty directory.
 2. Obtain the ceremony's threshold number of custodian cards. Use a private terminal;
    do not paste shares into chat, argv, environment variables or shell history. The
    command reads shares from stdin. Never change or regenerate the suite recovery key
@@ -81,7 +87,10 @@ ciphertext and prepares restored authority in a transaction:
 
 A current people capsule holds no messaging rows, so the revocation and retirement
 steps act only on capsules sealed before the split. `restore-messages` imports after
-this preparation.
+this preparation. A capsule from before the split keeps its revoked messaging rows,
+and `restore-messages` refuses any target that holds messaging rows, so it cannot run
+on such a restore; `restore` says so instead of printing the `restore-messages` hint.
+Users return to new rooms.
 
 A preparation error says the files are **not ready to serve**. Keep the target
 offline, investigate, and repeat restoration into another empty directory. Do not
@@ -95,7 +104,8 @@ restore before it serves. Skip this section to return with no threads.
 1. Obtain the messages capsule and check its receipt as in step 1 above. It may be
    older or newer than the people capsule; anything that no longer references a
    restored person is dropped and counted.
-2. With the target still offline, run:
+2. Stop the server first. `restore-messages` cannot detect a running server; it only
+   refuses a target that already holds messaging data. Then run:
 
    ```sh
    ./kymessages restore-messages -capsule ./messages.kycap -into ./restored -service 'KyMessages'
@@ -117,7 +127,7 @@ restore before it serves. Skip this section to return with no threads.
 The import leaves the database as if every person missing from the people restore
 had been deleted: their identities, devices and memberships are dropped, and a room
 whose owner is missing is not imported at all, with its events (counted as
-`retired_rooms`). Epoch-device and Welcome rows that name a device which was not
+`dropped_rooms`). Epoch-device and Welcome rows that name a device which was not
 imported stay, as account deletion would leave them. Room epoch, sequence and
 retained floor are kept; stored byte counts are recomputed. Messages past each
 room's retention are purged when the server next starts. KeyPackages,
@@ -125,7 +135,10 @@ recovery-authentication requests, reset receipts and sessions are not imported.
 
 Every imported approved device is **suspended**: it keeps its status and identity
 generation but has no delivery token, so it cannot read, send or approve. Revoked
-devices stay revoked. Before reopening access, an admin reviews the restored devices
+devices stay revoked. A messages capsule older than the incident undoes every device
+revocation and identity reset made after the capsule was created: those devices come
+back suspended like the rest. Admins and owners must confirm each device before it
+resumes. Before reopening access, an admin reviews the restored devices
 on the dashboard's **Suspended devices** list (`GET
 /api/admin/messaging/devices?status=suspended`) with their owners and revokes any
 that are lost or unrecognized (`POST /api/admin/messaging/devices/{device}/revoke`,

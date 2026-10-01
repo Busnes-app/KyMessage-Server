@@ -151,14 +151,14 @@ func TestImportMessagesDropsMissingPeopleAndSuspendsDevices(t *testing.T) {
 	}
 }
 
-func TestImportMessagesRetiresRoomWithoutOwner(t *testing.T) {
+func TestImportMessagesDropsRoomWithoutOwner(t *testing.T) {
 	opened := openedMessages(t)
 	path, db := importTarget(t, "bob", "carol")
 	counts, err := backup.ImportMessages(context.Background(), path, opened)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts.Rooms != 0 || counts.RetiredRooms != 1 || counts.Members != 0 || counts.Events != 0 {
+	if counts.Rooms != 0 || counts.DroppedRooms != 1 || counts.Members != 0 || counts.Events != 0 {
 		t.Fatalf("counts %+v", counts)
 	}
 	for _, table := range []string{"messaging_rooms", "messaging_members", "messaging_epoch_devices", "messaging_events", "messaging_welcomes"} {

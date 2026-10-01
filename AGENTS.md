@@ -129,7 +129,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`
+- `make lint` equivalent: gofmt, `go vet` (plus `-tags rehearsal ./scripts/rehearsal`), `go mod tidy`/`verify`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
@@ -144,7 +144,8 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   and `restore-messages` with shares on stdin into an empty directory and checks the
   restored device is `suspended`. Its helper `scripts/rehearsal` builds only with the
   `rehearsal` tag; its `session` command writes a suite account and session straight into
-  the scratch database in place of OIDC sign-in.
+  the scratch database in place of OIDC sign-in. Its write commands refuse paths outside
+  `os.TempDir()`; the script preflights go, curl, jq and python3.
 - Docker image build and container HTTP check
 - Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
@@ -196,11 +197,12 @@ work is abandoned with a log line rather than killed silently.
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (migration/startup pruning), invalidates
-restored grants and closes it before reporting success. Keep the target offline on
-failure. Plain `restore` refuses a messages capsule and removes its decrypted
+restored grants and closes it before reporting success. It prints the `restore-messages`
+hint only when `CheckMessagesTarget` passes; a pre-split capsule keeps messaging rows, so it
+says restore-messages cannot run there. Keep the target offline on failure. Plain `restore` refuses a messages capsule and removes its decrypted
 `data/messages`. A people restore contains no messaging rooms or devices. The optional
 `restore-messages` (`restoreMessages`, also on the decrypt-guard allowlist) runs next,
-offline: it refuses a target without `data/ky_server.db` or with messaging rows before
+offline (it cannot detect a running server; its usage text says to stop it): it refuses a target without `data/ky_server.db` or with messaging rows before
 opening the capsule, opens it into a `messages-*` temp directory removed on return
 (SIGINT/SIGTERM cancel through `signal.NotifyContext`; hard kills leave it for the operator),
 refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported

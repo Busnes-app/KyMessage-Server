@@ -133,6 +133,10 @@ func TestRestoreExtractsWithTwoShares(t *testing.T) {
 	if !strings.Contains(out.String(), "busnes_app") {
 		t.Fatalf("manifest not printed: %s", out.String())
 	}
+	// A pre-split capsule leaves messaging rows, which restore-messages refuses.
+	if strings.Contains(out.String(), "run `restore-messages") || !strings.Contains(out.String(), "restore-messages cannot run on this target") {
+		t.Fatalf("old capsule got the wrong restore-messages hint:\n%s", out.String())
+	}
 }
 
 func TestRestoreRefusesAnotherService(t *testing.T) {
@@ -214,8 +218,12 @@ func messagesFixture(t *testing.T) (people, messages string, shares []string) {
 func TestRestoreMessagesAfterPeople(t *testing.T) {
 	people, messages, shares := messagesFixture(t)
 	target := filepath.Join(t.TempDir(), "restored with spaces?#")
-	if err := restore(people, target, "busnes_app", shares, &bytes.Buffer{}); err != nil {
+	var restored bytes.Buffer
+	if err := restore(people, target, "busnes_app", shares, &restored); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(restored.String(), "run `restore-messages -capsule <file> -into "+target+"`") {
+		t.Fatalf("people restore lacks the restore-messages hint:\n%s", restored.String())
 	}
 	// The people capsule is not a messages capsule.
 	if err := restoreMessages(context.Background(), people, target, "busnes_app", shares, &bytes.Buffer{}); err == nil {
@@ -225,7 +233,7 @@ func TestRestoreMessagesAfterPeople(t *testing.T) {
 	if err := restoreMessages(context.Background(), messages, target, "busnes_app", shares, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"busnes_app", "rooms=1", "dropped_members=1", "dropped_devices=1", "events=2", "suspended"} {
+	for _, want := range []string{"busnes_app", "rooms=1", "dropped_rooms=0", "dropped_members=1", "dropped_devices=1", "events=2", "suspended"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}

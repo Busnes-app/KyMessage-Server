@@ -36,10 +36,11 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   and `data/messages/events-NNN.db` parts (events plus their Welcomes). Parts are contiguous
   per-room sequence ranges cut at `messagesPartBudget` (file cap minus 4 MiB), counting every
   column's bytes plus a per-row allowance; each part is compacted and refused above
-  `MaxCapsuleFileBytes`. Past `MaxCapsuleTotalBytes` it fails with `ErrCapsuleTooLarge` naming
-  the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
+  `MaxCapsuleFileBytes`. Past `MaxCapsuleTotalBytes`, or past the import's `maxEventParts`, it
+  fails with `ErrCapsuleTooLarge` naming the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
   reset receipts. Recipe `kind: "messages"`; every member is required and SQLite-checked.
-  `MessagesChecks` requires the kind, accounts.db and every `.db` member in `sqlite_paths`.
+  `MessagesChecks` requires the kind, accounts.db, at most `maxEventParts` event parts and every
+  `.db` member in `sqlite_paths`, so no capsule `ImportMessages` would refuse is sealed or drilled.
 - `ImportMessages(ctx, dbPath, openedDir)` imports an opened messages capsule into a
   people-restored, migrated SQLite database. Before `BEGIN IMMEDIATE` it refuses a target with
   messaging rooms, devices or identities (`ErrMessagingDataPresent`; `CheckMessagesTarget` is the
@@ -52,7 +53,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   status with `token_hash` NULL (approved = suspended); `retained_bytes` is recomputed.
   KeyPackages, recovery-auth, reset receipts and anything session-bound are never imported.
   `PRAGMA main.foreign_key_check` must be empty before COMMIT; the audit row
-  `restore.messages_imported` carries the `ImportCounts`.
+  `restore.messages_imported` carries the `ImportCounts` (`dropped_rooms` counts rooms not
+  imported because their owner is missing).
 - `MessagesSettings` prefixes only `backup_interval_sec`, `backup_last_attempt` and
   `kyrecovery_last_deposit` with `messages_`; pairing, token and key pin are shared with people.
   `MessagesRunConfig` puts local copies in `<backup dir>/messages/` because the lib prunes by app
@@ -68,6 +70,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   The Unix lock matches the Linux container deployment.
 - `DrillRoot` is under the data directory and forced to 0700; opened payloads stay in the
   library's private, disposable subdirectories. Drills use throwaway keys, not custodian shares.
+- `TestMessagingTablesListsEveryMessagingTable` holds `MessagingTables` equal to the migrated
+  `messaging_%` tables; add a new messaging table there or it leaks into the people capsule.
 - `Members` names what `Collect` would seal now, for the status route and the screen; keep
   the two in step.
 - `GET /api/settings`'s `extra_settings` never carries `kyrecovery_token_enc` or a legacy

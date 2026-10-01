@@ -122,7 +122,7 @@ Today a room refuses writes at 4,096 active events or 32 MiB, which Off would hi
   - Memberships, invitations and devices whose user ID is missing from the people
     database are dropped.
   - A room whose owner is missing is not imported, with its events, and is counted
-    as `retired_rooms`; the result matches deleting the missing people under the
+    as `dropped_rooms`; the result matches deleting the missing people under the
     schema's ON DELETE CASCADE rules.
   - Every imported approved device becomes **`suspended`** (token NULL); revoked
     devices stay revoked, and every session stays invalid.

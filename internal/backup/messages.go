@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -66,6 +67,9 @@ func CollectMessages(ctx context.Context, cfg *config.Config, appVersion string)
 	parts, roomBytes, err := planEventParts(ctx, conn)
 	if err != nil {
 		return recoveryclient.Payload{}, err
+	}
+	if len(parts) > maxEventParts {
+		return recoveryclient.Payload{}, fmt.Errorf("%w: messages need %d event parts, restore-messages accepts %d; largest rooms: %s", capsule.ErrCapsuleTooLarge, len(parts), maxEventParts, strings.Join(largestRooms(roomBytes, 3), ", "))
 	}
 	dir := filepath.Dir(path)
 	var files []recoveryclient.File
@@ -201,7 +205,7 @@ func largestRooms(roomBytes map[string]int64, n int) []string {
 }
 
 // MessagesChecks validates a messages capsule's recipe and members: the kind marker,
-// accounts.db, and SQLite integrity on every .db member.
+// accounts.db, at most maxEventParts event parts, and SQLite integrity on every .db member.
 func MessagesChecks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 	recipe, ok := opened.VerificationRecipe.(map[string]any)
 	if !ok {
@@ -224,10 +228,17 @@ func MessagesChecks(dir string, opened capsule.Manifest) []recoveryclient.Check 
 	if !slices.Contains(required, MessagesAccounts) {
 		return recipeFailure("required_files omits " + MessagesAccounts)
 	}
+	parts := 0
 	for _, file := range opened.Files {
 		if strings.HasSuffix(file.Path, ".db") && !slices.Contains(sqlitePaths, file.Path) {
 			return recipeFailure("sqlite_paths omits " + file.Path)
 		}
+		if path.Dir(file.Path) == MessagesDir && eventPartName.MatchString(path.Base(file.Path)) {
+			parts++
+		}
+	}
+	if parts > maxEventParts {
+		return recipeFailure(fmt.Sprintf("%d event parts, restore-messages accepts %d", parts, maxEventParts))
 	}
 	if message := memberFailure(dir, opened, required, sqlitePaths); message != "" {
 		return recipeFailure(message)

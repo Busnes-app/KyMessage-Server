@@ -37,8 +37,21 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(stdout, "Restored sessions, challenges and pairings invalidated. A people capsule holds no threads or messaging devices; any from an older capsule were revoked and their rooms retired. Sign in freshly. Browser keys/history were not restored.\n"+
-		"If a messages capsule exists, run `restore-messages -capsule <file> -into %s` before serving.\n", targetDir)
+	if _, err := fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. A people capsule holds no threads or messaging devices; any from an older capsule were revoked and their rooms retired. Sign in freshly. Browser keys/history were not restored."); err != nil {
+		return err
+	}
+	dbPath, err := filepath.Abs(filepath.Join(targetDir, "data", "ky_server.db"))
+	if err != nil {
+		return err
+	}
+	switch err := backup.CheckMessagesTarget(context.Background(), dbPath); {
+	case errors.Is(err, backup.ErrMessagingDataPresent):
+		_, err = fmt.Fprintln(stdout, "This capsule predates the people/messages split and kept its messaging rows, so restore-messages cannot run on this target.")
+		return err
+	case err != nil:
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "If a messages capsule exists, run `restore-messages -capsule <file> -into %s` before serving.\n", targetDir)
 	return err
 }
 
@@ -122,9 +135,10 @@ func restoreMessages(ctx context.Context, capsulePath, targetDir, expectService 
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "Imported rooms=%d retired_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d\n"+
+	_, err = fmt.Fprintf(stdout, "Imported rooms=%d dropped_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d\n"+
 		"Restored devices are suspended. Before users return, an admin reviews GET /api/admin/messaging/devices?status=suspended and revokes unknown ones with POST /api/admin/messaging/devices/{device}/revoke. "+
+		"A capsule older than the incident undoes device revocations and identity resets made after it was created, so confirm each device before it resumes. "+
 		"An owner resumes a device after a fresh sign-in: POST /api/messaging/devices/{device}/resume, then POST /api/messaging/devices/{device}/resume/verify with the device key's signature.\n",
-		counts.Rooms, counts.RetiredRooms, counts.Members, counts.DroppedMembers, counts.Devices, counts.DroppedDevices, counts.Events)
+		counts.Rooms, counts.DroppedRooms, counts.Members, counts.DroppedMembers, counts.Devices, counts.DroppedDevices, counts.Events)
 	return err
 }

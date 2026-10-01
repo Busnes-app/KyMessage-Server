@@ -319,3 +319,28 @@ func TestPeopleCapsuleHasNoMessagingData(t *testing.T) {
 		t.Error("people missing from the people capsule")
 	}
 }
+
+// Collect empties MessagingTables from the people capsule; a messaging table missing from
+// that list would leak into it.
+func TestMessagingTablesListsEveryMessagingTable(t *testing.T) {
+	cfg, _ := sqliteInstance(t)
+	rows, err := rawDB(t, cfg).Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'messaging\_%' ESCAPE '\' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := slices.Sorted(slices.Values(backup.MessagingTables)); !slices.Equal(tables, want) {
+		t.Fatalf("migrated messaging tables %v, MessagingTables %v", tables, want)
+	}
+}

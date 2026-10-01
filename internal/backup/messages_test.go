@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -351,5 +352,48 @@ func TestMessagesChecksRefuseOtherKinds(t *testing.T) {
 	messages.VerificationRecipe["sqlite_paths"] = []string{backup.MessagesAccounts}
 	if result, err := backup.RunDrill(ctx, cfg, messages, backup.MessagesChecks); err != nil || result.Passed {
 		t.Fatalf("an event part escaped the integrity check: %+v %v", result, err)
+	}
+}
+
+// A capsule restore-messages would refuse must never be sealed.
+func TestCollectMessagesRefusesTooManyParts(t *testing.T) {
+	backup.SetMessagesBudgets(t, 64<<10, recoveryclient.MaxCapsuleTotalBytes)
+	cfg, _ := sqliteInstance(t)
+	seedRoom(t, rawDB(t, cfg), "many-parts", backup.MaxEventParts+2, 40<<10)
+	_, err := backup.CollectMessages(context.Background(), cfg, "test")
+	if !errors.Is(err, capsule.ErrCapsuleTooLarge) || !strings.Contains(err.Error(), "event parts") {
+		t.Fatalf("got %v, want a part-count refusal", err)
+	}
+}
+
+// ...nor pass a drill: the drill accepts exactly the part counts the import accepts.
+func TestMessagesChecksRefuseTooManyParts(t *testing.T) {
+	cfg, _ := seedMessagingFixture(t)
+	payload, err := backup.CollectMessages(context.Background(), cfg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := *findFile(payload.Files, backup.MessagesDir+"/events-001.db")
+	withParts := func(n int) recoveryclient.Payload {
+		p := payload
+		p.Files = slices.Clone(payload.Files)
+		for i := 2; i <= n; i++ {
+			extra := part
+			extra.Path = fmt.Sprintf("%s/events-%03d.db", backup.MessagesDir, i)
+			p.Files = append(p.Files, extra)
+		}
+		var paths []string
+		for _, f := range p.Files {
+			paths = append(paths, f.Path)
+		}
+		p.VerificationRecipe = maps.Clone(payload.VerificationRecipe)
+		p.VerificationRecipe["sqlite_paths"], p.VerificationRecipe["required_files"] = paths, paths
+		return p
+	}
+	if result, err := backup.RunDrill(context.Background(), cfg, withParts(backup.MaxEventParts), backup.MessagesChecks); err != nil || !result.Passed {
+		t.Fatalf("%d parts failed the drill: %+v %v", backup.MaxEventParts, result, err)
+	}
+	if result, err := backup.RunDrill(context.Background(), cfg, withParts(backup.MaxEventParts+1), backup.MessagesChecks); err != nil || result.Passed {
+		t.Fatalf("%d parts passed the drill: %+v %v", backup.MaxEventParts+1, result, err)
 	}
 }

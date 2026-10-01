@@ -6,6 +6,10 @@
 # Usage: scripts/restore-messages-rehearsal.sh
 set -euo pipefail
 
+for tool in go curl jq python3; do
+  command -v "$tool" >/dev/null || { echo "rehearsal needs $tool on PATH" >&2; exit 1; }
+done
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d -t kymessages-rehearsal-XXXXXX)"
 SERVER_PID=""

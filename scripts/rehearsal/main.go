@@ -46,12 +46,33 @@ func main() {
 	}
 }
 
+// scratch refuses a path outside os.TempDir(), so a mistyped flag cannot write to a real
+// instance or home directory.
+func scratch(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	tmp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return "", err
+	}
+	if rel, err := filepath.Rel(tmp, abs); err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%q is not under %s", path, tmp)
+	}
+	return abs, nil
+}
+
 // keygen makes a throwaway 2-of-3 recovery key the way the restore tests do and keeps
 // two shares in a 0600 file; the private key itself is never written.
 func keygen(args []string) error {
 	fs := flag.NewFlagSet("keygen", flag.ExitOnError)
 	out := fs.String("out", "", "scratch directory")
 	_ = fs.Parse(args)
+	dir, err := scratch(*out)
+	if err != nil {
+		return err
+	}
 	priv, err := recoverykey.Generate()
 	if err != nil {
 		return err
@@ -61,10 +82,10 @@ func keygen(args []string) error {
 		return err
 	}
 	pub := base64.StdEncoding.EncodeToString(priv.Public().Bytes())
-	if err := os.WriteFile(filepath.Join(*out, "public.b64"), []byte(pub), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "public.b64"), []byte(pub), 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(*out, "shares"), []byte(shares[0].String()+"\n"+shares[2].String()+"\n"), 0o600)
+	return os.WriteFile(filepath.Join(dir, "shares"), []byte(shares[0].String()+"\n"+shares[2].String()+"\n"), 0o600)
 }
 
 // session stands in for a suite OIDC sign-in, as the mls-proof fixture does: it creates
@@ -74,8 +95,12 @@ func session(args []string) error {
 	data := fs.String("data", "", "KY_DATA_DIR of a scratch instance")
 	user := fs.String("user", "", "suite account ID")
 	_ = fs.Parse(args)
+	dir, err := scratch(*data)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
-	st, err := store.Open(ctx, config.DatabaseConfig{Driver: "sqlite", DSN: filepath.Join(*data, "ky_server.db"), DataDir: *data})
+	st, err := store.Open(ctx, config.DatabaseConfig{Driver: "sqlite", DSN: filepath.Join(dir, "ky_server.db"), DataDir: dir})
 	if err != nil {
 		return err
 	}
@@ -183,8 +208,12 @@ func seed(args []string) error {
 	fs := flag.NewFlagSet("seed", flag.ExitOnError)
 	origin := fs.String("url", "", "loopback server origin")
 	bearer := fs.String("session", "", "suite session token")
-	dir := fs.String("dir", "", "scratch directory for the device token and room ID")
+	out := fs.String("dir", "", "scratch directory for the device token and room ID")
 	_ = fs.Parse(args)
+	dir, err := scratch(*out)
+	if err != nil {
+		return err
+	}
 	c := newClient(*origin)
 	c.bearer = *bearer
 
@@ -236,8 +265,8 @@ func seed(args []string) error {
 	if err := appendEvent("application"); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(*dir, "device-token"), []byte(token), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "device-token"), []byte(token), 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(*dir, "room-id"), []byte(room.ID), 0o600)
+	return os.WriteFile(filepath.Join(dir, "room-id"), []byte(room.ID), 0o600)
 }

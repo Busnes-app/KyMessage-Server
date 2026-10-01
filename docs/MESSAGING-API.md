@@ -113,8 +113,8 @@ identity reset) returns 403. Audit actions: `messaging.device_resume_started`,
 `messaging.device_resumed` (with key fingerprint), `messaging.device_resume_failed`.
 Owners revoke a suspended device with the ordinary DELETE route.
 
-Suspended devices stay in the delivery roster (`eligibleDevices` counts approved
-devices regardless of token) so restored epochs and roster hashes remain valid and a
+Suspended devices stay in the delivery roster (the roster query in `deliveryState`,
+`internal/store/messaging_delivery.go`, selects approved devices regardless of token) so restored epochs and roster hashes remain valid and a
 resumed device continues at the restored epoch. Other clients still see them as
 roster members until they are revoked and removed by a commit.
 

@@ -15,7 +15,7 @@ import (
 // ImportCounts reports what ImportMessages brought back and what it dropped because the
 // people it references are not in the restored database.
 type ImportCounts struct {
-	Rooms, RetiredRooms, Members, DroppedMembers, Devices, DroppedDevices, Events int
+	Rooms, DroppedRooms, Members, DroppedMembers, Devices, DroppedDevices, Events int
 }
 
 // The 256 MiB capsule cap over the ~60 MiB part budget allows 5 parts; SQLite attaches at
@@ -210,7 +210,7 @@ func importRows(ctx context.Context, conn *sql.Conn, parts int) (ImportCounts, e
 		imported int
 		table    string
 	}{
-		{&c.RetiredRooms, c.Rooms, "messaging_rooms"},
+		{&c.DroppedRooms, c.Rooms, "messaging_rooms"},
 		{&c.DroppedMembers, c.Members, "messaging_members"},
 		{&c.DroppedDevices, c.Devices, "messaging_devices"},
 	} {
@@ -232,8 +232,8 @@ func importRows(ctx context.Context, conn *sql.Conn, parts int) (ImportCounts, e
 		return c, errors.New("imported messages violate a foreign key")
 	}
 
-	details := fmt.Sprintf("rooms=%d retired_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d",
-		c.Rooms, c.RetiredRooms, c.Members, c.DroppedMembers, c.Devices, c.DroppedDevices, c.Events)
+	details := fmt.Sprintf("rooms=%d dropped_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d",
+		c.Rooms, c.DroppedRooms, c.Members, c.DroppedMembers, c.Devices, c.DroppedDevices, c.Events)
 	_, err = conn.ExecContext(ctx, `INSERT INTO main.audit_records (action, details, created_at) VALUES (?, ?, ?)`,
 		"restore.messages_imported", details, time.Now().UTC())
 	return c, err
