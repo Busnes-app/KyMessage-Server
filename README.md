@@ -2,25 +2,13 @@
 
 Private team conversations, on infrastructure you control.
 
-KyMessages is being built for small teams: encrypted direct messages and
-invitation-only rooms, with suite identity and sealed server backups. It is not
-deployed or approved for private team use yet. The working MLS chat client remains
-in [mls-proof/](mls-proof/README.md), outside the embedded UI and container image.
-The source-built application currently provides the operator console and messaging
-API. Its console states that encrypted chat is not included in that build.
+KyMessages is moving to Matrix for chat, with suite identity and sealed server
+backups. See the [Matrix platform design](docs/superpowers/specs/2026-10-01-matrix-platform-design.md).
+It is not deployed or approved for private team use yet. The source-built application
+currently provides the operator console. Members see a page saying chat is not
+available yet.
 
-The isolated client exercises real encrypted delivery, fingerprint verification,
-multiple rooms, durable retries, live wakeups, device recovery, retention and local
-data removal on Chromium and Firefox. Production client integration (which passes the
-suite security review), deployed KyIdentity/HTTPS checks and declared deployment limits
-remain release gates. Chat is end-to-end encrypted but not independently audited, and the
-ts-mls library it uses is itself unaudited.
-
-- [First-release execution plan](docs/FIRST-RELEASE-PLAN.md)
 - [Product scope and privacy contract](docs/PRODUCT.md)
-- [Messaging API](docs/MESSAGING-API.md)
-- [Browser prototype and disposable OIDC fixture](mls-proof/README.md)
-- [MLS library evidence](docs/MLS-LIBRARY-RESEARCH.md)
 - [Protocol and interoperability research](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
 - [SQLite capsule restore runbook](docs/RESTORE.md)
 - [Repository contracts](AGENTS.md)
@@ -46,13 +34,10 @@ KY_HOST=127.0.0.1 ./kymessages
 ```
 
 Open `http://localhost:8080`. Replace the bootstrap password before privileged use.
-The local administrator operates the service; messaging member access requires
-suite OIDC. Generic OIDC, SAML and local passwords do not grant messaging access.
+The local administrator operates the service; member access requires
+suite OIDC.
 The default data directory is `./data`; keep its encryption key with the database.
 `make clean` removes build artifacts, never runtime data or backups.
-
-For chat, use the separate [prototype instructions](mls-proof/README.md#interactive-chat-prototype)
-with synthetic accounts/messages. Do not expose its disposable sign-in fixture.
 
 ## Local container build
 
@@ -108,13 +93,8 @@ successful remote receipt stays separate. Unpairing
 keeps the key pin and local copies; separately revoke the product token at KyRecovery.
 Never put custodian shares into the running server.
 
-Only SQLite has a supported capsule backup/restore path. Backups are two capsules:
-people (accounts, settings, no messaging data) and opt-in messages (threads, devices
-without tokens), with their own schedule, receipts and `<KY_BACKUP_DIR>/messages`
-copies; the messages schedule is off until an admin sets it. `deposit -messages` and
-`backup-drill -messages` select it on the CLI. Restore invalidates stale grants;
-`restore-messages` then optionally brings threads back with devices suspended until
-their owners resume them. Without it, recovery uses fresh identities and new rooms. See the
+Only SQLite has a supported capsule backup/restore path. The backup is one people
+capsule (accounts and settings). Restore invalidates stale grants. See the
 [restore runbook](docs/RESTORE.md) before relying on backups. If a prior test pairing
 used the scaffold's `Busnes.app` service name, preserve that explicit `KY_APP_NAME`
 for its existing token/capsules; changing the default does not change KyRecovery's pin.
@@ -124,23 +104,9 @@ for its existing token/capsules; changing the default does not change KyRecovery
 `make ci` runs formatting, module checks, race tests, frontend tests and the running
 server smoke checks. `make test-postgres` needs a disposable PostgreSQL 17 instance.
 See [web/AGENTS.md](web/AGENTS.md) for production-CSP, keyboard and responsive browser
-checks and [mls-proof/README.md](mls-proof/README.md) for the isolated crypto suites.
+checks.
 The smoke CI job also runs `python3 scripts/backup-acceptance.py`, a three-minute
 disposable test of actual scheduler ticks, local-copy failures and live schedule
-changes. `scripts/restore-messages-rehearsal.sh` runs the full people + messages
-backup and restore path with the built binary and throwaway shares (not in CI).
+changes.
 CI builds/runs the container, checks dependencies and verifies committed frontend
 assets. It publishes no image while the first-release gates remain open.
-
-## Messaging storage preview
-
-The administrator's Overview shows read-only messaging storage totals, room limits
-and up to 100 rooms, with rooms near capacity listed first. Retention is per thread (Off, 1, 7, 30 or 90 days, default 90,
-changeable by the owner); purged messages are deleted with their retry receipts and
-per-message audit rows. These counts exclude actual
-database overhead, audit logs, backup copies and browser history. Errors remain
-visible instead of showing zero usage. Refresh explicitly for a new snapshot.
-
-The encrypted client remains isolated and under review. [Transport measurements](docs/MESSAGING-LOAD.md)
-and [browser evidence](docs/BROWSER-EVIDENCE.md) describe the tested subset and open
-release gates; they do not establish deployed production E2EE.

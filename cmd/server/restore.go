@@ -33,7 +33,7 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly. Browser keys/history were not restored.")
+	_, err := fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly.")
 	return err
 }
 

@@ -2,14 +2,6 @@
 
 Research checked 2026-09-27. This is evidence for product planning, not a claim that these capabilities are implemented. Standards establish protocol properties; deployment compatibility still needs executable tests. Moving `stable` documentation and development branches must be pinned to versions before implementation.
 
-## MLS text and device lifecycle
-
-**Established:** RFC 9420 supplies asynchronous group key establishment, including two-member groups. Its logarithmic claim concerns tree-based key updates, not the total cost of delivering every message. Forward secrecy depends on deleting old keys; post-compromise security takes effect after the relevant fresh-key Commit is processed. Some protocol metadata remains observable. [RFC 9420, introduction and §§16.4–16.6](https://www.rfc-editor.org/rfc/rfc9420.html)
-
-**Established:** MLS membership is per client, generally per device. New devices do not automatically obtain message history. Applications define admission policy, coordinate a user's devices, and decide any history-transfer mechanism. Such transfer can weaken secrecy properties. The authentication service and delivery service are separate roles; compromised identity assertions can introduce fraudulent clients. [RFC 9750, §§3.7, 6.1, 6.7, 8.2 and 8.6](https://www.rfc-editor.org/rfc/rfc9750.html)
-
-**Product implications (inference):** OIDC login authenticates an account; it must not silently replace trusted device keys. Specify device approval, KeyPackage replenishment, ordered epoch delivery, concurrent Commit handling, offline catch-up, revocation and lost-device behavior before promising reliable chat. SCIM removal can immediately deny server access, but an authorized MLS client must commit cryptographic removal. Block further room sends until required removals are committed. A server snapshot alone cannot recover client-only history keys. Separate encrypted local history from ratchet state and define their retention independently.
-
 ## OCM and Nextcloud Talk interoperability
 
 **Established:** The current OCM development specification includes capability-negotiated RFC 9421 HTTP Message Signatures and JWKS discovery through `jwksUri`; unsigned interoperability can remain possible under specified policies. This is version-sensitive, not evidence that all deployed OCM peers support identical signatures. [OCM draft, HTTP Message Signatures](https://github.com/cs3org/OCM-API/blob/develop/IETF-OCM.md)
@@ -33,12 +25,3 @@ Research checked 2026-09-27. This is evidence for product planning, not a claim 
 **Established:** Restrictive NAT/firewalls can require TURN, including when an SFU is publicly reachable. TURN over port 443 can be necessary for restrictive networks; reachability and relay configuration must be tested. [Nextcloud TURN deployment guide](https://nextcloud-talk.readthedocs.io/en/stable/TURN/)
 
 **Product implications (inference):** Promise one-container text deployment first. Calling additionally needs tested UDP/TCP/TLS relay paths, credentials, bandwidth budgets and operator instructions. Bind call identity to approved messaging devices. Treat SFrame library choice, browser/native compatibility, packetization, screen audio and SFU congestion behavior as feasibility gates. Encryption failure must stop media, not fall back silently to unprotected SFU content.
-
-## Required proofs before stronger promises
-
-1. Two browser profiles exchange MLS messages, survive reload/offline intervals and concurrent membership changes; removed devices cannot decrypt post-removal traffic.
-2. A replacement device has an explicit admission/history outcome; restored server state cannot replay obsolete device authorization or make clients roll back cryptographic epochs.
-3. Supported browser combinations complete calls through a forced TURN path; packet inspection confirms no readable media at the SFU, including join/leave and key-rotation transitions.
-4. Any Talk compatibility claim names exact tested server/client versions and lists supported invitations, messaging, attachments, calls and encryption behavior separately.
-
-These are proposed acceptance checks, not results of tests performed during this research.

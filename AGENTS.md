@@ -1,8 +1,9 @@
 # KyMessages repository
 
 KyMessages builds on the inherited server base. Its source-built operator console
-and API use the KyMessages identity; the encrypted-chat client stays isolated until
-its release gates pass. The user-selected priority is small teams and encrypted text chat.
+uses the KyMessages identity. Chat is moving to Matrix; the design is
+`docs/superpowers/specs/2026-10-01-matrix-platform-design.md`. The user-selected
+priority is small teams and encrypted text chat.
 
 - `kymessages` is the binary and local image name; `KY_APP_NAME` defaults to
   `KyMessages`. `internal/config.AppVersion` is shared by CLI and capsule paths.
@@ -12,23 +13,13 @@ its release gates pass. The user-selected priority is small teams and encrypted 
   preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
 
-- Continue the encrypted-chat first-release plan in `docs/FIRST-RELEASE-PLAN.md`
-  through implementation and verification; commit each completed slice and before
-  every unavoidable break. Report unmet release gates explicitly.
-
-- Read [docs/PRODUCT.md](docs/PRODUCT.md) before messaging implementation or product
-  scope changes; it records proposed defaults and acceptance gates, not shipped behavior.
+- Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it records proposed
+  defaults, being reworded for Matrix, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
-  before selecting MLS/media libraries or making federation compatibility claims.
+  before selecting media libraries or making federation compatibility claims.
 - Read [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) before choosing
   between custom MLS, Matrix or XMPP, or promising bridges to other chat networks. No
   bridge preserves end-to-end encryption; a bridged conversation never carries the E2EE label.
-- The isolated browser experiment lives in `mls-proof/`; its UI and harness consume the
-  non-UI core in `chat-core/`. Selection evidence is in
-  [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Before changing library
-  compatibility claims, read [docs/MLS-INTEROP-RESEARCH.md](docs/MLS-INTEROP-RESEARCH.md)
-  for the failed extensibility gate and constrained OpenMLS exchange evidence. Its test results do not
-  establish production approval or complete milestone 0. Keep it out of deployment.
 - Root owns product definition and cross-domain documentation in `docs/`; children
   own the runtime domains indexed below. Keep product plans distinct from current
   scaffold capabilities and verify claims against code before publishing them.
@@ -115,7 +106,7 @@ Default section order:
   product: it is internal, invite-only chat with no public sign-up. An external
   cryptographic review is optional later work, not a release gate. Never call agent or
   suite review an independent audit: label chat "end-to-end encrypted (not independently
-  audited)" and keep ts-mls's own unaudited status visible.
+  audited)".
 - Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions, MFA challenges and device pairings. Untouched existing accounts are not retroactively flagged.
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
@@ -130,7 +121,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`; the `rehearsal`-tagged helper is vetted and its `scratch()` path guard tested
+- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
@@ -184,7 +175,6 @@ work is abandoned with a log line rather than killed silently.
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (running migrations), invalidates
 restored grants and closes it before reporting success. A failure after extraction removes what was extracted (the target itself if restore created it).
-Users recover identity with fresh suite authentication; never restore or rewind browser
-MLS state. Root owns this policy and `docs/RESTORE.md`.
+Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.

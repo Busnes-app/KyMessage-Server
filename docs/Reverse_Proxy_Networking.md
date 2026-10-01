@@ -100,9 +100,7 @@ server {
 }
 ```
 
-Live messaging holds a WebSocket at `/api/messaging/rooms/{room}/live`; without the
-`Upgrade` headers it fails. The server pings every 15 seconds; keep
-`proxy_read_timeout` above that. Run
+Run
 nginx on `kymessages-net` at a pinned address and put that address as a /32, never
 the subnet, in `KY_TRUSTED_PROXIES`.
 
