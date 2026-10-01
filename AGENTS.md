@@ -20,7 +20,8 @@ its release gates pass. The user-selected priority is small teams and encrypted 
   scope changes; it records proposed defaults and acceptance gates, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
   before selecting MLS/media libraries or making federation compatibility claims.
-- The isolated browser experiment lives in `mls-proof/`; selection evidence is in
+- The isolated browser experiment lives in `mls-proof/`; its UI and harness consume the
+  non-UI core in `chat-core/`. Selection evidence is in
   [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Before changing library
   compatibility claims, read [docs/MLS-INTEROP-RESEARCH.md](docs/MLS-INTEROP-RESEARCH.md)
   for the failed extensibility gate and constrained OpenMLS exchange evidence. Its test results do not
@@ -150,7 +151,9 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
   on Chromium and Firefox in CI. It remains outside the deployment artifacts.
-- Container builds use `npm ci` and exclude `mls-proof/`. CI builds/runs
+- `scripts/check-chat-gate.sh` (lint step, `make lint`) keeps `web/` free of `chat-core`/`ts-mls`
+  and `/chat-core/` in `.dockerignore` until the independent review passes.
+- Container builds use `npm ci` and exclude `mls-proof/` and `chat-core/`. CI builds/runs
   `kymessages:ci` but has no image publication/promotion jobs while release gates
   remain open. Keep the independent MLS review and deployed identity gates explicit.
 
@@ -158,6 +161,7 @@ Run the same checks locally with `make ci` (`tidy-check lint test-race test-web 
 
 ## Child DOX Index
 
+- [chat-core/AGENTS.md](chat-core/AGENTS.md): Non-UI encrypted-chat core (delivery, vault, device, session); independent review target, gated out of `web/` and the image.
 - [mls-proof/AGENTS.md](mls-proof/AGENTS.md): Isolated MLS browser experiment, encrypted local persistence and lifecycle tests.
 - [internal/config/AGENTS.md](internal/config/AGENTS.md): Configuration management and environment loader.
 - [internal/store/AGENTS.md](internal/store/AGENTS.md): Pluggable database abstraction layer (SQLite & PostgreSQL).

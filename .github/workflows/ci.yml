@@ -44,6 +44,7 @@ jobs:
       - run: go vet ./...
       - run: go vet -tags rehearsal ./scripts/rehearsal
       - run: go test -tags rehearsal ./scripts/rehearsal
+      - run: bash scripts/check-chat-gate.sh
       - run: go build ./...
 
       - name: Tests with race detector and coverage
@@ -132,7 +133,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: mls-proof/package-lock.json
+          cache-dependency-path: |
+            chat-core/package-lock.json
+            mls-proof/package-lock.json
+      - run: npm ci
+        working-directory: chat-core
+      - run: npm run typecheck
+        working-directory: chat-core
       - run: npm ci
         working-directory: mls-proof
       - run: npm run build

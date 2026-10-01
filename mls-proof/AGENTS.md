@@ -5,6 +5,11 @@ part of the embedded web application or a production messaging implementation.
 
 ## Ownership
 
+The core modules (`delivery`, `delivery-wire`, `vault`, `device`, `markdown`, `session`) and
+the `ts-mls`/`markdown-it` dependencies live in `../chat-core/`; run `npm ci` there before
+building. This directory keeps the UI, harness, fixture server and tests. Contracts below
+that name those modules describe `chat-core/` code.
+
 Owns the proof client, browser lifecycle tests, pinned experiment dependencies and
 local build output. `chat.html` owns the interactive HTTP prototype; `index.html`
 retains the manual wire harness. Root owns product decisions and research in `docs/`.
@@ -53,7 +58,7 @@ retains the manual wire harness. Root owns product decisions and research in `do
   pins include the identity generation, so resets require independent verification.
 - Persist the delivery token, enrollment challenge, pending request and staged
   state inside the device vault. Fixture bearer sessions remain memory-only; OIDC
-  sessions use the existing HttpOnly cookie and `web/src/api.ts` CSRF helper, never
+  sessions use the existing HttpOnly cookie and `chat-core` session CSRF helper (same contract as `web/src/api.ts`), never
   tokens in JavaScript storage. Acknowledgement alone
   does not advance the cursor: ordered, verified event processing does.
 - Persist KeyPackage publication parameters and claim request IDs before networking.
@@ -221,7 +226,7 @@ retains the manual wire harness. Root owns product decisions and research in `do
   it outside the verified subset. Read `docs/BROWSER-EVIDENCE.md` before changing
   browser support claims. Actual Safari/iOS evidence is separate.
 
-- `npm ci`, `npm run build`, and `npm test` from this directory.
+- `npm ci` in `../chat-core`, then `npm ci`, `npm run build` and `npm test` here.
 - `npm run test:interop -- --project=chromium --project=firefox` requires the pinned
   external fixture paths documented in `docs/MLS-INTEROP-RESEARCH.md`; it is excluded
   from normal tests/CI until the compatibility failure is resolved.

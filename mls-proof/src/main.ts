@@ -1,5 +1,5 @@
-import { proof } from './device';
-import { delivery } from './delivery';
+import { proof } from '../../chat-core/src/device';
+import { delivery } from '../../chat-core/src/delivery';
 
 // The existing SSO callback returns to /. Keep the return hint local and fixed;
 // it carries no tokens and cannot redirect outside this isolated prototype.

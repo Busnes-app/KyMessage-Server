@@ -22,6 +22,8 @@
 .superpowers/
 # Isolated crypto experiment is never part of the production build context.
 /mls-proof/
+# Unreviewed chat core; lifted only after the independent review
+/chat-core/
 **/.env.*
 !**/.env.example
 

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { dirname, basename } from 'node:path';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import type {} from '../src/device';
+import type {} from '../../chat-core/src/device';
 
 // Optional, independent native fixture. Never included in the ordinary proof tests
 // or a deployed bundle. Setup pins and commands are in docs/MLS-INTEROP-RESEARCH.md.

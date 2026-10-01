@@ -1,7 +1,18 @@
-import { secureFetch } from '../../web/src/api';
 import { object, text, accountID } from './delivery-wire';
 
-export { secureFetch };
+function cookieValue(name: string): string {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const item = document.cookie.split('; ').find((part) => part.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : '';
+}
+
+// Same contract as the console's secureFetch: mirror the ky_csrf cookie into X-CSRF-Token.
+export function secureFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const csrf = cookieValue('ky_csrf');
+  if (csrf) headers.set('X-CSRF-Token', csrf);
+  return fetch(input, { ...init, headers });
+}
 export class SessionError extends Error {}
 
 export async function signedInAccount(signal?: AbortSignal) {

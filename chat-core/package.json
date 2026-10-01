@@ -1,0 +1,16 @@
+{
+  "name": "kymessages-chat-core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "markdown-it": "15.0.2",
+    "ts-mls": "1.6.4"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

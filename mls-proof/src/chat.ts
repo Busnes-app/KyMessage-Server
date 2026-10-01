@@ -1,9 +1,9 @@
-import { proof } from './device';
-import { maxSavedMessages, maxSavedMessageBytes } from './vault';
-import { messageBody } from './markdown';
-import { delivery } from './delivery';
-import { object, text } from './delivery-wire';
-import { signedInAccount, secureFetch, SessionError } from './session';
+import { proof } from '../../chat-core/src/device';
+import { maxSavedMessages, maxSavedMessageBytes } from '../../chat-core/src/vault';
+import { messageBody } from '../../chat-core/src/markdown';
+import { delivery } from '../../chat-core/src/delivery';
+import { object, text } from '../../chat-core/src/delivery-wire';
+import { signedInAccount, secureFetch, SessionError } from '../../chat-core/src/session';
 
 const cookieMode = new URLSearchParams(location.search).get('auth') === 'oidc';
 
