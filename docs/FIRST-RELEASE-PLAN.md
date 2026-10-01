@@ -40,12 +40,15 @@ prototype test is not production approval.
    New local transcript/inbox copies now expire on room access and unlocked timers,
    including offline. Confirmed room-history clearing retains keys and pending sends;
    legacy undated text has no timer but shares the explicit recent-cache limit. No plaintext notifications or server-side previews.
-4. **Deployable client and identity — open.** Integrate the reviewed messaging client
+4. **Deployable client and identity — in progress.** Integrate the reviewed messaging client
    with the embedded UI, suite-only member access and isolated operator recovery.
    KyMessages identity, local image/Compose coordinates, reproducible embedded
-   assets and local installation/configuration documentation are implemented. HTTPS
-   deployment, integrated messaging UX and supported-browser declaration remain open. Keep the disposable
-   fixture and experimental unaudited client out of deployment until their gates pass.
+   assets, installation documentation, the members' "My account" page, the admin
+   network self-check, the proxy overlay (requires `KY_APP_URL` and `KY_SESSION_SECRET`)
+   with its guide, the browser declaration and check, and the gated `chat-core` package
+   are implemented. Integrating the reviewed client, real-device browser verification
+   and deployed HTTPS evidence remain open. Keep the disposable fixture and
+   experimental unaudited client out of deployment until their gates pass.
 5. **Operations and recovery — in progress.** The people capsule (accounts, access,
    settings, no messaging rows) runs daily by default once a key and destination are set; the messages capsule is opt-in,
    on its own schedule. `restore` invalidates restored grants; `restore-messages` then

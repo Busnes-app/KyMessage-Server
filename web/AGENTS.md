@@ -41,7 +41,7 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `browserSupport.ts` detects whether the browser supports chat's required features (Ed25519 signing, IndexedDB, Web Locks, HTTPS) and validates against the declared browser list; it exports only WebCrypto feature detection with no imports from chat-core or ts-mls.
 
 ## Verification
-- Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium && npm run test:browser`. CI also installs browser OS dependencies.
+- Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium firefox && npm run test:browser`. CI also installs browser OS dependencies.
 - `make test-web` or `cd web && npm ci && npm test`, then `npm run build` (vitest with jsdom; `src/pages/Backup.test.tsx` renders the recovery screen against a stubbed status route). Commit `web/dist` after a build; CI diffs it.
 
 ## Shared browser UI
