@@ -1,5 +1,7 @@
 # Capsule interoperability across the suite
 
+> **Renamed product:** KySignOn and `kysignon-server` below are KyIdentity and `KyIdentity-server` today. The names, paths and commands are kept as a dated record.
+
 **Verdict: there is no single capsule format to converge on. There are two incompatible
 on-disk containers that both use the `.kycap` extension, and two further in-memory-only
 implementations that never persist anything.**

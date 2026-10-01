@@ -20,7 +20,7 @@ This directory owns test setup, disposable server launch and UI assertions. The 
 - The backup flow pins the repository's synthetic public-key fixture and makes
   local sealed copies through the real API; no private recovery key or shares are
   present. Check the persisted result and layout at both widths/themes.
-- The flow ends on "My account": the not-yet-available notice, the KySignOn-account message for the local bootstrap admin and the browser line, with layout checked. Firefox must report "can run"; Playwright's Chromium is not Chrome or Edge, so it must report feature-complete but unverified.
+- The flow ends on "My account": the not-yet-available notice, the KyIdentity-account message for the local bootstrap admin and the browser line, with layout checked. Firefox must report "can run"; Playwright's Chromium is not Chrome or Edge, so it must report feature-complete but unverified.
 - Login allows 10 attempts per account per 15 minutes and the harness spends one in setup plus one per project: only `dark-390` and `firefox-light-1280` also try a wrong password. Do not relax the limiter; budget attempts before adding projects.
 - Screenshots and failure traces live in ignored `test-results/` and CI artifacts, not production assets.
 

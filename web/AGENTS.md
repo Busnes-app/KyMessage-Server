@@ -18,7 +18,7 @@ Owns user interface components, service worker caching, PWA installation manifes
   at the boundary, revokes only after
   `window.confirm` through `secureFetch`, and shows a step-up refusal's same-origin
   `reauth_url` as a sign-in link. Tested by `SuspendedDevices.test.tsx`.
-- "My account" is the non-admin landing and only page; it validates the device DTO (all five states; `unverified` shows as `enrollment not finished` and is revocable); it revokes through `secureFetch` DELETE after `window.confirm`; a messaging 403 shows `Messaging needs a KySignOn account.`; it is tested by `MyAccount.test.tsx` and `AppHeader.test.tsx`.
+- "My account" is the non-admin landing and only page; it validates the device DTO (all five states; `unverified` shows as `enrollment not finished` and is revocable); it revokes through `secureFetch` DELETE after `window.confirm`; a messaging 403 shows `Messaging needs a KyIdentity account.`; it is tested by `MyAccount.test.tsx` and `AppHeader.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
   shell is the operator console and explicitly states that encrypted chat is not
   included; do not imply a successful backup/crypto review from static dashboard text.

@@ -1,5 +1,7 @@
 # Shamir interoperability across the suite
 
+> **Renamed product:** KySignOn and `kysignon-server` below are KyIdentity and `KyIdentity-server` today. The names, paths and commands are kept as a dated record.
+
 > **Retired owner:** `Busness-app` below is the organisation's former name, renamed to `Busnes-app` on 2026-09-16 and no longer held by this project. It is kept as a dated record; do not fetch from it.
 
 **Task 1 of the [suite shared primitives plan](superpowers/plans/2026-09-02-suite-shared-primitives.md).**
