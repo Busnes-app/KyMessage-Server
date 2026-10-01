@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, UserCircle } from 'lucide-react';
+import { Smartphone, LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive } from 'lucide-react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { QRPairingModal } from './QRPairingModal';
 
@@ -17,10 +17,9 @@ const adminItems = [
   { id: 'backup', label: 'Backup & recovery', icon: Archive },
   { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
 ];
-const accountItem = { id: 'account', label: 'My account', icon: UserCircle };
 // Admin pages are refused server-side for non-admins; navigation only mirrors that.
 export function navItemsFor(role: string) {
-  return role === 'admin' ? [...adminItems, accountItem] : [accountItem];
+  return role === 'admin' ? adminItems : [];
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabChange, user, onLogout }) => {

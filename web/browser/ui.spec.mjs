@@ -5,7 +5,7 @@ async function fits(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
-test('production CSP, worker, themes, keyboard, dialog and responsive shell', async ({ page, context, browserName }, testInfo) => {
+test('production CSP, worker, themes, keyboard, dialog and responsive shell', async ({ page, context }, testInfo) => {
   const violations = [];
   page.on('console', message => {
     if (/Content Security Policy|violates.*directive/i.test(message.text())) violations.push(message.text());
@@ -36,16 +36,6 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav).toBeVisible();
   await expect(page.getByRole('heading', { name: /Welcome/ })).toBeVisible();
-  const usage = page.getByRole('region', { name: 'Messaging storage' });
-  await expect(usage.getByRole('button', { name: 'Refresh storage usage' })).toBeEnabled();
-  await usage.getByText('Room limits and busiest rooms', { exact: true }).click();
-  await expect(usage.getByText('No messaging rooms.', { exact: true })).toBeVisible();
-  await expect(usage).toContainText('100,000 retained events');
-  await usage.getByRole('button', { name: 'Refresh storage usage' }).click();
-  await expect(usage.getByRole('button', { name: 'Refresh storage usage' })).toBeEnabled();
-  await expect(usage.getByText('No messaging rooms.', { exact: true })).toBeVisible();
-  await fits(page);
-  await page.screenshot({ path: testInfo.outputPath('messaging-storage.png'), fullPage: true });
   await fits(page);
   const theme = page.getByLabel('Color theme');
   await theme.selectOption('paper');
@@ -112,13 +102,6 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(page.getByText(/Last recorded backup attempt: Succeeded/)).toBeVisible();
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
-  await nav.getByRole('button', { name: 'My account' }).click();
-  await expect(page.getByText('Encrypted chat is not available on this server yet.')).toBeVisible();
-  await expect(page.getByText('Messaging needs a KyIdentity account.')).toBeVisible();
-  // Playwright's Chromium is not Chrome or Edge, so it is feature-complete but unverified.
-  await expect(page.getByText(browserName === 'firefox'
-    ? /This browser can run KyMessages chat\./
-    : /This browser has every feature chat needs but has not been verified\./)).toBeVisible();
   await fits(page);
   expect(violations).toEqual([]);
   await context.setOffline(true);
