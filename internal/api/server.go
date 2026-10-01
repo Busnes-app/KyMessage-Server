@@ -284,7 +284,7 @@ func (s *Server) routes() {
 	})
 
 	// Matrix client discovery lives outside /api/, so it must precede the SPA catch-all.
-	s.mux.HandleFunc("GET /.well-known/matrix/client", s.handleMatrixClientWellKnown)
+	s.mux.HandleFunc("GET "+wellKnownMatrixClient, s.handleMatrixClientWellKnown)
 
 	// Embedded React PWA Frontend
 	s.mux.Handle("/", web.Handler())
@@ -364,6 +364,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, "+syncauth.HeaderSignature)
 
+	// Matrix discovery is public: any client origin may preflight it.
+	if r.Method == http.MethodOptions && r.URL.Path == wellKnownMatrixClient {
+		s.handleMatrixClientWellKnown(w, r)
+		return
+	}
 	if r.Method == http.MethodOptions {
 		if origin != "" && !sameOrigin(origin, s.config.Server.AppURL) {
 			http.Error(w, "Origin not allowed", http.StatusForbidden)

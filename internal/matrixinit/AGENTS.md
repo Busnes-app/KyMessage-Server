@@ -32,8 +32,9 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   Postgres, Synapse and MAS run as `KY_MATRIX_UID:KY_MATRIX_GID` so the 0600 files stay
   private; each mounts only its own `./matrix/<service>` read-only (Element the single 0644
   `config.json`, since nginx cannot enter the 0700 dir). Synapse reads `/config` (its dir) and writes media to `/media`;
-  services reach each other as `postgres`, `synapse:8008`, `mas:8080`. MAS port 8081
-  (`health`, `adminapi`) must never be routed. The public MAS listener has no `compat`
+  services reach each other as `postgres` (internal `matrix-db` network only), `synapse:8008`,
+  `mas:8080`. MAS has one listener and no `adminapi` resource; sub-project 3 re-adds the admin
+  API on an internal-only network. The MAS listener has no `compat`
   resource, so password and legacy login are unreachable.
 - Shipped templates never contain `discovery_mode: insecure`, `allow_insecure_uris` or
   anything else named insecure (`TestMASConfigTrustsOnlyKyIdentity`).

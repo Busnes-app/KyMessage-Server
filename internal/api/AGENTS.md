@@ -46,7 +46,7 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - `pair/verify` accepts only the QR `secret`, bounds device fields, returns one error for every miss and audits `device.paired`.
 - CORS permits only the exact configured `KY_APP_URL` origin and credentialed browser writes require matching CSRF cookie/header tokens.
 - API request bodies are capped at 1 MiB and all responses receive baseline CSP, anti-framing, MIME-sniffing, and referrer-policy headers.
-- `GET /.well-known/matrix/client` (unauthenticated, registered before the SPA catch-all) returns `{"m.homeserver":{"base_url":<KY_MATRIX_HOST>}}` with `Access-Control-Allow-Origin: *` and no credentials header; JSON 404 when Matrix is not configured (`wellknown_test.go`).
+- `GET /.well-known/matrix/client` (unauthenticated, registered before the SPA catch-all) returns `{"m.homeserver":{"base_url":<KY_MATRIX_HOST>}}` with `Access-Control-Allow-Origin: *` and no credentials header; JSON 404 when Matrix is not configured. `ServeHTTP` answers its `OPTIONS` preflight from any origin (200, `*`) before the app-origin preflight rule (`wellknown_test.go`).
 - `GET /api/settings` always carries `chat_url` (the Element origin, empty when Matrix is not configured) in the public tier; the members' "Open chat" link reads it.
 - `GET /api/settings` tiers its payload: public fields for the login screen, `db_driver`/`scim_enabled` for any session, and `extra_settings` for admins only; KyRecovery tokens are omitted in both sealed and legacy plaintext forms, dropped by the `kyrecovery_token` key prefix rather than by literal key name.
 

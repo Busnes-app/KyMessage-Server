@@ -121,9 +121,10 @@ When the user requests a durable behavior change, record it here or in the relev
   overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
-  as `KY_MATRIX_UID:KY_MATRIX_GID`, and it hands the app the `KY_MATRIX_*` locations.
-  `scripts/check-compose-matrix.sh` checks it with the proxy and static-IP overlays. MAS's
-  distroless image has no HTTP client, so Synapse's healthcheck also probes `mas:8081/health`.
+  as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network, and
+  it hands the app the `KY_MATRIX_*` locations. `scripts/check-compose-matrix.sh` checks it
+  with the proxy and static-IP overlays. MAS's distroless image has no HTTP client, so
+  Synapse's healthcheck also probes MAS discovery (`mas:8080/.well-known/openid-configuration`).
 
 ## Verification
 

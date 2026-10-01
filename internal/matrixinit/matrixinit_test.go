@@ -211,10 +211,15 @@ func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 	if strings.Contains(string(b), "insecure") {
 		t.Error("shipped MAS config contains an insecure relaxation")
 	}
-	for _, l := range mas["http"].(map[string]any)["listeners"].([]any) {
+	// One listener; no compat login and no admin API on any port (sub-project 3 re-adds the
+	// admin API on an internal-only network).
+	listeners := mas["http"].(map[string]any)["listeners"].([]any)
+	if len(listeners) != 1 {
+		t.Errorf("MAS has %d listeners, want only the public one", len(listeners))
+	}
+	for _, l := range listeners {
 		for _, r := range l.(map[string]any)["resources"].([]any) {
-			n := r.(map[string]any)["name"]
-			if n == "compat" || (n == "adminapi" && l.(map[string]any)["name"] == "web") {
+			if n := r.(map[string]any)["name"]; n == "compat" || n == "adminapi" {
 				t.Errorf("listener %v serves %v", l.(map[string]any)["name"], n)
 			}
 		}

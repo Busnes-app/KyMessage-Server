@@ -37,7 +37,7 @@ for s in "${!image[@]}"; do
   [ "$(jq -c '.security_opt' <<<"$svc")" = '["no-new-privileges:true"]' ] || bad "$s lacks no-new-privileges"
   [ "$(jq -c '.cap_drop' <<<"$svc")" = '["ALL"]' ] || bad "$s keeps default capabilities"
   # Values, not just names: a password must never be a plain environment value.
-  jq -e '.environment // {} | to_entries | any(.key | test("PASSWORD|SECRET") and (endswith("_FILE") | not))' <<<"$svc" >/dev/null \
+  jq -e '.environment // {} | to_entries | any(.key | test("PASSWORD|SECRET|KEY|TOKEN") and (endswith("_FILE") | not))' <<<"$svc" >/dev/null \
     && bad "$s has a secret in plain env"
   while IFS=$'\t' read -r type src target ro; do
     case $type in
@@ -58,6 +58,20 @@ done
 for s in postgres synapse element; do
   [ "$(jq -r --arg s "$s" '.services[$s].healthcheck.test[0] // ""' <<<"$out")" = CMD ] || bad "$s has no exec healthcheck"
 done
+# The media chown is the only root step: no network, only CAP_CHOWN, one fixed command.
+owner=$(jq -c '.services["synapse-media-owner"]' <<<"$out")
+[ "$(jq -c '[.cap_drop, .cap_add, .network_mode, .read_only, .entrypoint, .command]' <<<"$owner")" = '[["ALL"],["CHOWN"],"none",true,["chown","1234:5678","/media"],null]' ] \
+  || bad "synapse-media-owner is not locked down: $owner"
+# Postgres sits only on an internal network; Synapse and MAS bridge to it.
+[ "$(jq -c '.services.postgres.networks | keys' <<<"$out")" = '["matrix-db"]' ] || bad "postgres is not only on matrix-db"
+[ "$(jq -r '.networks["matrix-db"].internal' <<<"$out")" = true ] || bad "matrix-db is not internal"
+for s in synapse mas; do
+  [ "$(jq -c --arg s "$s" '.services[$s].networks | keys' <<<"$out")" = '["default","matrix-db"]' ] || bad "$s is not on default and matrix-db"
+done
+# MAS is probed through its public discovery resource; it has no internal port to reach.
+jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("http://mas:8080/.well-known/openid-configuration")' <<<"$out" >/dev/null \
+  || bad "synapse healthcheck does not probe MAS discovery with --fail-early"
+grep -q 8081 <<<"$out" && bad "the stack still names MAS port 8081"
 dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition // ""' <<<"$out"; }
 [ "$(dep synapse postgres)" = service_healthy ] || bad "synapse does not wait for a healthy postgres"
 [ "$(dep mas postgres)" = service_healthy ] || bad "mas does not wait for a healthy postgres"

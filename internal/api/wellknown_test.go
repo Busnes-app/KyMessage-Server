@@ -64,3 +64,26 @@ func TestSettingsExposeChatURL(t *testing.T) {
 		t.Fatalf("chat_url = %#v", got)
 	}
 }
+
+// Browsers preflight cross-origin discovery when a client adds headers; any origin may ask.
+func TestWellKnownMatrixClientPreflightFromAnyOrigin(t *testing.T) {
+	srv, _, cfg := setupSQLiteServer(t)
+	cfg.Matrix.ServerName = "example.com"
+	cfg.Matrix.Host = "https://matrix.example.com"
+	cfg.Matrix.ChatHost = "https://chat.example.com"
+	req := httptest.NewRequest("OPTIONS", "/.well-known/matrix/client", nil)
+	req.Header.Set("Origin", "https://some-other-client.example")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	req.Header.Set("Access-Control-Request-Headers", "X-Requested-With")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	h := w.Header()
+	if h.Get("Access-Control-Allow-Origin") != "*" || h.Get("Access-Control-Allow-Credentials") != "" ||
+		!strings.Contains(h.Get("Access-Control-Allow-Methods"), "GET") ||
+		!strings.Contains(h.Get("Access-Control-Allow-Headers"), "X-Requested-With") {
+		t.Fatalf("preflight headers: %v", h)
+	}
+}

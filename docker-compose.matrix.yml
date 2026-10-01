@@ -1,6 +1,7 @@
 # Matrix stack: Postgres, Synapse, MAS and Element, configured by `kymessages matrix-init`
 # (./matrix). Append to COMPOSE_FILE after the proxy overlay; nothing is published, the proxy
-# reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Never route mas:8081.
+# reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
+# internal matrix-db network, shared with Synapse and MAS.
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -30,6 +31,7 @@ services:
       # own its directory.
       PGDATA: /var/lib/postgresql/data/pgdata
     secrets: [postgres_password]
+    networks: [matrix-db]
     volumes:
       - matrix-postgres:/var/lib/postgresql/data
       - ./matrix/postgres:/docker-entrypoint-initdb.d:ro
@@ -47,6 +49,7 @@ services:
     image: ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
     entrypoint: ["chown", "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}", "/media"]
     network_mode: none
+    read_only: true
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN]
@@ -60,6 +63,7 @@ services:
     user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
     environment:
       SYNAPSE_CONFIG_PATH: /config/homeserver.yaml
+    networks: [default, matrix-db]
     volumes:
       - ./matrix/synapse:/config:ro
       - matrix-media:/media
@@ -67,10 +71,10 @@ services:
       postgres: {condition: service_healthy}
       synapse-media-owner: {condition: service_completed_successfully}
       mas: {condition: service_started}
-    # The MAS image is distroless with no HTTP client, so its internal health endpoint is
-    # probed from here: the homeserver cannot sign anyone in without it.
+    # The MAS image is distroless with no HTTP client, so MAS is probed from here through its
+    # public discovery resource: the homeserver cannot sign anyone in without it.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "--fail-early", "-o", "/dev/null", "http://localhost:8008/health", "-o", "/dev/null", "http://mas:8081/health"]
+      test: ["CMD", "curl", "-fsS", "--fail-early", "-o", "/dev/null", "http://localhost:8008/health", "-o", "/dev/null", "http://mas:8080/.well-known/openid-configuration"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -81,6 +85,7 @@ services:
     image: ghcr.io/element-hq/matrix-authentication-service:1.26.0@sha256:e089f1048a1d4a9a492ed17b9fe759100f1bd619407b001f5927928d88b780c4
     user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
     command: ["server", "--config", "/config/config.yaml"]
+    networks: [default, matrix-db]
     volumes:
       - ./matrix/mas:/config:ro
     depends_on:
@@ -105,6 +110,10 @@ services:
 secrets:
   postgres_password:
     file: ./matrix/secrets/postgres_password
+
+networks:
+  matrix-db:
+    internal: true
 
 volumes:
   matrix-postgres:

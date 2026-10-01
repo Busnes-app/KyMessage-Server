@@ -13,13 +13,6 @@ http:
         - name: assets
       binds:
         - address: "[::]:8080"
-    # Internal only: never route this port.
-    - name: internal
-      resources:
-        - name: health
-        - name: adminapi
-      binds:
-        - address: "[::]:8081"
 database:
   host: postgres
   username: mas
