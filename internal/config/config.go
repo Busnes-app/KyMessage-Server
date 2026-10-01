@@ -3,8 +3,10 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,13 +29,19 @@ type Config struct {
 	Matrix   MatrixConfig   `json:"matrix"`
 }
 
-// MatrixConfig locates the optional Matrix stack: all three set, or none. Hosts are https
-// origins with no trailing slash.
+// MatrixConfig locates the optional Matrix stack: all set, or none. Hosts are https origins
+// with no trailing slash. AdminURL reaches MAS's admin API on the internal network.
 type MatrixConfig struct {
-	ServerName string `json:"server_name"`
-	Host       string `json:"host"`
-	ChatHost   string `json:"chat_host"`
+	ServerName    string `json:"server_name"`
+	Host          string `json:"host"`
+	ChatHost      string `json:"chat_host"`
+	AdminURL      string `json:"admin_url"`
+	AdminClientID string `json:"admin_client_id"`
+	AdminSecret   string `json:"-"`
 }
+
+// Enabled reports whether the Matrix stack is configured.
+func (m MatrixConfig) Enabled() bool { return m.ServerName != "" }
 
 // ServerConfig defines HTTP and network settings.
 type ServerConfig struct {
@@ -259,8 +267,12 @@ func matrixFromEnv() (MatrixConfig, error) {
 		ServerName: getEnv("KY_MATRIX_SERVER_NAME", ""),
 		Host:       getEnv("KY_MATRIX_HOST", ""),
 		ChatHost:   getEnv("KY_MATRIX_CHAT_HOST", ""),
+
+		AdminURL:      getEnv("KY_MATRIX_ADMIN_URL", ""),
+		AdminClientID: getEnv("KY_MATRIX_ADMIN_CLIENT_ID", ""),
 	}
-	if m == (MatrixConfig{}) {
+	secretFile := getEnv("KY_MATRIX_ADMIN_SECRET_FILE", "")
+	if m == (MatrixConfig{}) && secretFile == "" {
 		return m, nil
 	}
 	if err := matrixinit.ValidServerName(m.ServerName); err != nil {
@@ -275,6 +287,20 @@ func matrixFromEnv() (MatrixConfig, error) {
 			return MatrixConfig{}, fmt.Errorf("%s: %w", h.env, err)
 		}
 		*h.v = o
+	}
+	u, err := url.Parse(m.AdminURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_ADMIN_URL %q must be an http(s) origin with no path", m.AdminURL)
+	}
+	m.AdminURL = u.Scheme + "://" + u.Host
+	if m.AdminClientID == "" {
+		return MatrixConfig{}, errors.New("KY_MATRIX_ADMIN_CLIENT_ID is required with the Matrix stack (printed by matrix-init)")
+	}
+	b, err := os.ReadFile(secretFile)
+	m.AdminSecret = strings.TrimSpace(string(b))
+	if err != nil || m.AdminSecret == "" {
+		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_ADMIN_SECRET_FILE %q must name a readable, non-empty file: %v", secretFile, err)
 	}
 	return m, nil
 }
