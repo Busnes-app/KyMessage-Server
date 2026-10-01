@@ -17,8 +17,13 @@ it is a separate later project (a self-built Teams bot), not part of this design
 1. **Shape — Ky control plane around stock Matrix.** Synapse, Matrix Authentication Service
    (MAS), PostgreSQL and Element Web run as unmodified upstream containers in KyMessages'
    Compose. The KyMessages Go server is the control plane: console, KyIdentity integration
-   glue, offboarding sync, KyRecovery backups, health. No fork; AGPL components stay
-   unmodified (licence obligations then stay minimal — not legal advice).
+   glue, offboarding sync, KyRecovery backups, health. No fork.
+   **AGPL rule (owner-approved 2026-10-01):** Synapse, MAS and Element Web are used as
+   unmodified official upstream images, pulled by KyMessages' Compose file (never
+   repackaged into a Ky image), configured only through their config files and HTTP APIs.
+   No code patches and no HTML/template overrides; branding is config-only. The console
+   links to the exact upstream source release of each component. KyMessages' own code
+   stays MIT. (Understanding, not legal advice.)
 2. **Homeserver — Synapse + MAS + PostgreSQL.** The spike-validated stack. "SQLite, one
    instance" stops being the chat target; KyMessages' own console settings may stay in SQLite.
    Lighter homeservers (Tuwunel) may be trialled later.
@@ -80,6 +85,5 @@ decrypting); a lighter homeserver trial.
 
 - The unexplained plaintext message (gate in sub-project 2).
 - MFA enforcement relies on KyIdentity per-app policy; MAS ignores `acr` (untested).
-- AGPL components: unmodified use assumed acceptable — owner to confirm before shipping.
 - Teams: no bridge exists; partner tenants likely need their admin's consent (unverified).
 - Operational weight rises (PostgreSQL + several services) versus the old single binary.
