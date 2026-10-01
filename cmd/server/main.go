@@ -219,6 +219,9 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 // backupTick runs the people capsule if due. A run that finds the library lock held (an admin
 // run) is left unstamped and so still due; the next tick retries it.
 func backupTick(ctx context.Context, cfg *config.Config, st store.Store, rc recoveryclient.RunConfig, client recoveryclient.Depositor) {
+	if ctx.Err() != nil {
+		return // shutdown: the select may still have picked the ticker
+	}
 	runCtx := context.WithoutCancel(ctx)
 	settings := backup.Settings(runCtx, st.Settings())
 	next, on, err := recoveryclient.NextRun(cfg.Backup.DepositInterval, settings)
@@ -255,8 +258,30 @@ func recordRun(ctx context.Context, st store.Store, actor, action string, res re
 	log.Printf("[BACKUP] %s: capsule %s (%d bytes) local=%q deposited=%t", actor, res.Manifest.CapsuleID, res.SizeBytes, res.LocalPath, res.Receipt != nil)
 }
 
+// parseNoArgs refuses every flag and positional argument: these commands take none.
+func parseNoArgs(name string, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(out)
+	fs.Usage = func() { fmt.Fprintf(out, "Usage: kymessages %s\n", name) }
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		fs.Usage()
+		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	return nil
+}
+
+func mustParseNoArgs(name string, args []string) {
+	if err := parseNoArgs(name, args, os.Stderr); err != nil {
+		os.Exit(2)
+	}
+}
+
 // runDeposit seals and delivers one capsule now, for cron or an operator at a shell.
 func runDeposit(args []string) {
+	mustParseNoArgs("deposit", args)
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -345,6 +370,7 @@ func collectFiles(ctx context.Context, cfg *config.Config) recoveryclient.Payloa
 }
 
 func runBackupDrill(args []string) {
+	mustParseNoArgs("backup-drill", args)
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -356,11 +382,7 @@ func runBackupDrill(args []string) {
 	}
 	defer st.Close()
 
-	payload, err := backup.Collect(ctx, cfg, appVersion)
-	if err != nil {
-		log.Fatalf("Failed to collect backup files: %v", err)
-	}
-	result, err := backup.RunDrill(ctx, cfg, payload, backup.Checks)
+	result, err := backup.RunDrill(ctx, cfg, collectFiles(ctx, cfg), backup.Checks)
 	if err != nil {
 		log.Fatalf("Drill execution error: %v", err)
 	}
@@ -419,19 +441,19 @@ func stdinIsTerminal() bool {
 }
 
 func runRestore(args []string) {
-	restoreCommand(args, "restore", "to", "empty directory to restore into", restore)
+	restoreCommand(args, restore)
 }
 
 // restoreCommand parses a restore command's flags and reads custodian shares from stdin.
-func restoreCommand(args []string, name, dirFlag, dirUsage string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
-	fs := flag.NewFlagSet(name, flag.ExitOnError)
+func restoreCommand(args []string, run func(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error) {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
 	capsulePath := fs.String("capsule", "", "path to the .kycap file")
-	target := fs.String(dirFlag, "", dirUsage)
+	target := fs.String("to", "", "empty directory to restore into")
 	service := fs.String("service", "", "expected service name (default: $KY_APP_NAME)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: kymessages %s -capsule <file.kycap> -%s <dir> [-service <name>]\n\n"+
+		fmt.Fprintf(os.Stderr, "Usage: kymessages restore -capsule <file.kycap> -to <dir> [-service <name>]\n\n"+
 			"Custodian shares are read from stdin, one ky2-... share per line, and never from\n"+
-			"the command line: argv is world-readable and lands in shell history.\n\n", name, dirFlag)
+			"the command line: argv is world-readable and lands in shell history.\n\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -462,6 +484,6 @@ func restoreCommand(args []string, name, dirFlag, dirUsage string, run func(caps
 		log.Fatal("Error: no custodian shares on stdin")
 	}
 	if err := run(*capsulePath, *target, *service, shares, os.Stdout); err != nil {
-		log.Fatalf("%s failed: %v", name, err)
+		log.Fatalf("restore failed: %v", err)
 	}
 }

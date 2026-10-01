@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -173,5 +174,35 @@ func TestBackupTickInProgressLeavesItDue(t *testing.T) {
 	next, on, err := recoveryclient.NextRun(time.Hour, backup.Settings(context.Background(), st.Settings()))
 	if err != nil || !on || next.After(time.Now()) {
 		t.Fatalf("not due: %v %v %v", next, on, err)
+	}
+}
+
+// Nothing may start once shutdown has begun: the run uses a detached context, so a tick that
+// raced the ticker would seal a full capsule nobody waits for.
+func TestBackupTickDoesNothingAfterShutdown(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	ran := stubRun(t, func() error { return nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	backupTick(ctx, cfg, st, recoveryclient.RunConfig{}, nil)
+	if *ran != 0 {
+		t.Fatalf("ran %d times after shutdown", *ran)
+	}
+	if _, err := st.Settings().GetSetting(context.Background(), "backup_last_attempt"); err == nil {
+		t.Fatal("attempt stamped after shutdown")
+	}
+}
+
+// deposit and backup-drill take no flags; the retired -messages must be refused, not ignored.
+func TestCLIRefusesUnknownFlags(t *testing.T) {
+	for _, name := range []string{"deposit", "backup-drill"} {
+		for _, args := range [][]string{{"-messages"}, {"-bogus"}, {"extra"}} {
+			if err := parseNoArgs(name, args, io.Discard); err == nil {
+				t.Errorf("%s %v accepted", name, args)
+			}
+		}
+		if err := parseNoArgs(name, nil, io.Discard); err != nil {
+			t.Errorf("%s with no args: %v", name, err)
+		}
 	}
 }

@@ -157,3 +157,24 @@ func TestRestoreRefusesOneShare(t *testing.T) {
 		t.Fatal("one share of a 2-of-3 kit was accepted")
 	}
 }
+
+// A restore that fails after extraction must not leave the decrypted payload behind.
+func TestRestoreFailureRemovesExtractedFiles(t *testing.T) {
+	key, shares := testKit(t)
+	path := sealTo(t, key, recoveryclient.Payload{ServiceName: "busnes_app", AppVersion: "1.0.0",
+		Files: []recoveryclient.File{{Path: "data/encryption.key", Data: []byte(strings.Repeat("01", 32)), Mode: 0600}}})
+	absent := filepath.Join(t.TempDir(), "restored")
+	if err := restore(path, absent, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+		t.Fatal("restore without a database succeeded")
+	}
+	if _, err := os.Lstat(absent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("absent target left behind: %v", err)
+	}
+	empty := t.TempDir()
+	if err := restore(path, empty, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+		t.Fatal("restore without a database succeeded")
+	}
+	if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+		t.Fatalf("empty target not emptied: %v %v", entries, err)
+	}
+}

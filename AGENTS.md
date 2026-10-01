@@ -196,7 +196,7 @@ work is abandoned with a log line rather than killed silently.
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (migration/startup pruning), invalidates
-restored grants and closes it before reporting success. Keep the target offline on failure.
+restored grants and closes it before reporting success. A failure after extraction removes what was extracted (the target itself if restore created it).
 Users recover identity with fresh suite authentication; never restore or rewind browser
 MLS state. Root owns this policy and `docs/RESTORE.md`.
 

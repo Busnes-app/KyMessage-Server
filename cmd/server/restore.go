@@ -22,17 +22,36 @@ import (
 // The product invalidates stale grants before reporting a usable restored server.
 func restore(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
 	var manifest bytes.Buffer
+	_, statErr := os.Lstat(targetDir)
+	existed := statErr == nil
 	if err := recoveryclient.Restore(capsulePath, targetDir, expectService, shares, &manifest); err != nil {
 		return err
 	}
 	if err := prepareRestoredData(targetDir); err != nil {
-		return fmt.Errorf("restored files are NOT ready to serve: %w; keep the target offline", err)
+		return errors.Join(fmt.Errorf("restore failed, restored files were removed: %w", err), removeExtracted(targetDir, existed))
 	}
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly. Browser keys/history were not restored.")
 	return err
+}
+
+// removeExtracted deletes what extraction wrote: the whole target if restore created it, else
+// only its entries (the lib requires an empty target, so nothing else is in there).
+func removeExtracted(target string, existed bool) error {
+	if !existed {
+		return os.RemoveAll(target)
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, e := range entries {
+		errs = append(errs, os.RemoveAll(filepath.Join(target, e.Name())))
+	}
+	return errors.Join(errs...)
 }
 
 func prepareRestoredData(target string) error {
