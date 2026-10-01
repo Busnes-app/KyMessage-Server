@@ -1,4 +1,4 @@
-.PHONY: all build build-web test test-race test-postgres test-web tidy-check lint smoke ci run clean docker-build
+.PHONY: all build build-web test test-race test-postgres test-web tidy-check lint smoke ci matrix-acceptance run clean docker-build
 
 all: build-web build
 
@@ -46,6 +46,11 @@ smoke: build
 
 ci: tidy-check lint test-race test-web smoke
 	@echo "==> Local CI checks passed"
+
+# Not part of ci: needs docker, Playwright Chromium and a KyIdentity-server checkout
+# (KYIDENTITY_SRC, default ../KyIdentity-server). CI runs it as its own job.
+matrix-acceptance:
+	@MATRIX_ACCEPT_REPRODUCE=1 bash scripts/matrix-acceptance.sh
 
 run: build
 	@./kymessages

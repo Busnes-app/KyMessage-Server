@@ -36,3 +36,7 @@ coverage.out
 .superpowers/
 
 /kymessages
+
+# Matrix acceptance harness (scripts/matrix-acceptance.sh)
+scripts/matrix-acceptance/node_modules/
+scripts/matrix-acceptance/artifacts/

@@ -142,9 +142,22 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - Docker image build and container HTTP check
 - Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
+- `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
+  in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
+  (CI: a pinned checkout), runs `matrix-init` and the Matrix overlay as Compose project
+  `kymatrix-accept-<pid>` (own network and volumes; its exit trap runs `down -v` on that
+  project only) behind a harness TLS proxy with a throwaway CA, so shipped configs run
+  unmodified over https. Playwright drives Element: native OIDC sign-in, key setup, DM and
+  group messages read by the other user. It asserts no `m.room.message` in encrypted rooms
+  and no plaintext in a Synapse `pg_dump`; registration, password login and federation
+  refused; unassigned and username-less KyIdentity users refused; mixed-case usernames
+  mapped. `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
+  scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
+  Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.
 
 `make lint` and `make ci` need docker compose v2.24 or later and jq for
-the compose checks. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
+the compose checks. `make matrix-acceptance` also needs node, openssl, Playwright Chromium
+(`npx playwright install chromium` in `scripts/matrix-acceptance`) and a KyIdentity-server checkout. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
 ## Child DOX Index
 
