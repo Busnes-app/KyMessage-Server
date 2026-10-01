@@ -42,10 +42,11 @@ it is a separate later project (a self-built Teams bot), not part of this design
    enforce `m.room.encryption`, so a non-encrypting client or script can post plaintext into an
    encrypted room, and the server does not stop it. Docs say so plainly
    (`docs/CHAT-PLATFORM-OPTIONS.md` section 7).
-6. **Offboarding — webhook plus sweep.** KyIdentity's signed directory webhook
-   (`/api/sso/kyidentity/sync`) deactivate/delete locks the user through the MAS admin API
-   (ends sessions, blocks sign-in); reactivation unlocks. A periodic sweep reconciles
-   KyIdentity's directory with MAS to repair missed deliveries. Every action is audited.
+6. **Offboarding — back-channel logout, webhook plus sweep.** KyIdentity's back-channel
+   logout ends the user's MAS sessions within seconds; its signed directory webhook
+   (`/api/sso/kyidentity/sync`) then locks (disable) or deactivates (delete) the user through
+   the MAS admin API; reactivation unlocks. A sweep repairs failed MAS calls. Every action is
+   audited. Detail: `2026-10-01-matrix-offboarding-design.md`.
    (Spike: KyIdentity disable alone leaves live sessions; Synapse deactivate is undone by MAS.)
 7. **Backups — one consistent server capsule.** Synapse and MAS database dumps taken as one
    point in time, plus MAS secrets (`secrets.encryption`, keys), the Synapse signing key and
