@@ -129,7 +129,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet` (plus `-tags rehearsal ./scripts/rehearsal`), `go mod tidy`/`verify`
+- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`; the `rehearsal`-tagged helper is vetted and its `scratch()` path guard tested
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`

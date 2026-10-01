@@ -78,3 +78,10 @@ it('rejects a device without its expiry',async () => {
   render(<SuspendedDevices />);
   expect((await screen.findByRole('alert')).textContent).toContain('Invalid');
 });
+
+it('rejects an expiry that is not a representable date',async () => {
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[{...device,expires_at:Number.MAX_SAFE_INTEGER}],truncated:false})));
+  render(<SuspendedDevices />);
+  expect((await screen.findByRole('alert')).textContent).toContain('Invalid');
+  expect(screen.queryByText(/Invalid Date/)).toBeNull();
+});

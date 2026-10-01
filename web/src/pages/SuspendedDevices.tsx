@@ -12,13 +12,18 @@ function whole(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Invalid suspended device list');
   return value;
 }
+function date(value: unknown): number {
+  const seconds = whole(value);
+  if (Number.isNaN(new Date(seconds*1000).getTime())) throw new Error('Invalid suspended device list');
+  return seconds;
+}
 function devicesResponse(value: unknown): {devices:Device[]; truncated:boolean} {
   const body = value as {devices?: unknown; truncated?: unknown} | null;
   if (body === null || typeof body !== 'object' || !Array.isArray(body.devices) || typeof body.truncated !== 'boolean') throw new Error('Invalid suspended device list');
   const truncated = body.truncated;
   return {truncated, devices: body.devices.map(raw => {
     const d = (raw ?? {}) as Record<string, unknown>;
-    return {id:text(d.id), username:text(d.username), name:text(d.name), fingerprint:text(d.fingerprint), createdAt:whole(d.created_at), generation:whole(d.identity_generation), expiresAt:whole(d.expires_at)};
+    return {id:text(d.id), username:text(d.username), name:text(d.name), fingerprint:text(d.fingerprint), createdAt:whole(d.created_at), generation:whole(d.identity_generation), expiresAt:date(d.expires_at)};
   })};
 }
 

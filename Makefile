@@ -39,6 +39,7 @@ lint:
 	@test -z "$$(gofmt -l $$(git ls-files '*.go'))" || { echo "gofmt needed:"; gofmt -l $$(git ls-files '*.go'); exit 1; }
 	@go vet ./...
 	@go vet -tags rehearsal ./scripts/rehearsal
+	@go test -tags rehearsal ./scripts/rehearsal
 
 smoke: build
 	@./scripts/smoke-test.sh
