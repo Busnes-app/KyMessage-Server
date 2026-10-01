@@ -548,6 +548,9 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 	if err := json.Unmarshal(owner.Body.Bytes(), &mine); err != nil || len(mine.Devices) != 1 || mine.Devices[0]["expires_at"] != expires {
 		t.Fatalf("%s %v", owner.Body.String(), err)
 	}
+	if list.Devices[0]["fingerprint"] != mine.Devices[0]["fingerprint"] {
+		t.Fatalf("admin fingerprint %v, owner sees %v", list.Devices[0]["fingerprint"], mine.Devices[0]["fingerprint"])
+	}
 	theirs := messagingRequest(t, srv, "GET", "/api/messaging/devices", bob, "", nil)
 	if strings.Contains(theirs.Body.String(), "expires_at") {
 		t.Fatal(theirs.Body.String())

@@ -144,10 +144,15 @@ func (s *Server) messagingError(w http.ResponseWriter, err error) {
 	}
 }
 
+// fingerprint is the hex SHA-256 of a device's decoded public key.
+func fingerprint(publicKey string) string {
+	key, _ := base64.StdEncoding.DecodeString(publicKey)
+	sum := sha256.Sum256(key)
+	return hex.EncodeToString(sum[:])
+}
+
 func deviceView(d store.MessagingDevice) map[string]any {
-	key, _ := base64.StdEncoding.DecodeString(d.PublicKey)
-	fingerprint := sha256.Sum256(key)
-	view := map[string]any{"id": d.ID, "user_id": d.UserID, "name": d.Name, "public_key": d.PublicKey, "fingerprint": hex.EncodeToString(fingerprint[:]), "status": d.Status, "approved_by": d.ApprovedBy, "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration}
+	view := map[string]any{"id": d.ID, "user_id": d.UserID, "name": d.Name, "public_key": d.PublicKey, "fingerprint": fingerprint(d.PublicKey), "status": d.Status, "approved_by": d.ApprovedBy, "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration}
 	if d.SuspensionExpiresAt != 0 {
 		view["expires_at"] = d.SuspensionExpiresAt
 	}
@@ -346,8 +351,7 @@ func (s *Server) handleSuspendedDevices(w http.ResponseWriter, r *http.Request) 
 	}
 	views := make([]map[string]any, 0, len(devices))
 	for _, d := range devices {
-		view := deviceView(store.MessagingDevice{ID: d.ID, PublicKey: d.PublicKey})
-		views = append(views, map[string]any{"id": d.ID, "user_id": d.UserID, "username": d.Username, "name": d.Name, "fingerprint": view["fingerprint"], "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration, "expires_at": d.ExpiresAt})
+		views = append(views, map[string]any{"id": d.ID, "user_id": d.UserID, "username": d.Username, "name": d.Name, "fingerprint": fingerprint(d.PublicKey), "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration, "expires_at": d.ExpiresAt})
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"devices": views, "truncated": truncated})
 }

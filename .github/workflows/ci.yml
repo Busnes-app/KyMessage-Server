@@ -43,6 +43,7 @@ jobs:
       - run: go mod verify
       - run: go vet ./...
       - run: go vet -tags rehearsal ./scripts/rehearsal
+      - run: go test -tags rehearsal ./scripts/rehearsal
       - run: go build ./...
 
       - name: Tests with race detector and coverage

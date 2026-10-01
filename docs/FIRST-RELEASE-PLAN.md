@@ -46,14 +46,14 @@ prototype test is not production approval.
    assets and local installation/configuration documentation are implemented. HTTPS
    deployment, integrated messaging UX and supported-browser declaration remain open. Keep the disposable
    fixture and experimental unaudited client out of deployment until their gates pass.
-5. **Operations and recovery — in progress.** SQLite capsule restoration now prunes
-   expired ciphertext, invalidates restored grants and permanently retires old rooms.
-   Fresh identity recovery and new rooms avoid resuming stale MLS state. A real
-   sealed-capsule round trip and SQLite/PostgreSQL grant-policy tests pass. Product
-   identity wiring and local scheduled-backup acceptance are implemented. The screen
-   reports the latest recorded attempt separately from an older remote receipt.
-   A running-server drill covers live schedule changes, failure retry timing, local
-   copies/pruning and shutdown. Live remote-deposit/deployment checks remain open; the source-build restore runbook records the implemented recovery policy.
+5. **Operations and recovery — in progress.** The people capsule (accounts, access,
+   settings, no messaging rows) runs daily by default once a key and destination are set; the messages capsule is opt-in,
+   on its own schedule. `restore` invalidates restored grants; `restore-messages` then
+   imports rooms and history with approved devices suspended (no token). An owner resumes
+   a device by re-proving its key after a fresh sign-in; an admin can revoke a suspended
+   device first, and one not resumed within 30 days is revoked automatically. Scheduled
+   local backups and a running-server drill pass. Live remote-deposit/deployment checks
+   remain open; `docs/RESTORE.md` records the restore policy.
 6. **Release evidence — open.** Run CI on both database engines, production browser
    regressions, dependency checks, recovery drills, declared-host load tests and
    protocol/application-binding security review. Record actual supported browsers
