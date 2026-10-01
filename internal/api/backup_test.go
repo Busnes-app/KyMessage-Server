@@ -951,6 +951,20 @@ func TestMessagesScheduleIsIndependentAndOffByDefault(t *testing.T) {
 	}
 }
 
+// A missing copies directory (message backups never run) must still report an array:
+// the web screen rejects null and would disable every backup action.
+func TestStatusReportsEmptyLocalCopiesAsArray(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	cfg.Backup.Dir = filepath.Join(t.TempDir(), "capsules")
+	session := loginAs(t, srv, st, "copies-admin", "admin")
+	status := statusOf(t, srv, session)
+	for name, kind := range map[string]map[string]any{"people": status, "messages": status["messages"].(map[string]any)} {
+		if copies, ok := kind["local_copies"].([]any); !ok || len(copies) != 0 {
+			t.Errorf("%s local_copies = %#v, want []", name, kind["local_copies"])
+		}
+	}
+}
+
 func TestMessagesDepositAuditsUnderItsOwnActionAndCopiesSeparately(t *testing.T) {
 	srv, st, cfg := setupSQLiteServer(t)
 	cfg.Backup.Dir = filepath.Join(t.TempDir(), "capsules")

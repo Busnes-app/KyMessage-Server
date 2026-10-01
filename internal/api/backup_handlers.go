@@ -617,6 +617,9 @@ func (s *Server) kindStatus(ctx context.Context, k backupKind, out map[string]an
 	}
 	if s.config.Backup.Dir != "" {
 		if copies, err := recoveryclient.ListLocalCopies(k.localDir(s.config.Backup.Dir), s.config.Server.AppName); err == nil {
+			if copies == nil {
+				copies = []recoveryclient.LocalCopy{} // a missing directory is "no copies", not null
+			}
 			out["local_copies"] = copies
 		} else {
 			out["local_error"] = recoveryclient.AuditSafe(err.Error())
