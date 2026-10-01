@@ -218,7 +218,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - run: shellcheck scripts/*.sh
+      - run: shellcheck scripts/*.sh scripts/matrix-acceptance/*.sh
       - run: go build -o kymessages ./cmd/server
       - run: scripts/smoke-test.sh
       - run: python3 scripts/backup-acceptance.py

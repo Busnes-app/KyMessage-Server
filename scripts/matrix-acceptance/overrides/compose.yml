@@ -6,7 +6,7 @@
 # only that CA; the harness browser trusts only the proxy's key (SPKI pin).
 services:
   kyidentity:
-    image: kymatrix-accept-kyidentity:local
+    image: ${KYMATRIX_ACCEPT_KYID_IMAGE:?}
     pull_policy: never
     environment:
       KYIDENTITY_ISSUER_URL: https://id.kymatrix.test

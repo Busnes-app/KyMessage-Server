@@ -7,7 +7,7 @@
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
 # Compose project kymatrix-accept-<pid> with its own network and volumes; the exit trap runs
-# `down -v` on that project only and deletes the scratch directory.
+# `down -v` on that project only, removes its KyIdentity image and deletes the scratch directory.
 #
 # Env: KYIDENTITY_SRC (KyIdentity-server checkout, default ../KyIdentity-server),
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
@@ -20,14 +20,18 @@ kyid_src=${KYIDENTITY_SRC:-$repo/../KyIdentity-server}
 reproduce=${MATRIX_ACCEPT_REPRODUCE:-0}
 artifacts=${MATRIX_ACCEPT_ARTIFACTS:-$here/artifacts}/kymatrix-accept-$$
 project=kymatrix-accept-$$
-scratch=$(mktemp -d -t kymatrix-accept.XXXXXX)
-state=$scratch/state
-summary=$scratch/summary
+kyid_image=$project-kyidentity:local
 
 for tool in docker go node npm openssl curl jq; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
 done
 [[ -f $kyid_src/Dockerfile ]] || { echo "matrix-acceptance: no KyIdentity checkout at $kyid_src (set KYIDENTITY_SRC)" >&2; exit 2; }
+
+scratch=$(mktemp -d -t kymatrix-accept.XXXXXX)
+# Until cleanup is defined below, an early exit still removes the scratch dir.
+trap 'rm -rf "$scratch"' EXIT
+state=$scratch/state
+summary=$scratch/summary
 
 umask 077
 mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra"
@@ -49,6 +53,7 @@ export KY_KYIDENTITY_ISSUER=https://id.kymatrix.test
 export KY_MATRIX_MAS_CLIENT_ID=kymatrix-mas
 KYMATRIX_ACCEPT_ADMIN_PASS=$(openssl rand -hex 16)
 export KYMATRIX_ACCEPT_ADMIN_PASS
+export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image
 
 dc() {
 	docker compose --progress quiet -p "$project" --project-directory "$scratch" \
@@ -69,6 +74,7 @@ cleanup() {
 		echo "matrix-acceptance: logs and traces in $artifacts" >&2
 	fi
 	dc down -v --timeout 10 >/dev/null 2>&1 || echo "matrix-acceptance: down -v failed for project $project" >&2
+	docker image rm "$kyid_image" >/dev/null 2>&1 || true
 	echo "== summary (total $((SECONDS - started))s)"
 	[[ -f $summary ]] && cat "$summary"
 	rm -rf "$scratch"
@@ -88,6 +94,13 @@ sql() { dc exec -T postgres psql -U postgres -d "$1" -Atc "$2"; }
 hcurl() { curl -sS --cacert "$scratch/tls/ca.crt" --connect-to "::$tls_addr" "$@"; }
 # status METHOD URL [curl args...]: the HTTP status only.
 status() { local m=$1 u=$2; shift 2; hcurl -o /dev/null -w '%{http_code}' -X "$m" "$@" "$u"; }
+# answer METHOD URL [curl args...]: "<status> <errcode>"; the body stays in state/answer.json.
+answer() {
+	local m=$1 u=$2 code
+	shift 2
+	code=$(hcurl -o "$state/answer.json" -w '%{http_code}' -X "$m" "$@" "$u")
+	echo "$code $(jq -r '.errcode // "-"' "$state/answer.json" 2>/dev/null || echo unparsable)"
+}
 # Readiness poll with a deadline (30 tries, 1s apart).
 ready() { hcurl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors "$1" 2>/dev/null || { echo "  FAILED: $1 not ready" >&2; return 1; }; }
 kyid() { "$here/kyid-admin.sh" "$@"; }
@@ -97,19 +110,26 @@ matrix_init() { "$scratch/kymessages" matrix-init -dir "$scratch/matrix"; }
 # ---------------------------------------------------------------------------------------
 step build
 go build -C "$repo" -o "$scratch/kymessages" ./cmd/server
-docker build -q -t kymatrix-accept-kyidentity:local "$kyid_src" >/dev/null
+docker build -q -t "$kyid_image" "$kyid_src" >/dev/null
 npm ci --prefix "$here" --no-audit --no-fund --silent
 ok "kymessages, KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
 pass
 
 # ---------------------------------------------------------------------------------------
 step matrix-init
+# no_insecure WHAT PATH...: passes only on grep's "no match" (1); a match (0) or a missing or
+# unreadable path (2) fails.
+no_insecure() {
+	local what=$1 rc=0
+	shift
+	grep -rniE 'insecure' "$@" || rc=$?
+	((rc == 1)) || { echo "  FAILED: $what mention insecure or are unreadable (grep rc $rc)" >&2; return 1; }
+	ok "$what contain no 'insecure'"
+}
+rendered=("$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/mas/config.yaml" "$scratch/matrix/element/config.json")
+
 # Shipped templates and overlay carry no insecure setting (Task 1 pins it; repeated here).
-if grep -rniE 'insecure' "$repo/internal/matrixinit/templates" "$repo/docker-compose.matrix.yml"; then
-	echo "  FAILED: shipped Matrix configs mention insecure" >&2
-	false
-fi
-ok "shipped templates and docker-compose.matrix.yml contain no 'insecure'"
+no_insecure "shipped templates and docker-compose.matrix.yml" "$repo/internal/matrixinit/templates" "$repo/docker-compose.matrix.yml"
 
 # Throwaway CA and one leaf for the four https hosts.
 (
@@ -134,11 +154,7 @@ KY_MATRIX_MAS_CLIENT_SECRET=pending-registration matrix_init >"$state/init1.out"
 redirect_uri=$(awk '$1 == "redirect" && $2 == "URI" { print $3 }' "$state/init1.out")
 expect "$redirect_uri" "$KY_MATRIX_AUTH_HOST/upstream/callback/$(cat "$scratch/matrix/secrets/upstream_provider_id")" \
 	"matrix-init printed the redirect URI"
-if grep -liE 'insecure' "$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/mas/config.yaml" "$scratch/matrix/element/config.json"; then
-	echo "  FAILED: rendered configs mention insecure" >&2
-	false
-fi
-ok "rendered configs are used unmodified (no insecure overrides)"
+no_insecure "rendered configs (used unmodified)" "${rendered[@]}"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -171,7 +187,7 @@ declare -A kid
 for u in "${users[@]}"; do
 	openssl rand -hex 16 >"$state/$u.pass"
 	kid[$u]=$(kyid POST /api/admin/users "$(jq -n --arg u "$u" --arg p "$(cat "$state/$u.pass")" \
-		'{username: $u, displayName: ($u | split("@")[0]), email: (($u | ascii_downcase | gsub("[^a-z0-9.]"; "-")) + "@kymatrix.test"), password: $p}')" | jq -r .user.id)
+		'{username: $u, displayName: ($u | split("@")[0]), email: (($u | ascii_downcase | gsub("[^a-z0-9.]"; "-")) + "@kymatrix.test"), password: $p}')" | jq -re .user.id)
 done
 ok "users ${users[*]}"
 kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
@@ -187,6 +203,7 @@ ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallor
 KY_MATRIX_MAS_CLIENT_SECRET=$(jq -r .clientSecret "$state/client.json") matrix_init >"$state/init2.out"
 grep -q 'kept      secrets/upstream_provider_id' "$state/init2.out"
 ok "matrix-init re-run: secrets kept, client secret rendered"
+no_insecure "re-rendered configs" "${rendered[@]}"
 dc restart mas >/dev/null
 ready https://auth.kymatrix.test/.well-known/openid-configuration
 dc exec -T tls nginx -s reload 2>/dev/null
@@ -224,24 +241,29 @@ pass
 
 # ---------------------------------------------------------------------------------------
 step closed
-expect "$(status POST https://matrix.kymatrix.test/_matrix/client/v3/register -H 'Content-Type: application/json' -d '{}')" 403 "registration refused"
-expect "$(status POST 'https://matrix.kymatrix.test/_matrix/client/v3/register?kind=guest' -H 'Content-Type: application/json' -d '{}')" 403 "guest registration refused"
-echo "  evidence: register -> $(hcurl -X POST -H 'Content-Type: application/json' -d '{}' https://matrix.kymatrix.test/_matrix/client/v3/register)"
-flows=$(hcurl -w ' HTTP %{http_code}' https://matrix.kymatrix.test/_matrix/client/v3/login)
-if grep -q 'm.login.password' <<<"$flows"; then echo "  FAILED: login offers m.login.password: $flows" >&2; false; fi
-ok "GET /login offers no m.login.password ($flows)"
-pw=$(status POST https://matrix.kymatrix.test/_matrix/client/v3/login -H 'Content-Type: application/json' \
-	-d "$(jq -n --arg p "$(cat "$state/bob.pass")" '{type: "m.login.password", identifier: {type: "m.id.user", user: "bob"}, password: $p}')")
-[[ $pw != 200 ]] || { echo "  FAILED: password login accepted" >&2; false; }
-ok "password login with bob's real KyIdentity password refused ($pw)"
+for q in '' '?kind=guest'; do
+	expect "$(answer POST "https://matrix.kymatrix.test/_matrix/client/v3/register$q" -H 'Content-Type: application/json' -d '{}')" \
+		'403 M_FORBIDDEN' "registration$q refused"
+done
+login=$(answer GET https://matrix.kymatrix.test/_matrix/client/v3/login)
+if [[ $login != '404 M_UNRECOGNIZED' ]]; then
+	# Served flows are acceptable only as a 200 that offers no password login.
+	expect "${login%% *}" 200 "GET /login is the exact 404 M_UNRECOGNIZED or a 200 flow list"
+	if jq -e '[.flows[].type] | index("m.login.password")' "$state/answer.json" >/dev/null; then
+		echo "  FAILED: login offers m.login.password: $(cat "$state/answer.json")" >&2
+		false
+	fi
+fi
+ok "GET /login offers no m.login.password ($login)"
+expect "$(answer POST https://matrix.kymatrix.test/_matrix/client/v3/login -H 'Content-Type: application/json' \
+	-d "$(jq -n --arg p "$(cat "$state/bob.pass")" '{type: "m.login.password", identifier: {type: "m.id.user", user: "bob"}, password: $p}')")" \
+	'404 M_UNRECOGNIZED' "password login with bob's real KyIdentity password refused"
 for p in /_matrix/federation/v1/version /_matrix/key/v2/server; do
 	expect "$(status GET "https://matrix.kymatrix.test$p")" 404 "federation path $p not served"
 done
-if dc exec -T synapse curl -s -o /dev/null --max-time 5 http://localhost:8448/; then
-	echo "  FAILED: Synapse listens on 8448" >&2
-	false
-fi
-ok "Synapse has no federation listener (8448 refused)"
+rc=0
+dc exec -T synapse curl -s -o /dev/null --max-time 5 http://localhost:8448/ || rc=$?
+expect "$rc" 7 "Synapse has no federation listener (curl to 8448: connection refused)"
 e2e refused
 expect "$(sql mas "SELECT count(*) FROM users WHERE username = 'mallory'")" 0 "no MAS account for mallory"
 expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links WHERE subject = '${kid[mallory]}'")" 0 "no upstream link for mallory"
@@ -268,20 +290,23 @@ if [[ $reproduce == 1 ]]; then
 	echo "  evidence: event types in the room: $(sql synapse "SELECT string_agg(type || '=' || n, ' ') FROM (SELECT type, count(*) n FROM events WHERE room_id = '$room' GROUP BY type ORDER BY type) t")"
 	echo "  evidence: rita device keys: $(sql synapse "SELECT count(*) FROM e2e_device_keys_json WHERE user_id = '@rita:kymatrix.test'"), cross-signing keys: $(sql synapse "SELECT count(*) FROM e2e_cross_signing_keys WHERE user_id = '@rita:kymatrix.test'")"
 	echo "  evidence: MAS sessions for rita: compat=$(sql mas "SELECT count(*) FROM compat_sessions s JOIN users u USING (user_id) WHERE u.username = 'rita'") oauth2=$(sql mas "SELECT count(*) FROM oauth2_sessions s JOIN users u USING (user_id) WHERE u.username = 'rita'")"
+	# Each message is identified by its content, never by event type alone.
+	stored_as() { sql synapse "SELECT coalesce(string_agg(e.type, ','), 'absent') FROM events e JOIN event_json j USING (event_id) WHERE e.room_id = '$room' AND j.json LIKE '%$1%'"; }
+	element_msg=$(jq -r .element "$state/compat.json")
+	raw_msg=$(jq -r .raw "$state/compat.json")
+	element_as=$(stored_as "$element_msg")
 	sealed=$(sql synapse "SELECT count(*) FROM events WHERE type = 'm.room.encrypted' AND room_id = '$room'")
-	plain=$(sql synapse "SELECT count(*) FROM events WHERE type = 'm.room.message' AND room_id = '$room'")
-	dump=$(dc exec -T postgres pg_dump -U postgres synapse)
-	element_plain=$(grep -cF "$(jq -r .element "$state/compat.json")" <<<"$dump" || true)
-	raw_plain=$(grep -cF "$(jq -r .raw "$state/compat.json")" <<<"$dump" || true)
-	echo "  evidence: m.room.encrypted=$sealed m.room.message=$plain; Element message plaintext in pg_dump: $element_plain; raw API message plaintext in pg_dump: $raw_plain"
-	((sealed >= 1)) || { echo "  FAILED: Element's message never reached Synapse" >&2; false; }
-	if ((element_plain > 0)); then
-		echo "  FINDING: REPRODUCED: Element sent plaintext in encrypted room $room after compat sign-in"
-	else
-		echo "  FINDING: NOT REPRODUCED through Element: its compat-session message is m.room.encrypted on the pinned versions"
+	echo "  evidence: Element message stored in plaintext as: $element_as; m.room.encrypted events in the room: $sealed"
+	if [[ $element_as != absent ]]; then
+		echo "  FINDING: REPRODUCED: Element's compat-session message is stored in plaintext ($element_as) in encrypted room $room"
+		echo "  FAILED: Element sent plaintext into an encrypted room after compat sign-in (see FINDING)" >&2
+		false
 	fi
+	echo "  FINDING: NOT REPRODUCED through Element: its compat-session message is not in plaintext anywhere in the room"
+	((sealed >= 1)) || { echo "  FAILED: Element's message never reached Synapse (no m.room.encrypted in $room)" >&2; false; }
+	ok "Element's message reached Synapse as m.room.encrypted"
 	# Synapse stores what a client sends; the encryption guard is the client.
-	expect "$plain" 1 "control: the raw API send is stored as a plaintext m.room.message in the encrypted room"
+	expect "$(stored_as "$raw_msg")" m.room.message "control: the raw API send is stored as a plaintext m.room.message in the encrypted room"
 	# Same control with alice's native OIDC session: not specific to compat sessions.
 	auth=(-H "Authorization: Bearer $(cat "$state/alice.token")" -H 'Content-Type: application/json')
 	native=$(hcurl -f "${auth[@]}" -d '{"name":"kymatrix-native-raw"}' https://matrix.kymatrix.test/_matrix/client/v3/createRoom | jq -r .room_id)
