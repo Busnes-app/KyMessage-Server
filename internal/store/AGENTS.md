@@ -87,7 +87,9 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   retiring those rooms even after later resets. Preserve ciphertext/receipt metadata
   subject to ordinary retention and audit `restore.grants_invalidated`. Fresh suite
   sign-in, confirmed identity recovery and new rooms are required. Current-generation
-  ownership alone counts toward the 100-room creation limit.
+  ownership alone counts toward the 100-room creation limit. A current people capsule
+  has no messaging rows, so these messaging steps act only on older capsules;
+  `backup.ImportMessages` runs after this on the same offline database.
 - SQLite file-URI directory setup decodes the URI path; never create a literal
   `file:` directory. This permits read/write-only restoration of paths with reserved
   characters without accidentally opening a different database.
@@ -107,6 +109,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - `migrations/migrations_test.go` builds a v16 database through the test-only
   `RunThrough` seam (`export_test.go`) and checks migration 17 on both engines.
 - Delivery tests cover competing commits across connections, deduplication, Welcome isolation, removal/rejoin history floors, device revocation and directory deactivation.
+- Suspended-device tests cover resume, its refusals (another session, bad signature, expired challenge, another account, stale generation, revoked), the admin list's truncation flag and suspended-only admin revoke.
 - KeyPackage tests cover cross-room claims on separate connections, lost-ack retries, rejoin/expiry/revocation denial, publication ownership and pool capacity.
 
 ## Child DOX Index

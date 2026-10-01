@@ -250,11 +250,13 @@ people capsules may contain retained ciphertext. Neither restores browser MLS
 secrets nor the ability to decrypt history after all client keys are lost. The
 server's encryption key in a capsule is an operational key, not a message key.
 
-The adapter takes a consistent SQLite snapshot, then clears delivery payloads only
-in that private copy and compacts it. Event receipt hashes and room topology remain.
-The resulting database must fit the shared 64 MiB file limit; metadata, receipts
-and audit growth can still exceed it and fail backup explicitly. The 5,000 events per
-account per day cap slows but does not stop that growth. Snapshot disk space
+The adapter takes a consistent SQLite snapshot, then empties every messaging table
+and drops `messaging.*` audit rows only in that private copy and compacts it. The
+people database must fit the shared 64 MiB file limit; account, settings and audit
+growth can still exceed it and fail backup explicitly. The messages capsule splits
+events into per-room sequence-range parts under the same file limit and fails above
+the 256 MiB capsule total, naming the largest rooms. The 5,000 events per account per
+day cap slows but does not stop that growth. Snapshot disk space
 still scales with the whole live database. Backup copies have independent retention
 and custodian access to metadata; older capsules may outlive ciphertext retention.
 The restore command prunes expired content and invalidates restored grants before

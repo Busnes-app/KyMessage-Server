@@ -139,6 +139,12 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   shutdown. Time injection changes only its scratch database's last-attempt row.
   No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
+- `scripts/restore-messages-rehearsal.sh` (manual, not in CI): seeds a loopback scratch
+  instance through the API, seals both capsules to a throwaway 2-of-3 key, runs `restore`
+  and `restore-messages` with shares on stdin into an empty directory and checks the
+  restored device is `suspended`. Its helper `scripts/rehearsal` builds only with the
+  `rehearsal` tag; its `session` command writes a suite account and session straight into
+  the scratch database in place of OIDC sign-in.
 - Docker image build and container HTTP check
 - Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
@@ -169,11 +175,12 @@ returns with `scheduler disabled: ...` if that fails, because a run that never s
 attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
 due kinds in sequence, people then messages (opt-in, default off, own schedule/receipt/audit action
 `admin.backup_run_messages`); a kind whose run returns `ErrInProgress` is logged and left unstamped,
-so it is retried next tick. The `deposit` and `backup-drill` commands take `-messages`. It closes its `done` channel
+so it is retried next tick, and on shutdown it stops between kinds, leaving later kinds due. The `deposit` and
+`backup-drill` commands take `-messages`; `export-capsule` seals people only. It closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
-WebSocket handlers and the pair, pin-key, unpair and deposit handlers, which detach from their requests and so outlive
-`Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
+WebSocket handlers, the pair, pin-key, unpair and both deposit handlers, which detach from their requests,
+and the admin suspended-device revoke; all of them can outlive `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
 `messagingMaintenanceLoop` purges events past each room's retention and sweeps expired device pairings every
 minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the

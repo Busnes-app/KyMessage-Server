@@ -79,6 +79,10 @@ ciphertext and prepares restored authority in a transaction:
   ownership, even if a later reset reaches an identity generation used before restore.
 - Record `restore.grants_invalidated`. Close the store before reporting success.
 
+A current people capsule holds no messaging rows, so the revocation and retirement
+steps act only on capsules sealed before the split. `restore-messages` imports after
+this preparation.
+
 A preparation error says the files are **not ready to serve**. Keep the target
 offline, investigate, and repeat restoration into another empty directory. Do not
 use partially prepared files. The command never silently falls back to the old grants.
@@ -191,6 +195,10 @@ policy is also tested on PostgreSQL; capsule extraction remains SQLite-only.
 `go test ./internal/backup` covers the import: dropped people, a room without its
 owner, suspended devices, and refusals (too many or misnamed parts, symlinks, a
 foreign-key failure) that write nothing.
+`scripts/restore-messages-rehearsal.sh` repeats the whole path with the built binary
+in disposable directories: API seeding, `export-capsule`, `deposit -messages` to a
+local directory, `restore` and `restore-messages` with throwaway shares on stdin, and
+a restored server that reports the device `suspended` and refuses its old token.
 `backup-drill` uses a throwaway key, so a successful automated drill does not prove
 that the real custodian cards are available. A controlled ceremony restore with the
 actual cards, and the deployed identity checks, remain operator acceptance work.
