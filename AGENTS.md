@@ -123,7 +123,8 @@ When the user requests a durable behavior change, record it here or in the relev
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
   as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network, and
-  it hands the app the `KY_MATRIX_*` locations. `scripts/check-compose-matrix.sh` checks it
+  it hands the app the `KY_MATRIX_*` locations and MAS admin settings: the internal
+  `matrix-admin` network (only app and mas; alias `mas-admin`) and the admin secret as a Compose secret. `scripts/check-compose-matrix.sh` checks it
   with the proxy and static-IP overlays. MAS's distroless image has no HTTP client, so
   Synapse's healthcheck also probes MAS discovery (`mas:8080/.well-known/openid-configuration`).
   MAS binds only `matrix/mas/config.yaml` with `create_host_path: false`, so `up` refuses MAS
