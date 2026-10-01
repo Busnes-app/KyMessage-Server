@@ -5,11 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
+	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
 // A deployment key that cannot seal is a configuration fault, not a run that might succeed
@@ -106,5 +110,94 @@ func TestWaitForBackupWorkWaitsBothAtOnce(t *testing.T) {
 	})
 	if !finished.Load() {
 		t.Fatal("the detached-handler wait had not run when waitForBackupWork returned; a hung scheduled deposit consumed its whole budget")
+	}
+}
+
+func tickFixture(t *testing.T, peopleEvery, messagesEvery time.Duration) (store.Store, []backupKind) {
+	t.Helper()
+	st, err := store.Open(context.Background(), config.DatabaseConfig{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st, []backupKind{
+		{name: "people", action: "admin.backup_run", settings: func(ctx context.Context) recoveryclient.Settings { return backup.Settings(ctx, st.Settings()) }, defaultEvery: peopleEvery},
+		{name: "messages", action: backup.MessagesRunAction, settings: func(ctx context.Context) recoveryclient.Settings { return backup.MessagesSettings(ctx, st.Settings()) }, defaultEvery: messagesEvery},
+	}
+}
+
+func stubRun(t *testing.T, fn func(kind string) error) *[]string {
+	t.Helper()
+	var ran []string
+	old := runKind
+	t.Cleanup(func() { runKind = old })
+	runKind = func(_ context.Context, k backupKind, s recoveryclient.Settings, _ recoveryclient.Depositor) (recoveryclient.Result, error) {
+		ran = append(ran, k.name)
+		return recoveryclient.Result{}, fn(k.name)
+	}
+	return &ran
+}
+
+func TestBackupTickRunsDueKindsInOrder(t *testing.T) {
+	st, kinds := tickFixture(t, time.Hour, time.Hour)
+	ran := stubRun(t, func(string) error { return nil })
+	backupTick(context.Background(), &config.Config{}, st, kinds, nil)
+	if got := strings.Join(*ran, ","); got != "people,messages" {
+		t.Fatalf("ran %q", got)
+	}
+}
+
+func TestBackupTickSkipsAKindThatIsOff(t *testing.T) {
+	st, kinds := tickFixture(t, time.Hour, 0)
+	ran := stubRun(t, func(string) error { return nil })
+	backupTick(context.Background(), &config.Config{}, st, kinds, nil)
+	if got := strings.Join(*ran, ","); got != "people" {
+		t.Fatalf("ran %q", got)
+	}
+}
+
+// A run that holds the library lock must not starve the other kind, and must not be stamped
+// or audited: the kind stays due, so the next tick retries it.
+func TestBackupTickInProgressLeavesTheKindDue(t *testing.T) {
+	st, kinds := tickFixture(t, time.Hour, time.Hour)
+	ran := stubRun(t, func(k string) error {
+		if k == "people" {
+			return recoveryclient.ErrInProgress
+		}
+		return nil
+	})
+	backupTick(context.Background(), &config.Config{}, st, kinds, nil)
+	if got := strings.Join(*ran, ","); got != "people,messages" {
+		t.Fatalf("ran %q", got)
+	}
+	recs, _, err := st.Audit().ListAuditRecords(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range recs {
+		if r.Action == "admin.backup_run" {
+			t.Fatalf("in-progress run audited: %+v", r)
+		}
+	}
+	// Still due: NextRun is not in the future because nothing stamped an attempt.
+	next, on, err := recoveryclient.NextRun(time.Hour, kinds[0].settings(context.Background()))
+	if err != nil || !on || next.After(time.Now()) {
+		t.Fatalf("people not due: %v %v %v", next, on, err)
+	}
+}
+
+// The shutdown wait is sized for one run: once the loop's context is cancelled during the
+// first kind, the next kind must not start, and stays unstamped and due.
+func TestBackupTickStopsBetweenKindsOnShutdown(t *testing.T) {
+	st, kinds := tickFixture(t, time.Hour, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	ran := stubRun(t, func(string) error { cancel(); return nil })
+	backupTick(ctx, &config.Config{}, st, kinds, nil)
+	if got := strings.Join(*ran, ","); got != "people" {
+		t.Fatalf("ran %q", got)
+	}
+	next, on, err := recoveryclient.NextRun(time.Hour, kinds[1].settings(context.Background()))
+	if err != nil || !on || next.After(time.Now()) {
+		t.Fatalf("messages not due: %v %v %v", next, on, err)
 	}
 }

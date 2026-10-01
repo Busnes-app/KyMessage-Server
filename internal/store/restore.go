@@ -20,7 +20,7 @@ func (s *SQLStore) InvalidateRestoredGrants(ctx context.Context) error {
 		`DELETE FROM sessions`,
 		`DELETE FROM mfa_challenges`,
 		`DELETE FROM device_pairings`,
-		`UPDATE messaging_devices SET status = 'revoked', token_hash = NULL, challenge = '', enrollment_session = ''`,
+		`UPDATE messaging_devices SET ` + revokeDeviceSet,
 		`UPDATE messaging_key_packages SET expires_at = 1`,
 		`UPDATE messaging_members SET status = 'removed'`,
 		// Identity generations are positive. Zero permanently retires ownership,

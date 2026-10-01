@@ -47,6 +47,40 @@ function backupAttempt(value: unknown): BackupAttempt | undefined {
   return { outcome: value.outcome, trigger: value.trigger, recorded_at: value.recorded_at, capsule_id: value.capsule_id };
 }
 
+/** The messages capsule's own schedule, last run, receipt and local copies. */
+export interface MessagesStatus {
+  interval_sec: number;
+  next_run_at?: string;
+  last_run?: BackupAttempt;
+  last_run_error?: string;
+  last_deposit?: DepositReceipt;
+  local_copies?: LocalCopy[];
+  local_error?: string;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value !== undefined && typeof value !== 'string') throw new Error('Invalid message backup status');
+  return value;
+}
+
+function messagesStatus(value: unknown): MessagesStatus | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || !('interval_sec' in value) || typeof value.interval_sec !== 'number' ||
+    !Number.isFinite(value.interval_sec) || value.interval_sec < 0) throw new Error('Invalid message backup status');
+  const v = value as Record<string, unknown>;
+  if (v.local_copies !== undefined && !Array.isArray(v.local_copies)) throw new Error('Invalid message backup status');
+  if (v.last_deposit !== undefined && (typeof v.last_deposit !== 'object' || v.last_deposit === null)) throw new Error('Invalid message backup status');
+  return {
+    interval_sec: value.interval_sec,
+    next_run_at: optionalString(v.next_run_at),
+    last_run: backupAttempt(v.last_run),
+    last_run_error: optionalString(v.last_run_error),
+    last_deposit: v.last_deposit as DepositReceipt | undefined,
+    local_copies: v.local_copies as LocalCopy[] | undefined,
+    local_error: optionalString(v.local_error),
+  };
+}
+
 export interface BackupStatus {
   paired: boolean;
   key_pinned: boolean;
@@ -70,6 +104,7 @@ export interface BackupStatus {
   interval_sec?: number;
   min_interval_sec?: number;
   next_run_at?: string;
+  messages?: MessagesStatus;
 }
 
 interface DrillCheck {
@@ -163,6 +198,160 @@ const Badge: React.FC<{ tone: 'success' | 'accent' | 'danger' | 'muted'; childre
   <span className={tone === 'muted' ? 'badge dr-badge-muted' : `badge badge-${tone}`}>{children}</span>
 );
 
+const ATTEMPT_LABEL = { success: 'Succeeded', warning: 'Needs attention', failure: 'Failed', unknown: 'Outcome unavailable' } as const;
+
+/** Opt-in messages capsule: own schedule (off by default), receipt and local copies. */
+const MessagesBackup: React.FC<{
+  messages: MessagesStatus;
+  canBackUp: boolean;
+  refresh: () => Promise<void>;
+  changeError: (err: unknown, fallback: string) => string;
+}> = ({ messages, canBackUp, refresh, changeError }) => {
+  const [sec, setSec] = useState<number>(messages.interval_sec);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [drilling, setDrilling] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [drill, setDrill] = useState<DrillResult | null>(null);
+  useEffect(() => setSec(messages.interval_sec), [messages.interval_sec]);
+  const copies = messages.local_copies ?? [];
+  const on = messages.interval_sec > 0;
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMessage('');
+    setError('');
+    try {
+      const saved = await call<{ interval_sec: number }>(
+        '/api/backup/messages/schedule',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interval_sec: sec }) },
+        'Could not save the message schedule',
+      );
+      setMessage(saved.interval_sec === 0 ? 'Message backups are off.' : `Backing up messages ${every(saved.interval_sec).toLowerCase()}.`);
+      await refresh();
+    } catch (err) {
+      setError(changeError(err, 'Could not save the message schedule'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const run = async () => {
+    setRunning(true);
+    setMessage('');
+    setError('');
+    try {
+      const res = await call<RunResult>('/api/backup/messages/deposit', { method: 'POST' }, 'Message backup failed');
+      setMessage(`Capsule ${res.manifest.capsule_id} (${bytes(res.size_bytes)}) sealed.`);
+      if (res.local_error) setError(`The local copy failed: ${res.local_error}`);
+      if (res.receipt_unrecorded) setError('KyRecovery holds the capsule but the receipt could not be recorded here; check the audit log.');
+    } catch (err) {
+      setError(changeError(err, 'Message backup failed'));
+    } finally {
+      setRunning(false);
+      await refresh();
+    }
+  };
+
+  const runDrill = async () => {
+    setDrilling(true);
+    setDrill(null);
+    try {
+      setDrill(await call<DrillResult>('/api/backup/messages/drill', { method: 'POST' }, 'Message drill failed to run'));
+    } catch (err) {
+      const m = errorText(err, 'Message drill failed to run');
+      setDrill({ passed: false, duration_ms: 0, error_message: m, checks: [{ name: 'Execution', passed: false, message: m }] });
+    } finally {
+      setDrilling(false);
+    }
+  };
+
+  return (
+    <section className="panel dr-section" aria-label="Message backups">
+      <div className="panel-header">
+        <h3>Message backups</h3>
+        <Badge tone={on ? 'success' : 'muted'}>{every(messages.interval_sec)}</Badge>
+      </div>
+      <p className="dr-hint">
+        Opt-in. Holds threads, members, devices and messages still inside each thread&apos;s retention. Restored devices must be resumed by
+        their owners.
+      </p>
+      <form onSubmit={save} className="dr-row">
+        <label className="dr-field">
+          <span>Back up messages automatically</span>
+          <select value={sec} onChange={(e) => setSec(Number(e.target.value))}>
+            {SCHEDULE_CHOICES.map((c) => (
+              <option key={c.sec} value={c.sec}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={saving || sec === messages.interval_sec}>
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+          <span>Save message schedule</span>
+        </button>
+      </form>
+      {on && messages.next_run_at && <p className="dr-hint">Next message backup {when(messages.next_run_at)}.</p>}
+      <div className="dr-actions">
+        <button type="button" onClick={run} disabled={running || !canBackUp}>
+          {running ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          <span>{running ? 'Sealing…' : 'Back up messages now'}</span>
+        </button>
+        <button type="button" className="btn-secondary" onClick={runDrill} disabled={drilling}>
+          {drilling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+          <span>{drilling ? 'Restoring…' : 'Run message drill'}</span>
+        </button>
+      </div>
+      {messages.last_run ? (
+        <p className="dr-hint">
+          Last message backup: {ATTEMPT_LABEL[messages.last_run.outcome]} — {messages.last_run.trigger}, {when(messages.last_run.recorded_at)}.
+        </p>
+      ) : messages.last_run_error ? (
+        <Alert kind="error">{messages.last_run_error}</Alert>
+      ) : (
+        <p className="dr-hint">No recorded message backup attempts.</p>
+      )}
+      {messages.last_deposit && <p className="dr-hint">Last message receipt {when(messages.last_deposit.deposited_at)}.</p>}
+      {messages.local_error && <Alert kind="error">{messages.local_error}</Alert>}
+      {copies.length > 0 && (
+        <ul className="dr-copies">
+          {copies.map((c) => (
+            <li key={c.name}>
+              <span>{c.name}</span>
+              <span>
+                {bytes(c.size_bytes)} · {when(c.created_at)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {message && <Alert kind="success">{message}</Alert>}
+      {error && <Alert kind="error">{error}</Alert>}
+      {drill && (
+        <div className="dr-drill">
+          <div>
+            Message drill <Badge tone={drill.passed ? 'success' : 'danger'}>{drill.passed ? 'passed' : 'failed'}</Badge>{' '}
+            <span className="dr-hint">{drill.duration_ms} ms</span>
+          </div>
+          {drill.error_message && <div className="dr-danger">{drill.error_message}</div>}
+          <div className="dr-checks">
+            {drill.checks.map((check, idx) => (
+              <div key={idx} className="dr-check">
+                {check.passed ? <CheckCircle2 size={14} className="dr-ok" /> : <XCircle size={14} className="dr-danger" />}
+                <strong>{check.name}</strong>
+                <span className="dr-hint">{check.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
 export const Backup: React.FC = () => {
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
@@ -205,7 +394,7 @@ export const Backup: React.FC = () => {
     try {
       const data = await call<BackupStatus>('/api/backup/status', { method: 'GET' }, 'Could not load backup status');
       if (data.last_run_error !== undefined && typeof data.last_run_error !== 'string') throw new Error('Invalid backup result error');
-      setStatus({ ...data, last_run: backupAttempt(data.last_run) });
+      setStatus({ ...data, last_run: backupAttempt(data.last_run), messages: messagesStatus(data.messages) });
       if (data.recovery_url) setRemoteUrl(data.recovery_url);
       if (typeof data.interval_sec === 'number') setScheduleSec(data.interval_sec);
     } catch (err) {
@@ -536,6 +725,8 @@ export const Backup: React.FC = () => {
         {scheduleMessage && <Alert kind="success">{scheduleMessage}</Alert>}
         {scheduleError && <Alert kind="error">{scheduleError}</Alert>}
       </div>
+
+      {status?.messages && <MessagesBackup messages={status.messages} canBackUp={canBackUp} refresh={fetchStatus} changeError={changeError} />}
 
       <div className="dr-two">
         <div className="panel dr-section">

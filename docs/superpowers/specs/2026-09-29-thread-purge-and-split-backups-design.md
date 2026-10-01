@@ -90,12 +90,16 @@ Today a room refuses writes at 4,096 active events or 32 MiB, which Off would hi
 
 ### Messages capsule (new, opt-in)
 - **Contents:** the messaging tables only, with retained ciphertext, devices and
-  identities, as one or more SQLite files `data/messages/part-NNN.db`.
-  - Each file holds whole rooms, and each file is at most 64 MiB. The capsule total is
-    at most 256 MiB, the library limits.
-  - A room larger than one file fails the backup.
-  - Beyond the total, the backup fails with an explicit error naming the largest
-    rooms. The admin can shorten purge windows.
+  identities, as SQLite files under `data/messages/`.
+  - `accounts.db` holds identities, devices, rooms, members and epoch devices. Only
+    approved and revoked devices are exported, with no token, challenge or enrollment
+    session. No deployment key, KeyPackages, recovery-auth or reset receipts.
+  - `events-NNN.db` parts hold events and their Welcomes as contiguous per-room
+    sequence ranges, so a large room spans parts. A part is cut below the 64 MiB
+    per-file limit and refused above it after compaction.
+  - Beyond the 256 MiB capsule total, the backup fails with an explicit error naming
+    the largest rooms. The admin can shorten purge windows. Import accepts at most 8
+    event parts.
 - **Manifest:** carries `kind: "messages"` and the people-capsule-compatible app
   version.
 - **Schedule:** its own admin schedule, **default off**. KyRecovery deposits reuse the
@@ -111,17 +115,18 @@ Today a room refuses writes at 4,096 active events or 32 MiB, which Off would hi
 ### Restoring messages
 - **Order:** `restore-messages -capsule msgs.kycap -into <people-restored dir>` runs
   offline after a people restore and before serving. It verifies the capsule like
-  `restore`, custodian shares on stdin, and refuses a capsule whose kind isn't
-  `messages`.
+  `restore`, custodian shares on stdin, and refuses a capsule that is not a messages
+  capsule (no `data/messages/accounts.db`, or a people database).
 - **Import:** it imports the messaging rows into the restored database in one
   transaction.
   - Memberships, invitations and devices whose user ID is missing from the people
     database are dropped.
-  - A room whose owner is missing is retired (owner generation 0, as today's restore
-    does).
-  - Every imported device becomes **`suspended`**, and every session stays invalid.
-  - KeyPackages are expired. Recovery-auth requests and reset receipts are not
-    imported.
+  - A room whose owner is missing is not imported, with its events, and is counted
+    as `dropped_rooms`; the result matches deleting the missing people under the
+    schema's ON DELETE CASCADE rules.
+  - Every imported approved device becomes **`suspended`** (token NULL); revoked
+    devices stay revoked, and every session stays invalid.
+  - KeyPackages, recovery-auth requests and reset receipts are not imported.
   - The import is audited as `restore.messages_imported`, with counts of dropped rows.
 - **Pairing mismatch:** a messages capsule older or newer than the people capsule is
   allowed. Anything that no longer references a restored person is dropped, and the
@@ -129,12 +134,18 @@ Today a room refuses writes at 4,096 active events or 32 MiB, which Off would hi
 
 ### Resuming a suspended device
 - `POST /api/messaging/devices/{id}/resume` requires a suite session from the last 10
-  minutes, the same step-up window as backups, and the device's credential.
+  minutes, the same step-up window as backups, on the owner's own suspended device at
+  the account's current identity generation, and proposes a new token hash.
   - The server issues a challenge, and the device signs it with its Ed25519 enrollment
     key.
-  - On success the device returns to `approved` at its identity generation, and the
-    resume is audited.
+  - `.../resume/verify` rechecks the 10-minute window. On success the new token
+    becomes active, the device returns to `approved` at its identity generation, and
+    the resume is audited.
   - Revoked devices cannot resume.
+- Devices not resumed within 30 days of their suspension are revoked automatically:
+  the import stamps `suspended_at`, resume refuses an expired device at once, and the
+  maintenance loop revokes it through the ordinary revocation, audited as
+  `messaging.device_suspension_expired`. The window is fixed, not a setting.
 - An admin view lists suspended devices, and admins can revoke any before users
   return. Suspended devices cannot read, append or approve.
 - **Threads:**
@@ -169,8 +180,8 @@ Today a room refuses writes at 4,096 active events or 32 MiB, which Off would hi
 - **restore-messages:**
   - Imports into a people-restored database.
   - Drops rows for missing people.
-  - Retires ownerless rooms.
-  - Suspends every device.
+  - Drops ownerless rooms.
+  - Suspends every approved device.
   - A resume with a stale session or the wrong key fails; a correct one succeeds.
 - **Browser:** the isolated OIDC suite covers resume after restore on an unchanged
   thread, and the paused outcome on an advanced one.

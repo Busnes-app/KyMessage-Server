@@ -163,7 +163,7 @@ func TestCollectRefusesADriverItCannotSnapshot(t *testing.T) {
 
 // Exercise collection against realistic aggregate delivery size, not an HTTP abuse
 // scenario: three rooms each below their limit, with individually bounded envelopes.
-func TestSnapshotOmitsDeliveryPayloadsWithoutChangingLiveData(t *testing.T) {
+func TestSnapshotOmitsMessagingDataWithoutChangingLiveData(t *testing.T) {
 	cfg, st := sqliteInstance(t)
 	ctx := context.Background()
 	if err := st.Settings().SetSetting(ctx, "canary", "keep-metadata"); err != nil {
@@ -239,10 +239,9 @@ func TestSnapshotOmitsDeliveryPayloadsWithoutChangingLiveData(t *testing.T) {
 	assertInt(db, "SELECT COUNT(*) FROM messaging_welcomes", 1)
 	assertInt(db, fmt.Sprintf("SELECT COUNT(*) FROM messaging_rooms WHERE retained_bytes=%d AND retained_from=1 AND sequence=300", count*len(payload)), 3)
 	assertInt(db, "SELECT COUNT(*) FROM messaging_key_packages WHERE payload='package-canary' AND expires_at=4102444800", 1)
-	assertInt(copyDB, "SELECT COUNT(*) FROM messaging_events WHERE payload='' AND request_hash='retry-hash'", 3*count)
-	assertInt(copyDB, "SELECT COUNT(*) FROM messaging_welcomes", 0)
-	assertInt(copyDB, "SELECT COUNT(*) FROM messaging_key_packages WHERE id='package' AND payload='' AND expires_at=1", 1)
-	assertInt(copyDB, "SELECT COUNT(*) FROM messaging_rooms WHERE retained_bytes=0 AND retained_from=301 AND sequence=300", 3)
+	for _, table := range backup.MessagingTables {
+		assertInt(copyDB, "SELECT COUNT(*) FROM "+table, 0)
+	}
 	var canary string
 	if err := copyDB.QueryRow("SELECT value FROM server_settings WHERE key='canary'").Scan(&canary); err != nil || canary != "keep-metadata" {
 		t.Fatalf("metadata: %q %v", canary, err)
@@ -257,5 +256,91 @@ func TestSnapshotOmitsDeliveryPayloadsWithoutChangingLiveData(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() || rows.Err() != nil {
 		t.Fatal("snapshot foreign keys failed")
+	}
+}
+
+func TestPeopleCapsuleHasNoMessagingData(t *testing.T) {
+	cfg, _ := sqliteInstance(t)
+	live, err := sql.Open("sqlite", cfg.Database.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	for _, query := range []string{
+		`INSERT INTO users (id,username,created_at,updated_at) VALUES ('alice','alice',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+		`INSERT INTO messaging_identities (user_id) VALUES ('alice')`,
+		`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('dev','alice','d','pk','approved','','',1,'tok',1,1)`,
+		`INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes) VALUES ('room','r','alice',1,1,1,8)`,
+		`INSERT INTO messaging_members (room_id,user_id,status,generation) VALUES ('room','alice','active',1)`,
+		`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES ('room',1,'dev','ev','commit',1,'h','b2xk','h',1)`,
+		`INSERT INTO messaging_welcomes (room_id,sequence,device_id,payload) VALUES ('room',1,'dev','b2xk')`,
+		`INSERT INTO messaging_key_packages (id,device_id,payload,expires_at) VALUES ('kp','dev','p',4102444800)`,
+		`INSERT INTO audit_records (action,details,created_at) VALUES ('messaging.event_accepted','x',CURRENT_TIMESTAMP)`,
+		`INSERT INTO audit_records (action,details,created_at) VALUES ('auth.login','x',CURRENT_TIMESTAMP)`,
+	} {
+		if _, err := live.Exec(query); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	payload, err := backup.Collect(context.Background(), cfg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := findFile(payload.Files, "data/ky_server.db")
+	path := filepath.Join(t.TempDir(), "people.db")
+	if err := os.WriteFile(path, f.Data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	count := func(query string) int {
+		t.Helper()
+		var n int
+		if err := db.QueryRow(query).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	for _, table := range backup.MessagingTables {
+		if n := count("SELECT COUNT(*) FROM " + table); n != 0 {
+			t.Errorf("%s has %d rows in the people capsule", table, n)
+		}
+	}
+	if n := count(`SELECT COUNT(*) FROM audit_records WHERE action LIKE 'messaging.%'`); n != 0 {
+		t.Errorf("%d messaging audit rows in the people capsule", n)
+	}
+	if n := count(`SELECT COUNT(*) FROM audit_records WHERE action = 'auth.login'`); n != 1 {
+		t.Errorf("non-messaging audit rows: %d, want 1", n)
+	}
+	if n := count(`SELECT COUNT(*) FROM users`); n == 0 {
+		t.Error("people missing from the people capsule")
+	}
+}
+
+// Collect empties MessagingTables from the people capsule; a messaging table missing from
+// that list would leak into it.
+func TestMessagingTablesListsEveryMessagingTable(t *testing.T) {
+	cfg, _ := sqliteInstance(t)
+	rows, err := rawDB(t, cfg).Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'messaging\_%' ESCAPE '\' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := slices.Sorted(slices.Values(backup.MessagingTables)); !slices.Equal(tables, want) {
+		t.Fatalf("migrated messaging tables %v, MessagingTables %v", tables, want)
 	}
 }

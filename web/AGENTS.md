@@ -12,6 +12,11 @@ Owns user interface components, service worker caching, PWA installation manifes
   from zero usage, abort on unmount, refresh explicitly and preserve the opened
   room-details disclosure. Members neither render nor fetch this operator view.
   Explain the lifetime receipt counter separately from retention purge and actual disk use.
+- `SuspendedDevices.tsx` renders after `MessagingUsage` on the admin dashboard. It
+  validates the suspended-device DTO (including boolean `truncated`, shown as a note, and
+  `expires_at`, shown as "Revoked automatically on <date>") at the boundary, revokes only after
+  `window.confirm` through `secureFetch`, and shows a step-up refusal's same-origin
+  `reauth_url` as a sign-in link. Tested by `SuspendedDevices.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
   shell is the operator console and explicitly states that encrypted chat is not
   included; do not imply a successful backup/crypto review from static dashboard text.
@@ -27,6 +32,7 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `Backup.tsx` validates the latest-run DTO at the HTTP boundary and displays the
   recorded outcome independently of the older remote receipt. Local-only results,
   scheduled failures, partial success and unknown history must remain distinguishable.
+- `Backup.tsx` renders a "Message backups" section (`MessagesBackup`) from `status.messages`, validated at the boundary like the people DTO, hidden when absent and a page-level error when malformed: opt-in explanation, own schedule select (Off by default), "Back up messages now", "Run message drill", last run, last receipt and local copies. It calls only `/api/backup/messages/*`.
 - `Backup.tsx` shows the server's same-origin `reauth_url` as a sign-in link when a backup change is refused for step-up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
 

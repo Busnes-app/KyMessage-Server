@@ -136,6 +136,19 @@ retains the manual wire harness. Root owns product decisions and research in `do
   refresh after lost responses. Revoked keys reopen local history without enrollment,
   stop automatic checks and cannot send or receive. Retain the server tombstone: a
   replacement needs an existing approved device or the separately gated identity-reset flow.
+- A `suspended` device (approved, token dropped by `restore-messages`) is reused by
+  enrollment, never re-enrolled. Polling stops, room tools hide and the room shows the
+  suspended notice with `Resume this device`. `resumeDevice` saves a pending
+  `resumeToken` in every saved entry of the device before networking (reusing one
+  already saved), follows a `/api/sso/` reauthentication URL from either resume step
+  with the return hint, verifies the `KyMessages resume v1` binding and signs with the
+  vault's enrolled key. Only after verify succeeds does it promote the pending token
+  to the active one in every entry. Each refresh, including unlock, reconciles: a
+  pending token on a device the server reports `approved` is confirmed with one
+  token-authenticated read and promoted everywhere. It is discarded only when it gets
+  403 and the active token gets 200; otherwise it is kept. A still-suspended device
+  keeps it. One Web Lock serializes resume and reconciliation across tabs. Ratchets, cursors and history stay; the resumed
+  device continues at the server's epoch.
 - Recovery help remains available before unlock. Account-specific guidance uses
   the refreshed device list and clears on lock; approval never implies that a
   device is accessible. Follow `docs/PRODUCT.md`'s last-device-loss contract before
@@ -224,7 +237,8 @@ retains the manual wire harness. Root owns product decisions and research in `do
   UI screenshots go to `test-results/`.
 - `npm run test:oidc -- --project=chromium --project=firefox` exercises discovery,
   PKCE, signed callbacks, cookies/CSRF, account binding, reauthentication and pending
-  send recovery against a disposable issuer. It is not live KyIdentity evidence.
+  send recovery and suspended-device resume against a disposable issuer. It is not
+  live KyIdentity evidence.
 
 ## Child DOX Index
 

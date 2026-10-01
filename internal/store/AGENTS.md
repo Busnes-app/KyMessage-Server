@@ -19,6 +19,25 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   id)`; insertion order handles timestamp ties/backwards clocks without scanning
   unrelated activity. Backup status reads this append-only source, not a second
   shared last-result setting.
+- Migration 18 adds `messaging_devices.resume_token_hash`. A suspended device is
+  `status = 'approved' AND token_hash IS NULL` (as `restore-messages` imports it);
+  `deviceStatusColumn` reports it as `suspended` in listings and the recovery registry
+  digest. `StartDeviceResume` binds a challenge to the session and stores the proposed
+  token in `resume_token_hash`; `ResumeDevice` moves it to `token_hash` only after the
+  Ed25519 signature verifies. A bad signature commits a `messaging.device_resume_failed`
+  audit and keeps the challenge. Both refuse a superseded identity generation
+  (`ErrMessagingDenied`). Every revocation uses `revokeDeviceSet`, which also clears
+  the resume state. `SuspendedDevices(limit)` (reads limit+1 to report truncation)/`RevokeSuspendedDevice` are the admin view:
+  revoke locks the owner's user row and touches only suspended devices.
+- Migration 19 adds `messaging_devices.suspended_at` (unix seconds, 0 when not suspended)
+  and stamps rows already suspended with the upgrade time. `backup.ImportMessages` stamps
+  the import time; `ResumeDevice` and `revokeDeviceSet` clear it. A suspended device is
+  expired once `suspended_at <= now - suspendedDeviceLifetime` (an unstamped 0 fails closed; fixed
+  30 days): resume start and verify refuse it with `ErrNotFound`, and
+  `ExpireSuspendedDevices` revokes it through `revokeDeviceSet`, one transaction per
+  device under the owner's user-row lock, auditing `messaging.device_suspension_expired`
+  (user `system`, details `user_id=<owner>`). `SuspendedDevices` and owner listings report
+  `suspended_at + 30 days` as the expiry.
 - `MessagingStore` owns migration 5's messaging device registry and room ACLs, separate from push/QR device pairing. Each operation rechecks the active suite-only account and live session in its transaction; device-gated operations additionally check the approved device token hash.
 - Serialize messaging operations through a non-key update of the acting user row, then the session and relevant room/member rows. Keep the user update compatible with PostgreSQL foreign-key key-share locks; cross-invitations must not take a second account write lock.
 - Only the first successfully verified device bootstraps trust. Retain verified-device tombstones after revocation so losing every device cannot silently bootstrap a replacement. Mutations and their success audits commit together.
@@ -77,7 +96,9 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   retiring those rooms even after later resets. Preserve ciphertext/receipt metadata
   subject to ordinary retention and audit `restore.grants_invalidated`. Fresh suite
   sign-in, confirmed identity recovery and new rooms are required. Current-generation
-  ownership alone counts toward the 100-room creation limit.
+  ownership alone counts toward the 100-room creation limit. A current people capsule
+  has no messaging rows, so these messaging steps act only on older capsules;
+  `backup.ImportMessages` runs after this on the same offline database.
 - SQLite file-URI directory setup decodes the URI path; never create a literal
   `file:` directory. This permits read/write-only restoration of paths with reserved
   characters without accidentally opening a different database.
@@ -97,6 +118,8 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - `migrations/migrations_test.go` builds a v16 database through the test-only
   `RunThrough` seam (`export_test.go`) and checks migration 17 on both engines.
 - Delivery tests cover competing commits across connections, deduplication, Welcome isolation, removal/rejoin history floors, device revocation and directory deactivation.
+- Suspended-device tests cover resume, its refusals (another session, bad signature, expired challenge, another account, stale generation, revoked), the admin list's truncation flag and suspended-only admin revoke.
+- `messaging_expiry_test.go` covers the 30-day expiry (roster removal, audit, idempotent sweep, resume refused before the sweep, untouched young/resumed/live devices); `migrations_test.go` covers migration 19's backfill.
 - KeyPackage tests cover cross-room claims on separate connections, lost-ack retries, rejoin/expiry/revocation denial, publication ownership and pool capacity.
 
 ## Child DOX Index

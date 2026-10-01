@@ -31,7 +31,7 @@ func (m *messagingStore) recoveryBindings(ctx context.Context, tx *sql.Tx, actor
 		}
 		return "", "", "", err
 	}
-	rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT id, public_key, status FROM messaging_devices WHERE user_id = ? ORDER BY id`), actor.UserID)
+	rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT id, public_key, `+deviceStatusColumn+` FROM messaging_devices WHERE user_id = ? ORDER BY id`), actor.UserID)
 	if err != nil {
 		return "", "", "", err
 	}

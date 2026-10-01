@@ -239,7 +239,20 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	// events outright, so expiry derives from created_at instead of a stored column.
 	// Column-level CHECKs drop with their column; a table rebuild would cascade-delete rooms.
 	{Version: 17, Name: "thread_auto_purge", SQLite: threadAutoPurgeSQLite, Postgres: threadAutoPurgePostgres},
+	// A suspended device's proposed credential waits here until its key signature verifies.
+	{Version: 18, Name: "messaging_device_resume", SQLite: messagingDeviceResume, Postgres: messagingDeviceResume},
+	// When a device was suspended (unix seconds, 0 when not suspended); it is revoked 30 days
+	// later. Devices already suspended start their 30 days at upgrade.
+	{Version: 19, Name: "messaging_device_suspended_at", SQLite: suspendedAt + `CAST(strftime('%s', 'now') AS INTEGER)` + suspendedWhere, Postgres: suspendedAt + `CAST(FLOOR(EXTRACT(EPOCH FROM now())) AS BIGINT)` + suspendedWhere},
 }
+
+const messagingDeviceResume = `ALTER TABLE messaging_devices ADD COLUMN resume_token_hash TEXT NOT NULL DEFAULT '';`
+
+const (
+	suspendedAt = `ALTER TABLE messaging_devices ADD COLUMN suspended_at BIGINT NOT NULL DEFAULT 0;
+UPDATE messaging_devices SET suspended_at = `
+	suspendedWhere = ` WHERE status = 'approved' AND token_hash IS NULL;`
+)
 
 // Run executes all pending migrations for the specified database driver.
 func Run(ctx context.Context, db *sql.DB, driver string) error {

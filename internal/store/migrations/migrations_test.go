@@ -113,3 +113,49 @@ func TestThreadAutoPurgeMigratesV16(t *testing.T) {
 		t.Error("messaging_events.expires_at still exists")
 	}
 }
+
+// Devices suspended before migration 19 start their 30 days at upgrade instead of never.
+func TestSuspendedAtBackfill(t *testing.T) {
+	ctx := context.Background()
+	cfg := testdb.Config(t)
+	driver := "sqlite"
+	if cfg.Driver == "postgres" {
+		driver = "pgx"
+	}
+	db, err := sql.Open(driver, cfg.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.RunThrough(ctx, db, cfg.Driver, 18); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.ExecContext(ctx, `INSERT INTO users (id, username, created_at, updated_at) VALUES ('owner', 'owner', $1, $2)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []struct {
+		id, status string
+		token      any
+	}{{"suspended", "approved", nil}, {"live", "approved", "hash"}, {"revoked", "revoked", nil}} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO messaging_devices (id, user_id, name, public_key, status, challenge, enrollment_session, expires_at, token_hash, created_at) VALUES ($1, 'owner', 'n', $2, $3, '', '', 0, $4, 0)`, d.id, d.id, d.status, d.token); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := time.Now().Unix()
+	st, err := store.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	after := time.Now().Unix()
+	for id, wantSet := range map[string]bool{"suspended": true, "live": false, "revoked": false} {
+		var at int64
+		if err := db.QueryRowContext(ctx, `SELECT suspended_at FROM messaging_devices WHERE id = $1`, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		if wantSet && (at < before || at > after) || !wantSet && at != 0 {
+			t.Errorf("%s suspended_at = %d, migration ran in [%d, %d]", id, at, before, after)
+		}
+	}
+}

@@ -27,7 +27,7 @@ async function open(browser: Browser, subject: string, controlledClock = false) 
   const id = await login(page,subject);
   await page.getByLabel('Local passphrase').fill(password);
   await click(page,'Create test device','Test device connected');
-  return {context,page,id,fingerprint:await page.locator('#own-fingerprint').innerText()};
+  return {context,page,id,subject,fingerprint:await page.locator('#own-fingerprint').innerText()};
 }
 async function verify(page: Page, id: string, fingerprint: string) {
   const device = await page.locator('#peer-device option').filter({hasText:id}).getAttribute('value');
@@ -336,4 +336,121 @@ test('cross-tab removal cancels setup waiting for the account response',async ({
     await click(waiting,'Create test device','Test device connected');
     await expect(waiting.locator('#signed-in')).toContainText('pending');
   } finally { release(); await owner.context.close(); }
+});
+
+type Member = Awaited<ReturnType<typeof open>>;
+async function sharedRoom(owner: Member, peer: Member, name: string) {
+  await owner.page.getByLabel('New room name').fill(name);
+  await click(owner.page,'Create room','Room created');
+  await click(owner.page,'Apply verified membership','Verified membership applied');
+  await owner.page.getByLabel("Teammate's account ID").fill(peer.id);
+  await click(owner.page,'Invite teammate','Invitation sent');
+  await click(peer.page,'Refresh rooms and devices','Rooms and devices refreshed');
+  await click(peer.page,'Accept ' + name,'Room selected');
+  await click(peer.page,'Prepare to join','Ready to join');
+  await click(owner.page,'Refresh rooms and devices','Rooms and devices refreshed');
+  await verify(owner.page,peer.id,peer.fingerprint);
+  await verify(peer.page,owner.id,owner.fingerprint);
+  await click(owner.page,'Apply verified membership','Verified membership applied');
+  await click(peer.page,'Check for messages','Messages checked');
+}
+async function send(from: Page, to: Page, message: string) {
+  await from.getByLabel('Message',{exact:true}).fill(message);
+  await click(from,'Send encrypted message','Message accepted');
+  // The live notice of this send starts a background read; a click landing during it is
+  // dropped by action()'s busy guard, so retry it as a person would.
+  await expect(async () => { await click(to,'Check for messages','Messages checked'); }).toPass({timeout:20_000});
+  await expect(to.locator('#messages')).toContainText(message);
+}
+// Mirrors restore-messages: the server keeps the approved device but drops its token.
+async function suspend(member: Member) {
+  expect((await member.page.request.post('/proof-fixture/suspend-devices/' + member.id)).status()).toBe(204);
+  await click(member.page,'Refresh rooms and devices','Rooms and devices refreshed');
+  await expect(member.page.locator('#signed-in')).toContainText('Device suspended');
+  await expect(member.page.locator('#room-state')).toContainText('This device is suspended after a server restore');
+  await expect(member.page.locator('#send')).toBeDisabled();
+}
+
+test('a device suspended by a message restore resumes its unchanged thread',async ({browser}) => {
+  const alice = await open(browser,'resume-a-' + crypto.randomUUID().slice(0,8));
+  const bob = await open(browser,'resume-b-' + crypto.randomUUID().slice(0,8));
+  try {
+    await sharedRoom(alice,bob,'Restored team');
+    await send(alice.page,bob.page,'Before the restore');
+    // A second saved room holds its own copy of the device token.
+    await alice.page.getByLabel('New room name').fill('Second room');
+    await click(alice.page,'Create room','Room created');
+    await click(alice.page,'Open Restored team','Room selected');
+    await suspend(alice);
+    await expect(alice.page.locator('#messages')).toContainText('Before the restore');
+    await click(alice.page,'Resume this device','Device resumed');
+    await expect(alice.page.locator('#signed-in')).toContainText('Device approved');
+    await expect(alice.page.getByRole('button',{name:'Resume this device'})).toBeHidden();
+    await send(alice.page,bob.page,'After the restore');
+    await send(bob.page,alice.page,'Reply after the restore');
+    await click(alice.page,'Open Second room','Room selected');
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+test('a resumed device follows the epoch its room advanced to while suspended',async ({browser}) => {
+  const alice = await open(browser,'epoch-a-' + crypto.randomUUID().slice(0,8));
+  const bob = await open(browser,'epoch-b-' + crypto.randomUUID().slice(0,8));
+  try {
+    await sharedRoom(alice,bob,'Advancing team');
+    await send(alice.page,bob.page,'Before the restore');
+    await suspend(alice);
+    await click(bob.page,'Apply verified membership','Verified membership applied');
+    await bob.page.getByLabel('Message',{exact:true}).fill('Sent in the next epoch');
+    await click(bob.page,'Send encrypted message','Message accepted');
+    // A stale suite sign-in at either step sends the browser through fresh authentication.
+    for (const step of ['resume','resume/verify']) {
+      await alice.page.route('**/api/messaging/devices/*/' + step,route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kysignon/login?fresh=1'})}),{times:1});
+      await alice.page.getByRole('button',{name:'Resume this device',exact:true}).click();
+      await alice.page.getByLabel('Test identity').fill(alice.subject);
+      await alice.page.getByRole('button',{name:'Continue to KyMessages'}).click();
+      await alice.page.waitForURL('**/chat.html?auth=oidc');
+      await unlock(alice.page);
+      await expect(alice.page.locator('#room-state')).toContainText('This device is suspended after a server restore');
+      await expect(alice.page.locator('#room-tools')).toBeHidden();
+    }
+    await click(alice.page,'Resume this device','Device resumed');
+    await click(alice.page,'Check for messages','Messages checked');
+    await expect(alice.page.locator('#messages')).toContainText('Sent in the next epoch');
+    // Only a successful background check after the resume sets this text.
+    await expect(alice.page.locator('#poll-state')).toHaveText('Automatic checks active.',{timeout:20_000});
+    await send(alice.page,bob.page,'Caught up after resuming');
+  } finally { await alice.context.close(); await bob.context.close(); }
+});
+
+for (const deadConfirm of [false,true]) test(`a resume whose verify response was lost recovers on the next unlock${deadConfirm ? ', even after a failed confirm' : ''}`,async ({browser}) => {
+  const alice = await open(browser,'lost-a-' + crypto.randomUUID().slice(0,8));
+  const bob = await open(browser,'lost-b-' + crypto.randomUUID().slice(0,8));
+  try {
+    await sharedRoom(alice,bob,'Lost reply team');
+    await send(alice.page,bob.page,'Before the restore');
+    await alice.page.getByLabel('New room name').fill('Second room');
+    await click(alice.page,'Create room','Room created');
+    await click(alice.page,'Open Lost reply team','Room selected');
+    await suspend(alice);
+    // The server commits the resume; the browser never sees the reply.
+    await alice.page.route('**/api/messaging/devices/*/resume/verify',async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    },{times:1});
+    await alice.page.getByRole('button',{name:'Resume this device',exact:true}).click();
+    await expect(alice.page.getByRole('status')).not.toContainText('Working');
+    await expect(alice.page.getByRole('status')).not.toContainText('Device resumed');
+    await alice.page.reload();
+    if (deadConfirm) {
+      // The first read after unlock confirms the pending token. Fake its refusal; the old
+      // token really is dead, so nothing proves the pending one wrong and it must be kept.
+      await alice.page.route('**/api/messaging/rooms',route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Messaging access denied'})}),{times:1});
+      await alice.page.getByLabel('Local passphrase').fill(password);
+      await click(alice.page,'Unlock existing device','could not confirm its resumed credential');
+    }
+    await unlock(alice.page);
+    await expect(alice.page.locator('#signed-in')).toContainText('Device approved');
+    await send(alice.page,bob.page,'After the lost reply');
+    await click(alice.page,'Open Second room','Room selected');
+  } finally { await alice.context.close(); await bob.context.close(); }
 });

@@ -35,6 +35,8 @@ func (s *Server) messagingRoutes() {
 	s.mux.HandleFunc("POST /api/messaging/devices", s.requireMessaging(s.handleMessagingEnroll))
 	s.mux.HandleFunc("GET /api/messaging/devices", s.requireMessaging(s.handleMessagingDevices))
 	s.mux.HandleFunc("POST /api/messaging/devices/{device}/verify", s.requireMessaging(s.handleMessagingVerify))
+	s.mux.HandleFunc("POST /api/messaging/devices/{device}/resume", s.requireMessaging(s.handleMessagingResume))
+	s.mux.HandleFunc("POST /api/messaging/devices/{device}/resume/verify", s.requireMessaging(s.handleMessagingResumeVerify))
 	s.mux.HandleFunc("POST /api/messaging/devices/{device}/approve", s.requireMessaging(s.handleMessagingApprove))
 	s.mux.HandleFunc("DELETE /api/messaging/devices/{device}", s.requireMessaging(s.handleMessagingRevoke))
 	s.mux.HandleFunc("POST /api/messaging/rooms", s.requireMessaging(s.handleMessagingCreateRoom))
@@ -85,7 +87,7 @@ func (s *Server) requireMessaging(next messagingHandler) http.HandlerFunc {
 			s.writeError(w, http.StatusTooManyRequests, "Too many messaging requests")
 			return
 		}
-		actor := store.MessagingActor{UserID: user.ID, SessionHash: session.TokenHash, IP: s.requestIP(r)}
+		actor := store.MessagingActor{UserID: user.ID, SessionHash: session.TokenHash, IP: s.requestIP(r), SessionCreatedAt: session.CreatedAt.Unix()}
 		if credential := r.Header.Get(messagingDeviceHeader); credential != "" {
 			if !messagingHex(credential) {
 				s.writeError(w, http.StatusForbidden, "Invalid device credential")
@@ -145,7 +147,11 @@ func (s *Server) messagingError(w http.ResponseWriter, err error) {
 func deviceView(d store.MessagingDevice) map[string]any {
 	key, _ := base64.StdEncoding.DecodeString(d.PublicKey)
 	fingerprint := sha256.Sum256(key)
-	return map[string]any{"id": d.ID, "user_id": d.UserID, "name": d.Name, "public_key": d.PublicKey, "fingerprint": hex.EncodeToString(fingerprint[:]), "status": d.Status, "approved_by": d.ApprovedBy, "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration}
+	view := map[string]any{"id": d.ID, "user_id": d.UserID, "name": d.Name, "public_key": d.PublicKey, "fingerprint": hex.EncodeToString(fingerprint[:]), "status": d.Status, "approved_by": d.ApprovedBy, "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration}
+	if d.SuspensionExpiresAt != 0 {
+		view["expires_at"] = d.SuspensionExpiresAt
+	}
+	return view
 }
 
 func (s *Server) handleMessagingEnroll(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
@@ -233,6 +239,131 @@ func (s *Server) handleMessagingApprove(w http.ResponseWriter, r *http.Request, 
 func (s *Server) handleMessagingRevoke(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
 	if err := s.store.Messaging().RevokeDevice(r.Context(), actor, r.PathValue("device")); err != nil {
 		s.messagingError(w, err)
+		return
+	}
+	s.wakeMessaging("")
+	s.writeJSON(w, http.StatusOK, map[string]bool{"revoked": true})
+}
+
+// handleMessagingResume starts re-proving a suspended (restored) device's key. It needs a
+// suite sign-in from the step-up window; the new credential waits until the key signs.
+func (s *Server) handleMessagingResume(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
+	var request struct {
+		TokenHash string `json:"token_hash"`
+	}
+	if !s.messagingJSON(w, r, &request) {
+		return
+	}
+	if !messagingHex(request.TokenHash) {
+		s.writeError(w, http.StatusBadRequest, "Valid SHA-256 token hash required")
+		return
+	}
+	if !s.freshForResume(w, actor) {
+		return
+	}
+	if !s.allowAccountAttempt("messaging-resume:"+actor.UserID, 10, 5*time.Minute) {
+		s.writeError(w, http.StatusTooManyRequests, "Too many device resumes")
+		return
+	}
+	id := r.PathValue("device")
+	var publicKey string
+	devices, err := s.store.Messaging().ListDevices(r.Context(), actor)
+	if err != nil {
+		s.messagingError(w, err)
+		return
+	}
+	for _, d := range devices {
+		if d.ID == id && d.Status == "suspended" {
+			publicKey = d.PublicKey
+		}
+	}
+	if publicKey == "" {
+		s.messagingError(w, store.ErrNotFound)
+		return
+	}
+	expiresAt := time.Now().Add(5 * time.Minute).Unix()
+	challenge, err := json.Marshal(struct {
+		Domain, Origin, UserID, DeviceID, PublicKey, TokenHash, Nonce string
+		ExpiresAt                                                     int64
+	}{"KyMessages resume v1", s.config.Server.AppURL, actor.UserID, id, publicKey, request.TokenHash, crypto.RandomHex(32), expiresAt})
+	if err != nil {
+		s.messagingError(w, err)
+		return
+	}
+	if err := s.store.Messaging().StartDeviceResume(r.Context(), actor, id, request.TokenHash, string(challenge), expiresAt); err != nil {
+		s.messagingError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"signing_input": base64.StdEncoding.EncodeToString(challenge), "expires_at": expiresAt})
+}
+
+// freshForResume refuses a session older than stepUpWindow, at start and again at verify,
+// so a credential is never issued from a stale session.
+func (s *Server) freshForResume(w http.ResponseWriter, actor store.MessagingActor) bool {
+	if time.Since(time.Unix(actor.SessionCreatedAt, 0)) <= stepUpWindow {
+		return true
+	}
+	s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in to KySignOn again to resume this device: it needs a sign-in from the last 10 minutes", "code": "reauthentication_required", "reauth_url": reauthURL})
+	return false
+}
+
+func (s *Server) handleMessagingResumeVerify(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
+	if !s.freshForResume(w, actor) {
+		return
+	}
+	var request struct {
+		Signature string `json:"signature"`
+	}
+	if !s.messagingJSON(w, r, &request) {
+		return
+	}
+	signature, err := base64.StdEncoding.DecodeString(request.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		s.writeError(w, http.StatusBadRequest, "Valid Ed25519 signature required")
+		return
+	}
+	device, err := s.store.Messaging().ResumeDevice(r.Context(), actor, r.PathValue("device"), signature)
+	if err != nil {
+		s.messagingError(w, err)
+		return
+	}
+	s.wakeMessaging("")
+	s.writeJSON(w, http.StatusOK, map[string]any{"device": deviceView(*device)})
+}
+
+// handleSuspendedDevices lists restored devices awaiting resume, across accounts, so an
+// admin can revoke any before users return. Fingerprints only; never keys or credentials.
+func (s *Server) handleSuspendedDevices(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.Query().Get("status") != "suspended" {
+		s.writeError(w, http.StatusBadRequest, "Only status=suspended is supported")
+		return
+	}
+	devices, truncated, err := s.store.Messaging().SuspendedDevices(r.Context(), suspendedDeviceListLimit)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Suspended devices unavailable")
+		return
+	}
+	views := make([]map[string]any, 0, len(devices))
+	for _, d := range devices {
+		view := deviceView(store.MessagingDevice{ID: d.ID, PublicKey: d.PublicKey})
+		views = append(views, map[string]any{"id": d.ID, "user_id": d.UserID, "username": d.Username, "name": d.Name, "fingerprint": view["fingerprint"], "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration, "expires_at": d.ExpiresAt})
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"devices": views, "truncated": truncated})
+}
+
+const suspendedDeviceListLimit = 1000
+
+// handleRevokeSuspendedDevice revokes another account's suspended device. Live devices
+// stay the owner's to manage: the store refuses anything not suspended with 404.
+func (s *Server) handleRevokeSuspendedDevice(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if err := s.store.Messaging().RevokeSuspendedDevice(r.Context(), s.actorID(r), s.requestIP(r), r.PathValue("device")); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.writeError(w, http.StatusNotFound, "No suspended device with that ID")
+		} else {
+			s.writeError(w, http.StatusInternalServerError, "Device revocation failed")
+		}
 		return
 	}
 	s.wakeMessaging("")

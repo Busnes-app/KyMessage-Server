@@ -129,7 +129,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`
+- `make lint` equivalent: gofmt, `go vet` (plus `-tags rehearsal ./scripts/rehearsal`), `go mod tidy`/`verify`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
@@ -139,6 +139,13 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   shutdown. Time injection changes only its scratch database's last-attempt row.
   No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
+- `scripts/restore-messages-rehearsal.sh` (manual, not in CI): seeds a loopback scratch
+  instance through the API, seals both capsules to a throwaway 2-of-3 key, runs `restore`
+  and `restore-messages` with shares on stdin into an empty directory and checks the
+  restored device is `suspended`. Its helper `scripts/rehearsal` builds only with the
+  `rehearsal` tag; its `session` command writes a suite account and session straight into
+  the scratch database in place of OIDC sign-in. Its write commands refuse paths outside
+  `os.TempDir()`; the script preflights go, curl, jq and python3.
 - Docker image build and container HTTP check
 - Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
@@ -164,16 +171,21 @@ Run the same checks locally with `make ci` (`tidy-check lint test-race test-web 
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
-`cmd/server` owns the scheduler: `backupLoop` builds the `RunConfig` and client once and
+`cmd/server` owns the scheduler: `backupLoop` builds both kinds' `RunConfig` and the client once and
 returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
-attempt would log and audit the same failure every minute forever. It closes its `done` channel
+attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
+due kinds in sequence, people then messages (opt-in, default off, own schedule/receipt/audit action
+`admin.backup_run_messages`); a kind whose run returns `ErrInProgress` is logged and left unstamped,
+so it is retried next tick, and on shutdown it stops between kinds, leaving later kinds due. The `deposit` and
+`backup-drill` commands take `-messages`; `export-capsule` seals people only. It closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
-WebSocket handlers and the pair, pin-key, unpair and deposit handlers, which detach from their requests and so outlive
-`Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
+WebSocket handlers, the pair, pin-key, unpair and both deposit handlers, which detach from their requests,
+and the admin suspended-device revoke; all of them can outlive `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
-`messagingMaintenanceLoop` purges events past each room's retention and sweeps expired device pairings every
-minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
+`messagingMaintenanceLoop` first revokes suspended messaging devices not resumed within 30 days
+(`ExpireSuspendedDevices`, then `api.Server.WakeMessaging` when any were revoked), then purges events
+past each room's retention and sweeps expired device pairings, every minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
 backup scheduler's completion before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
@@ -186,9 +198,20 @@ work is abandoned with a log line rather than killed silently.
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (migration/startup pruning), invalidates
-restored grants and closes it before reporting success. Keep the target offline on
-failure. Restored messaging rooms are permanently retired; users recover identity
-with fresh suite authentication and create new independently verified rooms.
-Never restore or rewind browser MLS state. Root owns this policy and `docs/RESTORE.md`.
+restored grants and closes it before reporting success. It prints the `restore-messages`
+hint only when `CheckMessagesTarget` passes; a pre-split capsule keeps messaging rows, so it
+says restore-messages cannot run there. Keep the target offline on failure. Plain `restore` refuses a messages capsule and removes its decrypted
+`data/messages`. A people restore contains no messaging rooms or devices. The optional
+`restore-messages` (`restoreMessages`, also on the decrypt-guard allowlist) runs next,
+offline (it cannot detect a running server; its usage text says to stop it): it refuses a target without `data/ky_server.db` or with messaging rows before
+opening the capsule, opens it into a `messages-*` temp directory removed on return
+(SIGINT/SIGTERM cancel through `signal.NotifyContext`; hard kills leave it for the operator),
+refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
+approved devices are suspended (no token) until their owners resume them
+(`/api/messaging/devices/{device}/resume`); admins list and revoke suspended devices
+through `/api/admin/messaging/devices`; devices not resumed within 30 days are revoked
+automatically; rooms of missing owners are not imported. Without it, users recover identity with fresh suite
+authentication and new independently verified rooms. Never restore or rewind browser
+MLS state. Root owns this policy and `docs/RESTORE.md`.
 
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.

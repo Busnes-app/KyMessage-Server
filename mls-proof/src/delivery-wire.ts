@@ -70,6 +70,7 @@ export function connection(value: unknown) {
   if (joinPackages.length > 16) throw new Error('Too many retained join packages');
   return {
     device: d.device === null ? null : text(d.device), token: text(d.token),
+    resumeToken: d.resumeToken === undefined || d.resumeToken === null ? null : text(d.resumeToken),
     challenge: d.challenge === undefined || d.challenge === null ? null : text(d.challenge),
     room: d.room === null ? null : text(d.room),
     historyGap: historyGap(d.historyGap),

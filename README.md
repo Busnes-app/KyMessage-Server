@@ -104,8 +104,13 @@ successful remote receipt stays separate. Unpairing
 keeps the key pin and local copies; separately revoke the product token at KyRecovery.
 Never put custodian shares into the running server.
 
-Only SQLite has a supported capsule backup/restore path. Restore invalidates stale
-grants and retires old rooms; recovery uses fresh identities and new rooms. See the
+Only SQLite has a supported capsule backup/restore path. Backups are two capsules:
+people (accounts, settings, no messaging data) and opt-in messages (threads, devices
+without tokens), with their own schedule, receipts and `<KY_BACKUP_DIR>/messages`
+copies; the messages schedule is off until an admin sets it. `deposit -messages` and
+`backup-drill -messages` select it on the CLI. Restore invalidates stale grants;
+`restore-messages` then optionally brings threads back with devices suspended until
+their owners resume them. Without it, recovery uses fresh identities and new rooms. See the
 [restore runbook](docs/RESTORE.md) before relying on backups. If a prior test pairing
 used the scaffold's `Busnes.app` service name, preserve that explicit `KY_APP_NAME`
 for its existing token/capsules; changing the default does not change KyRecovery's pin.
@@ -118,7 +123,9 @@ See [web/AGENTS.md](web/AGENTS.md) for production-CSP, keyboard and responsive b
 checks and [mls-proof/README.md](mls-proof/README.md) for the isolated crypto suites.
 The smoke CI job also runs `python3 scripts/backup-acceptance.py`, a three-minute
 disposable test of actual scheduler ticks, local-copy failures and live schedule
-changes. CI builds/runs the container, checks dependencies and verifies committed frontend
+changes. `scripts/restore-messages-rehearsal.sh` runs the full people + messages
+backup and restore path with the built binary and throwaway shares (not in CI).
+CI builds/runs the container, checks dependencies and verifies committed frontend
 assets. It publishes no image while the first-release gates remain open.
 
 ## Messaging storage preview

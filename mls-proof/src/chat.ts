@@ -177,6 +177,8 @@ async function action(task: () => Promise<void>, success: string, background = f
       element('poll-state').textContent = 'Automatic checks paused. Explicit recovery required.';
     } else if (background && opened && devices.find(device => device.id === snapshot?.device)?.status === 'revoked') {
       element('poll-state').textContent = 'Automatic checks stopped: device revoked.';
+    } else if (background && opened && devices.find(device => device.id === snapshot?.device)?.status === 'suspended') {
+      element('poll-state').textContent = 'Automatic checks paused until this device is resumed.';
     } else if (background && opened) {
       pollDelay = Math.min(pollDelay*2,60_000);
       element('poll-state').textContent = `Automatic check failed; retrying in ${pollDelay/1000}s. ${message}`;
@@ -222,6 +224,7 @@ async function directory() {
 }
 async function refresh() {
   const generation = viewGeneration;
+  await delivery.reconcileResume();
   const listing = await delivery.accountDevices();
   const current = await delivery.status();
   if (!opened || generation !== viewGeneration) return;
@@ -249,6 +252,7 @@ async function render() {
   const approvedCount = devices.filter(device => device.status === 'approved').length;
   const recovery = localOnly
     ? 'Local history only. This tab is disconnected; lock it and sign in to resume messaging.'
+    : own?.status === 'suspended' ? ''
     : approvedCount === 0
     ? 'No approved devices remain. Keep any surviving browser data. A pending replacement can request an identity reset through suite sign-in when the operator enables it. See recovery help below.'
     : own?.status !== 'approved'
@@ -284,7 +288,7 @@ async function render() {
   element('new-conversation-tools').hidden = own?.status !== 'approved';
   element('create-form').hidden = own?.status !== 'approved';
   element('direct-form').hidden = own?.status !== 'approved';
-  element('room-tools').hidden = localOnly || s.room === null;
+  element('room-tools').hidden = localOnly || s.room === null || own?.status !== 'approved';
   const room = rooms.find(x => x.id === s.room);
   element('room-title').textContent = room?.name ?? s.name ?? 'A quieter place to talk';
   // Only the owner or direct peer may change retention; the server enforces it too.
@@ -292,6 +296,7 @@ async function render() {
   const shown = `${s.room}:${s.retentionDays}`;
   if (retentionShown !== shown) { field('room-retention').value = String(s.retentionDays); retentionShown = shown; }
   element('retention-state').textContent = s.room ? (s.retentionDays === 0 ? 'Server retention: off. Messages stay until the owner turns purging on.' : `Server retention: ${s.retentionDays === 1 ? '24 hours' : s.retentionDays + ' days'}. Older messages are deleted from the server; downloaded copies and backups may outlive them.`) : '';
+  element('resume-device').hidden = localOnly || own?.status !== 'suspended';
   element('history-gap').hidden = s.historyGap === null;
   element('history-gap').textContent = s.historyGap === 'rollback'
     ? 'The server is behind this browser’s saved history. Local state has not been rolled back. Use a new room or a fresh verified invitation; restoring server data cannot restore browser keys.'
@@ -306,6 +311,8 @@ async function render() {
     ? 'Reading saved history. No server access, new messages or account changes in this mode.'
     : own?.status === 'revoked'
     ? 'This messaging device was revoked. Earlier local history remains readable here; sending, receiving and re-enrollment are disabled. Another approved device is needed to approve a replacement.'
+    : own?.status === 'suspended'
+    ? 'This device is suspended after a server restore. Resume it to send and receive again; local keys and history are unchanged. Resuming requires a recent suite sign-in.'
     : own?.status !== 'approved'
     ? 'This browser needs approval from an existing device. Compare its fingerprint there, then refresh.'
     : s.room === null ? 'Create a room, or accept an invitation from a teammate.'
@@ -429,6 +436,18 @@ click('identity-reset',async () => {
 function confirmDraftDiscard() {
   if (field('message').value && !confirm('Discard this unsent draft and switch rooms? Pending encrypted sends remain saved in their original room.')) throw new Error('Room change cancelled.');
 }
+click('resume-device',async () => {
+  const generation = viewGeneration;
+  const result = await delivery.resumeDevice();
+  if (generation !== viewGeneration) return;
+  if (result.kind === 'reauth') {
+    sessionStorage.setItem('kymessages-oidc-return','1');
+    lockLocal();
+    location.assign(result.url);
+    return;
+  }
+  await refresh();
+},'Device resumed. Check for messages to catch up.');
 click('saved-refresh',async () => {
   const generation = viewGeneration;
   const saved = await delivery.savedRooms();

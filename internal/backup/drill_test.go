@@ -203,7 +203,7 @@ func TestDrillRejectsMalformedRecipes(t *testing.T) {
 			payload := original
 			payload.VerificationRecipe = maps.Clone(original.VerificationRecipe)
 			mutate(payload.VerificationRecipe)
-			result, err := backup.RunDrill(context.Background(), cfg, payload)
+			result, err := backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -266,7 +266,7 @@ func TestDrillRejectsDamagedPayload(t *testing.T) {
 					break
 				}
 			}
-			result, err := backup.RunDrill(context.Background(), cfg, payload)
+			result, err := backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -289,7 +289,7 @@ func TestChecksSQLiteFilenameIsNotADSN(t *testing.T) {
 	payload.Files = append(payload.Files, recoveryclient.File{Path: name, Data: payload.Files[0].Data, Mode: 0600})
 	payload.VerificationRecipe["required_files"] = append(payload.VerificationRecipe["required_files"].([]string), name)
 	payload.VerificationRecipe["sqlite_paths"] = []string{"data/ky_server.db", name}
-	result, err := backup.RunDrill(context.Background(), cfg, payload)
+	result, err := backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
 	if err != nil {
 		t.Fatal(err)
 	}

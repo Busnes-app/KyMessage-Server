@@ -76,6 +76,86 @@ function privateKeys(r: DeviceRecord) {
   if (!r.keys) throw new Error('KeyPackage already consumed');
   return { initPrivateKey: unbase64(r.keys.initPrivateKey), hpkePrivateKey: unbase64(r.keys.hpkePrivateKey), signaturePrivateKey: unbase64(r.keys.signaturePrivateKey) };
 }
+// The enrolled Ed25519 key: unused join keys first, else the joined group's leaf key.
+function signingKey(r: DeviceRecord) {
+  return r.keys ? unbase64(r.keys.signaturePrivateKey) : state(r).signaturePrivateKey;
+}
+// The pending resume token, from any saved entry of the active entry's device.
+async function resumeState() {
+  const device = await transaction(async (_r,d) => d.device);
+  if (!device) return null;
+  let resumeToken: string | null = null;
+  for (const item of await inspectEntries(r => r.delivery ? connected(r) : null)) {
+    if (item.kind === 'ready' && item.value?.device === device && item.value.resumeToken) resumeToken = item.value.resumeToken;
+  }
+  return {device,resumeToken};
+}
+// Apply one idempotent change to every saved entry of a device. Rerunning repairs an interrupted pass.
+async function everyEntry(device: string, change: (d: Connection) => void) {
+  for (const item of await inspectEntries(r => r.delivery ? connected(r).device : null)) {
+    if (item.kind === 'ready' && item.value === device) await transaction(async (_r,d) => { if (d.device === device) change(d); },item.entry);
+  }
+}
+const promote = (token: string) => (d: Connection) => { d.token = token; d.resumeToken = null; };
+function reauthURL(response: {status:number; value:unknown}) {
+  if (response.status !== 403) return null;
+  const url = object(response.value).reauth_url;
+  return typeof url === 'string' && url.startsWith('/api/sso/') ? url : null;
+}
+// One resume or reconciliation at a time across tabs, so a second reuses the first's pending token.
+const resumeLock = 'kymessages-proof-resume';
+// Re-prove a restored device's key. The new token waits as resumeToken in every
+// saved entry and becomes the active token only once the server has verified it.
+async function resumeDevice(): Promise<{kind:'resumed'} | {kind:'reauth'; url:string}> {
+  const pending = await resumeState();
+  if (!pending) throw new Error('Missing enrolled device ID');
+  const {device} = pending;
+  // Reuse a saved token: a lost verify response may already have activated it.
+  const token = pending.resumeToken ?? hex(crypto.getRandomValues(new Uint8Array(32)));
+  await everyEntry(device,d => { d.resumeToken = token; });
+  const outcome = await transaction(async (r,d) => {
+    if (d.device !== device || d.resumeToken !== token) throw new Error('Device changed during resume');
+    const tokenHash = await hash(encoder.encode(token));
+    const path = '/devices/' + encodeURIComponent(device) + '/resume';
+    const started = await request(path,d.token,'POST',{token_hash:tokenHash});
+    const startReauth = reauthURL(started);
+    if (startReauth) return {kind:'reauth' as const,url:startReauth};
+    const value = object(started.value);
+    if (started.status !== 200) throw new Error(`Delivery HTTP ${started.status}: ${text(value.error)}`);
+    const bytes = unbase64(text(value.signing_input));
+    const parsed: unknown = JSON.parse(decoder.decode(bytes));
+    const c = object(parsed);
+    if (c.Domain !== 'KyMessages resume v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== device || c.PublicKey !== pinFor(r.keyPackage).key || c.TokenHash !== tokenHash || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Resume binding mismatch');
+    const signature = base64(await (await suite).signature.sign(signingKey(r),bytes));
+    const verified = await request(path + '/verify',d.token,'POST',{signature});
+    const verifyReauth = reauthURL(verified);
+    if (verifyReauth) return {kind:'reauth' as const,url:verifyReauth};
+    if (verified.status !== 200) throw new Error(`Delivery HTTP ${verified.status}: ${text(object(verified.value).error)}`);
+    const confirmed = object(object(verified.value).device);
+    if (confirmed.id !== device || confirmed.status !== 'approved') throw new Error('Resume was not confirmed');
+    return {kind:'resumed' as const};
+  });
+  if (outcome.kind === 'resumed') await everyEntry(device,promote(token));
+  return outcome;
+}
+// Finish a resume whose verify response was lost, and repair entries an interrupted
+// promotion left behind. Idempotent; a still-suspended device keeps its pending token.
+async function reconcileResume() {
+  const pending = await resumeState();
+  if (!pending?.resumeToken) return;
+  const {device,resumeToken} = pending;
+  const current = await transaction(async (_r,d) => d.token);
+  const own = array((await api('/devices',current)).devices,object).find(v => v.id === device);
+  if (own?.status !== 'approved') return;
+  const {status} = await request('/rooms',resumeToken);
+  if (status === 200) { await everyEntry(device,promote(resumeToken)); return; }
+  // Discard the pending token only when the server provably still holds the active one.
+  if (status === 403 && (await request('/rooms',current)).status === 200) {
+    await everyEntry(device,d => { if (d.resumeToken === resumeToken) d.resumeToken = null; });
+    return;
+  }
+  throw new Error('This device could not confirm its resumed credential. Try again; the pending credential is kept.');
+}
 function pinned(r: DeviceRecord, devices: Roster) {
   const peer = connected(r).directPeer;
   if (peer && devices.some(device => device.user_id !== r.identity && device.user_id !== peer)) throw new Error('Direct conversation contains another account');
@@ -121,7 +201,7 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
 
 async function freshRoomRecord(base: DeviceRecord, room: string): Promise<DeviceRecord> {
   const old = keyPackage(base.keyPackage);
-  const signKey = base.keys ? unbase64(base.keys.signaturePrivateKey) : state(base).signaturePrivateKey;
+  const signKey = signingKey(base);
   const now = Math.floor(Date.now()/1000);
   const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
     {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
@@ -231,7 +311,7 @@ export const delivery = {
   async accountDevices() {
     return transaction(async (_r,d) => array((await api('/devices',d.token)).devices, item => {
       const device = object(item);
-      if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'revoked') throw new Error('Invalid device status');
+      if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'suspended' && device.status !== 'revoked') throw new Error('Invalid device status');
       return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint),identity_generation:identityGeneration(device.identity_generation)};
     }));
   },
@@ -263,7 +343,7 @@ export const delivery = {
     await transaction(async (r,d) => {
       const own = pinFor(r.keyPackage);
       const listing = await api('/devices',d.token);
-      const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'revoked'));
+      const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'suspended' || v.status === 'revoked'));
       if (existing) { d.device = text(existing.id); d.challenge = null; const pin = r.pins.find(p => p.identity === r.identity && p.key === own.key); if (pin) pin.identityGeneration = identityGeneration(existing.identity_generation); return; }
       if (d.challenge) {
         const saved: unknown = JSON.parse(decoder.decode(unbase64(d.challenge)));
@@ -293,6 +373,8 @@ export const delivery = {
       return d.device;
     });
   },
+  async resumeDevice() { return navigator.locks.request(resumeLock,resumeDevice); },
+  async reconcileResume() { return navigator.locks.request(resumeLock,reconcileResume); },
   async setRetention(days: number) {
     await transaction(async (_r,d) => {
       if (!d.room) throw new Error('Open a conversation first');
@@ -346,7 +428,7 @@ export const delivery = {
       const now = Math.floor(Date.now()/1000);
       const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
         {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
-        {signKey:r.keys ? unbase64(r.keys.signaturePrivateKey) : state(r).signaturePrivateKey,publicKey:old.leafNode.signaturePublicKey},await suite);
+        {signKey:signingKey(r),publicKey:old.leafNode.signaturePublicKey},await suite);
       r.keyPackage = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:fresh.publicPackage}));
       r.keys = {initPrivateKey:base64(fresh.privatePackage.initPrivateKey),hpkePrivateKey:base64(fresh.privatePackage.hpkePrivateKey),signaturePrivateKey:base64(fresh.privatePackage.signaturePrivateKey)};
       Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);

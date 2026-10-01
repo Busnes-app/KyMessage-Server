@@ -1,5 +1,6 @@
 import React from 'react';
 import { MessagingUsage } from './MessagingUsage';
+import { SuspendedDevices } from './SuspendedDevices';
 import { Key, Archive, Database, Users, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface DashboardProps {
@@ -93,7 +94,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
           );
         })}
       </div>
-      {user?.role === 'admin' && <MessagingUsage />}
+      {user?.role === 'admin' && <><MessagingUsage /><SuspendedDevices /></>}
     </div>
   );
 };

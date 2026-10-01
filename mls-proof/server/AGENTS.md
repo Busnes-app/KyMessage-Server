@@ -19,6 +19,9 @@ fixture process lifetime.
   disposable loopback fixture. Validate the room UUID, age its event deadlines in
   the temporary database, then run the real store cleanup for retention drills.
   OIDC mode does not register this synthetic aging route.
+- Both modes expose `POST /proof-fixture/suspend-devices/{user}`, which clears the
+  token hashes of that account's approved devices in the temporary database, as
+  `restore-messages` does, so the proof can exercise resume.
 - The fixture reissues sessions for an existing synthetic account so the chat
   prototype can unlock after reload. Anyone on the fixture can name any test
   account; this is deliberately not authentication and must remain loopback-only.

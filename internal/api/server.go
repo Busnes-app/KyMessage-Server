@@ -268,8 +268,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/backup/pairing", s.tracked(s.requireFreshAdmin(s.handleUnpair)))
 	s.mux.HandleFunc("POST /api/backup/pin-key", s.tracked(s.requireFreshAdmin(s.handlePinKey)))
 	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireFreshAdmin(s.handleSetSchedule))
+	s.mux.HandleFunc("POST /api/backup/messages/drill", s.requireAdmin(s.handleMessagesDrill))
+	s.mux.HandleFunc("POST /api/backup/messages/deposit", s.tracked(s.requireFreshAdmin(s.handleRunMessagesBackup)))
+	s.mux.HandleFunc("PUT /api/backup/messages/schedule", s.requireFreshAdmin(s.handleSetMessagesSchedule))
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
 	s.mux.HandleFunc("GET /api/admin/messaging/usage", s.requireAdmin(s.handleMessagingUsage))
+	s.mux.HandleFunc("GET /api/admin/messaging/devices", s.requireAdmin(s.handleSuspendedDevices))
+	s.mux.HandleFunc("POST /api/admin/messaging/devices/{device}/revoke", s.tracked(s.requireFreshAdmin(s.handleRevokeSuspendedDevice)))
 
 	// Settings & Theme. The read endpoint tiers its own payload by role.
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)
@@ -285,6 +290,9 @@ func (s *Server) routes() {
 // stepUpWindow is how recent a sign-in must be for requireFreshAdmin. Signing in again is the
 // step-up: it repeats the password and TOTP, or the suite login, the session was issued on.
 const stepUpWindow = 10 * time.Minute
+
+// reauthURL forces a KySignOn credential prompt (prompt=login, max_age=0) for step-up.
+const reauthURL = "/api/sso/kysignon/login?fresh=1"
 
 // requireAdmin rejects requests without a valid session, or with a non-admin one.
 func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc { return s.admin(h, false) }
@@ -312,7 +320,7 @@ func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 			if user.SSOProvider == "kysignon" {
 				// A plain SSO login may silently reuse the IdP session; this one forces credentials.
 				body["error"] = "Sign in to KySignOn again to confirm this change: backup changes need a sign-in from the last 10 minutes"
-				body["reauth_url"] = "/api/sso/kysignon/login?fresh=1"
+				body["reauth_url"] = reauthURL
 			}
 			s.writeJSON(w, http.StatusForbidden, body)
 			return

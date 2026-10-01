@@ -25,7 +25,7 @@ Cookie writes also require the base's CSRF cookie/header pair. When supplied,
 Origin must match `KY_APP_URL`. Authenticated messaging responses use `no-store`.
 Account budgets are separate: 2,400 GET requests/minute and 120 write requests/minute,
 with enrollment additionally limited to 10 requests/5 minutes and event appends to
-5,000 per account per 24 hours, because event metadata fills the backup capsule until purged. Declared epochs have no fixed ceiling; the store's
+5,000 per account per 24 hours, because event metadata fills the messages backup capsule until purged. Declared epochs have no fixed ceiling; the store's
 current-epoch check bounds them. Receiving traffic
 cannot consume the write budget. These limits use the base's process-local limiter;
 WebSocket admission also has per-account/server connection caps. The transport
@@ -75,7 +75,7 @@ response is lost, GET devices to recover the state and use the already-persisted
 token. Verification is single-use; a repeated submission fails. An enrollment
 whose challenge response was lost can expire before a fresh enrollment is attempted.
 
-Device states are `unverified`, `pending`, `approved`, `revoked`. Revocation clears
+Device states are `unverified`, `pending`, `approved`, `suspended`, `revoked`. Revocation clears
 the credential and keeps a verified-device tombstone. Revoking every device does
 **not** permit another automatic first-device approval. The explicitly confirmed identity-reset
 flow below is separately gated by fresh suite authentication. A live suite session can revoke
@@ -84,6 +84,52 @@ its own lost device without possessing that device token.
 Device responses expose `id`, `user_id`, `name`, `public_key`, `fingerprint`
 (SHA-256 hex of raw public-key bytes), `status`, `approved_by`, `created_at`, `identity_generation`.
 They omit token hashes, challenges and enrollment-session bindings.
+
+## Suspended devices and resume
+
+`restore-messages` imports approved devices without their delivery tokens. The
+database keeps `status = 'approved'` with a NULL token; listings report `suspended`.
+Every device-authenticated route matches the token hash, so a suspended device
+cannot read, append, approve, publish or claim KeyPackages, or open a live stream.
+
+1. Generate a new device token and `token_hash` as for enrollment. Sign in to the
+   suite again: the session must be from the last 10 minutes, or the server returns
+   403 `{code:"reauthentication_required", reauth_url:"/api/sso/kysignon/login?fresh=1"}`.
+2. POST `/api/messaging/devices/{device}/resume` with `{token_hash}`. A 200 returns
+   `{signing_input, expires_at}`: the same JSON fields as enrollment with domain
+   `KyMessages resume v1` and the device's stored key, valid for five minutes and
+   bound to this session. Starting again replaces the pending challenge. At most 10
+   starts per account per five minutes.
+3. With the **same session**, still within 10 minutes of its sign-in (else the same
+   403 `reauthentication_required`), POST `/api/messaging/devices/{device}/resume/verify`
+   with `{signature}` from the device's existing Ed25519 key. Success returns
+   `{device}` with status `approved`; the new token works from then on, never before.
+   A wrong signature returns 403, is audited (`messaging.device_resume_failed`) and
+   leaves the challenge in place until it expires. A replay returns 404.
+
+Revoked devices and other accounts' devices return 404. A device whose
+`identity_generation` differs from the account's current one (from before an
+identity reset) returns 403. Audit actions: `messaging.device_resume_started`,
+`messaging.device_resumed` (with key fingerprint), `messaging.device_resume_failed`.
+Owners revoke a suspended device with the ordinary DELETE route.
+
+Devices not resumed within 30 days are revoked automatically. The clock starts at
+suspension (the `restore-messages` import; devices already suspended at upgrade start
+then), stored as `messaging_devices.suspended_at` and cleared by resume. From that
+moment resume and verify return 404, as for a revoked device. The server's
+once-a-minute maintenance sweep then revokes the device with the owner's revocation
+semantics, which also drops a pending resume, audits `messaging.device_suspension_expired`
+(actor `system`, details `user_id=<owner>`) and wakes live streams. A suspended device's
+entry in `GET /api/messaging/devices` carries `expires_at` (unix seconds, when it is
+revoked); other devices omit it. The 30 days are fixed, not a setting. A suspended device
+with no recorded suspension time (`suspended_at = 0`) counts as expired: it cannot resume
+and is revoked on the next sweep; its listed `expires_at` is in January 1970.
+
+Suspended devices stay in the delivery roster (the roster query in `deliveryState`,
+`internal/store/messaging_delivery.go`, selects approved devices regardless of token) so restored epochs and roster hashes remain valid and a
+resumed device continues at the restored epoch. Other clients still see them as
+roster members until they are revoked, by their owner, an admin or the 30-day expiry,
+and removed by a commit.
 
 ## Identity generations
 
@@ -164,6 +210,8 @@ unless marked 201. All routes require the suite session described above.
 | POST `/devices` | `{name,public_key,token_hash}` → 201 enrollment challenge | Own account |
 | GET `/devices` | `{devices:[...]}` | Own account |
 | POST `/devices/{device}/verify` | `{signature}` → `{device}` | Original enrollment session and signature |
+| POST `/devices/{device}/resume` | `{token_hash}` → `{signing_input,expires_at}` | Own suspended device, current identity generation, sign-in within 10 minutes |
+| POST `/devices/{device}/resume/verify` | `{signature}` → `{device}` | Session that started the resume, within five minutes; sign-in still within 10 minutes |
 | POST `/devices/{device}/approve` | `{approved:true}` | Approved device of same account; target pending |
 | DELETE `/devices/{device}` | `{revoked:true}` | Own non-revoked device |
 | POST `/devices/{device}/recovery-auth` | `{confirm_identity_reset?:boolean}` → 201 `{authorization_url,expires_at,identity_reset_available,reset_requested}` | Own pending device credential and original live suite session |
@@ -512,3 +560,15 @@ lists appear here. Failed reads are errors, not invented empty storage.
 
 The admin overview renders these values with an explicit refresh and room limits.
 It does not add message deletion or cryptographic access.
+
+`GET /api/admin/messaging/devices?status=suspended` (admin, `no-store`; any other
+query is 400) lists suspended devices across accounts, at most 1,000:
+`{devices:[{id,user_id,username,name,fingerprint,created_at,identity_generation,expires_at}],truncated}`;
+`expires_at` is when the 30-day expiry revokes the device (unix seconds) and
+`truncated` is true when more exist.
+It never returns public keys, tokens, challenges or sessions.
+`POST /api/admin/messaging/devices/{device}/revoke` (admin with a sign-in from the
+last 10 minutes, else 403 `reauthentication_required`) revokes a suspended device of
+any account with the owner's revocation semantics and audits
+`messaging.device_revoked_by_admin` (`user_id=<owner>`). Any device that is not
+suspended returns 404: admins gain no power over live devices.

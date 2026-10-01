@@ -77,14 +77,14 @@ func TestRunDrillSerializesProcessesAndReleasesAfterExit(t *testing.T) {
 	if err != nil || line != "locked\n" {
 		t.Fatalf("helper did not acquire lock: %q %v", line, err)
 	}
-	if _, err := backup.RunDrill(context.Background(), cfg, payload); !errors.Is(err, backup.ErrDrillBusy) {
+	if _, err := backup.RunDrill(context.Background(), cfg, payload, backup.Checks); !errors.Is(err, backup.ErrDrillBusy) {
 		t.Fatalf("concurrent process accepted: %v", err)
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("busy drill swept active scratch: %v", err)
 	}
 	other, _ := payloadConfig(t)
-	result, err := backup.RunDrill(context.Background(), other, payload)
+	result, err := backup.RunDrill(context.Background(), other, payload, backup.Checks)
 	if err != nil || !result.Passed {
 		t.Fatalf("independent data dir blocked: %+v %v", result, err)
 	}
@@ -96,7 +96,7 @@ func TestRunDrillSerializesProcessesAndReleasesAfterExit(t *testing.T) {
 	if err := os.Chmod(root, 0755); err != nil {
 		t.Fatal(err)
 	}
-	result, err = backup.RunDrill(context.Background(), cfg, payload)
+	result, err = backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
 	if err != nil || !result.Passed {
 		t.Fatalf("lock survived process exit: %+v %v", result, err)
 	}
@@ -111,10 +111,10 @@ func TestRunDrillSerializesProcessesAndReleasesAfterExit(t *testing.T) {
 	// Cancellation must also release the lock.
 	canceled, stop := context.WithCancel(context.Background())
 	stop()
-	if _, err := backup.RunDrill(canceled, cfg, payload); !errors.Is(err, context.Canceled) {
+	if _, err := backup.RunDrill(canceled, cfg, payload, backup.Checks); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled drill: %v", err)
 	}
-	result, err = backup.RunDrill(context.Background(), cfg, payload)
+	result, err = backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
 	if err != nil || !result.Passed {
 		t.Fatalf("lock survived cancellation: %+v %v", result, err)
 	}
