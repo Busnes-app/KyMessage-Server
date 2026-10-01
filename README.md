@@ -94,7 +94,6 @@ instance; the current operator-console preview is not an encrypted-chat release:
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
 | `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync` |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
-| `KY_MESSAGING_IDENTITY_RESET_ENABLED` | Off until deployed fresh-authentication/callback behavior is verified |
 | `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |
 | `KY_BACKUP_DIR`, `KY_BACKUP_KEEP` | Optional local sealed copies; keep newest N (default 7) |
 | `KY_BACKUP_DEPOSIT_INTERVAL` | Initial schedule, default `24h`; `0` disables, otherwise at least `15m`; admin UI overrides without restart |

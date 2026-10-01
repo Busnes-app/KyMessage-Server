@@ -32,15 +32,6 @@ its release gates pass. The user-selected priority is small teams and encrypted 
 - Root owns product definition and cross-domain documentation in `docs/`; children
   own the runtime domains indexed below. Keep product plans distinct from current
   scaffold capabilities and verify claims against code before publishing them.
-- Before changing device, room or delivery behavior, read
-  [docs/MESSAGING-API.md](docs/MESSAGING-API.md). The experimental opaque HTTP log
-  coordinates declared epochs and roster changes. The isolated proof binds MLS
-  credentials and validates transcripts over this API. Bounded KeyPackage
-  publication/claims and an isolated clickable chat prototype are implemented;
-  the isolated prototype exercises suite OIDC cookies and authenticated account
-  binding. Production client integration remains open. The entry is
-  `mls-proof/chat.html`; its OIDC mode uses a disposable local issuer with the real
-  suite callback, never production accounts.
 
 # DOX framework
 
@@ -178,13 +169,9 @@ retried next tick. The `deposit` and `backup-drill` commands and `export-capsule
 The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
-WebSocket handlers, the pair, pin-key, unpair and deposit handlers, which detach from their requests,
-and the admin suspended-device revoke; all of them can outlive `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
-registrations and cancel upgraded WebSockets; they share the detached-handler drain.
-`messagingMaintenanceLoop` first revokes suspended messaging devices not resumed within 30 days
-(`ExpireSuspendedDevices`, then `api.Server.WakeMessaging` when any were revoked), then purges events
-past each room's retention and sweeps expired device pairings, every minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
-backup scheduler's completion before the same shutdown drain finishes. Nothing writes
+the pair, pin-key, unpair and deposit handlers, which detach from their requests and can outlive
+`Shutdown`. `maintenanceLoop` sweeps expired device pairings every minute with a 30-second
+deadline; its completion joins the backup scheduler's before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
 which delivers once and would leave the second wait unbounded; the HTTP drain is `shutdownTimeout`
@@ -195,7 +182,7 @@ work is abandoned with a log line rather than killed silently.
 
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
-then opens the offline SQLite snapshot (migration/startup pruning), invalidates
+then opens the offline SQLite snapshot (running migrations), invalidates
 restored grants and closes it before reporting success. A failure after extraction removes what was extracted (the target itself if restore created it).
 Users recover identity with fresh suite authentication; never restore or rewind browser
 MLS state. Root owns this policy and `docs/RESTORE.md`.

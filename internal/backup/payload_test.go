@@ -1,7 +1,6 @@
 package backup_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -155,16 +154,5 @@ func TestCollectRefusesADriverItCannotSnapshot(t *testing.T) {
 	cfg.Database.Driver = "postgres"
 	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); !errors.Is(err, backup.ErrNoDatabaseSnapshot) {
 		t.Fatalf("got %v, want ErrNoDatabaseSnapshot", err)
-	}
-}
-
-// The people capsule must not depend on messaging tables: Task 4 drops them.
-func TestCollectNeedsNoMessagingTables(t *testing.T) {
-	src, err := os.ReadFile("payload.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(src, []byte("messaging")) {
-		t.Fatal("payload.go still references messaging tables")
 	}
 }

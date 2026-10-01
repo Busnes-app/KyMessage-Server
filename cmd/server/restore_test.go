@@ -64,25 +64,6 @@ func sealFixture(t *testing.T, service string) (string, []string) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, query := range []string{
-		`INSERT INTO messaging_identities (user_id) VALUES ('alice')`,
-		`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('old-device','alice','old','synthetic-public-key','approved','','',1,'old-device-token',1,1)`,
-		`INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes) VALUES ('old-room','old','alice',1,1,1,8)`,
-		`INSERT INTO messaging_members (room_id,user_id,status,generation) VALUES ('old-room','alice','active',1)`,
-		`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES ('old-room',1,'old-device','old-event','commit',1,'synthetic','b2xk','synthetic',1)`,
-		`INSERT INTO messaging_welcomes (room_id,sequence,device_id,payload) VALUES ('old-room',1,'old-device','b2xk')`,
-	} {
-		if _, err := db.Exec(query); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
 	dbBytes, err := os.ReadFile(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -113,21 +94,6 @@ func TestRestoreExtractsWithTwoShares(t *testing.T) {
 	}
 	if sessions != 0 || audits != 1 {
 		t.Fatalf("restored grants: sessions=%d audits=%d", sessions, audits)
-	}
-	for _, query := range []string{
-		`SELECT COUNT(*) FROM messaging_devices WHERE status <> 'revoked' OR token_hash IS NOT NULL`,
-		`SELECT COUNT(*) FROM messaging_members WHERE status <> 'removed'`,
-		`SELECT COUNT(*) FROM messaging_rooms WHERE owner_identity_generation <> 0 OR retained_bytes <> 0`,
-		`SELECT COUNT(*) FROM messaging_events WHERE payload <> ''`,
-		`SELECT COUNT(*) FROM messaging_welcomes`,
-	} {
-		var count int
-		if err := db.QueryRow(query).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 0 {
-			t.Fatalf("restored stale state: %s = %d", query, count)
-		}
 	}
 	if !strings.Contains(out.String(), "busnes_app") {
 		t.Fatalf("manifest not printed: %s", out.String())

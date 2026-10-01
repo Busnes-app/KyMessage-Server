@@ -111,7 +111,7 @@ func runServer() {
 	backupDone := make(chan struct{})
 	go backupLoop(ctx, cfg, st, backupDone)
 	maintenanceDone := make(chan struct{})
-	go messagingMaintenanceLoop(ctx, st, srv.WakeMessaging, maintenanceDone)
+	go maintenanceLoop(ctx, st, maintenanceDone)
 	backgroundDone := make(chan struct{})
 	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone }()
 
@@ -140,7 +140,6 @@ func runServer() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
-	srv.StopMessaging()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Shutdown error: %v", err)
 	}
@@ -171,7 +170,7 @@ func waitForBackupWork(ctx context.Context, backgroundDone <-chan struct{}, wait
 	select {
 	case <-backgroundDone:
 	default:
-		log.Println("[KYMESSAGES] waiting for scheduled backup or messaging maintenance in flight...")
+		log.Println("[KYMESSAGES] waiting for scheduled backup or pairing sweep in flight...")
 		select {
 		case <-backgroundDone:
 		case <-ctx.Done():
