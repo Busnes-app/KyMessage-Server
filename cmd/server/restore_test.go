@@ -56,7 +56,7 @@ func sealFixture(t *testing.T, service string) (string, []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Users().CreateUser(context.Background(), &store.User{ID: "alice", Username: "alice", Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: "alice"}); err != nil {
+	if err := st.Users().CreateUser(context.Background(), &store.User{ID: "alice", Username: "alice", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Sessions().CreateSession(context.Background(), &store.Session{TokenHash: "old-session", UserID: "alice", CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}, ""); err != nil {

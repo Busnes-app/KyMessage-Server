@@ -17,13 +17,13 @@ import (
 // application/scim+json and syncauth headers, answering 200 so its outbox marks it done.
 func TestDirectoryWebhookRouteSpeaksKyIdentity(t *testing.T) {
 	_, st, cfg := setupTestServer(t)
-	cfg.SSO.KySignOnHMACSecret = "4f1c2a9e8b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e"
+	cfg.SSO.KyIdentityHMACSecret = "4f1c2a9e8b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e"
 	srv := api.NewServer(cfg, st)
 	post := func(body []byte, sign bool) int {
-		req := httptest.NewRequest("POST", "/api/sso/kysignon/sync", bytes.NewReader(body))
+		req := httptest.NewRequest("POST", "/api/sso/kyidentity/sync", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/scim+json")
 		if sign {
-			h, err := syncauth.Sign([]byte(cfg.SSO.KySignOnHMACSecret), time.Now(), "user.created", uuid.NewString(), body)
+			h, err := syncauth.Sign([]byte(cfg.SSO.KyIdentityHMACSecret), time.Now(), "user.created", uuid.NewString(), body)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -37,7 +37,7 @@ func TestDirectoryWebhookRouteSpeaksKyIdentity(t *testing.T) {
 	if code := post(user, true); code != http.StatusOK {
 		t.Fatalf("signed KyIdentity delivery: %d", code)
 	}
-	if _, err := st.Users().GetUserBySSO(context.Background(), "kysignon", "kid-1"); err != nil {
+	if _, err := st.Users().GetUserBySSO(context.Background(), "kyidentity", "kid-1"); err != nil {
 		t.Fatalf("user not provisioned: %v", err)
 	}
 	if code := post(user, true); code != http.StatusOK {

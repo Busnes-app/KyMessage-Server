@@ -198,3 +198,34 @@ func TestCookieSecureFollowsTheAppURL(t *testing.T) {
 		}
 	}
 }
+
+// A secret left under its pre-rename name must stop startup, not leave sign-in unconfigured.
+func TestLegacyKySignOnEnvironmentFailsStartup(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	for _, suffix := range []string{"ISSUER", "CLIENT_ID", "SECRET", "HMAC_SECRET"} {
+		t.Run(suffix, func(t *testing.T) {
+			t.Setenv("KY_KYSIGNON_"+suffix, "set")
+			_, err := config.LoadFromEnv()
+			if err == nil || !strings.Contains(err.Error(), "KY_KYSIGNON_"+suffix) || !strings.Contains(err.Error(), "KY_KYIDENTITY_"+suffix) {
+				t.Fatalf("legacy KY_KYSIGNON_%s: err = %v, want one naming both variables", suffix, err)
+			}
+		})
+	}
+}
+
+// Compose passes unset variables as empty strings; an empty legacy name is not a misconfiguration.
+func TestEmptyLegacyKySignOnEnvironmentIsIgnored(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	t.Setenv("KY_KYSIGNON_SECRET", " ")
+	t.Setenv("KY_KYIDENTITY_ISSUER", "https://id.example.test")
+	t.Setenv("KY_KYIDENTITY_CLIENT_ID", "client")
+	t.Setenv("KY_KYIDENTITY_SECRET", "secret")
+	t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "hmac")
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := cfg.SSO; s.KyIdentityIssuer != "https://id.example.test" || s.KyIdentityClientID != "client" || s.KyIdentitySecret != "secret" || s.KyIdentityHMACSecret != "hmac" {
+		t.Fatalf("KY_KYIDENTITY_* not loaded: %+v", s)
+	}
+}

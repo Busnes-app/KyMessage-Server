@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/devices"
@@ -30,16 +31,16 @@ type recoveryClient interface {
 }
 
 type Server struct {
-	config   *config.Config
-	store    store.Store
-	sessions *auth.SessionManager
-	pairing  *devices.PairingService
-	kysignon *sso.KySignOnClient
-	oidc     *sso.GenericOIDCClient
-	saml     *sso.SAMLServiceProvider
-	scim     *scim.Server
-	recovery recoveryClient
-	mux      *http.ServeMux
+	config     *config.Config
+	store      store.Store
+	sessions   *auth.SessionManager
+	pairing    *devices.PairingService
+	kyidentity *sso.KyIdentityClient
+	oidc       *sso.GenericOIDCClient
+	saml       *sso.SAMLServiceProvider
+	scim       *scim.Server
+	recovery   recoveryClient
+	mux        *http.ServeMux
 	// clientAttempts throttles anonymous callers by address; accountAttempts throttles by
 	// user ID. Separate maps, so anonymous traffic filling one cannot evict the other.
 	clientAttempts  attemptLimiter
@@ -146,7 +147,7 @@ const attemptsCap = 10000
 func NewServer(cfg *config.Config, st store.Store) *Server {
 	sessions := auth.NewSessionManager(st, cfg.Security)
 	pairing := devices.NewPairingService(st, cfg.Server.AppName, cfg.Server.AppURL)
-	kysignon := sso.NewKySignOnClient(cfg.SSO, st)
+	kyidentity := sso.NewKyIdentityClient(cfg.SSO, st)
 	oidc := sso.NewGenericOIDCClient(cfg.SSO, st)
 	saml := sso.NewSAMLServiceProvider(cfg.SSO.SAMLEntityID, cfg.Server.AppURL+"/saml/acs")
 	scimSrv := scim.NewServer(st, cfg.SCIM, cfg.Server.AppURL)
@@ -157,7 +158,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		store:           st,
 		sessions:        sessions,
 		pairing:         pairing,
-		kysignon:        kysignon,
+		kyidentity:      kyidentity,
 		oidc:            oidc,
 		saml:            saml,
 		scim:            scimSrv,
@@ -246,9 +247,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/auth/change-password", s.handleChangePassword)
 
 	// SSO
-	s.mux.HandleFunc("/api/sso/kysignon/login", s.handleKySignOnLogin)
-	s.mux.HandleFunc("/api/sso/kysignon/callback", s.handleKySignOnCallback)
-	s.mux.HandleFunc("/api/sso/kysignon/sync", s.handleKySignOnSyncWebhook)
+	s.mux.HandleFunc("/api/sso/kyidentity/login", s.handleKyIdentityLogin)
+	s.mux.HandleFunc("/api/sso/kyidentity/callback", s.handleKyIdentityCallback)
+	s.mux.HandleFunc("/api/sso/kyidentity/sync", s.handleKyIdentitySyncWebhook)
 	s.mux.HandleFunc("/saml/metadata", s.handleSAMLMetadata)
 
 	// Devices & Ephemeral QR Pairing
@@ -292,8 +293,8 @@ func (s *Server) routes() {
 // step-up: it repeats the password and TOTP, or the suite login, the session was issued on.
 const stepUpWindow = 10 * time.Minute
 
-// reauthURL forces a KySignOn credential prompt (prompt=login, max_age=0) for step-up.
-const reauthURL = "/api/sso/kysignon/login?fresh=1"
+// reauthURL forces a KyIdentity credential prompt (prompt=login, max_age=0) for step-up.
+const reauthURL = "/api/sso/kyidentity/login?fresh=1"
 
 // requireAdmin rejects requests without a valid session, or with a non-admin one.
 func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc { return s.admin(h, false) }
@@ -318,9 +319,9 @@ func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 		}
 		if fresh && time.Since(sess.CreatedAt) > stepUpWindow {
 			body := map[string]string{"error": "Sign out and sign in again to confirm this change: backup changes need a sign-in from the last 10 minutes", "code": "reauthentication_required"}
-			if user.SSOProvider == "kysignon" {
+			if user.SSOProvider == "kyidentity" {
 				// A plain SSO login may silently reuse the IdP session; this one forces credentials.
-				body["error"] = "Sign in to KySignOn again to confirm this change: backup changes need a sign-in from the last 10 minutes"
+				body["error"] = "Sign in to KyIdentity again to confirm this change: backup changes need a sign-in from the last 10 minutes"
 				body["reauth_url"] = reauthURL
 			}
 			s.writeJSON(w, http.StatusForbidden, body)
@@ -360,7 +361,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Vary", "Origin")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-KySignOn-Signature, X-KyMessages-Device")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, "+syncauth.HeaderSignature+", X-KyMessages-Device")
 
 	if r.Method == http.MethodOptions {
 		if origin != "" && !sameOrigin(origin, s.config.Server.AppURL) {
@@ -405,7 +406,7 @@ func hasSessionCookie(r *http.Request) bool {
 }
 
 func csrfExempt(path string) bool {
-	return path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/mfa/") || path == "/api/sso/kysignon/sync"
+	return path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/mfa/") || path == "/api/sso/kyidentity/sync"
 }
 
 func mintsSession(path string) bool {

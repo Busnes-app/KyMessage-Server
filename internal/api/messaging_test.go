@@ -31,7 +31,7 @@ import (
 func messagingLogin(t *testing.T, st store.Store, user string) string {
 	t.Helper()
 	ctx := context.Background()
-	if err := st.Users().CreateUser(ctx, &store.User{ID: user, Username: user, Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: user}); err != nil {
+	if err := st.Users().CreateUser(ctx, &store.User{ID: user, Username: user, Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: user}); err != nil {
 		t.Fatal(err)
 	}
 	token := crypto.RandomHex(32)
@@ -294,13 +294,13 @@ func TestMessagingEnrollmentAfterVerifiedOIDCCallback(t *testing.T) {
 	}))
 	defer idp.Close()
 	issuer = idp.URL
-	cfg.SSO.KySignOnIssuer = issuer
-	cfg.SSO.KySignOnClientID = "messaging-client"
+	cfg.SSO.KyIdentityIssuer = issuer
+	cfg.SSO.KyIdentityClientID = "messaging-client"
 	cfg.SSO.AutoProvision = true
 	srv := api.NewServer(cfg, st)
 	for _, validNonce := range []bool{false, true} {
 		login := httptest.NewRecorder()
-		srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kysignon/login", nil))
+		srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kyidentity/login", nil))
 		messagingCode(t, login, 302)
 		authorize, err := url.Parse(login.Header().Get("Location"))
 		if err != nil {
@@ -325,7 +325,7 @@ func TestMessagingEnrollmentAfterVerifiedOIDCCallback(t *testing.T) {
 		mu.Lock()
 		tokens[code] = input + "." + base64.RawURLEncoding.EncodeToString(signature)
 		mu.Unlock()
-		callback := httptest.NewRequest("GET", "/api/sso/kysignon/callback?code="+code+"&state="+authorize.Query().Get("state"), nil)
+		callback := httptest.NewRequest("GET", "/api/sso/kyidentity/callback?code="+code+"&state="+authorize.Query().Get("state"), nil)
 		for _, cookie := range login.Result().Cookies() {
 			callback.AddCookie(cookie)
 		}
@@ -349,7 +349,7 @@ func TestMessagingEnrollmentAfterVerifiedOIDCCallback(t *testing.T) {
 		if device.Status != "approved" {
 			t.Fatal(device.Status)
 		}
-		user, err := st.Users().GetUserBySSO(context.Background(), "kysignon", "oidc-alice")
+		user, err := st.Users().GetUserBySSO(context.Background(), "kyidentity", "oidc-alice")
 		if err != nil || user.PasswordHash != "" {
 			t.Fatalf("unexpected SSO account: %v %v", user, err)
 		}
@@ -471,7 +471,7 @@ func TestMessagingResumeSuspendedDevice(t *testing.T) {
 	body := map[string]string{"token_hash": crypto.SHA256Hex([]byte(token))}
 	w := messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume", stale, "", body)
 	messagingCode(t, w, 403)
-	if !strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kysignon/login?fresh=1"`) {
+	if !strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kyidentity/login?fresh=1"`) {
 		t.Fatal(w.Body.String())
 	}
 	fresh := messagingSessionAt(t, st, "alice", time.Now())
@@ -616,7 +616,7 @@ func TestMessagingResumeVerifyRechecksFreshness(t *testing.T) {
 	}
 	w = messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume/verify", fresh, "", enrollmentProof(t, d))
 	messagingCode(t, w, 403)
-	if !strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kysignon/login?fresh=1"`) {
+	if !strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kyidentity/login?fresh=1"`) {
 		t.Fatal(w.Body.String())
 	}
 	if got := deviceStatusHTTP(t, srv, other, d.ID); got != "suspended" {

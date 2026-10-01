@@ -13,7 +13,7 @@ type User struct {
 	PasswordHash       string     `json:"-"`            // Never serialized to JSON
 	Role               string     `json:"role"`         // "admin", "user", "manager"
 	Status             string     `json:"status"`       // "active", "suspended", "inactive"
-	SSOProvider        string     `json:"sso_provider"` // "local", "kysignon", "oidc", "saml", "scim"
+	SSOProvider        string     `json:"sso_provider"` // "local", "kyidentity", "oidc", "saml", "scim"
 	SSOSubject         string     `json:"sso_subject,omitempty"`
 	TOTPSecretEnc      string     `json:"-"` // AES-256-GCM encrypted
 	TOTPEnabled        bool       `json:"totp_enabled"`

@@ -244,7 +244,15 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	// When a device was suspended (unix seconds, 0 when not suspended); it is revoked 30 days
 	// later. Devices already suspended start their 30 days at upgrade.
 	{Version: 19, Name: "messaging_device_suspended_at", SQLite: suspendedAt + `CAST(strftime('%s', 'now') AS INTEGER)` + suspendedWhere, Postgres: suspendedAt + `CAST(FLOOR(EXTRACT(EPOCH FROM now())) AS BIGINT)` + suspendedWhere},
+	// The suite identity provider was renamed from KySignOn to KyIdentity.
+	{Version: 20, Name: "kyidentity_provider", SQLite: kyIdentityProvider, Postgres: kyIdentityProvider},
 }
+
+const kyIdentityProvider = `
+UPDATE users SET sso_provider = 'kyidentity' WHERE sso_provider = 'kysignon';
+UPDATE directory_sync_state SET provider = 'kyidentity' WHERE provider = 'kysignon';
+UPDATE directory_sync_events SET provider = 'kyidentity' WHERE provider = 'kysignon';
+`
 
 const messagingDeviceResume = `ALTER TABLE messaging_devices ADD COLUMN resume_token_hash TEXT NOT NULL DEFAULT '';`
 

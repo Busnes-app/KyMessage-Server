@@ -21,7 +21,7 @@ import (
 func messagingActor(t *testing.T, st store.Store, id string) store.MessagingActor {
 	t.Helper()
 	ctx := context.Background()
-	if err := st.Users().CreateUser(ctx, &store.User{ID: id, Username: id, Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: id}); err != nil {
+	if err := st.Users().CreateUser(ctx, &store.User{ID: id, Username: id, Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: id}); err != nil {
 		t.Fatal(err)
 	}
 	actor := store.MessagingActor{UserID: id, SessionHash: crypto.RandomHex(32)}

@@ -189,7 +189,7 @@ func TestReplacementRefusesUnflaggedAndFederatedAccounts(t *testing.T) {
 	for _, tc := range []struct {
 		name, provider string
 		flag           bool
-	}{{"unflagged", "local", false}, {"federated", "kysignon", true}} {
+	}{{"unflagged", "local", false}, {"federated", "kyidentity", true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, st, cfg := setupTestServer(t)
 			ctx := context.Background()

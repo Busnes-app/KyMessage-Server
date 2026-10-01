@@ -66,17 +66,17 @@ type SecurityConfig struct {
 
 // SSOConfig holds identity provider and federation parameters.
 type SSOConfig struct {
-	Enabled             bool   `json:"enabled"`
-	KySignOnIssuer      string `json:"kysignon_issuer"`
-	KySignOnClientID    string `json:"kysignon_client_id"`
-	KySignOnSecret      string `json:"kysignon_secret"`
-	KySignOnHMACSecret  string `json:"kysignon_hmac_secret"`
-	GenericOIDCIssuer   string `json:"generic_oidc_issuer"`
-	GenericOIDCClientID string `json:"generic_oidc_client_id"`
-	GenericOIDCSecret   string `json:"generic_oidc_secret"`
-	SAMLEntityID        string `json:"saml_entity_id"`
-	SAMLMetadataURL     string `json:"saml_metadata_url"`
-	AutoProvision       bool   `json:"auto_provision"`
+	Enabled              bool   `json:"enabled"`
+	KyIdentityIssuer     string `json:"kyidentity_issuer"`
+	KyIdentityClientID   string `json:"kyidentity_client_id"`
+	KyIdentitySecret     string `json:"kyidentity_secret"`
+	KyIdentityHMACSecret string `json:"kyidentity_hmac_secret"`
+	GenericOIDCIssuer    string `json:"generic_oidc_issuer"`
+	GenericOIDCClientID  string `json:"generic_oidc_client_id"`
+	GenericOIDCSecret    string `json:"generic_oidc_secret"`
+	SAMLEntityID         string `json:"saml_entity_id"`
+	SAMLMetadataURL      string `json:"saml_metadata_url"`
+	AutoProvision        bool   `json:"auto_provision"`
 }
 
 // SCIMConfig holds settings for RFC 7643/7644 inbound user provisioning.
@@ -117,6 +117,9 @@ const AppVersion = "0.1.0-dev"
 
 // LoadFromEnv initializes a Config struct populated from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
+	if err := rejectLegacyEnvironment(); err != nil {
+		return nil, err
+	}
 	port := getEnvInt("KY_PORT", getEnvInt("PORT", 8080))
 	host := getEnv("KY_HOST", "0.0.0.0")
 	appURL := getEnv("KY_APP_URL", fmt.Sprintf("http://localhost:%d", port))
@@ -205,17 +208,17 @@ func LoadFromEnv() (*Config, error) {
 		},
 		Messaging: MessagingConfig{IdentityResetEnabled: getEnvBool("KY_MESSAGING_IDENTITY_RESET_ENABLED", false)},
 		SSO: SSOConfig{
-			Enabled:             getEnvBool("KY_SSO_ENABLED", true),
-			KySignOnIssuer:      getEnv("KY_KYSIGNON_ISSUER", ""),
-			KySignOnClientID:    getEnv("KY_KYSIGNON_CLIENT_ID", ""),
-			KySignOnSecret:      getEnv("KY_KYSIGNON_SECRET", ""),
-			KySignOnHMACSecret:  getEnv("KY_KYSIGNON_HMAC_SECRET", ""),
-			GenericOIDCIssuer:   getEnv("KY_OIDC_ISSUER", ""),
-			GenericOIDCClientID: getEnv("KY_OIDC_CLIENT_ID", ""),
-			GenericOIDCSecret:   getEnv("KY_OIDC_SECRET", ""),
-			SAMLEntityID:        getEnv("KY_SAML_ENTITY_ID", ""),
-			SAMLMetadataURL:     getEnv("KY_SAML_METADATA_URL", ""),
-			AutoProvision:       getEnvBool("KY_SSO_AUTO_PROVISION", true),
+			Enabled:              getEnvBool("KY_SSO_ENABLED", true),
+			KyIdentityIssuer:     getEnv("KY_KYIDENTITY_ISSUER", ""),
+			KyIdentityClientID:   getEnv("KY_KYIDENTITY_CLIENT_ID", ""),
+			KyIdentitySecret:     getEnv("KY_KYIDENTITY_SECRET", ""),
+			KyIdentityHMACSecret: getEnv("KY_KYIDENTITY_HMAC_SECRET", ""),
+			GenericOIDCIssuer:    getEnv("KY_OIDC_ISSUER", ""),
+			GenericOIDCClientID:  getEnv("KY_OIDC_CLIENT_ID", ""),
+			GenericOIDCSecret:    getEnv("KY_OIDC_SECRET", ""),
+			SAMLEntityID:         getEnv("KY_SAML_ENTITY_ID", ""),
+			SAMLMetadataURL:      getEnv("KY_SAML_METADATA_URL", ""),
+			AutoProvision:        getEnvBool("KY_SSO_AUTO_PROVISION", true),
 		},
 		SCIM: SCIMConfig{
 			Enabled:     getEnvBool("KY_SCIM_ENABLED", true),
@@ -238,6 +241,18 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// rejectLegacyEnvironment refuses the pre-rename KY_KYSIGNON_* names: ignoring a set one
+// would silently leave suite sign-in unconfigured.
+func rejectLegacyEnvironment() error {
+	for _, entry := range os.Environ() {
+		name, value, _ := strings.Cut(entry, "=")
+		if rest, ok := strings.CutPrefix(name, "KY_KYSIGNON_"); ok && strings.TrimSpace(value) != "" {
+			return fmt.Errorf("legacy environment variable %s is set; use KY_KYIDENTITY_%s instead", name, rest)
+		}
+	}
+	return nil
 }
 
 func getEnv(key, defaultVal string) string {

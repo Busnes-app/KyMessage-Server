@@ -25,7 +25,7 @@ func TestSCIMFilterMatchesExactlyOneAttribute(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	for _, u := range []*store.User{
 		{ID: "usr_jim", Username: "jimbob@corp.com", Email: "jim@corp.com", Role: "user", Status: "active", SSOProvider: "scim"},
-		{ID: "usr_mal", Username: "mallory", DisplayName: "bob@corp.com", Email: "mal@corp.com", Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: "sub-mal"},
+		{ID: "usr_mal", Username: "mallory", DisplayName: "bob@corp.com", Email: "mal@corp.com", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-mal"},
 		{ID: "usr_bob", Username: "Bob@Corp.com", Email: "bob@corp.com", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "ext-bob"},
 	} {
 		if err := st.Users().CreateUser(ctx, u); err != nil {

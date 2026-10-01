@@ -55,7 +55,7 @@ func serve() error {
 	cfg.Captcha.Provider = "none"
 	cfg.Security.CookieSecure = false // Loopback fixture only.
 	cfg.Security.CookieDomain = ""
-	cfg.SSO.KySignOnIssuer = "" // Never inherit a live issuer from the operator's environment.
+	cfg.SSO.KyIdentityIssuer = "" // Never inherit a live issuer from the operator's environment.
 	oidcMode := os.Getenv("MLS_PROOF_OIDC") == "1"
 	cfg.Messaging.IdentityResetEnabled = oidcMode
 	if oidcMode {
@@ -64,9 +64,9 @@ func serve() error {
 			return err
 		}
 		defer issuer.Close()
-		cfg.SSO.KySignOnIssuer = issuer.URL
-		cfg.SSO.KySignOnClientID = oidcClient
-		cfg.SSO.KySignOnSecret = oidcSecret
+		cfg.SSO.KyIdentityIssuer = issuer.URL
+		cfg.SSO.KyIdentityClientID = oidcClient
+		cfg.SSO.KyIdentitySecret = oidcSecret
 		cfg.SSO.AutoProvision = true
 	}
 	st, err := store.Open(context.Background(), cfg.Database)
@@ -122,7 +122,7 @@ func serve() error {
 			// reload; this route must never exist on the production server.
 			_, err := st.Users().GetUserByID(r.Context(), user)
 			if errors.Is(err, store.ErrNotFound) {
-				err = st.Users().CreateUser(r.Context(), &store.User{ID: user, Username: user, Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: user})
+				err = st.Users().CreateUser(r.Context(), &store.User{ID: user, Username: user, Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: user})
 			}
 			if err != nil {
 				http.Error(w, "fixture account failed", 500)

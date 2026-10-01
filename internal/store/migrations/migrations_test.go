@@ -159,3 +159,75 @@ func TestSuspendedAtBackfill(t *testing.T) {
 		}
 	}
 }
+
+// Migration 20 renames the stored KySignOn provider; rerunning its SQL changes nothing more.
+func TestKyIdentityProviderRename(t *testing.T) {
+	ctx := context.Background()
+	cfg := testdb.Config(t)
+	driver := "sqlite"
+	if cfg.Driver == "postgres" {
+		driver = "pgx"
+	}
+	db, err := sql.Open(driver, cfg.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	must := func(_ sql.Result, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := migrations.RunThrough(ctx, db, cfg.Driver, 19); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, u := range [][2]string{{"suite", "kysignon"}, {"local", "local"}, {"generic", "oidc"}} {
+		must(db.ExecContext(ctx, `INSERT INTO users (id, username, sso_provider, sso_subject, created_at, updated_at) VALUES ($1, $1, $2, $1, $3, $4)`, u[0], u[1], now, now))
+	}
+	must(db.ExecContext(ctx, `INSERT INTO directory_sync_state (provider, subject, revision) VALUES ('kysignon', 'suite', 7)`))
+	must(db.ExecContext(ctx, `INSERT INTO directory_sync_events (provider, event_id) VALUES ('kysignon', 'evt-1')`))
+
+	check := func(run string) {
+		t.Helper()
+		for id, want := range map[string]string{"suite": "kyidentity", "local": "local", "generic": "oidc"} {
+			var got string
+			if err := db.QueryRowContext(ctx, `SELECT sso_provider FROM users WHERE id = $1`, id).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("%s: user %s sso_provider = %q, want %q", run, id, got, want)
+			}
+		}
+		for _, q := range []string{
+			`SELECT COUNT(*) FROM directory_sync_state WHERE provider = 'kyidentity' AND subject = 'suite' AND revision = 7`,
+			`SELECT COUNT(*) FROM directory_sync_events WHERE provider = 'kyidentity' AND event_id = 'evt-1'`,
+		} {
+			var n int
+			if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 1 {
+				t.Errorf("%s: %s = %d, want 1", run, q, n)
+			}
+		}
+		var stale int
+		if err := db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM users WHERE sso_provider = 'kysignon') + (SELECT COUNT(*) FROM directory_sync_state WHERE provider = 'kysignon') + (SELECT COUNT(*) FROM directory_sync_events WHERE provider = 'kysignon')`).Scan(&stale); err != nil {
+			t.Fatal(err)
+		}
+		if stale != 0 {
+			t.Errorf("%s: %d kysignon rows remain", run, stale)
+		}
+	}
+	if err := migrations.Run(ctx, db, cfg.Driver); err != nil {
+		t.Fatal(err)
+	}
+	check("first run")
+	// Forget that v20 ran so the second Run executes its SQL again.
+	must(db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 20`))
+	if err := migrations.Run(ctx, db, cfg.Driver); err != nil {
+		t.Fatal(err)
+	}
+	check("second run")
+}

@@ -28,7 +28,7 @@ import (
 func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	_, st, cfg := setupTestServer(t)
 	if err := st.Users().CreateUser(context.Background(), &store.User{
-		ID: "usr_sso_admin", Username: "sso-admin", Role: "admin", Status: "active", SSOProvider: "kysignon", SSOSubject: "sub-admin",
+		ID: "usr_sso_admin", Username: "sso-admin", Role: "admin", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-admin",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +58,13 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	}))
 	defer idp.Close()
 	issuer = idp.URL
-	cfg.SSO.KySignOnIssuer = issuer
-	cfg.SSO.KySignOnClientID = "client"
+	cfg.SSO.KyIdentityIssuer = issuer
+	cfg.SSO.KyIdentityClientID = "client"
 	srv := api.NewServer(cfg, st)
 
 	ssoLogin := func(authTime int64) *http.Cookie {
 		login := httptest.NewRecorder()
-		srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kysignon/login", nil))
+		srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kyidentity/login", nil))
 		authorize, _ := url.Parse(login.Header().Get("Location"))
 		claims := map[string]any{"iss": issuer, "aud": "client", "sub": "sub-admin", "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": authorize.Query().Get("nonce")}
 		if authTime != 0 {
@@ -78,7 +78,7 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 		mu.Lock()
 		tokens[code] = input + "." + base64.RawURLEncoding.EncodeToString(sig)
 		mu.Unlock()
-		callback := httptest.NewRequest("GET", "/api/sso/kysignon/callback?code="+code+"&state="+authorize.Query().Get("state"), nil)
+		callback := httptest.NewRequest("GET", "/api/sso/kyidentity/callback?code="+code+"&state="+authorize.Query().Get("state"), nil)
 		for _, c := range login.Result().Cookies() {
 			callback.AddCookie(c)
 		}
@@ -102,7 +102,7 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 		session := ssoLogin(authTime)
 		for _, rt := range routes {
 			w := adminDo(t, srv, session, rt.method, rt.path, pinBody(priv.Public(), 2, 3))
-			if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kysignon/login?fresh=1"`) {
+			if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kyidentity/login?fresh=1"`) {
 				t.Errorf("%s auth_time, %s %s: got %d %s", name, rt.method, rt.path, w.Code, w.Body.String())
 			}
 		}

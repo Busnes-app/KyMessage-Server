@@ -106,7 +106,7 @@ func session(args []string) error {
 	}
 	defer st.Close()
 	if _, err := st.Users().GetUserByID(ctx, *user); errors.Is(err, store.ErrNotFound) {
-		err = st.Users().CreateUser(ctx, &store.User{ID: *user, Username: *user, Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: *user})
+		err = st.Users().CreateUser(ctx, &store.User{ID: *user, Username: *user, Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: *user})
 		if err != nil {
 			return err
 		}
