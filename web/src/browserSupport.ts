@@ -5,15 +5,16 @@ export const supportedBrowsers = 'current desktop Chrome, Edge and Firefox';
 export type BrowserSupport = {state: 'supported' | 'unverified' | 'unsupported'; missing: string[]};
 export type SupportEnv = {
   subtle?: SubtleCrypto; indexedDB?: IDBFactory; locks?: LockManager;
-  secureContext: boolean; brands: string[]; userAgent: string;
+  secureContext: boolean; brands: string[]; userAgent: string; mobile: boolean;
 };
 
 function realEnv(): SupportEnv {
-  const nav = globalThis.navigator as Navigator & {userAgentData?: {brands: {brand: string}[]}};
+  const nav = globalThis.navigator as Navigator & {userAgentData?: {brands: {brand: string}[]; mobile: boolean}};
   return {
     subtle: globalThis.crypto?.subtle, indexedDB: globalThis.indexedDB, locks: nav?.locks,
     secureContext: globalThis.isSecureContext === true,
     brands: nav?.userAgentData?.brands.map(b => b.brand) ?? [], userAgent: nav?.userAgent ?? '',
+    mobile: nav?.userAgentData?.mobile ?? false,
   };
 }
 
@@ -27,9 +28,11 @@ async function ed25519(subtle?: SubtleCrypto): Promise<boolean> {
 }
 
 function declared(env: SupportEnv): boolean {
-  if (env.brands.some(b => b === 'Google Chrome' || b === 'Microsoft Edge')) return true;
+  if (env.mobile || /Mobile|Android|iPhone|iPad/.test(env.userAgent)) return false;
+  if (env.brands.length > 0) {
+    return env.brands.some(b => b === 'Google Chrome' || b === 'Microsoft Edge');
+  }
   const ua = env.userAgent;
-  if (/Mobile|Android|iPhone|iPad/.test(ua)) return false;
   return /Firefox\/\d+/.test(ua) || /Edg\/\d+/.test(ua) || (/Chrome\/\d+/.test(ua) && !/OPR\/|Brave/.test(ua));
 }
 
