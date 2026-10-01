@@ -58,3 +58,48 @@ it('rejects a malformed device list', async () => {
   render(<MyAccount user={user} onLogout={() => {}} />);
   expect(await screen.findByText('Devices unavailable. Refresh or sign in again.')).toBeTruthy();
 });
+
+it('keeps the list and shows an inline error when revoke gets a 404, then reloads', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(respond({devices: [device]}))
+    .mockResolvedValueOnce(respond({error: 'not found'}, 404))
+    .mockResolvedValueOnce(respond({devices: [device]}));
+  vi.stubGlobal('fetch', fetch);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<MyAccount user={user} onLogout={() => {}} />);
+  fireEvent.click(await screen.findByRole('button', {name: /Revoke/}));
+  expect((await screen.findByRole('alert')).textContent).toContain('Could not revoke');
+  expect(screen.getByRole('button', {name: /Revoke/})).toBeTruthy();
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+});
+
+it('shows the same inline error when the revoke fetch rejects', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(respond({devices: [device]}))
+    .mockRejectedValueOnce(new TypeError('network'))
+    .mockResolvedValueOnce(respond({devices: [device]}));
+  vi.stubGlobal('fetch', fetch);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<MyAccount user={user} onLogout={() => {}} />);
+  fireEvent.click(await screen.findByRole('button', {name: /Revoke/}));
+  expect((await screen.findByRole('alert')).textContent).toContain('Could not revoke');
+  expect(screen.getByRole('button', {name: /Revoke/})).toBeTruthy();
+});
+
+it('treats a different 403 as an error, not the non-suite state', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({error: 'Origin not allowed'}, 403)));
+  render(<MyAccount user={user} onLogout={() => {}} />);
+  expect(await screen.findByText('Devices unavailable. Refresh or sign in again.')).toBeTruthy();
+  expect(screen.queryByText('Messaging needs a KySignOn account.')).toBeNull();
+});
+
+it('refetches from the error state Refresh button', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(respond({error: 'boom'}, 500))
+    .mockResolvedValueOnce(respond({devices: []}));
+  vi.stubGlobal('fetch', fetch);
+  render(<MyAccount user={user} onLogout={() => {}} />);
+  fireEvent.click(await screen.findByRole('button', {name: 'Refresh'}));
+  expect(await screen.findByText('No messaging devices.')).toBeTruthy();
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

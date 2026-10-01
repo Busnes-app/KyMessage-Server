@@ -28,6 +28,7 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
   const [devices, setDevices] = useState<Devices>({kind: 'loading'});
   const [support, setSupport] = useState<BrowserSupport | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [revokeError, setRevokeError] = useState('');
 
   useEffect(() => { let live = true; void browserSupport().then(s => { if (live) setSupport(s); }); return () => { live = false; }; }, []);
   useEffect(() => {
@@ -35,7 +36,12 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
     void (async () => {
       try {
         const response = await fetch('/api/messaging/devices', {signal: controller.signal, cache: 'no-store'});
-        if (response.status === 403) { if (!controller.signal.aborted) setDevices({kind: 'not-suite'}); return; }
+        if (response.status === 403) {
+          const body: unknown = await response.json().catch(() => null);
+          const suite = (body as {error?: unknown} | null)?.error === 'Suite OIDC sign-in required' || user.sso_provider !== 'kysignon';
+          if (!controller.signal.aborted) setDevices({kind: suite ? 'not-suite' : 'error'});
+          return;
+        }
         if (!response.ok) throw new Error('unavailable');
         const list = devicesResponse(await response.json());
         if (!controller.signal.aborted) setDevices({kind: 'ready', devices: list});
@@ -46,8 +52,8 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
 
   const revoke = async (device: Device) => {
     if (!window.confirm(`Revoke ${device.name}? It can no longer read or send messages.`)) return;
-    const response = await secureFetch('/api/messaging/devices/' + encodeURIComponent(device.id), {method: 'DELETE'});
-    if (!response.ok) { setDevices({kind: 'error'}); return; }
+    const response = await secureFetch('/api/messaging/devices/' + encodeURIComponent(device.id), {method: 'DELETE'}).catch(() => null);
+    setRevokeError(response?.ok ? '' : `Could not revoke ${device.name}. Try again.`);
     setRefresh(n => n + 1);
   };
 
@@ -65,7 +71,9 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
     <h3>My messaging devices</h3>
     {devices.kind === 'loading' && <p role="status">Loading devices…</p>}
     {devices.kind === 'not-suite' && <p>Messaging needs a KySignOn account.</p>}
-    {devices.kind === 'error' && <p role="alert">Devices unavailable. Refresh or sign in again.</p>}
+    {revokeError && <p role="alert">{revokeError}</p>}
+    {devices.kind === 'error' && <><p role="alert">Devices unavailable. Refresh or sign in again.</p>
+      <button type="button" className="btn-secondary" onClick={() => setRefresh(n => n + 1)}>Refresh</button></>}
     {devices.kind === 'ready' && (devices.devices.length === 0 ? <p>No messaging devices.</p> :
       <ul style={{listStyle: 'none', padding: 0}}>
         {devices.devices.map(d => <li key={d.id} style={{borderTop: '1px solid var(--line)', padding: '12px 0', overflowWrap: 'anywhere'}}>
