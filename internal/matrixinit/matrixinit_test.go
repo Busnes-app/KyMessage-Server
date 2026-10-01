@@ -280,6 +280,8 @@ func TestElementAndPostgresConfigs(t *testing.T) {
 		"CREATE USER mas PASSWORD '" + string(mpw) + "'",
 		"CREATE DATABASE synapse OWNER synapse ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE template0",
 		"CREATE DATABASE mas OWNER mas",
+		"REVOKE ALL ON DATABASE synapse FROM PUBLIC;",
+		"REVOKE ALL ON DATABASE mas FROM PUBLIC;",
 	} {
 		if !strings.Contains(string(sql), want) {
 			t.Errorf("init.sql lacks %q", want)
@@ -287,6 +289,88 @@ func TestElementAndPostgresConfigs(t *testing.T) {
 	}
 	if string(spw) == string(mpw) {
 		t.Error("synapse and mas share a database password")
+	}
+}
+
+func TestElementIsBrandedAndContactsNoThirdParty(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "element", "config.json"))
+	var el map[string]any
+	if err := json.Unmarshal(b, &el); err != nil {
+		t.Fatal(err)
+	}
+	br, _ := el["branding"].(map[string]any)
+	if el["brand"] != "KyMessages" || br["auth_header_logo_url"] != "https://admin.example.com/app-icon.png" ||
+		br["logo_link_url"] != "https://chat.example.com" {
+		t.Errorf("branding: %v %v", el["brand"], br)
+	}
+	if links, ok := br["auth_footer_links"].([]any); !ok || len(links) != 0 {
+		t.Errorf("auth_footer_links: %v", br["auth_footer_links"])
+	}
+	defaults, _ := el["setting_defaults"].(map[string]any)
+	themes, _ := defaults["custom_themes"].([]any)
+	names := map[string]bool{}
+	for _, th := range themes {
+		m := th.(map[string]any)
+		names[m["name"].(string)] = m["is_dark"].(bool)
+		if c, _ := m["colors"].(map[string]any); c["accent-color"] == nil {
+			t.Errorf("theme %v has no accent", m["name"])
+		}
+	}
+	if len(names) != 2 || names["Busnes Light"] || !names["Busnes Dark"] {
+		t.Errorf("themes: %v", names)
+	}
+	if el["default_theme"] != "custom-Busnes Light" {
+		t.Errorf("default_theme: %v", el["default_theme"])
+	}
+
+	// Element's built-in defaults point at element.io and scalar.vector.im; ours must not.
+	for _, host := range []string{"element.io", "vector.im"} {
+		if strings.Contains(string(b), host) {
+			t.Errorf("config mentions %s", host)
+		}
+	}
+	for _, k := range []string{"integrations_ui_url", "integrations_rest_url"} {
+		if v, ok := el[k]; !ok || v != nil {
+			t.Errorf("%s = %v, want null", k, v)
+		}
+	}
+	if w, ok := el["integrations_widgets_urls"].([]any); !ok || len(w) != 0 {
+		t.Errorf("integrations_widgets_urls: %v", el["integrations_widgets_urls"])
+	}
+	for _, k := range []string{"help_url", "help_encryption_url", "help_key_storage_url"} {
+		if v, _ := el[k].(string); !strings.HasPrefix(v, "https://admin.example.com/") {
+			t.Errorf("%s = %v", k, el[k])
+		}
+	}
+	if ec, _ := el["element_call"].(map[string]any); ec["disable"] != true {
+		t.Errorf("element_call: %v", el["element_call"])
+	}
+	if defaults["UIFeature.voip"] != false || defaults["UIFeature.widgets"] != false {
+		t.Errorf("calls/widgets UI not disabled: %v", defaults)
+	}
+	if j, _ := el["jitsi"].(map[string]any); j["preferred_domain"] != "jitsi.invalid" {
+		t.Errorf("jitsi: %v", el["jitsi"])
+	}
+	rd, _ := el["room_directory"].(map[string]any)
+	if s, _ := rd["servers"].([]any); len(s) != 1 || s[0] != "example.com" {
+		t.Errorf("room_directory: %v", el["room_directory"])
+	}
+}
+
+func TestInitTightensAnExistingOutputRoot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("output root mode %v", fi.Mode().Perm())
 	}
 }
 

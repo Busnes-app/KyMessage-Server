@@ -155,7 +155,7 @@ func Run(in Input, dir string) (Result, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Result{}, err
 	}
-	for _, sub := range []string{"secrets", "synapse", "mas", "element", "postgres"} {
+	for _, sub := range []string{".", "secrets", "synapse", "mas", "element", "postgres"} {
 		p := filepath.Join(dir, sub)
 		if err := os.Mkdir(p, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 			return Result{}, err

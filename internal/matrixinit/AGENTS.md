@@ -35,6 +35,19 @@ env, printing); `docker-compose.matrix.yml` consumes the output layout.
 - Localpart: `preferred_username` lowercased, every character outside `[a-z0-9._=-]`
   replaced by `_` (minijinja loop, checked against MAS 1.26's environment); a missing claim
   renders empty and `action: require` refuses it; `on_conflict: fail` refuses collisions.
+  A mapped localpart starting with `_` (e.g. a name beginning with a non-ASCII letter) is
+  refused by Synapse's `check_username`, which MAS calls through `is_localpart_available`:
+  sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.
+- Element contacts no third party: integrations are null, `element_call.disable`,
+  `UIFeature.voip`/`UIFeature.widgets` off, `jitsi.preferred_domain` is `jitsi.invalid`
+  (Element keeps its `meet.element.io` default for an object set to null, so the
+  unresolvable name makes any Jitsi start fail closed), help links and the logo
+  (`/app-icon.png`) point at the admin host, desktop-build promotion is off. No rendered
+  value may name `element.io` or `vector.im`.
+- Element themes "Busnes Light"/"Busnes Dark" copy `web/src/ky-ui/tokens.css`; keep them
+  in step. `default_theme` is the light one, but Element's device-only `use_system_theme`
+  (default on, not settable by config) makes browsers with a colour-scheme preference start
+  on built-in light/dark; the Busnes themes are one click away in Appearance.
 - AGPL rule: Synapse, MAS and Element are configured only through these files, never
   patched; no MAS template overrides; Element branding through `config.json` only.
 - References used: MAS configuration
@@ -42,6 +55,8 @@ env, printing); `docker-compose.matrix.yml` consumes the output layout.
   MAS homeserver setup https://element-hq.github.io/matrix-authentication-service/setup/homeserver.html,
   MAS upstream providers and claims https://element-hq.github.io/matrix-authentication-service/setup/sso.html,
   MAS 1.26 template filters https://github.com/element-hq/matrix-authentication-service/blob/v1.26.0/crates/handlers/src/upstream_oauth2/template.rs,
+  Element v1.12.30 config https://github.com/element-hq/element-web/blob/v1.12.30/docs/config.md,
+  its defaults `apps/web/src/SdkConfig.ts`, theming `docs/theming.md`,
   Synapse 1.162 config https://github.com/element-hq/synapse/blob/v1.162.0/docs/usage/configuration/config_documentation.md.
 
 ## Verification
