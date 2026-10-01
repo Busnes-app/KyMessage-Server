@@ -102,6 +102,60 @@ function reauthURL(response: {status:number; value:unknown}) {
   const url = object(response.value).reauth_url;
   return typeof url === 'string' && url.startsWith('/api/sso/') ? url : null;
 }
+// One resume or reconciliation at a time across tabs, so a second reuses the first's pending token.
+const resumeLock = 'kymessages-proof-resume';
+// Re-prove a restored device's key. The new token waits as resumeToken in every
+// saved entry and becomes the active token only once the server has verified it.
+async function resumeDevice(): Promise<{kind:'resumed'} | {kind:'reauth'; url:string}> {
+  const pending = await resumeState();
+  if (!pending) throw new Error('Missing enrolled device ID');
+  const {device} = pending;
+  // Reuse a saved token: a lost verify response may already have activated it.
+  const token = pending.resumeToken ?? hex(crypto.getRandomValues(new Uint8Array(32)));
+  await everyEntry(device,d => { d.resumeToken = token; });
+  const outcome = await transaction(async (r,d) => {
+    if (d.device !== device || d.resumeToken !== token) throw new Error('Device changed during resume');
+    const tokenHash = await hash(encoder.encode(token));
+    const path = '/devices/' + encodeURIComponent(device) + '/resume';
+    const started = await request(path,d.token,'POST',{token_hash:tokenHash});
+    const startReauth = reauthURL(started);
+    if (startReauth) return {kind:'reauth' as const,url:startReauth};
+    const value = object(started.value);
+    if (started.status !== 200) throw new Error(`Delivery HTTP ${started.status}: ${text(value.error)}`);
+    const bytes = unbase64(text(value.signing_input));
+    const parsed: unknown = JSON.parse(decoder.decode(bytes));
+    const c = object(parsed);
+    if (c.Domain !== 'KyMessages resume v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== device || c.PublicKey !== pinFor(r.keyPackage).key || c.TokenHash !== tokenHash || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Resume binding mismatch');
+    const signature = base64(await (await suite).signature.sign(signingKey(r),bytes));
+    const verified = await request(path + '/verify',d.token,'POST',{signature});
+    const verifyReauth = reauthURL(verified);
+    if (verifyReauth) return {kind:'reauth' as const,url:verifyReauth};
+    if (verified.status !== 200) throw new Error(`Delivery HTTP ${verified.status}: ${text(object(verified.value).error)}`);
+    const confirmed = object(object(verified.value).device);
+    if (confirmed.id !== device || confirmed.status !== 'approved') throw new Error('Resume was not confirmed');
+    return {kind:'resumed' as const};
+  });
+  if (outcome.kind === 'resumed') await everyEntry(device,promote(token));
+  return outcome;
+}
+// Finish a resume whose verify response was lost, and repair entries an interrupted
+// promotion left behind. Idempotent; a still-suspended device keeps its pending token.
+async function reconcileResume() {
+  const pending = await resumeState();
+  if (!pending?.resumeToken) return;
+  const {device,resumeToken} = pending;
+  const current = await transaction(async (_r,d) => d.token);
+  const own = array((await api('/devices',current)).devices,object).find(v => v.id === device);
+  if (own?.status !== 'approved') return;
+  const {status} = await request('/rooms',resumeToken);
+  if (status === 200) { await everyEntry(device,promote(resumeToken)); return; }
+  // Discard the pending token only when the server provably still holds the active one.
+  if (status === 403 && (await request('/rooms',current)).status === 200) {
+    await everyEntry(device,d => { if (d.resumeToken === resumeToken) d.resumeToken = null; });
+    return;
+  }
+  throw new Error('This device could not confirm its resumed credential. Try again; the pending credential is kept.');
+}
 function pinned(r: DeviceRecord, devices: Roster) {
   const peer = connected(r).directPeer;
   if (peer && devices.some(device => device.user_id !== r.identity && device.user_id !== peer)) throw new Error('Direct conversation contains another account');
@@ -319,55 +373,8 @@ export const delivery = {
       return d.device;
     });
   },
-  // Re-prove a restored device's key. The new token waits as resumeToken in every
-  // saved entry and becomes the active token only once the server has verified it.
-  async resumeDevice(): Promise<{kind:'resumed'} | {kind:'reauth'; url:string}> {
-    const pending = await resumeState();
-    if (!pending) throw new Error('Missing enrolled device ID');
-    const {device} = pending;
-    // Reuse a saved token: a lost verify response may already have activated it.
-    const token = pending.resumeToken ?? hex(crypto.getRandomValues(new Uint8Array(32)));
-    await everyEntry(device,d => { d.resumeToken = token; });
-    const outcome = await transaction(async (r,d) => {
-      if (d.device !== device || d.resumeToken !== token) throw new Error('Device changed during resume');
-      const tokenHash = await hash(encoder.encode(token));
-      const path = '/devices/' + encodeURIComponent(device) + '/resume';
-      const started = await request(path,d.token,'POST',{token_hash:tokenHash});
-      const startReauth = reauthURL(started);
-      if (startReauth) return {kind:'reauth' as const,url:startReauth};
-      const value = object(started.value);
-      if (started.status !== 200) throw new Error(`Delivery HTTP ${started.status}: ${text(value.error)}`);
-      const bytes = unbase64(text(value.signing_input));
-      const parsed: unknown = JSON.parse(decoder.decode(bytes));
-      const c = object(parsed);
-      if (c.Domain !== 'KyMessages resume v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== device || c.PublicKey !== pinFor(r.keyPackage).key || c.TokenHash !== tokenHash || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Resume binding mismatch');
-      const signature = base64(await (await suite).signature.sign(signingKey(r),bytes));
-      const verified = await request(path + '/verify',d.token,'POST',{signature});
-      const verifyReauth = reauthURL(verified);
-      if (verifyReauth) return {kind:'reauth' as const,url:verifyReauth};
-      if (verified.status !== 200) throw new Error(`Delivery HTTP ${verified.status}: ${text(object(verified.value).error)}`);
-      const confirmed = object(object(verified.value).device);
-      if (confirmed.id !== device || confirmed.status !== 'approved') throw new Error('Resume was not confirmed');
-      return {kind:'resumed' as const};
-    });
-    if (outcome.kind === 'resumed') await everyEntry(device,promote(token));
-    return outcome;
-  },
-  // Finish a resume whose verify response was lost, and repair entries an interrupted
-  // promotion left behind. Idempotent; a still-suspended device keeps its pending token.
-  async reconcileResume() {
-    const pending = await resumeState();
-    if (!pending?.resumeToken) return;
-    const {device,resumeToken} = pending;
-    const current = await transaction(async (_r,d) => d.token);
-    const own = array((await api('/devices',current)).devices,object).find(v => v.id === device);
-    if (own?.status !== 'approved') return;
-    const {status} = await request('/rooms',resumeToken);
-    if (status === 200) await everyEntry(device,promote(resumeToken));
-    // An approved device that refuses the pending token was never resumed with it.
-    else if (status === 403) await everyEntry(device,d => { d.resumeToken = null; });
-    else throw new Error(`Delivery HTTP ${status} while confirming a resumed device`);
-  },
+  async resumeDevice() { return navigator.locks.request(resumeLock,resumeDevice); },
+  async reconcileResume() { return navigator.locks.request(resumeLock,reconcileResume); },
   async setRetention(days: number) {
     await transaction(async (_r,d) => {
       if (!d.room) throw new Error('Open a conversation first');

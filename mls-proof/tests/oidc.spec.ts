@@ -420,7 +420,7 @@ test('a resumed device follows the epoch its room advanced to while suspended',a
   } finally { await alice.context.close(); await bob.context.close(); }
 });
 
-test('a resume whose verify response was lost recovers on the next unlock',async ({browser}) => {
+for (const deadConfirm of [false,true]) test(`a resume whose verify response was lost recovers on the next unlock${deadConfirm ? ', even after a failed confirm' : ''}`,async ({browser}) => {
   const alice = await open(browser,'lost-a-' + crypto.randomUUID().slice(0,8));
   const bob = await open(browser,'lost-b-' + crypto.randomUUID().slice(0,8));
   try {
@@ -439,6 +439,13 @@ test('a resume whose verify response was lost recovers on the next unlock',async
     await expect(alice.page.getByRole('status')).not.toContainText('Working');
     await expect(alice.page.getByRole('status')).not.toContainText('Device resumed');
     await alice.page.reload();
+    if (deadConfirm) {
+      // The first read after unlock confirms the pending token. Fake its refusal; the old
+      // token really is dead, so nothing proves the pending one wrong and it must be kept.
+      await alice.page.route('**/api/messaging/rooms',route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Messaging access denied'})}),{times:1});
+      await alice.page.getByLabel('Local passphrase').fill(password);
+      await click(alice.page,'Unlock existing device','could not confirm its resumed credential');
+    }
     await unlock(alice.page);
     await expect(alice.page.locator('#signed-in')).toContainText('Device approved');
     await send(alice.page,bob.page,'After the lost reply');

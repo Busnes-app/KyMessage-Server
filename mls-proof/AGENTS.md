@@ -145,8 +145,9 @@ retains the manual wire harness. Root owns product decisions and research in `do
   vault's enrolled key. Only after verify succeeds does it promote the pending token
   to the active one in every entry. Each refresh, including unlock, reconciles: a
   pending token on a device the server reports `approved` is confirmed with one
-  token-authenticated read and promoted everywhere (an explicit 403 discards it); a
-  still-suspended device keeps it. Ratchets, cursors and history stay; the resumed
+  token-authenticated read and promoted everywhere. It is discarded only when it gets
+  403 and the active token gets 200; otherwise it is kept. A still-suspended device
+  keeps it. One Web Lock serializes resume and reconciliation across tabs. Ratchets, cursors and history stay; the resumed
   device continues at the server's epoch.
 - Recovery help remains available before unlock. Account-specific guidance uses
   the refreshed device list and clears on lock; approval never implies that a
