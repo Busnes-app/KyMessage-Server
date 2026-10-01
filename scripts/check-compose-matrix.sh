@@ -74,7 +74,12 @@ jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("htt
 grep -q 8081 <<<"$out" && bad "the stack still names MAS port 8081"
 # Without the client secret matrix-init renders no MAS config; `up` must then refuse MAS, not
 # let Docker create a directory in its place.
-[ "$(jq -c '.services.mas.volumes' <<<"$out")" = "[{\"type\":\"bind\",\"source\":\"$root/matrix/mas/config.yaml\",\"target\":\"/config/config.yaml\",\"read_only\":true,\"bind\":{\"create_host_path\":false}}]" ] \
+# Compose versions omit opposite defaults, so compare with this Compose's own rendering of false.
+bindjson() { printf 'services: {p: {image: x, volumes: [{type: bind, source: /x, target: /x, bind: {create_host_path: %s}}]}}\n' "$1" \
+  | docker compose --env-file /dev/null -f - config --format json | jq -c '.services.p.volumes[0].bind'; }
+nocreate=$(bindjson false)
+[ -n "$nocreate" ] && [ "$nocreate" != "$(bindjson true)" ] || bad "this docker compose cannot express create_host_path false"
+[ "$(jq -c '.services.mas.volumes' <<<"$out")" = "[{\"type\":\"bind\",\"source\":\"$root/matrix/mas/config.yaml\",\"target\":\"/config/config.yaml\",\"read_only\":true,\"bind\":$nocreate}]" ] \
   || bad "mas does not bind only ./matrix/mas/config.yaml read-only with create_host_path false: $(jq -c '.services.mas.volumes' <<<"$out")"
 dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition // ""' <<<"$out"; }
 [ "$(dep synapse postgres)" = service_healthy ] || bad "synapse does not wait for a healthy postgres"
