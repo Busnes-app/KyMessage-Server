@@ -286,6 +286,21 @@ func TestCollectMessagesBudgetCountsRowMetadata(t *testing.T) {
 	}
 }
 
+func TestCollectMessagesPartOverflowNamesLargestRooms(t *testing.T) {
+	backup.SetMessagesFileCap(t, 256<<10)
+	cfg, _ := sqliteInstance(t)
+	db := rawDB(t, cfg)
+	seedRoom(t, db, "room-big", 12, 32<<10)
+	seedRoom(t, db, "room-small", 2, 32<<10)
+	_, err := backup.CollectMessages(context.Background(), cfg, "test")
+	if !errors.Is(err, capsule.ErrCapsuleTooLarge) {
+		t.Fatalf("got %v, want ErrCapsuleTooLarge", err)
+	}
+	if !strings.Contains(err.Error(), "largest rooms: room-big, room-small") {
+		t.Fatalf("part overflow does not name the largest rooms: %v", err)
+	}
+}
+
 func TestCollectMessagesRefusesOverTotalLimit(t *testing.T) {
 	backup.SetMessagesBudgets(t, 300<<10, 1<<20)
 	cfg, _ := sqliteInstance(t)

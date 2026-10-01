@@ -35,9 +35,9 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   with `token_hash` NULL and `challenge`/`enrollment_session` empty)
   and `data/messages/events-NNN.db` parts (events plus their Welcomes). Parts are contiguous
   per-room sequence ranges cut at `messagesPartBudget` (file cap minus 4 MiB), counting every
-  column's bytes plus a per-row allowance; each part is compacted and refused above
-  `MaxCapsuleFileBytes`. Past `MaxCapsuleTotalBytes`, or past the import's `maxEventParts`, it
-  fails with `ErrCapsuleTooLarge` naming the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
+  column's bytes plus a per-row allowance; each member is compacted and refused above
+  `MaxCapsuleFileBytes`. An event part over that cap, a total past `MaxCapsuleTotalBytes`, or more
+  parts than the import's `maxEventParts` fails with `ErrCapsuleTooLarge` naming the three largest rooms. No deployment key, `ky_server.db`, KeyPackages, recovery-auth or
   reset receipts. Recipe `kind: "messages"`; every member is required and SQLite-checked.
   `MessagesChecks` requires the kind, accounts.db, at most `maxEventParts` event parts and every
   `.db` member in `sqlite_paths`, so no capsule `ImportMessages` would refuse is sealed or drilled.

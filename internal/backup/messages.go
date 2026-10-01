@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -28,6 +29,7 @@ const (
 var (
 	messagesPartBudget  = recoveryclient.MaxCapsuleFileBytes - 4<<20
 	messagesTotalBudget = recoveryclient.MaxCapsuleTotalBytes
+	messagesFileCap     = int64(recoveryclient.MaxCapsuleFileBytes)
 )
 
 // messagesAccountTables travel in accounts.db; events and Welcomes travel in event parts.
@@ -47,12 +49,12 @@ func CollectMessages(ctx context.Context, cfg *config.Config, appVersion string)
 	if strings.ToLower(cfg.Database.Driver) != "sqlite" {
 		return recoveryclient.Payload{}, fmt.Errorf("%w: %s", ErrNoDatabaseSnapshot, cfg.Database.Driver)
 	}
-	path, cleanup, err := snapshotFile(ctx, cfg.Database.DSN, cfg.Database.DataDir)
+	dbPath, cleanup, err := snapshotFile(ctx, cfg.Database.DSN, cfg.Database.DataDir)
 	if err != nil {
 		return recoveryclient.Payload{}, err
 	}
 	defer cleanup()
-	snapshot, err := sql.Open("sqlite", path)
+	snapshot, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return recoveryclient.Payload{}, err
 	}
@@ -68,19 +70,23 @@ func CollectMessages(ctx context.Context, cfg *config.Config, appVersion string)
 	if err != nil {
 		return recoveryclient.Payload{}, err
 	}
+	largest := strings.Join(largestRooms(roomBytes, 3), ", ")
 	if len(parts) > maxEventParts {
-		return recoveryclient.Payload{}, fmt.Errorf("%w: messages need %d event parts, restore-messages accepts %d; largest rooms: %s", capsule.ErrCapsuleTooLarge, len(parts), maxEventParts, strings.Join(largestRooms(roomBytes, 3), ", "))
+		return recoveryclient.Payload{}, fmt.Errorf("%w: messages need %d event parts, restore-messages accepts %d; largest rooms: %s", capsule.ErrCapsuleTooLarge, len(parts), maxEventParts, largest)
 	}
-	dir := filepath.Dir(path)
+	dir := filepath.Dir(dbPath)
 	var files []recoveryclient.File
 	var total int64
 	add := func(name string, statements [][]any) error {
 		data, err := exportDB(ctx, conn, filepath.Join(dir, filepath.Base(name)), statements)
+		if err != nil && name != MessagesAccounts && errors.Is(err, capsule.ErrCapsuleTooLarge) {
+			return fmt.Errorf("export %s: %w; largest rooms: %s", name, err, largest)
+		}
 		if err != nil {
 			return fmt.Errorf("export %s: %w", name, err)
 		}
 		if total += int64(len(data)); total > messagesTotalBudget {
-			return fmt.Errorf("%w: messages exceed %d MiB; largest rooms: %s", capsule.ErrCapsuleTooLarge, messagesTotalBudget>>20, strings.Join(largestRooms(roomBytes, 3), ", "))
+			return fmt.Errorf("%w: messages exceed %d MiB; largest rooms: %s", capsule.ErrCapsuleTooLarge, messagesTotalBudget>>20, largest)
 		}
 		files = append(files, recoveryclient.File{Path: name, Data: data, Mode: 0600})
 		return nil
@@ -191,7 +197,7 @@ func exportDB(ctx context.Context, conn *sql.Conn, path string, statements [][]a
 	if err != nil {
 		return nil, err
 	}
-	if info.Size() > recoveryclient.MaxCapsuleFileBytes {
+	if info.Size() > messagesFileCap {
 		return nil, fmt.Errorf("%w: %d bytes", capsule.ErrCapsuleTooLarge, info.Size())
 	}
 	return os.ReadFile(path)
