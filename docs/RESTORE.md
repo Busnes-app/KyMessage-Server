@@ -57,7 +57,9 @@ SQLite copies and database rollbacks bypass the preparation below and are unsupp
    mid-restore, the command checks the whole path up to `/`: an existing target must be
    a real directory you own, every ancestor must be owned by you or root, and none may be
    writable by group or others, except a root-owned sticky directory such as `/tmp`. A
-   nonempty target is refused before anything is read and is left untouched.
+   nonempty target is refused before anything is read and is left untouched. A target
+   that appears between the check and its creation is refused; retry. The opened
+   directory is checked again against the same rule before extraction.
 4. Compare the printed authenticated manifest's capsule ID, service, creation time,
    recovery key ID and payload hash with your trusted records. Payload hash and the
    downloaded container's SHA-256 are different checks. Preserve the receipt.

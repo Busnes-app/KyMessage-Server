@@ -243,7 +243,7 @@ func TestRestorePathRefusal(t *testing.T) {
 		{false, me, link | 0o777, "symlink"},
 		{false, me, 0o600, "not a directory"},
 		{true, me, dir | 0o700, ""},
-		{true, other, dir | 0o700, "owned by uid"}, // under a sticky parent
+		{true, other, dir | 0o700, "owned by uid"}, // under a sticky parent, or root.Stat(".") of an opened target
 		{true, me, dir | sticky | 0o777, "writable"},
 		{true, me, link | 0o777, "symlink"},
 		{true, me, 0o600, "not a directory"},
@@ -319,5 +319,32 @@ func TestRestoreResolvesASymlinkedParent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(real, "target", "data", "ky_server.db")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A target another user creates after validation was never checked, so it must be refused.
+func TestRestoreRefusesATargetThatAppears(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	t.Cleanup(func() { beforeCreate = func(string) {} })
+	for _, plant := range []bool{false, true} {
+		target := filepath.Join(t.TempDir(), "target")
+		sentinel := filepath.Join(target, "sentinel")
+		beforeCreate = func(string) {
+			if err := os.Mkdir(target, 0o700); err != nil {
+				t.Error(err)
+			}
+			if plant {
+				if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		err := restore(path, target, "busnes_app", shares, &bytes.Buffer{})
+		if got, readErr := os.ReadFile(sentinel); plant && (readErr != nil || string(got) != "keep") {
+			t.Fatalf("pre-placed contents changed: %q %v", got, readErr)
+		}
+		if err == nil || !strings.Contains(err.Error(), "appeared during restore") {
+			t.Fatalf("sentinel=%v: got %v, want an appeared-target refusal", plant, err)
+		}
 	}
 }

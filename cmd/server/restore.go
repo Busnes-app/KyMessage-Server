@@ -19,21 +19,25 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
-// afterExtract is a test seam run between extraction and the target identity check.
-var afterExtract = func(target string) {}
+// Test seams: beforeCreate runs between validating the target and creating it, afterExtract
+// between extraction and the target identity check.
+var beforeCreate, afterExtract = func(target string) {}, func(target string) {}
 
 // The library owns custodian-share handling, capsule verification and extraction.
 // The product invalidates stale grants before reporting a usable restored server.
 func restore(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
-	target, err := resolveRestoreTarget(targetDir)
+	target, existed, err := resolveRestoreTarget(targetDir)
 	if err != nil {
 		return err
 	}
-	created := false
-	if err := os.Mkdir(target, 0o700); err == nil {
-		created = true
-	} else if !errors.Is(err, os.ErrExist) {
-		return err
+	beforeCreate(target)
+	created := !existed
+	if created {
+		if err := os.Mkdir(target, 0o700); errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("restore target %s appeared during restore; retry", target)
+		} else if err != nil {
+			return err
+		}
 	}
 	// removeCreated undoes only our Mkdir; os.Remove deletes an empty directory alone.
 	removeCreated := func(err error) error {
@@ -47,6 +51,9 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 		return removeCreated(err)
 	}
 	defer root.Close()
+	if err := checkTarget(root, target); err != nil {
+		return err
+	}
 	if err := requireEmpty(root, target); err != nil {
 		return err
 	}
@@ -57,7 +64,7 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 		return removeCreated(err)
 	}
 	afterExtract(target)
-	if err := sameDir(root, target); err != nil {
+	if err := checkTarget(root, target); err != nil {
 		return errors.Join(err, removeExtracted(root, target, created))
 	}
 	if err := prepareRestoredData(target); err != nil {
@@ -70,37 +77,39 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	return err
 }
 
-// resolveRestoreTarget resolves symlinked parents and returns the real target path once the
-// target and every ancestor up to / pass pathRefusal. With none of them writable or owned
-// by another user, nobody else can swap the path between sameDir and the path-based
+// resolveRestoreTarget resolves symlinked parents and returns the real target path, and
+// whether it exists, once the target and every ancestor up to / pass pathRefusal. With none of them writable or owned
+// by another user, nobody else can swap the path between checkTarget and the path-based
 // extraction and preparation.
-func resolveRestoreTarget(targetDir string) (string, error) {
+func resolveRestoreTarget(targetDir string) (string, bool, error) {
 	abs, err := filepath.Abs(targetDir)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(abs))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	target := filepath.Join(parent, filepath.Base(abs))
-	if info, err := os.Lstat(target); err == nil {
+	info, err := os.Lstat(target)
+	existed := err == nil
+	if existed {
 		if err := pathRefusal(target, info.Sys().(*syscall.Stat_t).Uid, info.Mode(), true); err != nil {
-			return "", err
+			return "", false, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return "", false, err
 	}
 	for dir := parent; ; dir = filepath.Dir(dir) {
 		info, err := os.Lstat(dir)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if err := pathRefusal(dir, info.Sys().(*syscall.Stat_t).Uid, info.Mode(), false); err != nil {
-			return "", err
+			return "", false, err
 		}
 		if dir == filepath.Dir(dir) {
-			return target, nil
+			return target, existed, nil
 		}
 	}
 }
@@ -142,8 +151,9 @@ func requireEmpty(root *os.Root, target string) error {
 	return nil
 }
 
-// sameDir confirms target still names the directory root was opened on.
-func sameDir(root *os.Root, target string) error {
+// checkTarget confirms target still names the directory root holds and that this directory
+// passes the target rule.
+func checkTarget(root *os.Root, target string) error {
 	a, err := root.Stat(".")
 	if err != nil {
 		return err
@@ -152,7 +162,7 @@ func sameDir(root *os.Root, target string) error {
 	if err != nil || !b.IsDir() || !os.SameFile(a, b) {
 		return errors.New("restore target was replaced during restore")
 	}
-	return nil
+	return pathRefusal(target, a.Sys().(*syscall.Stat_t).Uid, a.Mode(), true)
 }
 
 // removeExtracted empties the opened target through its handle, never by path, and removes
