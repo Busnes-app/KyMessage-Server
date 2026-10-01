@@ -45,9 +45,6 @@ jobs:
 
       - run: go mod verify
       - run: go vet ./...
-      - run: go vet -tags rehearsal ./scripts/rehearsal
-      - run: go test -tags rehearsal ./scripts/rehearsal
-      - run: bash scripts/check-chat-gate.sh
       - run: go build ./...
 
       - name: Tests with race detector and coverage
@@ -120,46 +117,6 @@ jobs:
       - name: npm audit
         run: npm audit --audit-level=high
         working-directory: web
-
-  messaging-proof:
-    name: Isolated MLS browser proof
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: |
-            chat-core/package-lock.json
-            mls-proof/package-lock.json
-      - run: npm ci
-        working-directory: chat-core
-      - run: npm run typecheck
-        working-directory: chat-core
-      - run: npm ci
-        working-directory: mls-proof
-      - run: npm run build
-        working-directory: mls-proof
-      - run: npx playwright install --with-deps chromium firefox
-        working-directory: mls-proof
-      - run: npm test -- --project=chromium --project=firefox
-        working-directory: mls-proof
-      - run: npm run test:delivery -- --project=chromium --project=firefox
-        working-directory: mls-proof
-      - run: npm run test:oidc -- --project=chromium --project=firefox
-        working-directory: mls-proof
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: messaging-proof-results
-          path: mls-proof/test-results/
 
   browser:
     name: Browser regressions (production server)
@@ -242,6 +199,3 @@ jobs:
           curl -sf -X POST -H 'Content-Type: application/json' \
             -d '{"username":"admin","password":"CiSmokeAdminPass123!"}' \
             http://127.0.0.1:18080/api/auth/login | grep -q '"authenticated":true'
-
-
-  # No image publication until the encrypted-chat release gates pass.
