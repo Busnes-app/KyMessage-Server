@@ -9,10 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
-	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -121,93 +119,5 @@ func TestV050PairingLoadsUnchanged(t *testing.T) {
 	pub, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(pub, fixture.PublicKey) {
 		t.Fatal("loading rewrote public key")
-	}
-}
-
-func TestMessagesSettingsKeepOwnScheduleAndReceipt(t *testing.T) {
-	ctx := context.Background()
-	_, st := sqliteInstance(t)
-	people := backup.Settings(ctx, st.Settings())
-	messages := backup.MessagesSettings(ctx, st.Settings())
-	if err := recoveryclient.SetInterval(people, 3600); err != nil {
-		t.Fatal(err)
-	}
-	if err := recoveryclient.SetInterval(messages, 7200); err != nil {
-		t.Fatal(err)
-	}
-	p, _ := recoveryclient.Interval(0, people)
-	m, _ := recoveryclient.Interval(0, messages)
-	if p != time.Hour || m != 2*time.Hour {
-		t.Fatalf("schedules shared: people %v messages %v", p, m)
-	}
-	// Pairing and key pin are shared: a key pinned through one is visible through the other.
-	if err := people.Set("kyrecovery_key_id", "k1"); err != nil {
-		t.Fatal(err)
-	}
-	if v, err := messages.Get("kyrecovery_key_id"); err != nil || v != "k1" {
-		t.Fatalf("key pin not shared: %q %v", v, err)
-	}
-	if v, err := messages.Get("backup_interval_sec"); err != nil || v != "7200" {
-		t.Fatalf("messages interval: %q %v", v, err)
-	}
-	if v, _ := st.Settings().GetSetting(ctx, "messages_backup_interval_sec"); v != "7200" {
-		t.Fatalf("stored key: %q", v)
-	}
-	if err := people.Set("backup_last_attempt", "p"); err != nil {
-		t.Fatal(err)
-	}
-	if err := messages.Set("backup_last_attempt", "m"); err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := people.Get("backup_last_attempt"); v != "p" {
-		t.Fatalf("people last attempt overwritten: %q", v)
-	}
-	if v, _ := messages.Get("backup_last_attempt"); v != "m" {
-		t.Fatalf("messages last attempt: %q", v)
-	}
-	if err := messages.Set("kyrecovery_last_deposit", "r"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := people.Get("kyrecovery_last_deposit"); !errors.Is(err, recoveryclient.ErrNotFound) {
-		t.Fatalf("receipt shared: %v", err)
-	}
-}
-
-func TestMessagesLocalCopiesDoNotPrunePeople(t *testing.T) {
-	ctx := context.Background()
-	cfg, st := seedMessagingFixture(t)
-	cfg.Backup.Dir = t.TempDir()
-	cfg.Backup.Keep = 1
-	people := backup.Settings(ctx, st.Settings())
-	key, err := recoverykey.Generate()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := recoveryclient.StoreRecoveryKey(cfg.Database.DataDir, people, recoveryclient.RecoveryKey{Public: key.Public(), Threshold: 2, TotalShares: 3}); err != nil {
-		t.Fatal(err)
-	}
-	prc, err := backup.RunConfig(cfg, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mrc, err := backup.MessagesRunConfig(cfg, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recoveryclient.Run(ctx, prc, people, func() (recoveryclient.Payload, error) { return backup.Collect(ctx, cfg, "test") }, nil); err != nil {
-		t.Fatal(err)
-	}
-	messages := backup.MessagesSettings(ctx, st.Settings())
-	for range 2 {
-		if _, err := recoveryclient.Run(ctx, mrc, messages, func() (recoveryclient.Payload, error) { return backup.CollectMessages(ctx, cfg, "test") }, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	app := cfg.Server.AppName
-	if c, err := recoveryclient.ListLocalCopies(cfg.Backup.Dir, app); err != nil || len(c) != 1 {
-		t.Fatalf("people copies: %d %v", len(c), err)
-	}
-	if c, err := recoveryclient.ListLocalCopies(filepath.Join(cfg.Backup.Dir, "messages"), app); err != nil || len(c) != 1 {
-		t.Fatalf("messages copies: %d %v", len(c), err)
 	}
 }

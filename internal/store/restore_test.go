@@ -4,80 +4,52 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/config"
-	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
-func TestRestoreInvalidatesGrantsAndPermanentlyRetiresRooms(t *testing.T) {
+// seedGrants gives one user a session, an MFA challenge and a device pairing.
+func seedGrants(t *testing.T, st store.Store) {
+	t.Helper()
 	ctx := context.Background()
-	st := newTestStore(t)
-	actor, first, request := recoverySetup(t, st)
-	old := actor
-	old.DeviceTokenHash = first.TokenHash
-	must := func(err error) {
-		t.Helper()
+	now := time.Now()
+	for _, err := range []error{
+		st.Users().CreateUser(ctx, &store.User{ID: "u", Username: "u", PasswordHash: "h", Role: "user", Status: "active", SSOProvider: "local"}),
+		st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "session", UserID: "u", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, "h"),
+		st.Sessions().CreateMFAChallenge(ctx, &store.MFAChallenge{TokenHash: "challenge", UserID: "u", ExpiresAt: now.Add(time.Hour)}, "h"),
+		st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "pair", UserID: "u", Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}),
+	} {
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i := range 100 {
-		must(st.Messaging().CreateRoom(ctx, old, store.MessagingRoom{ID: fmt.Sprint("old-", i), Name: "Old room"}))
-	}
-	appendDelivery(t, st, old, "old-0", deliveryInput(t, st, old, "old-0", "commit"))
-	must(st.Messaging().BeginRecoveryAuthentication(ctx, actor, request))
-	must(st.InvalidateRestoredGrants(ctx))
-	must(st.InvalidateRestoredGrants(ctx)) // Repeating offline preparation cannot restore authority.
-	if _, err := st.Sessions().GetSession(ctx, actor.SessionHash); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("old session: %v", err)
-	}
-	if _, err := st.Messaging().ListDevices(ctx, old); err == nil {
-		t.Fatal("restored session still works")
-	}
-	actor.SessionHash = crypto.RandomHex(32)
-	must(st.Sessions().CreateSession(ctx, &store.Session{TokenHash: actor.SessionHash, UserID: actor.UserID, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}, ""))
-	old.SessionHash = actor.SessionHash
-	if _, err := st.Messaging().ReadEvents(ctx, old, "old-0", 0); !errors.Is(err, store.ErrMessagingDenied) {
-		t.Fatalf("old credential: %v", err)
-	}
-	devices, err := st.Messaging().ListDevices(ctx, actor)
-	must(err)
-	for _, device := range devices {
-		if device.Status != "revoked" {
-			t.Fatal("restored approval", device)
+}
+
+func TestRestoreInvalidatesGrants(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	seedGrants(t, st)
+	for range 2 { // Repeating offline preparation is harmless.
+		if err := st.InvalidateRestoredGrants(ctx); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if _, err := st.Messaging().RecoveryAuthentication(ctx, actor, request.StateHash); err == nil {
-		t.Fatal("restored recovery request survived")
+	if _, err := st.Sessions().GetSession(ctx, "session"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("session survived", err)
 	}
-	fresh, sig := messagingEnrollment(t, actor)
-	must(st.Messaging().EnrollDevice(ctx, actor, fresh))
-	device, err := st.Messaging().VerifyDevice(ctx, actor, fresh.Device.ID, sig)
-	must(err)
-	if device.Status != "pending" {
-		t.Fatal("restore bypassed device recovery", device)
+	if _, _, err := st.Sessions().ConsumeMFAChallenge(ctx, "challenge"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("challenge survived", err)
 	}
-	actor.DeviceTokenHash = fresh.TokenHash
-	request = store.MessagingRecoveryAuthentication{StateHash: crypto.RandomHex(32), DeviceID: fresh.Device.ID, SealedRequest: "opaque", CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(4 * time.Minute).Unix(), ResetConfirmed: true}
-	must(st.Messaging().BeginRecoveryAuthentication(ctx, actor, request))
-	_, err = st.Messaging().ResetIdentity(ctx, actor, request.StateHash, "alice")
-	must(err)
-	rooms, err := st.Messaging().ListRooms(ctx, actor, 0)
-	must(err)
-	if len(rooms) != 0 {
-		t.Fatal("restored memberships revived", rooms)
+	if _, err := st.Devices().GetPairingBySecret(ctx, "pair"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("pairing survived", err)
 	}
-	if err := st.Messaging().InviteMember(ctx, actor, "old-0", "alice"); err == nil {
-		t.Fatal("restored ownership revived")
+	if _, err := st.Audit().LatestAuditRecord(ctx, "restore.grants_invalidated"); err != nil {
+		t.Fatal("no audit row", err)
 	}
-	must(st.Messaging().CreateRoom(ctx, actor, store.MessagingRoom{ID: "fresh-room", Name: "Fresh room"}))
-	appendDelivery(t, st, actor, "fresh-room", deliveryInput(t, st, actor, "fresh-room", "commit"))
-	appendDelivery(t, st, actor, "fresh-room", deliveryInput(t, st, actor, "fresh-room", "application"))
 }
 
 func TestRestoreGrantInvalidationRollsBackWhenAuditFails(t *testing.T) {
@@ -88,7 +60,7 @@ func TestRestoreGrantInvalidationRollsBackWhenAuditFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	actor, _ := deliveryDevice(t, st, messagingActor(t, st, "alice"))
+	seedGrants(t, st)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
@@ -100,12 +72,8 @@ func TestRestoreGrantInvalidationRollsBackWhenAuditFails(t *testing.T) {
 	if err := st.InvalidateRestoredGrants(ctx); err == nil {
 		t.Fatal("failed audit was ignored")
 	}
-	if _, err := st.Sessions().GetSession(ctx, actor.SessionHash); err != nil {
+	if _, err := st.Sessions().GetSession(ctx, "session"); err != nil {
 		t.Fatal("partial session deletion", err)
-	}
-	devices, err := st.Messaging().ListDevices(ctx, actor)
-	if err != nil || len(devices) != 1 || devices[0].Status != "approved" {
-		t.Fatal("partial device revocation", devices, err)
 	}
 	if _, err := db.Exec(`DROP TRIGGER refuse_restore_audit`); err != nil {
 		t.Fatal(err)

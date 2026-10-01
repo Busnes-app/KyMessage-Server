@@ -70,8 +70,7 @@ networks:
 ```
 
 Tunnel ingress: `service: http://kymessages:8080`. Then set
-`KY_TRUSTED_PROXIES=10.91.0.10/32` and recreate KyMessages. WebSockets need no
-extra settings.
+`KY_TRUSTED_PROXIES=10.91.0.10/32` and recreate KyMessages.
 
 `external: true` goes on the proxy side only. A proxy that starts before KyMessages
 fails with `network kymessages-net declared as external, but could not be found`;
@@ -100,9 +99,7 @@ server {
 }
 ```
 
-Live messaging holds a WebSocket at `/api/messaging/rooms/{room}/live`; without the
-`Upgrade` headers it fails. The server pings every 15 seconds; keep
-`proxy_read_timeout` above that. Run
+Run
 nginx on `kymessages-net` at a pinned address and put that address as a /32, never
 the subnet, in `KY_TRUSTED_PROXIES`.
 

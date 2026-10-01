@@ -16,19 +16,13 @@ import (
 
 // Config encapsulates all runtime configuration for KyMessages.
 type Config struct {
-	Server    ServerConfig    `json:"server"`
-	Database  DatabaseConfig  `json:"database"`
-	Security  SecurityConfig  `json:"security"`
-	SSO       SSOConfig       `json:"sso"`
-	SCIM      SCIMConfig      `json:"scim"`
-	Backup    BackupConfig    `json:"backup"`
-	Captcha   CaptchaConfig   `json:"captcha"`
-	Messaging MessagingConfig `json:"messaging"`
-}
-
-// MessagingConfig gates identity replacement on deployed issuer assurance.
-type MessagingConfig struct {
-	IdentityResetEnabled bool `json:"identity_reset_enabled"`
+	Server   ServerConfig   `json:"server"`
+	Database DatabaseConfig `json:"database"`
+	Security SecurityConfig `json:"security"`
+	SSO      SSOConfig      `json:"sso"`
+	SCIM     SCIMConfig     `json:"scim"`
+	Backup   BackupConfig   `json:"backup"`
+	Captcha  CaptchaConfig  `json:"captcha"`
 }
 
 // ServerConfig defines HTTP and network settings.
@@ -206,7 +200,6 @@ func LoadFromEnv() (*Config, error) {
 			SessionTTL:     7 * 24 * time.Hour,
 			TrustedProxies: trustedProxies,
 		},
-		Messaging: MessagingConfig{IdentityResetEnabled: getEnvBool("KY_MESSAGING_IDENTITY_RESET_ENABLED", false)},
 		SSO: SSOConfig{
 			Enabled:              getEnvBool("KY_SSO_ENABLED", true),
 			KyIdentityIssuer:     getEnv("KY_KYIDENTITY_ISSUER", ""),

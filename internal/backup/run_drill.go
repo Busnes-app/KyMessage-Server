@@ -17,7 +17,7 @@ var ErrDrillBusy = errors.New("backup: a restore drill is already running")
 // RunDrill serializes HTTP and CLI drills sharing a data directory. The persistent
 // lock file must not be unlinked: all processes must lock the same inode. Closing the
 // descriptor (including process exit) releases the advisory lock. checks is the kind's
-// verification: Checks for people, MessagesChecks for messages.
+// verification.
 func RunDrill(ctx context.Context, cfg *config.Config, payload recoveryclient.Payload, checks func(string, capsule.Manifest) []recoveryclient.Check) (*recoveryclient.DrillResult, error) {
 	lock, err := os.OpenFile(filepath.Join(cfg.Database.DataDir, "drill.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {

@@ -24,8 +24,6 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 
 - `KY_CAPTCHA_PROVIDER` is `pow` (default) or `none`; anything else fails startup, because login verifies nothing else. `KY_CAPTCHA_POW_DIFFICULTY` defaults to 50000.
 
-- `KY_MESSAGING_IDENTITY_RESET_ENABLED` defaults false. Enable only after deployed suite issuer fresh-interaction and callback verification; both initiation and completion enforce the gate.
-
 ## Verification
 - `go test -v ./internal/config/...`
 - `go test -v ./internal/auth/ -run TestClientIP` (the helper that consumes the allowlist)

@@ -50,7 +50,6 @@ type Server struct {
 	// connection. http.Server.Shutdown does not know about them, so runServer waits on this
 	// before the store closes.
 	detached detachedCounter
-	live     messagingLiveRegistry
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -236,7 +235,6 @@ func (s *Server) requestIP(r *http.Request) string {
 }
 
 func (s *Server) routes() {
-	s.messagingRoutes()
 	// Auth
 	s.mux.HandleFunc("/api/auth/pow-challenge", s.handlePoWChallenge)
 	s.mux.HandleFunc("/api/auth/login", s.handleLogin)
@@ -269,14 +267,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/backup/pairing", s.tracked(s.requireFreshAdmin(s.handleUnpair)))
 	s.mux.HandleFunc("POST /api/backup/pin-key", s.tracked(s.requireFreshAdmin(s.handlePinKey)))
 	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireFreshAdmin(s.handleSetSchedule))
-	s.mux.HandleFunc("POST /api/backup/messages/drill", s.requireAdmin(s.handleMessagesDrill))
-	s.mux.HandleFunc("POST /api/backup/messages/deposit", s.tracked(s.requireFreshAdmin(s.handleRunMessagesBackup)))
-	s.mux.HandleFunc("PUT /api/backup/messages/schedule", s.requireFreshAdmin(s.handleSetMessagesSchedule))
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
-	s.mux.HandleFunc("GET /api/admin/messaging/usage", s.requireAdmin(s.handleMessagingUsage))
 	s.mux.HandleFunc("GET /api/admin/network-check", s.requireAdmin(s.handleNetworkCheck))
-	s.mux.HandleFunc("GET /api/admin/messaging/devices", s.requireAdmin(s.handleSuspendedDevices))
-	s.mux.HandleFunc("POST /api/admin/messaging/devices/{device}/revoke", s.tracked(s.requireFreshAdmin(s.handleRevokeSuspendedDevice)))
 
 	// Settings & Theme. The read endpoint tiers its own payload by role.
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)
@@ -367,7 +359,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Vary", "Origin")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, "+syncauth.HeaderSignature+", X-KyMessages-Device")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, "+syncauth.HeaderSignature)
 
 	if r.Method == http.MethodOptions {
 		if origin != "" && !sameOrigin(origin, s.config.Server.AppURL) {

@@ -7,21 +7,10 @@ React 19 + TypeScript + Vite PWA frontend embedding KySecurity color tokens (Bus
 Owns user interface components, service worker caching, PWA installation manifests, and frontend theme switching.
 
 ## Local Contracts
-- `MessagingUsage.tsx` adds a read-only admin overview of server storage metadata.
-  Validate the usage DTO at the HTTP boundary; distinguish unavailable/loading
-  from zero usage, abort on unmount, refresh explicitly and preserve the opened
-  room-details disclosure. Members neither render nor fetch this operator view.
-  Explain the lifetime receipt counter separately from retention purge and actual disk use.
-- `SuspendedDevices.tsx` renders after `MessagingUsage` on the admin dashboard. It
-  validates the suspended-device DTO (including boolean `truncated`, shown as a note, and
-  `expires_at`, which must be a representable date, shown as "Revoked automatically on <date>")
-  at the boundary, revokes only after
-  `window.confirm` through `secureFetch`, and shows a step-up refusal's same-origin
-  `reauth_url` as a sign-in link. Tested by `SuspendedDevices.test.tsx`.
-- "My account" is the non-admin landing and only page; it validates the device DTO (all five states; `unverified` shows as `enrollment not finished` and is revocable); it revokes through `secureFetch` DELETE after `window.confirm`; a messaging 403 shows `Messaging needs a KyIdentity account.`; it is tested by `MyAccount.test.tsx` and `AppHeader.test.tsx`.
+- `MemberHome.tsx` is the non-admin page: account name, "Chat isn't available yet." notice and sign out. Non-admins get `AppHeader` (theme switcher, sign out) with no navigation; tested by `MemberHome.test.tsx` and `AppHeader.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
-  shell is the operator console and explicitly states that encrypted chat is not
-  included; do not imply a successful backup/crypto review from static dashboard text.
+  shell is the operator console and states that chat (Matrix) is not set up yet;
+  do not imply a successful backup/crypto review from static dashboard text.
   Retain suite icon masters and existing theme choices.
 - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
 - A signed-in user with `must_change_password` sees only password replacement and sign-out. Replacement uses `secureFetch`, returns to login after session revocation, and never exposes the normal navigation before completion.
@@ -34,11 +23,9 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `Backup.tsx` validates the latest-run DTO at the HTTP boundary and displays the
   recorded outcome independently of the older remote receipt. Local-only results,
   scheduled failures, partial success and unknown history must remain distinguishable.
-- `Backup.tsx` renders a "Message backups" section (`MessagesBackup`) from `status.messages`, validated at the boundary like the people DTO, hidden when absent and a page-level error when malformed: opt-in explanation, own schedule select (Off by default), "Back up messages now", "Run message drill", last run, last receipt and local copies. It calls only `/api/backup/messages/*`.
 - `Backup.tsx` shows the server's same-origin `reauth_url` as a sign-in link when a backup change is refused for step-up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
 - `NetworkCheck.tsx` renders at the end of the admin-only Settings page: it fetches `/api/admin/network-check`, validates the DTO at the boundary (a malformed or failed response shows `Network check unavailable.`), aborts on unmount and lists five Pass/Warn marks: trusted proxy peer, trusted `X-Forwarded-Proto: https`, https `KY_APP_URL`, host match, and `KY_TRUSTED_PROXIES` naming only single addresses (`trusted_proxies_narrow`). Tested by `NetworkCheck.test.tsx`.
-- `browserSupport.ts` detects whether the browser supports chat's required features (Ed25519 signing, IndexedDB, Web Locks, HTTPS) and validates against the declared browser list; it exports only WebCrypto feature detection with no imports from chat-core or ts-mls.
 
 ## Verification
 - Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium firefox && npm run test:browser`. CI also installs browser OS dependencies.

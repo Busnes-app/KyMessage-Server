@@ -1,8 +1,9 @@
 # KyMessages repository
 
 KyMessages builds on the inherited server base. Its source-built operator console
-and API use the KyMessages identity; the encrypted-chat client stays isolated until
-its release gates pass. The user-selected priority is small teams and encrypted text chat.
+uses the KyMessages identity. Chat is moving to Matrix; the design is
+`docs/superpowers/specs/2026-10-01-matrix-platform-design.md`. The user-selected
+priority is small teams and encrypted text chat.
 
 - `kymessages` is the binary and local image name; `KY_APP_NAME` defaults to
   `KyMessages`. `internal/config.AppVersion` is shared by CLI and capsule paths.
@@ -12,35 +13,18 @@ its release gates pass. The user-selected priority is small teams and encrypted 
   preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
 
-- Continue the encrypted-chat first-release plan in `docs/FIRST-RELEASE-PLAN.md`
-  through implementation and verification; commit each completed slice and before
-  every unavoidable break. Report unmet release gates explicitly.
-
-- Read [docs/PRODUCT.md](docs/PRODUCT.md) before messaging implementation or product
-  scope changes; it records proposed defaults and acceptance gates, not shipped behavior.
+- Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it records proposed
+  defaults, being reworded for Matrix, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
-  before selecting MLS/media libraries or making federation compatibility claims.
-- Read [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) before choosing
-  between custom MLS, Matrix or XMPP, or promising bridges to other chat networks. No
+  before selecting media libraries or making federation compatibility claims.
+- The chat platform is decided: Matrix (see
+  [the design](docs/superpowers/specs/2026-10-01-matrix-platform-design.md)).
+  [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) is the evidence behind it;
+  read it before promising bridges to other chat networks. No
   bridge preserves end-to-end encryption; a bridged conversation never carries the E2EE label.
-- The isolated browser experiment lives in `mls-proof/`; its UI and harness consume the
-  non-UI core in `chat-core/`. Selection evidence is in
-  [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Before changing library
-  compatibility claims, read [docs/MLS-INTEROP-RESEARCH.md](docs/MLS-INTEROP-RESEARCH.md)
-  for the failed extensibility gate and constrained OpenMLS exchange evidence. Its test results do not
-  establish production approval or complete milestone 0. Keep it out of deployment.
 - Root owns product definition and cross-domain documentation in `docs/`; children
   own the runtime domains indexed below. Keep product plans distinct from current
   scaffold capabilities and verify claims against code before publishing them.
-- Before changing device, room or delivery behavior, read
-  [docs/MESSAGING-API.md](docs/MESSAGING-API.md). The experimental opaque HTTP log
-  coordinates declared epochs and roster changes. The isolated proof binds MLS
-  credentials and validates transcripts over this API. Bounded KeyPackage
-  publication/claims and an isolated clickable chat prototype are implemented;
-  the isolated prototype exercises suite OIDC cookies and authenticated account
-  binding. Production client integration remains open. The entry is
-  `mls-proof/chat.html`; its OIDC mode uses a disposable local issuer with the real
-  suite callback, never production accounts.
 
 # DOX framework
 
@@ -124,7 +108,7 @@ Default section order:
   product: it is internal, invite-only chat with no public sign-up. An external
   cryptographic review is optional later work, not a release gate. Never call agent or
   suite review an independent audit: label chat "end-to-end encrypted (not independently
-  audited)" and keep ts-mls's own unaudited status visible.
+  audited)".
 - Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions, MFA challenges and device pairings. Untouched existing accounts are not retroactively flagged.
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
@@ -139,7 +123,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`; the `rehearsal`-tagged helper is vetted and its `scratch()` path guard tested
+- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
@@ -170,22 +154,17 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
-`cmd/server` owns the scheduler: `backupLoop` builds both kinds' `RunConfig` and the client once and
-returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
+`cmd/server` owns the scheduler: `backupLoop` builds the people capsule's `RunConfig` and the client once
+and returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
 attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
-due kinds in sequence, people then messages (opt-in, default off, own schedule/receipt/audit action
-`admin.backup_run_messages`); a kind whose run returns `ErrInProgress` is logged and left unstamped,
-so it is retried next tick, and on shutdown it stops between kinds, leaving later kinds due. The `deposit` and
-`backup-drill` commands take `-messages`; `export-capsule` seals people only. It closes its `done` channel
+people capsule if due; a run that returns `ErrInProgress` is logged and left unstamped, so it is
+retried next tick. The `deposit` and `backup-drill` commands and `export-capsule` seal people only.
+The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
-WebSocket handlers, the pair, pin-key, unpair and both deposit handlers, which detach from their requests,
-and the admin suspended-device revoke; all of them can outlive `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
-registrations and cancel upgraded WebSockets; they share the detached-handler drain.
-`messagingMaintenanceLoop` first revokes suspended messaging devices not resumed within 30 days
-(`ExpireSuspendedDevices`, then `api.Server.WakeMessaging` when any were revoked), then purges events
-past each room's retention and sweeps expired device pairings, every minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
-backup scheduler's completion before the same shutdown drain finishes. Nothing writes
+the pair, pin-key, unpair and deposit handlers, which detach from their requests and can outlive
+`Shutdown`. `maintenanceLoop` sweeps expired device pairings every minute with a 30-second
+deadline; its completion joins the backup scheduler's before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
 which delivers once and would leave the second wait unbounded; the HTTP drain is `shutdownTimeout`
@@ -196,21 +175,8 @@ work is abandoned with a log line rather than killed silently.
 
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
-then opens the offline SQLite snapshot (migration/startup pruning), invalidates
-restored grants and closes it before reporting success. It prints the `restore-messages`
-hint only when `CheckMessagesTarget` passes; a pre-split capsule keeps messaging rows, so it
-says restore-messages cannot run there. Keep the target offline on failure. Plain `restore` refuses a messages capsule and removes its decrypted
-`data/messages`. A people restore contains no messaging rooms or devices. The optional
-`restore-messages` (`restoreMessages`, also on the decrypt-guard allowlist) runs next,
-offline (it cannot detect a running server; its usage text says to stop it): it refuses a target without `data/ky_server.db` or with messaging rows before
-opening the capsule, opens it into a `messages-*` temp directory removed on return
-(SIGINT/SIGTERM cancel through `signal.NotifyContext`; hard kills leave it for the operator),
-refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
-approved devices are suspended (no token) until their owners resume them
-(`/api/messaging/devices/{device}/resume`); admins list and revoke suspended devices
-through `/api/admin/messaging/devices`; devices not resumed within 30 days are revoked
-automatically; rooms of missing owners are not imported. Without it, users recover identity with fresh suite
-authentication and new independently verified rooms. Never restore or rewind browser
-MLS state. Root owns this policy and `docs/RESTORE.md`.
+then opens the offline SQLite snapshot (running migrations), invalidates
+restored grants and closes it before reporting success. Before extraction it resolves symlinked parents and checks the real path up to `/`: an existing target must be a non-symlink directory owned by the current user, each ancestor owned by the current user or root, and none group- or world-writable except a root-owned sticky ancestor (`/tmp`). It creates an absent target (`os.Mkdir`, so the parent must exist; a target that appears meanwhile is refused), opens an `os.Root` on it, checks the opened directory against the target rule and the path (`checkTarget`), and refuses a nonempty target without touching it. A library failure is rolled back by the library; only a created target is then removed. After extraction it requires the path to still name that directory. A later failure removes what was extracted through the handle, never by path (and the target itself if restore created it).
+Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
-The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.
+The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and Matrix chat integration remain open.

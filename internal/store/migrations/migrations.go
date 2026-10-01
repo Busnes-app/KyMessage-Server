@@ -246,7 +246,26 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 19, Name: "messaging_device_suspended_at", SQLite: suspendedAt + `CAST(strftime('%s', 'now') AS INTEGER)` + suspendedWhere, Postgres: suspendedAt + `CAST(FLOOR(EXTRACT(EPOCH FROM now())) AS BIGINT)` + suspendedWhere},
 	// The suite identity provider was renamed from KySignOn to KyIdentity.
 	{Version: 20, Name: "kyidentity_provider", SQLite: kyIdentityProvider, Postgres: kyIdentityProvider},
+	{Version: 21, Name: "drop_messaging", SQLite: dropMessaging, Postgres: dropMessaging},
 }
+
+// The custom MLS messaging stack was retired for Matrix; its tables, audit rows and backup
+// settings go. Child tables first so foreign keys never block a drop.
+const dropMessaging = `
+DROP TABLE IF EXISTS messaging_welcomes;
+DROP TABLE IF EXISTS messaging_events;
+DROP TABLE IF EXISTS messaging_epoch_devices;
+DROP TABLE IF EXISTS messaging_members;
+DROP TABLE IF EXISTS messaging_rooms;
+DROP TABLE IF EXISTS messaging_key_packages;
+DROP TABLE IF EXISTS messaging_recovery_auth;
+DROP TABLE IF EXISTS messaging_reset_receipts;
+DROP TABLE IF EXISTS messaging_devices;
+DROP TABLE IF EXISTS messaging_identities;
+DROP INDEX IF EXISTS audit_action_resource_created;
+DELETE FROM audit_records WHERE action LIKE 'messaging.%';
+DELETE FROM server_settings WHERE key IN ('messages_backup_interval_sec', 'messages_backup_last_attempt', 'messages_kyrecovery_last_deposit');
+`
 
 const kyIdentityProvider = `
 UPDATE users SET sso_provider = 'kyidentity' WHERE sso_provider = 'kysignon';

@@ -47,21 +47,16 @@ func newSQLStore(ctx context.Context, db *sql.DB, driver string) (*SQLStore, err
 	s.groups = &groupStore{store: s}
 	s.audit = &auditStore{store: s}
 	s.settings = &settingsStore{store: s}
-	if err := s.Messaging().ExpireMessages(ctx); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("expire messaging ciphertext: %w", err)
-	}
 
 	return s, nil
 }
 
-func (s *SQLStore) Users() UserStore          { return s.users }
-func (s *SQLStore) Sessions() SessionStore    { return s.sessions }
-func (s *SQLStore) Devices() DeviceStore      { return s.devices }
-func (s *SQLStore) Groups() GroupStore        { return s.groups }
-func (s *SQLStore) Audit() AuditStore         { return s.audit }
-func (s *SQLStore) Settings() SettingsStore   { return s.settings }
-func (s *SQLStore) Messaging() MessagingStore { return &messagingStore{store: s} }
+func (s *SQLStore) Users() UserStore        { return s.users }
+func (s *SQLStore) Sessions() SessionStore  { return s.sessions }
+func (s *SQLStore) Devices() DeviceStore    { return s.devices }
+func (s *SQLStore) Groups() GroupStore      { return s.groups }
+func (s *SQLStore) Audit() AuditStore       { return s.audit }
+func (s *SQLStore) Settings() SettingsStore { return s.settings }
 
 func (s *SQLStore) Driver() string                 { return s.driver }
 func (s *SQLStore) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
