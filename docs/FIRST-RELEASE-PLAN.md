@@ -44,7 +44,7 @@ prototype test is not production approval.
    with the embedded UI, suite-only member access and isolated operator recovery.
    KyMessages identity, local image/Compose coordinates, reproducible embedded
    assets, installation documentation, the members' "My account" page, the admin
-   network self-check, the proxy overlay (requires `KY_APP_URL` and `KY_SESSION_SECRET`)
+   network self-check, the proxy overlay (requires `KY_APP_URL`, `KY_SESSION_SECRET` and `KY_TRUSTED_PROXIES`)
    with its guide, the browser declaration and check, and the gated `chat-core` package
    are implemented. Integrating the reviewed client, real-device browser verification
    and deployed HTTPS evidence remain open. Keep the disposable fixture and

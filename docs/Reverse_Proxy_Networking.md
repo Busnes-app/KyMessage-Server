@@ -21,10 +21,15 @@ reach each other. Only the proxy is on both.
 
 1. Append `docker-compose.proxy.yml` to `COMPOSE_FILE` in `.env`, keeping existing
    overlays (build, LAN-DNS, static-IP). Never replace the chain with `-f`.
-2. Set `KY_APP_URL=https://<your host>`, a durable `KY_SESSION_SECRET` (production
-   refuses to start without it) and `KY_TRUSTED_PROXIES=<proxy address>/32`, the
-   proxy's pinned address on `kymessages-net`. The overlay refuses to start without
-   the first two. `KY_TRUSTED_PROXIES` is exactly the proxy's own /32. Never the
+2. Set `KY_APP_URL=https://<your host>`, `KY_SESSION_SECRET` and
+   `KY_TRUSTED_PROXIES=<proxy address>/32`, the proxy's pinned address on
+   `kymessages-net`. The overlay refuses to start without all three. Generate the
+   secret once with `openssl rand -hex 32` and keep it in `.env`; it must stay the
+   same across restarts. It signs the password-login proof-of-work challenges, so a new
+   secret rejects every challenge issued before the restart and those sign-ins must
+   be retried. It does not sign sessions or encrypt data. An `http://` `KY_APP_URL`
+   is refused at startup and the container keeps restarting; `docker compose logs`
+   shows the reason. `KY_TRUSTED_PROXIES` is exactly the proxy's own /32. Never the
    network's subnet: it includes the gateway 10.91.0.1 and every container on the
    network, and any of them could then forge client addresses.
 3. Bring KyMessages up first: it creates and owns the network. The overlay also
@@ -104,14 +109,15 @@ the subnet, in `KY_TRUSTED_PROXIES`.
 ## Verify
 
 Sign in as an operator and open Settings, Network path. It shows your public address
-and the direct peer, plus four marks, each Pass or Warn:
+and the direct peer, plus five marks, each Pass or Warn:
 
 - the request came through a trusted proxy (the peer is in `KY_TRUSTED_PROXIES`)
 - the proxy reports https (a trusted `X-Forwarded-Proto: https`)
 - `KY_APP_URL` is https
 - the request host matches `KY_APP_URL`
+- `KY_TRUSTED_PROXIES` names single addresses (no subnet, not empty)
 
-All four must be Pass. Your own address, not `10.91.0.10`, must be the one shown.
+All five must be Pass. Your own address, not `10.91.0.10`, must be the one shown.
 
 ## Recovering
 

@@ -151,16 +151,19 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   the scratch database in place of OIDC sign-in. Its write commands refuse paths outside
   `os.TempDir()`; the script preflights go, curl, jq and python3.
 - Docker image build and container HTTP check
-- Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
+- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
   on Chromium and Firefox in CI. It remains outside the deployment artifacts.
-- `scripts/check-chat-gate.sh` (lint step, `make lint`) keeps `web/` free of `chat-core`/`ts-mls`
-  and `/chat-core/` in `.dockerignore` until the independent review passes.
+- `scripts/check-chat-gate.sh` (lint step, `make lint`) keeps `web/` (source, `index.html`,
+  configs, `package.json`) free of `chat-core`/`mls-proof`/`ts-mls` references, `web/dist` free
+  of the ts-mls marker `MLS 1.0 `, and `/chat-core/` in `.dockerignore` until the independent
+  review passes. An unreadable scan path fails the gate.
 - Container builds use `npm ci` and exclude `mls-proof/` and `chat-core/`. CI builds/runs
   `kymessages:ci` but has no image publication/promotion jobs while release gates
   remain open. Keep the independent MLS review and deployed identity gates explicit.
 
-Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
+`make lint` and `make ci` need docker compose v2.24 or later and jq for
+`scripts/check-compose-proxy.sh`. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
 ## Child DOX Index
 

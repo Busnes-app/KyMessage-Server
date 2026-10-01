@@ -2,9 +2,10 @@
 
 ## Supported Browsers
 
-KyMessages chat is supported on **current desktop Chrome, Edge and Firefox**.
+KyMessages chat targets **current desktop Chrome, Edge and Firefox**. This is the
+declared list; branded Chrome and Edge have not been run in CI (see CI Coverage).
 
-These browsers have been verified to provide all required cryptographic and storage features:
+Chat requires:
 - Ed25519 signing for MLS credentials
 - IndexedDB for encrypted local persistence
 - Web Locks for coordination
@@ -13,7 +14,7 @@ These browsers have been verified to provide all required cryptographic and stor
 ## Unverified Browsers
 
 The following browsers have not yet been verified:
-- **Safari (macOS)**: Not yet tested. See [docs/BROWSER-EVIDENCE.md](BROWSER-EVIDENCE.md) for details on WebKit limitations.
+- **Safari (macOS)**: Not yet tested. Linux Playwright WebKit has an open, intermittent native Ed25519 key-generation failure; see [BROWSER-EVIDENCE.md](BROWSER-EVIDENCE.md).
 - **iOS**: Not yet tested; uses WebKit like macOS Safari.
 - **Android**: Not yet tested; platform support for required cryptographic features varies.
 
@@ -31,11 +32,13 @@ Browser detection checks for actual capabilities first; the declared browser lis
 
 ## CI Coverage
 
-- The chat test suite runs on Chromium and Firefox.
-- The operator console browser regression tests run on Chromium today, with Firefox added later.
-- Full integrated testing on other browsers is not currently part of the release criteria.
+- CI runs Playwright's own Chromium and Firefox builds, not branded Chrome or Edge.
+  The support check reports that Chromium build as `unverified`.
+- The isolated chat proof (`mls-proof/`) runs its suites on both engines.
+- The operator console browser regressions run on both engines.
+- WebKit is not in CI.
 
 ## Future Improvements
 
-- Safari support requires either WebKit implementing Ed25519 or the chat core using a different signing algorithm. This is tracked in the release plan.
+- Safari support needs WebKit's intermittent Ed25519 key-generation failure resolved and real Safari tested. This is tracked in the release plan.
 - Mobile browser support remains under evaluation; the UI is currently designed for desktop screens.
