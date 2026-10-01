@@ -78,7 +78,7 @@ grep -q 8081 <<<"$out" && bad "the stack still names MAS port 8081"
 bindjson() { printf 'services: {p: {image: x, volumes: [{type: bind, source: /x, target: /x, bind: {create_host_path: %s}}]}}\n' "$1" \
   | docker compose --env-file /dev/null -f - config --format json | jq -c '.services.p.volumes[0].bind'; }
 nocreate=$(bindjson false)
-[ -n "$nocreate" ] && [ "$nocreate" != "$(bindjson true)" ] || bad "this docker compose cannot express create_host_path false"
+if [ -z "$nocreate" ] || [ "$nocreate" = "$(bindjson true)" ]; then bad "this docker compose cannot express create_host_path false"; fi
 [ "$(jq -c '.services.mas.volumes' <<<"$out")" = "[{\"type\":\"bind\",\"source\":\"$root/matrix/mas/config.yaml\",\"target\":\"/config/config.yaml\",\"read_only\":true,\"bind\":$nocreate}]" ] \
   || bad "mas does not bind only ./matrix/mas/config.yaml read-only with create_host_path false: $(jq -c '.services.mas.volumes' <<<"$out")"
 dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition // ""' <<<"$out"; }
