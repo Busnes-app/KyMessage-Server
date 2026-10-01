@@ -351,7 +351,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
-	if s.config.Security.CookieSecure {
+	// Only on the app host: the Matrix server name is often the apex, and includeSubDomains
+	// there would break every plain-http service under it.
+	if app, err := url.Parse(s.config.Server.AppURL); s.config.Security.CookieSecure && err == nil && hostMatches(r.Host, app) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
 
