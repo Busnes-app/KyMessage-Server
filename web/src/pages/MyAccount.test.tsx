@@ -103,3 +103,17 @@ it('refetches from the error state Refresh button', async () => {
   expect(await screen.findByText('No messaging devices.')).toBeTruthy();
   expect(fetch).toHaveBeenCalledTimes(2);
 });
+
+it('shows an interrupted enrollment and lets the member revoke it', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(respond({devices: [{...device, status: 'unverified'}]}))
+    .mockResolvedValueOnce(respond({revoked: true}))
+    .mockResolvedValueOnce(respond({devices: []}));
+  vi.stubGlobal('fetch', fetch);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<MyAccount user={user} onLogout={() => {}} />);
+  expect(await screen.findByText(/enrollment not finished/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: /Revoke/}));
+  expect(await screen.findByText('No messaging devices.')).toBeTruthy();
+  expect(fetch.mock.calls[1][1].method).toBe('DELETE');
+});

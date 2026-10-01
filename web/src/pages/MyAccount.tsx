@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { secureFetch } from '../api';
 import { browserSupport, supportedBrowsers, type BrowserSupport } from '../browserSupport';
 
-type Device = {id: string; name: string; fingerprint: string; status: 'pending' | 'approved' | 'suspended' | 'revoked'; createdAt: number; expiresAt?: number};
+type Device = {id: string; name: string; fingerprint: string; status: 'unverified' | 'pending' | 'approved' | 'suspended' | 'revoked'; createdAt: number; expiresAt?: number};
 type Devices = {kind: 'loading'} | {kind: 'ready'; devices: Device[]} | {kind: 'not-suite'} | {kind: 'error'};
-const statuses = new Set(['pending', 'approved', 'suspended', 'revoked']);
+const statuses = new Set(['unverified', 'pending', 'approved', 'suspended', 'revoked']);
+const label = (s: Device['status']) => s === 'unverified' ? 'enrollment not finished' : s;
 const invalid = () => { throw new Error('Invalid device list'); };
 const text = (v: unknown) => typeof v === 'string' && v && v.length <= 255 ? v : invalid();
 const whole = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : invalid();
@@ -77,7 +78,7 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
     {devices.kind === 'ready' && (devices.devices.length === 0 ? <p>No messaging devices.</p> :
       <ul style={{listStyle: 'none', padding: 0}}>
         {devices.devices.map(d => <li key={d.id} style={{borderTop: '1px solid var(--line)', padding: '12px 0', overflowWrap: 'anywhere'}}>
-          <strong>{d.name}</strong> — {d.status}{d.status === 'suspended' && d.expiresAt ? `. Revoked automatically on ${day(d.expiresAt)}` : ''}
+          <strong>{d.name}</strong> — {label(d.status)}{d.status === 'suspended' && d.expiresAt ? `. Revoked automatically on ${day(d.expiresAt)}` : ''}
           <div>Fingerprint {d.fingerprint}</div>
           <div>Added {day(d.createdAt)}</div>
           {d.status !== 'revoked' && <button type="button" className="btn-secondary" onClick={() => void revoke(d)}>Revoke {d.name}</button>}

@@ -3,6 +3,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -26,7 +27,18 @@ func (s *Server) handleNetworkCheck(w http.ResponseWriter, r *http.Request) {
 		"forwarded_proto":   proto,
 		"app_url_https":     err == nil && strings.EqualFold(app.Scheme, "https"),
 		"host_matches":      err == nil && hostMatches(r.Host, app),
+		// Any address inside a trusted subnet can forge X-Forwarded-For.
+		"trusted_proxies_narrow": singleAddresses(s.config.Security.TrustedProxies),
 	})
+}
+
+func singleAddresses(prefixes []netip.Prefix) bool {
+	for _, p := range prefixes {
+		if p.Bits() != p.Addr().BitLen() {
+			return false
+		}
+	}
+	return len(prefixes) > 0
 }
 
 // hostMatches compares host names case-insensitively and ports with the scheme's default

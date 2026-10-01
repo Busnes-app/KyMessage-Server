@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 
-type Check = {peer_ip: string; client_ip: string; forwarded_trusted: boolean; forwarded_proto: string; app_url_https: boolean; host_matches: boolean};
+type Check = {peer_ip: string; client_ip: string; forwarded_trusted: boolean; forwarded_proto: string; app_url_https: boolean; host_matches: boolean; trusted_proxies_narrow: boolean};
 function parse(v: unknown): Check {
   const c = (v ?? {}) as Record<string, unknown>;
   const s = (x: unknown) => { if (typeof x !== 'string' || x.length > 64) throw new Error('bad'); return x; };
   const b = (x: unknown) => { if (typeof x !== 'boolean') throw new Error('bad'); return x; };
-  return {peer_ip: s(c.peer_ip), client_ip: s(c.client_ip), forwarded_trusted: b(c.forwarded_trusted), forwarded_proto: s(c.forwarded_proto), app_url_https: b(c.app_url_https), host_matches: b(c.host_matches)};
+  return {peer_ip: s(c.peer_ip), client_ip: s(c.client_ip), forwarded_trusted: b(c.forwarded_trusted), forwarded_proto: s(c.forwarded_proto), app_url_https: b(c.app_url_https), host_matches: b(c.host_matches), trusted_proxies_narrow: b(c.trusted_proxies_narrow)};
 }
 const mark = (pass: boolean, good: string, bad: string) => <li>{pass ? `Pass: ${good}` : `Warn: ${bad}`}</li>;
 
@@ -28,5 +28,6 @@ export function NetworkCheck() {
       {mark(check.forwarded_trusted && check.forwarded_proto === 'https', 'the proxy reports https', 'no trusted X-Forwarded-Proto: https from the proxy')}
       {mark(check.app_url_https, 'KY_APP_URL is https', 'KY_APP_URL is not https')}
       {mark(check.host_matches, 'the request host matches KY_APP_URL', 'the request host does not match KY_APP_URL')}
+      {mark(check.trusted_proxies_narrow, 'KY_TRUSTED_PROXIES names single addresses', 'KY_TRUSTED_PROXIES is empty or includes a subnet; any address in it can forge client IPs')}
     </ul></section>;
 }
