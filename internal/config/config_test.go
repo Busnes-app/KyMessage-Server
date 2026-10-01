@@ -150,20 +150,6 @@ func TestBackupKeepBelowOneIsRefused(t *testing.T) {
 	}
 }
 
-func TestMessagingIdentityResetOptIn(t *testing.T) {
-	t.Setenv("KY_DATA_DIR", t.TempDir())
-	for _, value := range []string{"", "false", "true"} {
-		t.Setenv("KY_MESSAGING_IDENTITY_RESET_ENABLED", value)
-		cfg, err := config.LoadFromEnv()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if cfg.Messaging.IdentityResetEnabled != (value == "true") {
-			t.Fatalf("reset opt-in %q", value)
-		}
-	}
-}
-
 // Operators often set an https app URL behind a TLS proxy and never touch KY_ENV. Cookies must
 // still be Secure there, and production must not silently run insecure over plain HTTP.
 func TestCookieSecureFollowsTheAppURL(t *testing.T) {

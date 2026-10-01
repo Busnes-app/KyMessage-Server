@@ -62,6 +62,9 @@ stop_server() {
 echo "==> CLI subcommands"
 check "version exits 0" "$("$BIN" version >/dev/null 2>&1 && echo 0 || echo 1)" "0"
 contains "version prints name" "$("$BIN" version)" "kymessages"
+# An unknown subcommand must exit 2 and never fall through to the server.
+check "unknown command exits 2" "$(KY_DATA_DIR="$WORK/unknown" KY_DB_DRIVER=sqlite timeout 10 "$BIN" restore-messages >/dev/null 2>&1; echo $?)" "2"
+check "unknown command creates no data" "$([ -e "$WORK/unknown" ] && echo yes || echo no)" "no"
 
 # The drill seals to a throwaway key and reopens it, so the pipeline runs even unpaired.
 # Whether the suite key is pinned is the status route's report, not the drill's.

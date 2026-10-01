@@ -863,7 +863,6 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	for _, rt := range []struct{ method, path string }{
 		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
 		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
-		{"PUT", "/api/backup/messages/schedule"}, {"POST", "/api/backup/messages/deposit"},
 	} {
 		w := adminDo(t, srv, stale, rt.method, rt.path, pinBody(pub, 2, 3))
 		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
@@ -893,7 +892,6 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	for _, rt := range []struct{ method, path string }{
 		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
 		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
-		{"PUT", "/api/backup/messages/schedule"}, {"POST", "/api/backup/messages/deposit"},
 	} {
 		w := adminDo(t, srv, derived, rt.method, rt.path, pinBody(pub, 2, 3))
 		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
@@ -925,95 +923,14 @@ func TestStatusReportsHalfWrittenPin(t *testing.T) {
 	}
 }
 
-func TestMessagesScheduleIsIndependentAndOffByDefault(t *testing.T) {
-	srv, st, _ := setupSQLiteServer(t)
-	session := loginAs(t, srv, st, "sched-admin", "admin")
-	before := statusOf(t, srv, session)
-	msgs, ok := before["messages"].(map[string]any)
-	if !ok || msgs["interval_sec"] != float64(0) || msgs["next_run_at"] != nil {
-		t.Fatalf("messages default schedule: %v", before["messages"])
-	}
-	if w := adminDo(t, srv, session, "PUT", "/api/backup/messages/schedule", map[string]any{"interval_sec": 3600}); w.Code != http.StatusOK {
-		t.Fatalf("set: %d %s", w.Code, w.Body.String())
-	}
-	if w := adminDo(t, srv, session, "PUT", "/api/backup/messages/schedule", map[string]any{"interval_sec": 5}); w.Code != http.StatusBadRequest {
-		t.Fatalf("too short: %d", w.Code)
-	}
-	after := statusOf(t, srv, session)
-	if got := after["messages"].(map[string]any)["interval_sec"]; got != float64(3600) {
-		t.Errorf("messages interval %v", got)
-	}
-	if after["interval_sec"] != before["interval_sec"] {
-		t.Errorf("people interval moved: %v -> %v", before["interval_sec"], after["interval_sec"])
-	}
-	rows := auditRows(t, st, "admin.backup_schedule")
-	if len(rows) != 1 {
-		t.Fatalf("messages schedule audit rows: %d", len(rows))
-	}
-	if rows[0].Resource != "messages" || rows[0].Details != "interval_sec=3600" {
-		t.Errorf("messages schedule audit: %+v", *rows[0])
-	}
-}
-
-// A missing copies directory (message backups never run) must still report an array:
+// A missing copies directory (backups never run) must still report an array:
 // the web screen rejects null and would disable every backup action.
 func TestStatusReportsEmptyLocalCopiesAsArray(t *testing.T) {
 	srv, st, cfg := setupSQLiteServer(t)
 	cfg.Backup.Dir = filepath.Join(t.TempDir(), "capsules")
 	session := loginAs(t, srv, st, "copies-admin", "admin")
 	status := statusOf(t, srv, session)
-	for name, kind := range map[string]map[string]any{"people": status, "messages": status["messages"].(map[string]any)} {
-		if copies, ok := kind["local_copies"].([]any); !ok || len(copies) != 0 {
-			t.Errorf("%s local_copies = %#v, want []", name, kind["local_copies"])
-		}
-	}
-}
-
-func TestMessagesDepositAuditsUnderItsOwnActionAndCopiesSeparately(t *testing.T) {
-	srv, st, cfg := setupSQLiteServer(t)
-	cfg.Backup.Dir = filepath.Join(t.TempDir(), "capsules")
-	cfg.Backup.Keep = 3
-	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
-	session := loginAs(t, srv, st, "msg-admin", "admin")
-	priv, _ := recoverykey.Generate()
-	if w := adminDo(t, srv, session, "POST", "/api/backup/pin-key", pinBody(priv.Public(), 2, 3)); w.Code != http.StatusOK {
-		t.Fatal(w.Body.String())
-	}
-	w := adminPost(t, srv, session, "/api/backup/messages/deposit")
-	if w.Code != http.StatusOK {
-		t.Fatalf("deposit: %d %s", w.Code, w.Body.String())
-	}
-	status := statusOf(t, srv, session)
-	msgs := status["messages"].(map[string]any)
-	if copies, _ := msgs["local_copies"].([]any); len(copies) != 1 {
-		t.Errorf("messages copies: %v", msgs["local_copies"])
-	}
-	if copies, _ := status["local_copies"].([]any); len(copies) != 0 {
-		t.Errorf("people copies: %v", status["local_copies"])
-	}
-	if last, _ := msgs["last_run"].(map[string]any); last == nil || last["outcome"] != "success" {
-		t.Errorf("messages last_run: %v", msgs["last_run"])
-	}
-	if status["last_run"] != nil {
-		t.Errorf("people last_run picked up a messages run: %v", status["last_run"])
-	}
-	if len(auditRows(t, st, "admin.backup_run_messages")) != 1 || len(auditRows(t, st, "admin.backup_run")) != 0 {
-		t.Error("messages run not audited under its own action")
-	}
-}
-
-func TestMessagesDrillPasses(t *testing.T) {
-	srv, st, _ := setupSQLiteServer(t)
-	session := loginAs(t, srv, st, "msg-drill", "admin")
-	w := adminPost(t, srv, session, "/api/backup/messages/drill")
-	if w.Code != http.StatusOK {
-		t.Fatalf("drill: %d %s", w.Code, w.Body.String())
-	}
-	var result recoveryclient.DrillResult
-	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if !result.Passed {
-		t.Fatalf("drill failed: %+v", result)
+	if copies, ok := status["local_copies"].([]any); !ok || len(copies) != 0 {
+		t.Errorf("local_copies = %#v, want []", status["local_copies"])
 	}
 }

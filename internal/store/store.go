@@ -20,7 +20,6 @@ type Store interface {
 	Groups() GroupStore
 	Audit() AuditStore
 	Settings() SettingsStore
-	Messaging() MessagingStore
 
 	InvalidateRestoredGrants(context.Context) error
 	Driver() string

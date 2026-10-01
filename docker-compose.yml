@@ -1,4 +1,4 @@
-# Local operator-console preview. The experimental MLS client is not embedded.
+# Local operator-console preview. No chat client is embedded.
 # Build this checkout with docker-compose.build.yml; no KyMessages image is published yet.
 services:
   app:
@@ -30,7 +30,6 @@ services:
       - KY_KYIDENTITY_CLIENT_ID=${KY_KYIDENTITY_CLIENT_ID:-}
       - KY_KYIDENTITY_SECRET=${KY_KYIDENTITY_SECRET:-}
       - KY_KYIDENTITY_HMAC_SECRET=${KY_KYIDENTITY_HMAC_SECRET:-}
-      - KY_MESSAGING_IDENTITY_RESET_ENABLED=${KY_MESSAGING_IDENTITY_RESET_ENABLED:-false}
       - KY_SCIM_ENABLED=true
       - KY_SCIM_TOKEN=${KY_SCIM_TOKEN:-}
     volumes:

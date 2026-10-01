@@ -15,7 +15,6 @@ import (
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/recoverykey"
-	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -65,25 +64,6 @@ func sealFixture(t *testing.T, service string) (string, []string) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, query := range []string{
-		`INSERT INTO messaging_identities (user_id) VALUES ('alice')`,
-		`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('old-device','alice','old','synthetic-public-key','approved','','',1,'old-device-token',1,1)`,
-		`INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes) VALUES ('old-room','old','alice',1,1,1,8)`,
-		`INSERT INTO messaging_members (room_id,user_id,status,generation) VALUES ('old-room','alice','active',1)`,
-		`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES ('old-room',1,'old-device','old-event','commit',1,'synthetic','b2xk','synthetic',1)`,
-		`INSERT INTO messaging_welcomes (room_id,sequence,device_id,payload) VALUES ('old-room',1,'old-device','b2xk')`,
-	} {
-		if _, err := db.Exec(query); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
 	dbBytes, err := os.ReadFile(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -115,27 +95,8 @@ func TestRestoreExtractsWithTwoShares(t *testing.T) {
 	if sessions != 0 || audits != 1 {
 		t.Fatalf("restored grants: sessions=%d audits=%d", sessions, audits)
 	}
-	for _, query := range []string{
-		`SELECT COUNT(*) FROM messaging_devices WHERE status <> 'revoked' OR token_hash IS NOT NULL`,
-		`SELECT COUNT(*) FROM messaging_members WHERE status <> 'removed'`,
-		`SELECT COUNT(*) FROM messaging_rooms WHERE owner_identity_generation <> 0 OR retained_bytes <> 0`,
-		`SELECT COUNT(*) FROM messaging_events WHERE payload <> ''`,
-		`SELECT COUNT(*) FROM messaging_welcomes`,
-	} {
-		var count int
-		if err := db.QueryRow(query).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 0 {
-			t.Fatalf("restored stale state: %s = %d", query, count)
-		}
-	}
 	if !strings.Contains(out.String(), "busnes_app") {
 		t.Fatalf("manifest not printed: %s", out.String())
-	}
-	// A pre-split capsule leaves messaging rows, which restore-messages refuses.
-	if strings.Contains(out.String(), "run `restore-messages") || !strings.Contains(out.String(), "restore-messages cannot run on this target") {
-		t.Fatalf("old capsule got the wrong restore-messages hint:\n%s", out.String())
 	}
 }
 
@@ -163,135 +124,227 @@ func TestRestoreRefusesOneShare(t *testing.T) {
 	}
 }
 
-// messagesFixture seals a people capsule and a messages capsule from one live instance to one
-// throwaway kit. carol is deleted between the two, as if the messages capsule were older.
-func messagesFixture(t *testing.T) (people, messages string, shares []string) {
-	t.Helper()
-	ctx := context.Background()
-	dir := t.TempDir()
-	cfg := &config.Config{}
-	cfg.Server.AppName = "busnes_app"
-	cfg.Database = config.DatabaseConfig{Driver: "sqlite", DataDir: dir, DSN: filepath.Join(dir, "ky_server.db")}
-	cfg.Security.EncryptionKey = bytes.Repeat([]byte{1}, 32)
-	st, err := store.Open(ctx, cfg.Database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	db, err := sql.Open("sqlite", cfg.Database.DSN+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	exec := func(q string) {
-		t.Helper()
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	for _, u := range []string{"alice", "bob", "carol"} {
-		exec(`INSERT INTO users (id,username,created_at,updated_at) VALUES ('` + u + `','` + u + `',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
-		exec(`INSERT INTO messaging_identities (user_id) VALUES ('` + u + `')`)
-		exec(`INSERT INTO messaging_devices (id,user_id,name,public_key,status,challenge,enrollment_session,expires_at,token_hash,created_at,verified_at) VALUES ('` + u + `-dev','` + u + `','d','pk-` + u + `','approved','','',1,'tok-` + u + `',1,1)`)
-	}
-	exec(`INSERT INTO messaging_rooms (id,name,owner_id,created_at,epoch,sequence,retained_bytes,retention_days) VALUES ('room','r','alice',1,1,2,8,0)`)
-	for _, u := range []string{"alice", "bob", "carol"} {
-		exec(`INSERT INTO messaging_members (room_id,user_id,status,generation) VALUES ('room','` + u + `','active',1)`)
-	}
-	exec(`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES ('room',1,'alice-dev','e1','commit',1,'h','b2xk','h',1)`)
-	exec(`INSERT INTO messaging_events (room_id,sequence,device_id,event_id,kind,epoch,roster_hash,payload,request_hash,created_at) VALUES ('room',2,'alice-dev','e2','application',1,'h','b2xk','h',1)`)
-	exec(`INSERT INTO messaging_welcomes (room_id,sequence,device_id,payload) VALUES ('room',1,'bob-dev','w')`)
-
+// A restore that fails after extraction must not leave the decrypted payload behind.
+func TestRestoreFailureRemovesExtractedFiles(t *testing.T) {
 	key, shares := testKit(t)
-	payload, err := backup.CollectMessages(ctx, cfg, "test")
-	if err != nil {
-		t.Fatal(err)
+	path := sealTo(t, key, recoveryclient.Payload{ServiceName: "busnes_app", AppVersion: "1.0.0",
+		Files: []recoveryclient.File{{Path: "data/encryption.key", Data: []byte(strings.Repeat("01", 32)), Mode: 0600}}})
+	absent := filepath.Join(t.TempDir(), "restored")
+	if err := restore(path, absent, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+		t.Fatal("restore without a database succeeded")
 	}
-	messages = sealTo(t, key, payload)
-	exec(`DELETE FROM users WHERE id = 'carol'`)
-	if payload, err = backup.Collect(ctx, cfg, "test"); err != nil {
-		t.Fatal(err)
+	if _, err := os.Lstat(absent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("absent target left behind: %v", err)
 	}
-	return sealTo(t, key, payload), messages, shares
+	empty := t.TempDir()
+	if err := restore(path, empty, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+		t.Fatal("restore without a database succeeded")
+	}
+	if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+		t.Fatalf("empty target not emptied: %v %v", entries, err)
+	}
 }
 
-func TestRestoreMessagesAfterPeople(t *testing.T) {
-	people, messages, shares := messagesFixture(t)
-	target := filepath.Join(t.TempDir(), "restored with spaces?#")
-	var restored bytes.Buffer
-	if err := restore(people, target, "busnes_app", shares, &restored); err != nil {
+// noDatabaseCapsule extracts but fails preparation: it has no data/ky_server.db.
+func noDatabaseCapsule(t *testing.T) (string, []string) {
+	t.Helper()
+	key, shares := testKit(t)
+	return sealTo(t, key, recoveryclient.Payload{ServiceName: "busnes_app", AppVersion: "1.0.0",
+		Files: []recoveryclient.File{{Path: "data/encryption.key", Data: []byte(strings.Repeat("01", 32)), Mode: 0600}}}), shares
+}
+
+// A target swapped for a symlink between extraction and cleanup must not redirect the cleanup.
+func TestRestoreFailureIgnoresAReplacedTarget(t *testing.T) {
+	path, shares := noDatabaseCapsule(t)
+	parent := t.TempDir()
+	target := filepath.Join(parent, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(restored.String(), "run `restore-messages -capsule <file> -into "+target+"`") {
-		t.Fatalf("people restore lacks the restore-messages hint:\n%s", restored.String())
-	}
-	// The people capsule is not a messages capsule.
-	if err := restoreMessages(context.Background(), people, target, "busnes_app", shares, &bytes.Buffer{}); err == nil {
-		t.Fatal("restore-messages accepted a people capsule")
-	}
-	var out bytes.Buffer
-	if err := restoreMessages(context.Background(), messages, target, "busnes_app", shares, &out); err != nil {
+	victim := t.TempDir()
+	sentinel := filepath.Join(victim, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"busnes_app", "rooms=1", "dropped_rooms=0", "dropped_members=1", "dropped_devices=1", "events=2", "suspended"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %q:\n%s", want, out.String())
+	moved := filepath.Join(parent, "moved")
+	afterExtract = func(string) {
+		if err := os.Rename(target, moved); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(victim, target); err != nil {
+			t.Error(err)
 		}
 	}
-	entries, err := os.ReadDir(target)
-	if err != nil {
+	t.Cleanup(func() { afterExtract = func(string) {} })
+	err := restore(path, target, "busnes_app", shares, &bytes.Buffer{})
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("cleanup followed the swapped target: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "replaced") {
+		t.Fatalf("got %v, want a replaced-target error", err)
+	}
+	if entries, err := os.ReadDir(moved); err != nil || len(entries) != 0 {
+		t.Fatalf("extracted files left in the real target: %v %v", entries, err)
+	}
+}
+
+func TestRestoreRefusesASymlinkTarget(t *testing.T) {
+	path, shares := noDatabaseCapsule(t)
+	real := t.TempDir()
+	target := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, target); err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "messages-") {
-			t.Errorf("opened capsule left behind: %s", e.Name())
+	err := restore(path, target, "busnes_app", shares, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("got %v, want a symlink refusal", err)
+	}
+	if entries, _ := os.ReadDir(real); len(entries) != 0 {
+		t.Fatalf("extracted through the symlink: %v", entries)
+	}
+}
+
+func TestRestoreChecksTheTargetParent(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	for _, mode := range []os.FileMode{0o770, 0o707, 0o777 | os.ModeSticky} {
+		parent := t.TempDir()
+		if err := os.Chmod(parent, mode); err != nil {
+			t.Fatal(err)
+		}
+		err := restore(path, filepath.Join(parent, "target"), "busnes_app", shares, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "writable") {
+			t.Fatalf("mode %v: got %v, want a writable-parent refusal", mode, err)
 		}
 	}
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: filepath.Join(target, "data", "ky_server.db"), RawQuery: "mode=ro"}).String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var suspended, events int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messaging_devices WHERE status = 'approved' AND token_hash IS NULL`).Scan(&suspended); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messaging_events`).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	if suspended != 2 || events != 2 {
-		t.Fatalf("suspended=%d events=%d", suspended, events)
-	}
+}
 
-	dbFile := filepath.Join(target, "data", "ky_server.db")
-	before, err := os.ReadFile(dbFile)
-	if err != nil {
-		t.Fatal(err)
+// The decisions per path element; other owners and root-owned sticky dirs need no root here.
+func TestRestorePathRefusal(t *testing.T) {
+	me := uint32(os.Getuid())
+	other := me + 1
+	if other == 0 {
+		other = 2
 	}
-	if err := restoreMessages(context.Background(), messages, target, "busnes_app", shares, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "already has messaging data") {
-		t.Fatalf("second run: %v", err)
+	const dir, sticky, link = os.ModeDir, os.ModeSticky, os.ModeSymlink
+	cases := []struct {
+		target bool
+		uid    uint32
+		mode   os.FileMode
+		want   string
+	}{
+		{false, me, dir | 0o700, ""},
+		{false, 0, dir | 0o555, ""},
+		{false, 0, dir | sticky | 0o777, ""}, // /tmp
+		{false, me, dir | sticky | 0o777, "writable"},
+		{false, me, dir | 0o770, "writable"},
+		{false, 0, dir | 0o757, "writable"},
+		{false, other, dir | 0o755, "owned by uid"},
+		{false, other, dir | sticky | 0o777, "owned by uid"},
+		{false, me, link | 0o777, "symlink"},
+		{false, me, 0o600, "not a directory"},
+		{true, me, dir | 0o700, ""},
+		{true, other, dir | 0o700, "owned by uid"}, // under a sticky parent, or root.Stat(".") of an opened target
+		{true, me, dir | sticky | 0o777, "writable"},
+		{true, me, link | 0o777, "symlink"},
+		{true, me, 0o600, "not a directory"},
 	}
-	if after, err := os.ReadFile(dbFile); err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("second run changed the database (%v)", err)
+	for _, c := range cases {
+		err := pathRefusal("/p", c.uid, c.mode, c.target)
+		if c.want == "" && err != nil || c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("target=%v uid %d mode %v: got %v, want %q", c.target, c.uid, c.mode, err, c.want)
+		}
 	}
 }
 
-func TestRestoreMessagesNeedsAPeopleRestore(t *testing.T) {
-	_, messages, shares := messagesFixture(t)
-	err := restoreMessages(context.Background(), messages, t.TempDir(), "busnes_app", shares, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "people restore") {
-		t.Fatalf("got %v", err)
+func invalidCapsule(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bad.kycap")
+	if err := os.WriteFile(path, []byte("not a capsule"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A refused restore extracted nothing, so it must delete nothing.
+func TestRestoreRefusalKeepsExistingContents(t *testing.T) {
+	_, shares := testKit(t)
+	full := t.TempDir()
+	sentinel := filepath.Join(full, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := restore(invalidCapsule(t), full, "busnes_app", shares, &bytes.Buffer{})
+	if got, readErr := os.ReadFile(sentinel); readErr != nil || string(got) != "keep" {
+		t.Fatalf("existing contents changed: %q %v", got, readErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "not empty") || !strings.Contains(err.Error(), full) {
+		t.Fatalf("got %v, want a refusal naming the non-empty target", err)
+	}
+	empty := t.TempDir()
+	if err := restore(invalidCapsule(t), empty, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+		t.Fatal("invalid capsule accepted")
+	}
+	if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+		t.Fatalf("empty target not kept empty: %v %v", entries, err)
 	}
 }
 
-func TestRestoreRefusesAMessagesCapsule(t *testing.T) {
-	_, messages, shares := messagesFixture(t)
-	target := filepath.Join(t.TempDir(), "restored")
-	err := restore(messages, target, "busnes_app", shares, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "this is a messages capsule") {
-		t.Fatalf("got %v", err)
+// A trusted parent does not make the path safe if an ancestor above it is writable by others.
+func TestRestoreRefusesAnUnsafeAncestor(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	open := filepath.Join(t.TempDir(), "open")
+	parent := filepath.Join(open, "parent")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Lstat(filepath.Join(target, backup.MessagesDir)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("decrypted messages left behind: %v", err)
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	err := restore(path, filepath.Join(parent, "target"), "busnes_app", shares, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), open+" ") {
+		t.Fatalf("got %v, want a refusal naming %s", err, open)
+	}
+}
+
+// Symlinked parents are resolved, and the restore lands in the real directory.
+func TestRestoreResolvesASymlinkedParent(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := restore(path, filepath.Join(link, "target"), "busnes_app", shares, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(real, "target", "data", "ky_server.db")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A target another user creates after validation was never checked, so it must be refused.
+func TestRestoreRefusesATargetThatAppears(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	t.Cleanup(func() { beforeCreate = func(string) {} })
+	for _, plant := range []bool{false, true} {
+		target := filepath.Join(t.TempDir(), "target")
+		sentinel := filepath.Join(target, "sentinel")
+		beforeCreate = func(string) {
+			if err := os.Mkdir(target, 0o700); err != nil {
+				t.Error(err)
+			}
+			if plant {
+				if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		err := restore(path, target, "busnes_app", shares, &bytes.Buffer{})
+		if got, readErr := os.ReadFile(sentinel); plant && (readErr != nil || string(got) != "keep") {
+			t.Fatalf("pre-placed contents changed: %q %v", got, readErr)
+		}
+		if err == nil || !strings.Contains(err.Error(), "appeared during restore") {
+			t.Fatalf("sentinel=%v: got %v, want an appeared-target refusal", plant, err)
+		}
 	}
 }

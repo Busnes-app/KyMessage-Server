@@ -34,15 +34,6 @@ func AllowAttemptForTest(s *Server, key string, limit int, window time.Duration)
 	return s.clientAttempts.allow(key, limit, window)
 }
 
-// AllowAccountAttemptForTest drives the account limiter directly, so a test can exhaust a
-// daily window without thousands of requests. Test-only.
-func AllowAccountAttemptForTest(s *Server, key string, limit int, window time.Duration) bool {
-	return s.accountAttempts.allow(key, limit, window)
-}
-
-// MessagingDailyEventLimitForTest is the per-account daily append cap.
-const MessagingDailyEventLimitForTest = messagingDailyEventLimit
-
 // RegisterDetachedForTest registers one detached handler and returns its unregister func, so a
 // test can drive the counter without an HTTP request. Test-only.
 func RegisterDetachedForTest(s *Server) func() {

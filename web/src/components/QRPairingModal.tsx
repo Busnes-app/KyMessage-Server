@@ -103,7 +103,7 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
         ) : (
           <div>
             <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
-              Scan this QR code with a compatible suite client. Encrypted-chat browser approval is a separate fingerprint-checked step.
+              Scan this QR code with a compatible suite client.
             </p>
 
             <div
