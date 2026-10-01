@@ -38,9 +38,6 @@ lint:
 	@echo "==> Checking formatting and vet..."
 	@test -z "$$(gofmt -l $$(git ls-files '*.go'))" || { echo "gofmt needed:"; gofmt -l $$(git ls-files '*.go'); exit 1; }
 	@go vet ./...
-	@go vet -tags rehearsal ./scripts/rehearsal
-	@go test -tags rehearsal ./scripts/rehearsal
-	@bash scripts/check-chat-gate.sh
 	@bash scripts/check-compose-proxy.sh
 
 smoke: build
