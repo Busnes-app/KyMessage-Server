@@ -23,7 +23,7 @@ declare -A image=(
   [synapse-media-owner]=ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
 )
 # The named volume each service may use; every bind mount must be its own ./matrix/<service> path.
-declare -A named=([postgres]=matrix-postgres [synapse]=matrix-media [mas]= [element]= [synapse-media-owner]=matrix-media)
+declare -A named=([postgres]=matrix-postgres [synapse]=matrix-media [mas]="" [element]="" [synapse-media-owner]=matrix-media)
 declare -A own=([postgres]=postgres [synapse]=synapse [mas]=mas [element]=element [synapse-media-owner]=none)
 
 [ "$(jq -c '[.services | keys[] | select(. != "app")] | sort' <<<"$out")" = '["element","mas","postgres","synapse","synapse-media-owner"]' ] \
