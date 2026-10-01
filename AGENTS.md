@@ -107,8 +107,9 @@ Default section order:
   autonomous PR security reviewer, task and whole-branch reviews), like every other Ky
   product: it is internal, invite-only chat with no public sign-up. An external
   cryptographic review is optional later work, not a release gate. Never call agent or
-  suite review an independent audit: label chat "end-to-end encrypted (not independently
-  audited)".
+  suite review an independent audit: label chat exactly "End-to-end encrypted in Element (not independently audited)".
+  Synapse does not enforce encryption, so a client that does not encrypt can post plaintext
+  into an encrypted room; docs state this plainly (`docs/CHAT-PLATFORM-OPTIONS.md` section 7).
 - Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions, MFA challenges and device pairings. Untouched existing accounts are not retroactively flagged.
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
@@ -199,4 +200,4 @@ then opens the offline SQLite snapshot (running migrations), invalidates
 restored grants and closes it before reporting success. Before extraction it resolves symlinked parents and checks the real path up to `/`: an existing target must be a non-symlink directory owned by the current user, each ancestor owned by the current user or root, and none group- or world-writable except a root-owned sticky ancestor (`/tmp`). It creates an absent target (`os.Mkdir`, so the parent must exist; a target that appears meanwhile is refused), opens an `os.Root` on it, checks the opened directory against the target rule and the path (`checkTarget`), and refuses a nonempty target without touching it. A library failure is rolled back by the library; only a created target is then removed. After extraction it requires the path to still name that directory. A later failure removes what was extracted through the handle, never by path (and the target itself if restore created it).
 Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
-The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and Matrix chat integration remain open.
+The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. The Matrix stack (`matrix-init`, `docker-compose.matrix.yml`, the `.well-known` and Open chat link, the README's Matrix setup and the cloudflared routes in `docs/Reverse_Proxy_Networking.md`) exists; a public cloudflared deployment is untested. Open: offboarding (KyIdentity disable must end live MAS sessions), Matrix backups, the console and removal of the custom messaging stack.

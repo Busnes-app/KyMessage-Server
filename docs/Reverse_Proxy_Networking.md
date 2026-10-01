@@ -76,6 +76,58 @@ Tunnel ingress: `service: http://kymessages:8080`. Then set
 fails with `network kymessages-net declared as external, but could not be found`;
 start it again once KyMessages is up.
 
+## Matrix stack behind cloudflared
+
+`docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element Web. It publishes no
+port and its services join the same `kymessages-net` as KyMessages, so the cloudflared
+container set up above reaches them by name. Postgres is only on the internal `matrix-db`
+network; cloudflared cannot reach it and must never be given a route to it.
+
+Four public hostnames, all https, plus the server name:
+
+| Variable | Example | Routes to |
+|---|---|---|
+| `KY_MATRIX_HOST` | `https://matrix.example.com` | `http://synapse:8008` |
+| `KY_MATRIX_AUTH_HOST` | `https://auth.example.com` | `http://mas:8080` |
+| `KY_MATRIX_CHAT_HOST` | `https://chat.example.com` | `http://element:8080` |
+| `KY_ADMIN_HOST` | `https://admin.example.com` | `http://kymessages:8080` |
+| `KY_MATRIX_SERVER_NAME` | `example.com` | only `/.well-known/matrix/client`, to `http://kymessages:8080` |
+
+The server name is the part after the colon in user IDs (`@alice.q_ky:example.com`). The
+four hosts are bare https origins (no path). Set `KY_APP_URL` to the admin host's origin, since that hostname is where KyMessages is served.
+
+Element's container serves on port 8080 (`ELEMENT_WEB_PORT` in the overlay), not 80.
+
+Tunnel `config.yml`, rules in this order, each hostname routed to exactly one target:
+
+```yaml
+ingress:
+  - hostname: example.com
+    path: ^/\.well-known/matrix/client$
+    service: http://kymessages:8080
+  - hostname: matrix.example.com
+    service: http://synapse:8008
+  - hostname: auth.example.com
+    service: http://mas:8080
+  - hostname: chat.example.com
+    service: http://element:8080
+  - hostname: admin.example.com
+    service: http://kymessages:8080
+  - service: http_status:404
+```
+
+A dashboard-managed tunnel takes the same hostname-to-service pairs as public hostnames. Route
+no other MAS port, no Postgres and nothing else on the server-name host: MAS has a
+single listener, 8080, and the compatibility login is not served on it. Element loads its logo
+from `KY_ADMIN_HOST`; do not add a proxy-side `img-src` that excludes it.
+
+`KY_TRUSTED_PROXIES` stays cloudflared's /32 on `kymessages-net`. Setup order and the
+`KY_MATRIX_UID` step are in the README's "Matrix chat" section.
+
+Check after start: `https://<server name>/.well-known/matrix/client` returns
+`{"m.homeserver":{"base_url":"https://matrix.example.com"}}`, the chat host loads Element, and
+signing in goes through the auth host to KyIdentity.
+
 ## nginx
 
 ```nginx

@@ -5,8 +5,8 @@ Private team conversations, on infrastructure you control.
 KyMessages is moving to Matrix for chat, with suite identity and sealed server
 backups. See the [Matrix platform design](docs/superpowers/specs/2026-10-01-matrix-platform-design.md).
 It is not deployed or approved for private team use yet. The source-built application
-currently provides the operator console. Members see a page saying chat is not
-available yet.
+currently provides the operator console and, once the Matrix stack below is configured,
+an "Open chat" link for members; without it they see a page saying chat is not available.
 
 - [Product scope and privacy contract](docs/PRODUCT.md)
 - [Protocol and interoperability research](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
@@ -64,6 +64,47 @@ chain. Do not replace that chain with an unrelated `-f` list.
 Behind a reverse proxy, add `docker-compose.proxy.yml` (needs `KY_APP_URL`, `KY_SESSION_SECRET`
 and `KY_TRUSTED_PROXIES`; publishes no port; names the network `kymessages-net`). Setup, cloudflared and nginx are in
 [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
+
+## Matrix chat
+
+Chat is Matrix: Synapse, Matrix Authentication Service (MAS) and Element Web, with KyIdentity
+as the only sign-in. It publishes no port and expects cloudflared in front (routes in
+[docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md)). Registration and
+federation are closed and MAS's compatibility (password) login is not served.
+
+Encryption label: **End-to-end encrypted in Element (not independently audited)**. Element
+always encrypts, but Synapse does not enforce it: a client or script that does not encrypt can
+post plaintext into an encrypted room. The server does not stop it. Members should use Element.
+Evidence: `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
+
+Setup, with the proxy overlay already working:
+
+1. Export these for the next step (`matrix-init` reads the process environment, not `.env`;
+   `docker compose` reads `.env`, so put the same values there too). All hosts are https
+   origins without a path:
+   `KY_MATRIX_SERVER_NAME` (for example `example.com`), `KY_MATRIX_HOST`,
+   `KY_MATRIX_AUTH_HOST`, `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`,
+   `KY_MATRIX_MAS_CLIENT_ID` and `KY_MATRIX_MAS_CLIENT_SECRET`. Choose the client ID and secret
+   now; the secret goes in `.env` with mode 0600.
+2. Run `./kymessages matrix-init` as an unprivileged user (`-dir` defaults to `./matrix`).
+   It writes the configs and secrets, prints the KyIdentity registration values and prints
+   `KY_MATRIX_UID` and `KY_MATRIX_GID`. Back up `matrix/secrets` and
+   `matrix/synapse/signing.key`; they are never regenerated.
+3. Add `KY_MATRIX_UID` and `KY_MATRIX_GID` to `.env`. Postgres, Synapse and MAS run as that
+   user, the owner of `./matrix`, so its 0600 secrets stay unreadable to every other account.
+   Compose refuses to start without them. Do not run `matrix-init` as root: the containers
+   would run as root.
+4. In KyIdentity, register the printed confidential client (client ID, redirect URI, scopes
+   `openid profile email`) and assign the users who may chat. Unassigned users cannot sign in.
+5. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
+   rest of the chain, then `docker compose up -d`.
+6. Add the cloudflared routes, then open the chat host. Signed-in members see an "Open chat"
+   link in KyMessages.
+
+Not built yet: automatic offboarding (disabling a user in KyIdentity does not end live Matrix
+sessions), Matrix backups, and the admin console for the stack. `make matrix-acceptance`
+proves encrypted storage in Element and a closed server (needs Docker, node and a KyIdentity
+checkout; see [AGENTS.md](AGENTS.md)).
 
 ## Identity and recovery configuration
 
