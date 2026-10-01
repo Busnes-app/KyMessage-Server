@@ -123,7 +123,8 @@ func restoreMessages(ctx context.Context, capsulePath, targetDir, expectService 
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "Imported rooms=%d retired_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d\n"+
-		"Restored devices are suspended until their owners sign in and resume them in the messaging client. Review and revoke unknown devices first.\n",
+		"Restored devices are suspended. Before users return, an admin reviews GET /api/admin/messaging/devices?status=suspended and revokes unknown ones with POST /api/admin/messaging/devices/{device}/revoke. "+
+		"An owner resumes a device after a fresh sign-in: POST /api/messaging/devices/{device}/resume, then POST /api/messaging/devices/{device}/resume/verify with the device key's signature.\n",
 		counts.Rooms, counts.RetiredRooms, counts.Members, counts.DroppedMembers, counts.Devices, counts.DroppedDevices, counts.Events)
 	return err
 }

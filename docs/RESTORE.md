@@ -121,10 +121,16 @@ recovery-authentication requests, reset receipts and sessions are not imported.
 
 Every imported approved device is **suspended**: it keeps its status and identity
 generation but has no delivery token, so it cannot read, send or approve. Revoked
-devices stay revoked. Before reopening access, review the restored devices with
-their owners and revoke any that are lost or unrecognized. After a fresh sign-in,
-an owner resumes a device in the messaging client, which proves possession of the
-device's enrollment key. A thread resumes for a device whose MLS state matches the
+devices stay revoked. Before reopening access, an admin reviews the restored devices
+on the dashboard's **Suspended devices** list (`GET
+/api/admin/messaging/devices?status=suspended`) with their owners and revokes any
+that are lost or unrecognized (`POST /api/admin/messaging/devices/{device}/revoke`,
+which needs a sign-in from the last 10 minutes and works only on suspended devices).
+An owner resumes a device after a suite sign-in from the last 10 minutes: `POST
+/api/messaging/devices/{device}/resume` with a new `token_hash`, then `POST
+/api/messaging/devices/{device}/resume/verify` with the device key's signature over
+the returned challenge. The new token works only after the signature verifies; see
+`docs/MESSAGING-API.md`. A device from before an identity reset cannot resume. A thread resumes for a device whose MLS state matches the
 restored epoch. A thread that advanced after the snapshot stays paused for clients
 that are ahead of it; the server never rewinds client state, so those members start
 a new thread.

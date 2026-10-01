@@ -197,8 +197,9 @@ offline: it refuses a target without `data/ky_server.db` or with messaging rows 
 opening the capsule, opens it into a `messages-*` temp directory removed on return
 (SIGINT/SIGTERM cancel through `signal.NotifyContext`; hard kills leave it for the operator),
 refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
-approved devices are suspended (no token) until their owners resume them; rooms of
-missing owners are not imported. Without it, users recover identity with fresh suite
+approved devices are suspended (no token) until their owners resume them
+(`/api/messaging/devices/{device}/resume`); admins list and revoke suspended devices
+through `/api/admin/messaging/devices`; rooms of missing owners are not imported. Without it, users recover identity with fresh suite
 authentication and new independently verified rooms. Never restore or rewind browser
 MLS state. Root owns this policy and `docs/RESTORE.md`.
 

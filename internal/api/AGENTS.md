@@ -27,6 +27,14 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   exposes retention/floor metadata; event `expires_at` is omitted when Off.
   A missed expired prefix returns 410 with `code:history_expired`, never a partial
   ciphertext page that could be mistaken for complete MLS history.
+- `POST /api/messaging/devices/{device}/resume` and `.../resume/verify` re-prove a
+  suspended device's key. Resume needs `MessagingActor.SessionCreatedAt` within
+  `stepUpWindow`, else 403 `reauthentication_required` with `reauthURL`; it is capped at
+  10 per account per 5 minutes and builds a `KyMessages resume v1` challenge like
+  enrollment. `GET /api/admin/messaging/devices?status=suspended` (`requireAdmin`) and
+  `POST /api/admin/messaging/devices/{device}/revoke`
+  (`tracked(requireFreshAdmin)`, 404 unless suspended) are the admin view; listings
+  expose the fingerprint, never the public key or credentials.
 - `messaging_recovery.go` owns recovery-authentication initiation and callback.
   Initiation requires the target pending device's token; callback keeps the original
   suite session and never issues another. Seal server-owned OIDC state with the

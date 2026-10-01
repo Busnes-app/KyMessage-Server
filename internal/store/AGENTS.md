@@ -19,6 +19,16 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   id)`; insertion order handles timestamp ties/backwards clocks without scanning
   unrelated activity. Backup status reads this append-only source, not a second
   shared last-result setting.
+- Migration 18 adds `messaging_devices.resume_token_hash`. A suspended device is
+  `status = 'approved' AND token_hash IS NULL` (as `restore-messages` imports it);
+  `deviceStatusColumn` reports it as `suspended` in listings and the recovery registry
+  digest. `StartDeviceResume` binds a challenge to the session and stores the proposed
+  token in `resume_token_hash`; `ResumeDevice` moves it to `token_hash` only after the
+  Ed25519 signature verifies. A bad signature commits a `messaging.device_resume_failed`
+  audit and keeps the challenge. Both refuse a superseded identity generation
+  (`ErrMessagingDenied`). Every revocation uses `revokeDeviceSet`, which also clears
+  the resume state. `SuspendedDevices`/`RevokeSuspendedDevice` are the admin view:
+  revoke locks the owner's user row and touches only suspended devices.
 - `MessagingStore` owns migration 5's messaging device registry and room ACLs, separate from push/QR device pairing. Each operation rechecks the active suite-only account and live session in its transaction; device-gated operations additionally check the approved device token hash.
 - Serialize messaging operations through a non-key update of the acting user row, then the session and relevant room/member rows. Keep the user update compatible with PostgreSQL foreign-key key-share locks; cross-invitations must not take a second account write lock.
 - Only the first successfully verified device bootstraps trust. Retain verified-device tombstones after revocation so losing every device cannot silently bootstrap a replacement. Mutations and their success audits commit together.
