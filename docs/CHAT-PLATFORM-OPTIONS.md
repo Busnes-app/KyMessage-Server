@@ -143,3 +143,25 @@ beyond being the mautrix maintainers' hosted product. [Source](https://github.co
 - `vidya/slidge-teams-public` (Codeberg) exists without a description or release; not evaluated.
 - Tuwunel's storage engine, backup procedure and admin API; whether Synapse has a first-party admin web UI.
 - Licensing: whether shipping AGPL-3.0 components (Synapse, MAS, Element, mautrix) in a Ky distribution is acceptable. PRODUCT.md defers licensing decisions.
+
+## 7. Spike: Matrix with KyIdentity sign-in (2026-10-01)
+
+A throwaway loopback build tested option (b). It used Synapse v1.162.0, MAS 1.26.0, Element Web v1.12.30 and Postgres 17.6, with KyIdentity built from source at `c21445b`. The evidence was local only and was not kept, so the results are summarised here.
+
+| Question | Result |
+|---|---|
+| KyIdentity as MAS's only upstream sign-in, local passwords off | Works. Only users assigned to the app in KyIdentity get in; unassigned users get `access_denied`. |
+| Element Web signs in and sends a message | Works |
+| Registration and federation closed | Works. Synapse `/register` returns 403, password login 400, federation endpoints 404, outbound "Federation denied". |
+| Deactivating a user | Split. KyIdentity disable blocks new sign-ins only, and existing Matrix sessions keep working. Synapse admin deactivate is undone, because MAS issues fresh working sessions on the next sign-in. Only MAS admin-API deactivate locks the account. |
+| Claims | KyIdentity's ID token carries everything MAS needs (`preferred_username`, `email`, `name`, `sub`) when the client requests `profile email`. MAS ignores `acr`. |
+
+Backup scope: the Synapse and MAS databases, plus MAS `secrets.encryption`, restored from one point in time. Also the Synapse signing key, the `homeserver.yaml` secrets and `media_store/`. KyIdentity must keep each user's `sub` and the MAS client secret.
+
+Open issues, all blocking a product:
+- One message sent after MAS's compatibility sign-in was stored as plaintext `m.room.message` in an encrypted room. This happened once and the cause is unknown. Messages sent after native OIDC sign-in were `m.room.encrypted`. No encryption claim is possible until this is explained.
+- KyIdentity disable must end live Matrix sessions. That needs back-channel logout into MAS, or a sync job that calls MAS deactivate.
+- KyIdentity usernames such as `Ivy.Q@Example` are not valid Matrix IDs, so a mapping rule is needed.
+- Loopback http needed MAS `discovery_mode: insecure` and `allow_insecure_uris`. A real https deployment is untested and should need neither.
+- MFA enforcement through KyIdentity's per-app policy is untested.
+- No Teams bridge exists for this stack either (see section 3).
