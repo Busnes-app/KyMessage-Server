@@ -138,6 +138,7 @@ func restoreMessages(ctx context.Context, capsulePath, targetDir, expectService 
 	_, err = fmt.Fprintf(stdout, "Imported rooms=%d dropped_rooms=%d members=%d dropped_members=%d devices=%d dropped_devices=%d events=%d\n"+
 		"Restored devices are suspended. Before users return, an admin reviews GET /api/admin/messaging/devices?status=suspended and revokes unknown ones with POST /api/admin/messaging/devices/{device}/revoke. "+
 		"A capsule older than the incident undoes device revocations and identity resets made after it was created, so confirm each device before it resumes. "+
+		"Devices not resumed within 30 days are revoked automatically. "+
 		"An owner resumes a device after a fresh sign-in: POST /api/messaging/devices/{device}/resume, then POST /api/messaging/devices/{device}/resume/verify with the device key's signature.\n",
 		counts.Rooms, counts.DroppedRooms, counts.Members, counts.DroppedMembers, counts.Devices, counts.DroppedDevices, counts.Events)
 	return err

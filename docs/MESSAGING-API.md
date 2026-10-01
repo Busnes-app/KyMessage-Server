@@ -113,10 +113,21 @@ identity reset) returns 403. Audit actions: `messaging.device_resume_started`,
 `messaging.device_resumed` (with key fingerprint), `messaging.device_resume_failed`.
 Owners revoke a suspended device with the ordinary DELETE route.
 
+Devices not resumed within 30 days are revoked automatically. The clock starts at
+suspension (the `restore-messages` import; devices already suspended at upgrade start
+then), stored as `messaging_devices.suspended_at` and cleared by resume. From that
+moment resume and verify return 404, as for a revoked device. The server's
+once-a-minute maintenance sweep then revokes the device with the owner's revocation
+semantics, which also drops a pending resume, audits `messaging.device_suspension_expired`
+(actor `system`, details `user_id=<owner>`) and wakes live streams. A suspended device's
+entry in `GET /api/messaging/devices` carries `expires_at` (unix seconds, when it is
+revoked); other devices omit it. The 30 days are fixed, not a setting.
+
 Suspended devices stay in the delivery roster (the roster query in `deliveryState`,
 `internal/store/messaging_delivery.go`, selects approved devices regardless of token) so restored epochs and roster hashes remain valid and a
 resumed device continues at the restored epoch. Other clients still see them as
-roster members until they are revoked and removed by a commit.
+roster members until they are revoked, by their owner, an admin or the 30-day expiry,
+and removed by a commit.
 
 ## Identity generations
 
@@ -550,7 +561,8 @@ It does not add message deletion or cryptographic access.
 
 `GET /api/admin/messaging/devices?status=suspended` (admin, `no-store`; any other
 query is 400) lists suspended devices across accounts, at most 1,000:
-`{devices:[{id,user_id,username,name,fingerprint,created_at,identity_generation}],truncated}`;
+`{devices:[{id,user_id,username,name,fingerprint,created_at,identity_generation,expires_at}],truncated}`;
+`expires_at` is when the 30-day expiry revokes the device (unix seconds) and
 `truncated` is true when more exist.
 It never returns public keys, tokens, challenges or sessions.
 `POST /api/admin/messaging/devices/{device}/revoke` (admin with a sign-in from the

@@ -406,8 +406,9 @@ func TestMessagingDirectRoomBoundary(t *testing.T) {
 	messagingCode(t, messagingRequest(t, srv, "POST", path+"/members", alice, a.Token, map[string]string{"user_id": "direct-charlie"}), 403)
 }
 
-// suspend clears a device's credential as restore-messages imports it.
-func suspend(t *testing.T, cfg *config.Config, id string) {
+// suspend clears a device's credential as restore-messages imports it and returns the
+// suspension time.
+func suspend(t *testing.T, cfg *config.Config, id string) int64 {
 	t.Helper()
 	driver := cfg.Database.Driver
 	if driver == "postgres" {
@@ -418,9 +419,11 @@ func suspend(t *testing.T, cfg *config.Config, id string) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.ExecContext(context.Background(), `UPDATE messaging_devices SET token_hash = NULL WHERE id = $1`, id); err != nil {
+	at := time.Now().Unix()
+	if _, err := db.ExecContext(context.Background(), `UPDATE messaging_devices SET token_hash = NULL, suspended_at = $1 WHERE id = $2`, at, id); err != nil {
 		t.Fatal(err)
 	}
+	return at
 }
 
 // messagingSessionAt adds a suite session for an existing account, signed in at signedIn.
@@ -521,7 +524,7 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 	d := verifyEnrollment(t, srv, alice, requestEnrollment(t, srv, alice))
 	bob := messagingLogin(t, st, "bob")
 	live := verifyEnrollment(t, srv, bob, requestEnrollment(t, srv, bob))
-	suspend(t, cfg, d.ID)
+	expires := float64(suspend(t, cfg, d.ID) + 30*86400)
 	admin := loginAs(t, srv, st, "operator", "admin")
 	messagingCode(t, adminDo(t, srv, admin, "GET", "/api/admin/messaging/devices", nil), 400)
 	w := adminDo(t, srv, admin, "GET", "/api/admin/messaging/devices?status=suspended", nil)
@@ -536,8 +539,18 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if list.Truncated == nil || *list.Truncated || len(list.Devices) != 1 || list.Devices[0]["id"] != d.ID || list.Devices[0]["username"] != "alice" || list.Devices[0]["fingerprint"] == "" {
+	if list.Truncated == nil || *list.Truncated || len(list.Devices) != 1 || list.Devices[0]["id"] != d.ID || list.Devices[0]["username"] != "alice" || list.Devices[0]["fingerprint"] == "" || list.Devices[0]["expires_at"] != expires {
 		t.Fatal(w.Body.String())
+	}
+	// The owner's own list carries the same deadline; a live device has none.
+	owner := messagingRequest(t, srv, "GET", "/api/messaging/devices", alice, "", nil)
+	var mine struct{ Devices []map[string]any }
+	if err := json.Unmarshal(owner.Body.Bytes(), &mine); err != nil || len(mine.Devices) != 1 || mine.Devices[0]["expires_at"] != expires {
+		t.Fatalf("%s %v", owner.Body.String(), err)
+	}
+	theirs := messagingRequest(t, srv, "GET", "/api/messaging/devices", bob, "", nil)
+	if strings.Contains(theirs.Body.String(), "expires_at") {
+		t.Fatal(theirs.Body.String())
 	}
 	for _, forbidden := range []string{"public_key", "token", "challenge", "session"} {
 		if strings.Contains(w.Body.String(), forbidden) {

@@ -98,7 +98,8 @@ func messagesMembers(openedDir string) (string, []string, error) {
 // database would leave under the schema's ON DELETE CASCADE rules: their identities, devices,
 // memberships and owned rooms (with those rooms' events) go; rows without a foreign key to
 // them, such as epoch devices and Welcomes, stay. Imported devices keep their status but carry
-// no bearer token, so approved ones stay suspended until their owners resume them. KeyPackages,
+// no bearer token, so approved ones stay suspended until their owners resume them, for at most
+// 30 days from the import (store.ExpireSuspendedDevices). KeyPackages,
 // recovery-auth requests and reset receipts are not in the capsule and are not imported.
 func ImportMessages(ctx context.Context, dbPath string, openedDir string) (ImportCounts, error) {
 	var counts ImportCounts
@@ -169,9 +170,10 @@ func importRows(ctx context.Context, conn *sql.Conn, parts int) (ImportCounts, e
 	steps := []step{
 		{nil, `INSERT INTO main.messaging_identities (user_id, generation)
 			SELECT user_id, generation FROM acc.messaging_identities WHERE user_id` + inUsers},
-		{&c.Devices, `INSERT INTO main.messaging_devices (id, user_id, name, public_key, status, challenge, enrollment_session, expires_at, token_hash, approved_by, created_at, verified_at, identity_generation)
-			SELECT id, user_id, name, public_key, status, '', '', expires_at, NULL, approved_by, created_at, verified_at, identity_generation
-			FROM acc.messaging_devices WHERE status IN ('approved', 'revoked') AND user_id` + inUsers},
+		// An approved device's 30 days to resume start now.
+		{&c.Devices, fmt.Sprintf(`INSERT INTO main.messaging_devices (id, user_id, name, public_key, status, challenge, enrollment_session, expires_at, token_hash, approved_by, created_at, verified_at, identity_generation, suspended_at)
+			SELECT id, user_id, name, public_key, status, '', '', expires_at, NULL, approved_by, created_at, verified_at, identity_generation, CASE WHEN status = 'approved' THEN %d ELSE 0 END
+			FROM acc.messaging_devices WHERE status IN ('approved', 'revoked') AND user_id`+inUsers, time.Now().Unix())},
 		{&c.Rooms, `INSERT INTO main.messaging_rooms (id, name, owner_id, created_at, epoch, sequence, roster_hash, retained_bytes, owner_identity_generation, direct_peer_id, retained_from, retention_days)
 			SELECT id, name, owner_id, created_at, epoch, sequence, roster_hash, 0, owner_identity_generation, direct_peer_id, retained_from, retention_days
 			FROM acc.messaging_rooms WHERE owner_id` + inUsers},

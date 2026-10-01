@@ -50,7 +50,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   two concurrent imports cannot both succeed. The result must equal deleting every missing person under the schema's ON DELETE
   CASCADE rules: identities, devices and memberships of missing people and rooms of missing owners
   (with their events) go; epoch devices and Welcomes naming unimported devices stay. Devices keep
-  status with `token_hash` NULL (approved = suspended); `retained_bytes` is recomputed.
+  status with `token_hash` NULL (approved = suspended, `suspended_at` = import time, starting
+  the 30-day resume window; revoked keep 0); `retained_bytes` is recomputed.
   KeyPackages, recovery-auth, reset receipts and anything session-bound are never imported.
   `PRAGMA main.foreign_key_check` must be empty before COMMIT; the audit row
   `restore.messages_imported` carries the `ImportCounts` (`dropped_rooms` counts rooms not

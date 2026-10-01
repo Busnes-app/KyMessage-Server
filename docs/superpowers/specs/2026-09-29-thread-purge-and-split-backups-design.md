@@ -142,6 +142,10 @@ Today a room refuses writes at 4,096 active events or 32 MiB, which Off would hi
     becomes active, the device returns to `approved` at its identity generation, and
     the resume is audited.
   - Revoked devices cannot resume.
+- Devices not resumed within 30 days of their suspension are revoked automatically:
+  the import stamps `suspended_at`, resume refuses an expired device at once, and the
+  maintenance loop revokes it through the ordinary revocation, audited as
+  `messaging.device_suspension_expired`. The window is fixed, not a setting.
 - An admin view lists suspended devices, and admins can revoke any before users
   return. Suspended devices cannot read, append or approve.
 - **Threads:**

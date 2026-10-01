@@ -29,6 +29,15 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   (`ErrMessagingDenied`). Every revocation uses `revokeDeviceSet`, which also clears
   the resume state. `SuspendedDevices(limit)` (reads limit+1 to report truncation)/`RevokeSuspendedDevice` are the admin view:
   revoke locks the owner's user row and touches only suspended devices.
+- Migration 19 adds `messaging_devices.suspended_at` (unix seconds, 0 when not suspended)
+  and stamps rows already suspended with the upgrade time. `backup.ImportMessages` stamps
+  the import time; `ResumeDevice` and `revokeDeviceSet` clear it. A suspended device is
+  expired once `suspended_at > 0 AND suspended_at <= now - suspendedDeviceLifetime` (fixed
+  30 days): resume start and verify refuse it with `ErrNotFound`, and
+  `ExpireSuspendedDevices` revokes it through `revokeDeviceSet`, one transaction per
+  device under the owner's user-row lock, auditing `messaging.device_suspension_expired`
+  (user `system`, details `user_id=<owner>`). `SuspendedDevices` and owner listings report
+  `suspended_at + 30 days` as the expiry.
 - `MessagingStore` owns migration 5's messaging device registry and room ACLs, separate from push/QR device pairing. Each operation rechecks the active suite-only account and live session in its transaction; device-gated operations additionally check the approved device token hash.
 - Serialize messaging operations through a non-key update of the acting user row, then the session and relevant room/member rows. Keep the user update compatible with PostgreSQL foreign-key key-share locks; cross-invitations must not take a second account write lock.
 - Only the first successfully verified device bootstraps trust. Retain verified-device tombstones after revocation so losing every device cannot silently bootstrap a replacement. Mutations and their success audits commit together.
@@ -110,6 +119,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   `RunThrough` seam (`export_test.go`) and checks migration 17 on both engines.
 - Delivery tests cover competing commits across connections, deduplication, Welcome isolation, removal/rejoin history floors, device revocation and directory deactivation.
 - Suspended-device tests cover resume, its refusals (another session, bad signature, expired challenge, another account, stale generation, revoked), the admin list's truncation flag and suspended-only admin revoke.
+- `messaging_expiry_test.go` covers the 30-day expiry (roster removal, audit, idempotent sweep, resume refused before the sweep, untouched young/resumed/live devices); `migrations_test.go` covers migration 19's backfill.
 - KeyPackage tests cover cross-room claims on separate connections, lost-ack retries, rejoin/expiry/revocation denial, publication ownership and pool capacity.
 
 ## Child DOX Index

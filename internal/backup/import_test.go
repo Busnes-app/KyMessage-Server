@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
@@ -94,10 +95,12 @@ func messagingSnapshot(t *testing.T, db *sql.DB) string {
 func TestImportMessagesDropsMissingPeopleAndSuspendsDevices(t *testing.T) {
 	opened := openedMessages(t)
 	path, db := importTarget(t, "alice", "bob")
+	importStart := time.Now().Unix()
 	counts, err := backup.ImportMessages(context.Background(), path, opened)
 	if err != nil {
 		t.Fatal(err)
 	}
+	importEnd := time.Now().Unix()
 	want := backup.ImportCounts{Rooms: 1, Members: 2, DroppedMembers: 1, Devices: 3, DroppedDevices: 1, Events: 3}
 	if counts != want {
 		t.Fatalf("counts %+v, want %+v", counts, want)
@@ -117,8 +120,12 @@ func TestImportMessagesDropsMissingPeopleAndSuspendsDevices(t *testing.T) {
 		if count(t, db, `SELECT COUNT(*) FROM messaging_devices WHERE id = ? AND status = 'approved' AND token_hash IS NULL AND challenge = '' AND enrollment_session = ''`, id) != 1 {
 			t.Errorf("%s not imported suspended", id)
 		}
+		// The 30-day resume window starts at the import.
+		if count(t, db, `SELECT COUNT(*) FROM messaging_devices WHERE id = ? AND suspended_at BETWEEN ? AND ?`, id, importStart, importEnd) != 1 {
+			t.Errorf("%s suspended_at not the import time", id)
+		}
 	}
-	if count(t, db, `SELECT COUNT(*) FROM messaging_devices WHERE id = 'alice-old' AND status = 'revoked'`) != 1 {
+	if count(t, db, `SELECT COUNT(*) FROM messaging_devices WHERE id = 'alice-old' AND status = 'revoked' AND suspended_at = 0`) != 1 {
 		t.Error("revoked device not imported as revoked")
 	}
 	if count(t, db, `SELECT COUNT(*) FROM messaging_devices WHERE id IN ('bob-new','carol-tablet')`) != 0 {

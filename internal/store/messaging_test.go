@@ -204,7 +204,7 @@ func suspendedDevice(t *testing.T, st store.Store, db *sql.DB, actor store.Messa
 	if err != nil || d.Status != "approved" {
 		t.Fatalf("%v %v", d, err)
 	}
-	if _, err := db.ExecContext(ctx, `UPDATE messaging_devices SET token_hash = NULL WHERE id = $1`, d.ID); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE messaging_devices SET token_hash = NULL, suspended_at = $1 WHERE id = $2`, time.Now().Unix(), d.ID); err != nil {
 		t.Fatal(err)
 	}
 	return actor, d.ID, e.TokenHash, key

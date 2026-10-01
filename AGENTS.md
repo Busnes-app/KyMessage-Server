@@ -183,8 +183,9 @@ only where it returns, between runs, and `runServer` cancels and waits on that c
 WebSocket handlers, the pair, pin-key, unpair and both deposit handlers, which detach from their requests,
 and the admin suspended-device revoke; all of them can outlive `Shutdown`. `api.Server.StopMessaging()` runs before HTTP shutdown to reject new stream
 registrations and cancel upgraded WebSockets; they share the detached-handler drain.
-`messagingMaintenanceLoop` purges events past each room's retention and sweeps expired device pairings every
-minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
+`messagingMaintenanceLoop` purges events past each room's retention, sweeps expired device pairings and
+revokes suspended messaging devices not resumed within 30 days (`ExpireSuspendedDevices`, then
+`api.Server.WakeMessaging` when any were revoked) every minute with a 30-second operation deadline; startup pruning lives in `store.Open`. Its completion joins the
 backup scheduler's completion before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
@@ -208,7 +209,8 @@ opening the capsule, opens it into a `messages-*` temp directory removed on retu
 refuses non-messages capsules, migrates, then calls `backup.ImportMessages`. Imported
 approved devices are suspended (no token) until their owners resume them
 (`/api/messaging/devices/{device}/resume`); admins list and revoke suspended devices
-through `/api/admin/messaging/devices`; rooms of missing owners are not imported. Without it, users recover identity with fresh suite
+through `/api/admin/messaging/devices`; devices not resumed within 30 days are revoked
+automatically; rooms of missing owners are not imported. Without it, users recover identity with fresh suite
 authentication and new independently verified rooms. Never restore or rewind browser
 MLS state. Root owns this policy and `docs/RESTORE.md`.
 

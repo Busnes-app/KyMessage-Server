@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SuspendedDevices } from './SuspendedDevices';
 
-const device = {id:'dev-1',user_id:'u1',username:'alice',name:'<img src=x onerror=alert(1)>',fingerprint:'ab'.repeat(32),created_at:1790000000,identity_generation:1};
+const device = {id:'dev-1',user_id:'u1',username:'alice',name:'<img src=x onerror=alert(1)>',fingerprint:'ab'.repeat(32),created_at:1790000000,identity_generation:1,expires_at:1792592000};
 function respond(value: unknown, status = 200) {
   return new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
 }
@@ -62,6 +62,19 @@ it('says when the list is truncated',async () => {
 
 it('rejects a non-boolean truncated flag',async () => {
   vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[device],truncated:'yes'})));
+  render(<SuspendedDevices />);
+  expect((await screen.findByRole('alert')).textContent).toContain('Invalid');
+});
+
+it('says when each device is revoked automatically',async () => {
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[device],truncated:false})));
+  render(<SuspendedDevices />);
+  expect(await screen.findByText(`Revoked automatically on ${new Date(device.expires_at*1000).toLocaleDateString()}`)).toBeTruthy();
+});
+
+it('rejects a device without its expiry',async () => {
+  const {expires_at: _, ...missing} = device;
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[missing],truncated:false})));
   render(<SuspendedDevices />);
   expect((await screen.findByRole('alert')).textContent).toContain('Invalid');
 });

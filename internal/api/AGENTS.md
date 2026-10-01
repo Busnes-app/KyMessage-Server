@@ -35,8 +35,10 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   enrollment. `GET /api/admin/messaging/devices?status=suspended` (`requireAdmin`) and
   `POST /api/admin/messaging/devices/{device}/revoke`
   (`tracked(requireFreshAdmin)`, 404 unless suspended) are the admin view; the list
-  returns at most `suspendedDeviceListLimit` (1000) with `truncated` and exposes the
-  fingerprint, never the public key or credentials. Admin revoke audits
+  returns at most `suspendedDeviceListLimit` (1000) with `truncated` and `expires_at`
+  (the 30-day expiry) and exposes the fingerprint, never the public key or credentials.
+  `deviceView` adds `expires_at` only for a suspended device. `WakeMessaging` lets
+  `cmd/server`'s maintenance sweep wake every live stream. Admin revoke audits
   `messaging.device_revoked_by_admin` with the owner's ID.
 - `messaging_recovery.go` owns recovery-authentication initiation and callback.
   Initiation requires the target pending device's token; callback keeps the original

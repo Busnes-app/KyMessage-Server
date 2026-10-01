@@ -143,6 +143,8 @@ on the dashboard's **Suspended devices** list (`GET
 /api/admin/messaging/devices?status=suspended`) with their owners and revokes any
 that are lost or unrecognized (`POST /api/admin/messaging/devices/{device}/revoke`,
 which needs a sign-in from the last 10 minutes and works only on suspended devices).
+Devices not resumed within 30 days are revoked automatically; the list shows each
+device's date.
 An owner resumes a device after a suite sign-in from the last 10 minutes: `POST
 /api/messaging/devices/{device}/resume` with a new `token_hash`, then `POST
 /api/messaging/devices/{device}/resume/verify` with the device key's signature over

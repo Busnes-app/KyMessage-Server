@@ -29,6 +29,7 @@ type MessagingActor struct {
 type MessagingDevice struct {
 	ID, UserID, Name, PublicKey, Status, ApprovedBy string
 	CreatedAt, IdentityGeneration                   int64
+	SuspensionExpiresAt                             int64 // when a suspended device is revoked; 0 otherwise
 }
 
 type MessagingEnrollment struct {
@@ -65,6 +66,7 @@ type MessagingStore interface {
 	ResumeDevice(ctx context.Context, actor MessagingActor, id string, signature []byte) (*MessagingDevice, error)
 	SuspendedDevices(ctx context.Context, limit int) ([]SuspendedDevice, bool, error)
 	RevokeSuspendedDevice(ctx context.Context, adminID, ip, id string) error
+	ExpireSuspendedDevices(context.Context) (int, error)
 	CreateRoom(context.Context, MessagingActor, MessagingRoom) error
 	SetRoomRetention(ctx context.Context, actor MessagingActor, room string, days int64) error
 	ListRooms(context.Context, MessagingActor, int) ([]MessagingRoom, error)
@@ -187,16 +189,20 @@ func (m *messagingStore) EnrollDevice(ctx context.Context, actor MessagingActor,
 // suspended until its owner re-proves its key (ResumeDevice).
 const deviceStatusColumn = `CASE WHEN status = 'approved' AND token_hash IS NULL THEN 'suspended' ELSE status END`
 
-const deviceColumns = `id, user_id, name, public_key, ` + deviceStatusColumn + `, approved_by, created_at, identity_generation`
+const deviceColumns = `id, user_id, name, public_key, ` + deviceStatusColumn + `, approved_by, created_at, identity_generation, suspended_at`
 
 // revokeDeviceSet is every revocation's SET clause: no credential, pending challenge or resume survives.
-const revokeDeviceSet = `status = 'revoked', token_hash = NULL, challenge = '', enrollment_session = '', resume_token_hash = ''`
+const revokeDeviceSet = `status = 'revoked', token_hash = NULL, challenge = '', enrollment_session = '', resume_token_hash = '', suspended_at = 0`
 
 func scanMessagingDevice(row interface{ Scan(...any) error }) (*MessagingDevice, error) {
 	var d MessagingDevice
-	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.Status, &d.ApprovedBy, &d.CreatedAt, &d.IdentityGeneration)
+	var suspendedAt int64
+	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.Status, &d.ApprovedBy, &d.CreatedAt, &d.IdentityGeneration, &suspendedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	if d.Status == "suspended" {
+		d.SuspensionExpiresAt = suspensionExpiresAt(suspendedAt)
 	}
 	return &d, err
 }

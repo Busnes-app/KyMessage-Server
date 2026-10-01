@@ -71,6 +71,10 @@ func (s *Server) wakeMessaging(room string) {
 	}
 }
 
+// WakeMessaging signals every live stream to recheck its device and roster, for changes
+// made outside a request such as the suspended-device expiry sweep.
+func (s *Server) WakeMessaging() { s.wakeMessaging("") }
+
 // StopMessaging closes upgraded connections and rejects new stream registrations.
 // Call before HTTP shutdown, then WaitDetached before closing the database.
 func (s *Server) StopMessaging() {

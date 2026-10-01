@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { secureFetch } from '../api';
 
-type Device = {id:string; username:string; name:string; fingerprint:string; createdAt:number; generation:number};
+type Device = {id:string; username:string; name:string; fingerprint:string; createdAt:number; generation:number; expiresAt:number};
 type State = {kind:'loading'} | {kind:'ready'; devices:Device[]; truncated:boolean} | {kind:'error'; message:string};
 
 function text(value: unknown): string {
@@ -18,12 +18,12 @@ function devicesResponse(value: unknown): {devices:Device[]; truncated:boolean} 
   const truncated = body.truncated;
   return {truncated, devices: body.devices.map(raw => {
     const d = (raw ?? {}) as Record<string, unknown>;
-    return {id:text(d.id), username:text(d.username), name:text(d.name), fingerprint:text(d.fingerprint), createdAt:whole(d.created_at), generation:whole(d.identity_generation)};
+    return {id:text(d.id), username:text(d.username), name:text(d.name), fingerprint:text(d.fingerprint), createdAt:whole(d.created_at), generation:whole(d.identity_generation), expiresAt:whole(d.expires_at)};
   })};
 }
 
 // Restored devices stay suspended until their owner signs in again and re-proves the
-// device key. An admin can revoke any of them first; live devices are not listed.
+// device key, for 30 days. An admin can revoke any of them first; live devices are not listed.
 export function SuspendedDevices() {
   const [state, setState] = useState<State>({kind:'loading'});
   const [revision, setRevision] = useState(0);
@@ -66,7 +66,7 @@ export function SuspendedDevices() {
 
   return <section className="panel" aria-labelledby="suspended-devices-title" style={{marginTop:24}}>
     <h2 id="suspended-devices-title" style={{fontSize:18}}>Suspended devices</h2>
-    <p>Devices brought back by a message restore. Each stays unusable until its owner signs in again and proves the device key. Revoke any you do not recognise before users return.</p>
+    <p>Devices brought back by a message restore. Each stays unusable until its owner signs in again and proves the device key. Revoke any you do not recognise before users return. Devices not resumed within 30 days are revoked automatically.</p>
     {error && <p role="alert">{error}</p>}
     {reauthUrl && <p>Revoking needs a recent sign-in. <a href={reauthUrl}>Sign in to KySignOn again</a>, then return here.</p>}
     {state.kind === 'loading' && <p role="status">Loading suspended devices…</p>}
@@ -77,6 +77,7 @@ export function SuspendedDevices() {
         {state.devices.map(device => <li key={device.id} style={{borderTop:'1px solid var(--line)',padding:'12px 0',overflowWrap:'anywhere'}}>
           <strong>{device.username}</strong> · {device.name}
           <p>Enrolled {new Date(device.createdAt*1000).toLocaleString()} · identity generation {device.generation}</p>
+          {device.expiresAt > 0 && <p>Revoked automatically on {new Date(device.expiresAt*1000).toLocaleDateString()}</p>}
           <small>Key fingerprint: {device.fingerprint}</small>
           <div><button type="button" className="btn-secondary" onClick={() => void revoke(device)}>Revoke {device.name}</button></div>
         </li>)}

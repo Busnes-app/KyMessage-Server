@@ -88,7 +88,7 @@ func serve() error {
 			http.Error(w, "invalid synthetic identity", 400)
 			return
 		}
-		if _, err := fixtureDB.ExecContext(r.Context(), "UPDATE messaging_devices SET token_hash = NULL WHERE user_id = ? AND status = 'approved'", user); err != nil {
+		if _, err := fixtureDB.ExecContext(r.Context(), "UPDATE messaging_devices SET token_hash = NULL, suspended_at = ? WHERE user_id = ? AND status = 'approved'", time.Now().Unix(), user); err != nil {
 			http.Error(w, "fixture suspension failed", 500)
 			return
 		}

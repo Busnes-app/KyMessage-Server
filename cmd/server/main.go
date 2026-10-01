@@ -115,7 +115,7 @@ func runServer() {
 	backupDone := make(chan struct{})
 	go backupLoop(ctx, cfg, st, backupDone)
 	maintenanceDone := make(chan struct{})
-	go messagingMaintenanceLoop(ctx, st, maintenanceDone)
+	go messagingMaintenanceLoop(ctx, st, srv.WakeMessaging, maintenanceDone)
 	backgroundDone := make(chan struct{})
 	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone }()
 

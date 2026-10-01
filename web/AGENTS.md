@@ -13,7 +13,8 @@ Owns user interface components, service worker caching, PWA installation manifes
   room-details disclosure. Members neither render nor fetch this operator view.
   Explain the lifetime receipt counter separately from retention purge and actual disk use.
 - `SuspendedDevices.tsx` renders after `MessagingUsage` on the admin dashboard. It
-  validates the suspended-device DTO (including boolean `truncated`, shown as a note) at the boundary, revokes only after
+  validates the suspended-device DTO (including boolean `truncated`, shown as a note, and
+  `expires_at`, shown as "Revoked automatically on <date>") at the boundary, revokes only after
   `window.confirm` through `secureFetch`, and shows a step-up refusal's same-origin
   `reauth_url` as a sign-in link. Tested by `SuspendedDevices.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
