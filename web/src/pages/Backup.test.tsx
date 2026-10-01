@@ -98,8 +98,8 @@ describe('Backup', () => {
         const url = String(input);
         if (url.endsWith('/api/backup/status')) return new Response(JSON.stringify(PAIRED), { status: 200 });
         return new Response(JSON.stringify({
-          error: 'Sign in to KySignOn again to confirm this change', code: 'reauthentication_required',
-          reauth_url: '/api/sso/kysignon/login?fresh=1',
+          error: 'Sign in to KyIdentity again to confirm this change', code: 'reauthentication_required',
+          reauth_url: '/api/sso/kyidentity/login?fresh=1',
         }), { status: 403 });
       }),
     );
@@ -107,8 +107,8 @@ describe('Backup', () => {
     await screen.findByText('https://recovery.example');
     fireEvent.change(screen.getByLabelText('Back up automatically'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    const link = await screen.findByRole('link', { name: 'Sign in to KySignOn again' });
-    expect(link.getAttribute('href')).toBe('/api/sso/kysignon/login?fresh=1');
+    const link = await screen.findByRole('link', { name: 'Sign in to KyIdentity again' });
+    expect(link.getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
   });
 
   it('shows the message backups section off by default', async () => {

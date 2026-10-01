@@ -137,7 +137,7 @@ test('the real callback rejects altered nonce and PKCE before creating a session
       authorize.searchParams.set(parameter,parameter === 'nonce' ? 'incorrect-nonce' : 'Z'.repeat(43));
       await page.goto(authorize.toString());
       await page.getByLabel('Test identity').fill('rejected-' + crypto.randomUUID().slice(0,8));
-      const failed = page.waitForResponse(r => r.url().includes('/api/sso/kysignon/callback'));
+      const failed = page.waitForResponse(r => r.url().includes('/api/sso/kyidentity/callback'));
       await page.getByRole('button',{name:'Continue to KyMessages'}).click();
       expect((await failed).status()).toBe(401);
       expect((await context.cookies()).some(c => c.name === 'ky_session')).toBe(false);
@@ -404,7 +404,7 @@ test('a resumed device follows the epoch its room advanced to while suspended',a
     await click(bob.page,'Send encrypted message','Message accepted');
     // A stale suite sign-in at either step sends the browser through fresh authentication.
     for (const step of ['resume','resume/verify']) {
-      await alice.page.route('**/api/messaging/devices/*/' + step,route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kysignon/login?fresh=1'})}),{times:1});
+      await alice.page.route('**/api/messaging/devices/*/' + step,route => route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kyidentity/login?fresh=1'})}),{times:1});
       await alice.page.getByRole('button',{name:'Resume this device',exact:true}).click();
       await alice.page.getByLabel('Test identity').fill(alice.subject);
       await alice.page.getByRole('button',{name:'Continue to KyMessages'}).click();

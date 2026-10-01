@@ -23,6 +23,6 @@ export async function signedInAccount(signal?: AbortSignal) {
   if (value.authenticated === false) return null;
   if (value.authenticated !== true) throw new SessionError('Invalid sign-in response.');
   const user = object(value.user);
-  if (user.sso_provider !== 'kysignon' || user.status !== 'active' || user.must_change_password !== false || !text(user.sso_subject)) throw new SessionError('Sign in with your suite identity to use messaging.');
+  if (user.sso_provider !== 'kyidentity' || user.status !== 'active' || user.must_change_password !== false || !text(user.sso_subject)) throw new SessionError('Sign in with your suite identity to use messaging.');
   return {id:accountID(user.id),name:text(user.display_name) || text(user.username)};
 }

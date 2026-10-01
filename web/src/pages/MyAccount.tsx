@@ -39,7 +39,7 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
         const response = await fetch('/api/messaging/devices', {signal: controller.signal, cache: 'no-store'});
         if (response.status === 403) {
           const body: unknown = await response.json().catch(() => null);
-          const suite = (body as {error?: unknown} | null)?.error === 'Suite OIDC sign-in required' || user.sso_provider !== 'kysignon';
+          const suite = (body as {error?: unknown} | null)?.error === 'Suite OIDC sign-in required' || user.sso_provider !== 'kyidentity';
           if (!controller.signal.aborted) setDevices({kind: suite ? 'not-suite' : 'error'});
           return;
         }
@@ -61,7 +61,7 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
   return <section className="card" aria-labelledby="my-account">
     <h2 id="my-account">My account</h2>
     <p>{user.display_name || user.username}</p>
-    <p>Signed in as {user.username}{user.sso_provider === 'kysignon' ? ' with KySignOn' : ''}.</p>
+    <p>Signed in as {user.username}{user.sso_provider === 'kyidentity' ? ' with KyIdentity' : ''}.</p>
     <button type="button" className="btn-secondary" onClick={onLogout}>Sign out</button>
     <p>Encrypted chat is not available on this server yet.</p>
     <h3>Browser</h3>
@@ -71,7 +71,7 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
       : <p>This browser isn't supported for chat yet. Missing: {support.missing.join(', ')}. Supported: {supportedBrowsers}.</p>}
     <h3>My messaging devices</h3>
     {devices.kind === 'loading' && <p role="status">Loading devices…</p>}
-    {devices.kind === 'not-suite' && <p>Messaging needs a KySignOn account.</p>}
+    {devices.kind === 'not-suite' && <p>Messaging needs a KyIdentity account.</p>}
     {revokeError && <p role="alert">{revokeError}</p>}
     {devices.kind === 'error' && <><p role="alert">Devices unavailable. Refresh or sign in again.</p>
       <button type="button" className="btn-secondary" onClick={() => setRefresh(n => n + 1)}>Refresh</button></>}
