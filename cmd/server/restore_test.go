@@ -206,48 +206,118 @@ func TestRestoreRefusesASymlinkTarget(t *testing.T) {
 
 func TestRestoreChecksTheTargetParent(t *testing.T) {
 	path, shares := sealFixture(t, "busnes_app")
-	for _, mode := range []os.FileMode{0o770, 0o707} {
+	for _, mode := range []os.FileMode{0o770, 0o707, 0o777 | os.ModeSticky} {
 		parent := t.TempDir()
 		if err := os.Chmod(parent, mode); err != nil {
 			t.Fatal(err)
 		}
 		err := restore(path, filepath.Join(parent, "target"), "busnes_app", shares, &bytes.Buffer{})
-		if err == nil || !strings.Contains(err.Error(), "sticky") {
+		if err == nil || !strings.Contains(err.Error(), "writable") {
 			t.Fatalf("mode %v: got %v, want a writable-parent refusal", mode, err)
 		}
 	}
-	sticky := t.TempDir()
-	if err := os.Chmod(sticky, 0o777|os.ModeSticky); err != nil {
-		t.Fatal(err)
-	}
-	if err := restore(path, filepath.Join(sticky, "target"), "busnes_app", shares, &bytes.Buffer{}); err != nil {
-		t.Fatalf("sticky world-writable parent refused: %v", err)
-	}
 }
 
-func TestRestoreParentRefusal(t *testing.T) {
+// The decisions per path element; other owners and root-owned sticky dirs need no root here.
+func TestRestorePathRefusal(t *testing.T) {
 	me := uint32(os.Getuid())
 	other := me + 1
 	if other == 0 {
 		other = 2
 	}
+	const dir, sticky, link = os.ModeDir, os.ModeSticky, os.ModeSymlink
 	cases := []struct {
-		uid  uint32
-		mode os.FileMode
-		want string
+		target bool
+		uid    uint32
+		mode   os.FileMode
+		want   string
 	}{
-		{me, os.ModeDir | 0o700, ""},
-		{0, os.ModeDir | 0o755, ""},
-		{0, os.ModeDir | os.ModeSticky | 0o777, ""},
-		{me, os.ModeDir | os.ModeSticky | 0o777, ""},
-		{me, os.ModeDir | 0o770, "sticky"},
-		{other, os.ModeDir | 0o755, "owned by uid"},
-		{other, os.ModeDir | os.ModeSticky | 0o777, "owned by uid"},
+		{false, me, dir | 0o700, ""},
+		{false, 0, dir | 0o555, ""},
+		{false, 0, dir | sticky | 0o777, ""}, // /tmp
+		{false, me, dir | sticky | 0o777, "writable"},
+		{false, me, dir | 0o770, "writable"},
+		{false, 0, dir | 0o757, "writable"},
+		{false, other, dir | 0o755, "owned by uid"},
+		{false, other, dir | sticky | 0o777, "owned by uid"},
+		{false, me, link | 0o777, "symlink"},
+		{false, me, 0o600, "not a directory"},
+		{true, me, dir | 0o700, ""},
+		{true, other, dir | 0o700, "owned by uid"}, // under a sticky parent
+		{true, me, dir | sticky | 0o777, "writable"},
+		{true, me, link | 0o777, "symlink"},
+		{true, me, 0o600, "not a directory"},
 	}
 	for _, c := range cases {
-		err := parentRefusal("/p", c.uid, c.mode)
+		err := pathRefusal("/p", c.uid, c.mode, c.target)
 		if c.want == "" && err != nil || c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
-			t.Errorf("uid %d mode %v: got %v, want %q", c.uid, c.mode, err, c.want)
+			t.Errorf("target=%v uid %d mode %v: got %v, want %q", c.target, c.uid, c.mode, err, c.want)
 		}
+	}
+}
+
+func invalidCapsule(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bad.kycap")
+	if err := os.WriteFile(path, []byte("not a capsule"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A refused restore extracted nothing, so it must delete nothing.
+func TestRestoreRefusalKeepsExistingContents(t *testing.T) {
+	_, shares := testKit(t)
+	full := t.TempDir()
+	sentinel := filepath.Join(full, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := restore(invalidCapsule(t), full, "busnes_app", shares, &bytes.Buffer{})
+	if got, readErr := os.ReadFile(sentinel); readErr != nil || string(got) != "keep" {
+		t.Fatalf("existing contents changed: %q %v", got, readErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "not empty") || !strings.Contains(err.Error(), full) {
+		t.Fatalf("got %v, want a refusal naming the non-empty target", err)
+	}
+	empty := t.TempDir()
+	if err := restore(invalidCapsule(t), empty, "busnes_app", shares, &bytes.Buffer{}); err == nil {
+		t.Fatal("invalid capsule accepted")
+	}
+	if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+		t.Fatalf("empty target not kept empty: %v %v", entries, err)
+	}
+}
+
+// A trusted parent does not make the path safe if an ancestor above it is writable by others.
+func TestRestoreRefusesAnUnsafeAncestor(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	open := filepath.Join(t.TempDir(), "open")
+	parent := filepath.Join(open, "parent")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	err := restore(path, filepath.Join(parent, "target"), "busnes_app", shares, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), open+" ") {
+		t.Fatalf("got %v, want a refusal naming %s", err, open)
+	}
+}
+
+// Symlinked parents are resolved, and the restore lands in the real directory.
+func TestRestoreResolvesASymlinkedParent(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := restore(path, filepath.Join(link, "target"), "busnes_app", shares, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(real, "target", "data", "ky_server.db")); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -25,34 +25,43 @@ var afterExtract = func(target string) {}
 // The library owns custodian-share handling, capsule verification and extraction.
 // The product invalidates stale grants before reporting a usable restored server.
 func restore(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
-	if err := checkRestoreTarget(targetDir); err != nil {
+	target, err := resolveRestoreTarget(targetDir)
+	if err != nil {
 		return err
 	}
 	created := false
-	if err := os.Mkdir(targetDir, 0o700); err == nil {
+	if err := os.Mkdir(target, 0o700); err == nil {
 		created = true
 	} else if !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	root, err := os.OpenRoot(targetDir)
-	if err != nil {
+	// removeCreated undoes only our Mkdir; os.Remove deletes an empty directory alone.
+	removeCreated := func(err error) error {
 		if created {
-			err = errors.Join(err, os.Remove(targetDir))
+			return errors.Join(err, os.Remove(target))
 		}
 		return err
 	}
+	root, err := os.OpenRoot(target)
+	if err != nil {
+		return removeCreated(err)
+	}
 	defer root.Close()
+	if err := requireEmpty(root, target); err != nil {
+		return err
+	}
 
+	// The library rolls back its own failures, so nothing of ours needs cleaning here.
 	var manifest bytes.Buffer
-	if err := recoveryclient.Restore(capsulePath, targetDir, expectService, shares, &manifest); err != nil {
-		return errors.Join(err, removeExtracted(root, targetDir, created))
+	if err := recoveryclient.Restore(capsulePath, target, expectService, shares, &manifest); err != nil {
+		return removeCreated(err)
 	}
-	afterExtract(targetDir)
-	if err := sameDir(root, targetDir); err != nil {
-		return errors.Join(err, removeExtracted(root, targetDir, created))
+	afterExtract(target)
+	if err := sameDir(root, target); err != nil {
+		return errors.Join(err, removeExtracted(root, target, created))
 	}
-	if err := prepareRestoredData(targetDir); err != nil {
-		return errors.Join(fmt.Errorf("restore failed, restored files were removed: %w", err), removeExtracted(root, targetDir, created))
+	if err := prepareRestoredData(target); err != nil {
+		return errors.Join(fmt.Errorf("restore failed, restored files were removed: %w", err), removeExtracted(root, target, created))
 	}
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
@@ -61,34 +70,74 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	return err
 }
 
-// checkRestoreTarget refuses targets another user could swap: a symlink, or a directory
-// whose parent is not ours or root's, or that others can write without the sticky bit.
-func checkRestoreTarget(target string) error {
-	abs, err := filepath.Abs(target)
+// resolveRestoreTarget resolves symlinked parents and returns the real target path once the
+// target and every ancestor up to / pass pathRefusal. With none of them writable or owned
+// by another user, nobody else can swap the path between sameDir and the path-based
+// extraction and preparation.
+func resolveRestoreTarget(targetDir string) (string, error) {
+	abs, err := filepath.Abs(targetDir)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("restore target %s is a symlink; pass the real directory", abs)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	parent := filepath.Dir(abs)
-	info, err := os.Stat(parent)
+	parent, err := filepath.EvalSymlinks(filepath.Dir(abs))
 	if err != nil {
-		return err
+		return "", err
 	}
-	return parentRefusal(parent, info.Sys().(*syscall.Stat_t).Uid, info.Mode())
+	target := filepath.Join(parent, filepath.Base(abs))
+	if info, err := os.Lstat(target); err == nil {
+		if err := pathRefusal(target, info.Sys().(*syscall.Stat_t).Uid, info.Mode(), true); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	for dir := parent; ; dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return "", err
+		}
+		if err := pathRefusal(dir, info.Sys().(*syscall.Stat_t).Uid, info.Mode(), false); err != nil {
+			return "", err
+		}
+		if dir == filepath.Dir(dir) {
+			return target, nil
+		}
+	}
 }
 
-// parentRefusal allows a parent owned by us or root that others cannot write, or can only
-// under the sticky bit.
-func parentRefusal(parent string, uid uint32, mode os.FileMode) error {
-	if uid != 0 && uid != uint32(os.Getuid()) {
-		return fmt.Errorf("restore target parent %s is owned by uid %d, not you or root, so its owner could replace the target; restore under a directory you or root own", parent, uid)
+// pathRefusal decides one path element. The target must be our own directory; an ancestor
+// must be ours or root's. Neither may be group- or world-writable, except a root-owned
+// sticky ancestor such as /tmp, where others cannot rename or delete what we own.
+func pathRefusal(path string, uid uint32, mode os.FileMode, target bool) error {
+	what := "restore target"
+	if !target {
+		what = "restore target ancestor"
 	}
-	if mode.Perm()&0o022 != 0 && mode&os.ModeSticky == 0 {
-		return fmt.Errorf("restore target parent %s is writable by group or others without the sticky bit, so another user could replace the target; restore under a directory only you can write", parent)
+	me := uint32(os.Getuid())
+	switch {
+	case mode&os.ModeSymlink != 0:
+		return fmt.Errorf("%s %s is a symlink; pass the real directory", what, path)
+	case !mode.IsDir():
+		return fmt.Errorf("%s %s is not a directory", what, path)
+	case uid != me && (target || uid != 0):
+		return fmt.Errorf("%s %s is owned by uid %d, not you or root, so its owner could replace the target; restore into a directory you own under directories you or root own", what, path, uid)
+	case mode.Perm()&0o022 != 0 && (target || uid != 0 || mode&os.ModeSticky == 0):
+		return fmt.Errorf("%s %s is writable by group or others, so another user could replace the target; restore under directories only you or root can write (a root-owned sticky dir like /tmp is fine)", what, path)
+	}
+	return nil
+}
+
+// requireEmpty refuses a target with existing contents before anything is extracted.
+func requireEmpty(root *os.Root, target string) error {
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	if _, err := dir.ReadDir(1); err == nil {
+		return fmt.Errorf("restore target %s is not empty; restore into a new or empty directory", target)
+	} else if !errors.Is(err, io.EOF) {
+		return err
 	}
 	return nil
 }
