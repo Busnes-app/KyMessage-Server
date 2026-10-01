@@ -32,6 +32,10 @@ func main() {
 		log.Fatal(err)
 	}
 }
+func syntheticIdentity(user string) bool {
+	return utf8.ValidString(user) && len(user) > 0 && len(user) <= 64 && !strings.ContainsFunc(user, unicode.IsControl)
+}
+
 func serve() error {
 	dir, err := os.MkdirTemp("", "kymessages-mls-http-")
 	if err != nil {
@@ -71,13 +75,26 @@ func serve() error {
 	}
 	defer st.Close()
 	mux := http.NewServeMux()
-	if !oidcMode {
-		// Test-only clock aging against this process's disposable database.
-		aging, err := sql.Open("sqlite", cfg.Database.DSN+"?_pragma=busy_timeout(5000)")
-		if err != nil {
-			return err
+	// Test-only writes against this process's disposable database.
+	fixtureDB, err := sql.Open("sqlite", cfg.Database.DSN+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	defer fixtureDB.Close()
+	// Mirror restore-messages: approved devices lose their delivery token.
+	mux.HandleFunc("POST /proof-fixture/suspend-devices/{user}", func(w http.ResponseWriter, r *http.Request) {
+		user := r.PathValue("user")
+		if !syntheticIdentity(user) {
+			http.Error(w, "invalid synthetic identity", 400)
+			return
 		}
-		defer aging.Close()
+		if _, err := fixtureDB.ExecContext(r.Context(), "UPDATE messaging_devices SET token_hash = NULL WHERE user_id = ? AND status = 'approved'", user); err != nil {
+			http.Error(w, "fixture suspension failed", 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	if !oidcMode {
 		mux.HandleFunc("POST /proof-fixture/expire-room/{room}", func(w http.ResponseWriter, r *http.Request) {
 			room := r.PathValue("room")
 			id, err := uuid.Parse(room)
@@ -85,7 +102,7 @@ func serve() error {
 				http.Error(w, "invalid room", 400)
 				return
 			}
-			if _, err := aging.ExecContext(r.Context(), "UPDATE messaging_events SET created_at = created_at - 400*86400 WHERE room_id = ?", room); err != nil {
+			if _, err := fixtureDB.ExecContext(r.Context(), "UPDATE messaging_events SET created_at = created_at - 400*86400 WHERE room_id = ?", room); err != nil {
 				http.Error(w, "fixture aging failed", 500)
 				return
 			}
@@ -97,7 +114,7 @@ func serve() error {
 		})
 		mux.HandleFunc("POST /proof-fixture/session/{user}", func(w http.ResponseWriter, r *http.Request) {
 			user := r.PathValue("user")
-			if !utf8.ValidString(user) || len(user) == 0 || len(user) > 64 || strings.ContainsFunc(user, unicode.IsControl) {
+			if !syntheticIdentity(user) {
 				http.Error(w, "invalid synthetic identity", 400)
 				return
 			}

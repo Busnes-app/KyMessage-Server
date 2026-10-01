@@ -136,6 +136,13 @@ retains the manual wire harness. Root owns product decisions and research in `do
   refresh after lost responses. Revoked keys reopen local history without enrollment,
   stop automatic checks and cannot send or receive. Retain the server tombstone: a
   replacement needs an existing approved device or the separately gated identity-reset flow.
+- A `suspended` device (approved, token dropped by `restore-messages`) is reused by
+  enrollment, never re-enrolled. Polling stops and the room shows the suspended notice
+  with `Resume this device`. `resumeDevice` posts a fresh token hash, follows a
+  `/api/sso/` reauthentication URL with the return hint, verifies the `KyMessages resume
+  v1` binding, signs with the vault's enrolled key and stores the new token only after
+  verify succeeds, then copies it to every saved room entry. Ratchets, cursors and
+  history stay; the resumed device continues at the server's epoch.
 - Recovery help remains available before unlock. Account-specific guidance uses
   the refreshed device list and clears on lock; approval never implies that a
   device is accessible. Follow `docs/PRODUCT.md`'s last-device-loss contract before
@@ -224,7 +231,8 @@ retains the manual wire harness. Root owns product decisions and research in `do
   UI screenshots go to `test-results/`.
 - `npm run test:oidc -- --project=chromium --project=firefox` exercises discovery,
   PKCE, signed callbacks, cookies/CSRF, account binding, reauthentication and pending
-  send recovery against a disposable issuer. It is not live KyIdentity evidence.
+  send recovery and suspended-device resume against a disposable issuer. It is not
+  live KyIdentity evidence.
 
 ## Child DOX Index
 

@@ -76,6 +76,10 @@ function privateKeys(r: DeviceRecord) {
   if (!r.keys) throw new Error('KeyPackage already consumed');
   return { initPrivateKey: unbase64(r.keys.initPrivateKey), hpkePrivateKey: unbase64(r.keys.hpkePrivateKey), signaturePrivateKey: unbase64(r.keys.signaturePrivateKey) };
 }
+// The enrolled Ed25519 key: unused join keys first, else the joined group's leaf key.
+function signingKey(r: DeviceRecord) {
+  return r.keys ? unbase64(r.keys.signaturePrivateKey) : state(r).signaturePrivateKey;
+}
 function pinned(r: DeviceRecord, devices: Roster) {
   const peer = connected(r).directPeer;
   if (peer && devices.some(device => device.user_id !== r.identity && device.user_id !== peer)) throw new Error('Direct conversation contains another account');
@@ -121,7 +125,7 @@ async function currentMetadata(r: DeviceRecord, d: Connection, kind: 'applicatio
 
 async function freshRoomRecord(base: DeviceRecord, room: string): Promise<DeviceRecord> {
   const old = keyPackage(base.keyPackage);
-  const signKey = base.keys ? unbase64(base.keys.signaturePrivateKey) : state(base).signaturePrivateKey;
+  const signKey = signingKey(base);
   const now = Math.floor(Date.now()/1000);
   const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
     {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
@@ -231,7 +235,7 @@ export const delivery = {
   async accountDevices() {
     return transaction(async (_r,d) => array((await api('/devices',d.token)).devices, item => {
       const device = object(item);
-      if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'revoked') throw new Error('Invalid device status');
+      if (device.status !== 'unverified' && device.status !== 'pending' && device.status !== 'approved' && device.status !== 'suspended' && device.status !== 'revoked') throw new Error('Invalid device status');
       return {id:text(device.id),status:device.status,fingerprint:text(device.fingerprint),identity_generation:identityGeneration(device.identity_generation)};
     }));
   },
@@ -263,7 +267,7 @@ export const delivery = {
     await transaction(async (r,d) => {
       const own = pinFor(r.keyPackage);
       const listing = await api('/devices',d.token);
-      const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'revoked'));
+      const existing = array(listing.devices,object).find(v => v.public_key === own.key && v.user_id === r.identity && (v.status === 'approved' || v.status === 'pending' || v.status === 'suspended' || v.status === 'revoked'));
       if (existing) { d.device = text(existing.id); d.challenge = null; const pin = r.pins.find(p => p.identity === r.identity && p.key === own.key); if (pin) pin.identityGeneration = identityGeneration(existing.identity_generation); return; }
       if (d.challenge) {
         const saved: unknown = JSON.parse(decoder.decode(unbase64(d.challenge)));
@@ -292,6 +296,38 @@ export const delivery = {
       d.challenge = null;
       return d.device;
     });
+  },
+  // Re-prove a restored device's key under a new token. The new token replaces the
+  // stored one only after the server verifies the signature.
+  async resumeDevice(): Promise<{kind:'resumed'} | {kind:'reauth'; url:string}> {
+    const outcome = await transaction(async (r,d) => {
+      if (!d.device) throw new Error('Missing enrolled device ID');
+      const own = pinFor(r.keyPackage);
+      const token = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const tokenHash = await hash(encoder.encode(token));
+      const path = '/devices/' + encodeURIComponent(d.device) + '/resume';
+      const started = await request(path,d.token,'POST',{token_hash:tokenHash});
+      const value = object(started.value);
+      if (started.status === 403 && typeof value.reauth_url === 'string' && value.reauth_url.startsWith('/api/sso/')) return {kind:'reauth' as const,url:value.reauth_url};
+      if (started.status !== 200) throw new Error(`Delivery HTTP ${started.status}: ${text(value.error)}`);
+      const bytes = unbase64(text(value.signing_input));
+      const parsed: unknown = JSON.parse(decoder.decode(bytes));
+      const c = object(parsed);
+      if (c.Domain !== 'KyMessages resume v1' || c.Origin !== location.origin || c.UserID !== r.identity || c.DeviceID !== d.device || c.PublicKey !== own.key || c.TokenHash !== tokenHash || integer(c.ExpiresAt) * 1000 <= Date.now()) throw new Error('Resume binding mismatch');
+      const signature = base64(await (await suite).signature.sign(signingKey(r),bytes));
+      const verified = object((await api(path + '/verify',d.token,'POST',{signature})).device);
+      if (verified.id !== d.device || verified.status !== 'approved') throw new Error('Resume was not confirmed');
+      d.token = token;
+      return {kind:'resumed' as const,device:d.device,token};
+    });
+    if (outcome.kind === 'reauth') return outcome;
+    // Every saved room entry carries its own copy of the device token.
+    for (const item of await inspectEntries(r => r.delivery ? connected(r) : null)) {
+      if (item.kind === 'ready' && item.value?.device === outcome.device && item.value.token !== outcome.token) {
+        await transaction(async (_r,d) => { if (d.device === outcome.device) d.token = outcome.token; },item.entry);
+      }
+    }
+    return {kind:'resumed'};
   },
   async setRetention(days: number) {
     await transaction(async (_r,d) => {
@@ -346,7 +382,7 @@ export const delivery = {
       const now = Math.floor(Date.now()/1000);
       const fresh = await generateKeyPackageWithKey(old.leafNode.credential,defaultCapabilities(),
         {notBefore:BigInt(now-300),notAfter:BigInt(now+7*24*3600)},[],
-        {signKey:r.keys ? unbase64(r.keys.signaturePrivateKey) : state(r).signaturePrivateKey,publicKey:old.leafNode.signaturePublicKey},await suite);
+        {signKey:signingKey(r),publicKey:old.leafNode.signaturePublicKey},await suite);
       r.keyPackage = base64(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:fresh.publicPackage}));
       r.keys = {initPrivateKey:base64(fresh.privatePackage.initPrivateKey),hpkePrivateKey:base64(fresh.privatePackage.hpkePrivateKey),signaturePrivateKey:base64(fresh.privatePackage.signaturePrivateKey)};
       Object.values(fresh.privatePackage).forEach(zeroOutUint8Array);
