@@ -537,7 +537,6 @@ export const Backup: React.FC = () => {
         {scheduleError && <Alert kind="error">{scheduleError}</Alert>}
       </div>
 
-
       <div className="dr-two">
         <div className="panel dr-section">
           <div className="panel-header">

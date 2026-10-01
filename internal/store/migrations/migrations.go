@@ -262,6 +262,7 @@ DROP TABLE IF EXISTS messaging_recovery_auth;
 DROP TABLE IF EXISTS messaging_reset_receipts;
 DROP TABLE IF EXISTS messaging_devices;
 DROP TABLE IF EXISTS messaging_identities;
+DROP INDEX IF EXISTS audit_action_resource_created;
 DELETE FROM audit_records WHERE action LIKE 'messaging.%';
 DELETE FROM server_settings WHERE key IN ('messages_backup_interval_sec', 'messages_backup_last_attempt', 'messages_kyrecovery_last_deposit');
 `

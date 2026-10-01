@@ -17,8 +17,10 @@ priority is small teams and encrypted text chat.
   defaults, being reworded for Matrix, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
   before selecting media libraries or making federation compatibility claims.
-- Read [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) before choosing
-  between custom MLS, Matrix or XMPP, or promising bridges to other chat networks. No
+- The chat platform is decided: Matrix (see
+  [the design](docs/superpowers/specs/2026-10-01-matrix-platform-design.md)).
+  [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) is the evidence behind it;
+  read it before promising bridges to other chat networks. No
   bridge preserves end-to-end encryption; a bridged conversation never carries the E2EE label.
 - Root owns product definition and cross-domain documentation in `docs/`; children
   own the runtime domains indexed below. Keep product plans distinct from current
@@ -177,4 +179,4 @@ then opens the offline SQLite snapshot (running migrations), invalidates
 restored grants and closes it before reporting success. A failure after extraction removes what was extracted (the target itself if restore created it).
 Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
-The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and production encrypted-chat integration remain release gates.
+The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and Matrix chat integration remain open.

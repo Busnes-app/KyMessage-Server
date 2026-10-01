@@ -54,7 +54,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
           Welcome, {user?.display_name || user?.username}!
         </h1>
         <p style={{ color: 'var(--ink)', fontSize: '15px' }}>
-          {settings?.app_name || 'KyMessages'} operator console. Encrypted chat is under review and is not included in this build.
+          {settings?.app_name || 'KyMessages'} operator console. Chat (Matrix) is not set up yet.
         </p>
       </div>
 

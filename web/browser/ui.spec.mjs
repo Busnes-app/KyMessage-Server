@@ -102,7 +102,6 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(page.getByText(/Last recorded backup attempt: Succeeded/)).toBeVisible();
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
-  await fits(page);
   expect(violations).toEqual([]);
   await context.setOffline(true);
   const offline = await page.reload();

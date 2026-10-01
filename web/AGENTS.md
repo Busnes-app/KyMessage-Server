@@ -9,8 +9,8 @@ Owns user interface components, service worker caching, PWA installation manifes
 ## Local Contracts
 - `MemberHome.tsx` is the non-admin page: account name, "Chat isn't available yet." notice and sign out. Non-admins get `AppHeader` (theme switcher, sign out) with no navigation; tested by `MemberHome.test.tsx` and `AppHeader.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
-  shell is the operator console and explicitly states that encrypted chat is not
-  included; do not imply a successful backup/crypto review from static dashboard text.
+  shell is the operator console and states that chat (Matrix) is not set up yet;
+  do not imply a successful backup/crypto review from static dashboard text.
   Retain suite icon masters and existing theme choices.
 - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
 - A signed-in user with `must_change_password` sees only password replacement and sign-out. Replacement uses `secureFetch`, returns to login after session revocation, and never exposes the normal navigation before completion.

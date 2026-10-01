@@ -1,4 +1,4 @@
-# Local operator-console preview. The experimental MLS client is not embedded.
+# Local operator-console preview. No chat client is embedded.
 # Build this checkout with docker-compose.build.yml; no KyMessages image is published yet.
 services:
   app:

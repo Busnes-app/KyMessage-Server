@@ -33,3 +33,16 @@ func TestSweepPairingsDropsOnlyExpired(t *testing.T) {
 		t.Fatal("live pairing swept", err)
 	}
 }
+
+// Shutdown waits on done before the store closes, so the loop must close it on cancel.
+func TestMaintenanceLoopClosesDoneOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan struct{})
+	go maintenanceLoop(ctx, nil, done)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("maintenanceLoop did not close done after its context was cancelled")
+	}
+}

@@ -24,7 +24,7 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   owned snapshot and rejected above the shared capsule file limit before reading it into memory. Metadata/receipt/audit growth remains capped at 64 MiB;
   initial snapshot disk space still scales with the complete live database. It also carries the encryption key (`data/encryption.key`, required — restores
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key
-  (`data/recovery.pub`, only when paired). `TestCollectNeedsNoMessagingTables` keeps `payload.go` free of messaging table names.
+  (`data/recovery.pub`, only when paired).
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment

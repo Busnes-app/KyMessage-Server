@@ -46,6 +46,9 @@ func main() {
 		case "version":
 			fmt.Printf("kymessages %s\n", appVersion)
 			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
+			os.Exit(2)
 		}
 	}
 

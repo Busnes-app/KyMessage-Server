@@ -70,8 +70,7 @@ networks:
 ```
 
 Tunnel ingress: `service: http://kymessages:8080`. Then set
-`KY_TRUSTED_PROXIES=10.91.0.10/32` and recreate KyMessages. WebSockets need no
-extra settings.
+`KY_TRUSTED_PROXIES=10.91.0.10/32` and recreate KyMessages.
 
 `external: true` goes on the proxy side only. A proxy that starts before KyMessages
 fails with `network kymessages-net declared as external, but could not be found`;

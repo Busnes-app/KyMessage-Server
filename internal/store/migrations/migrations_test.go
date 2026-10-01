@@ -283,7 +283,12 @@ func TestDropMessagingTables(t *testing.T) {
 				t.Errorf("%s: %s still exists", run, table)
 			}
 		}
+		idxQ := `SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'audit_action_resource_created'`
+		if cfg.Driver == "postgres" {
+			idxQ = `SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'audit_action_resource_created'`
+		}
 		for q, want := range map[string]int{
+			idxQ: 0,
 			`SELECT COUNT(*) FROM audit_records WHERE action LIKE 'messaging.%'`:     0,
 			`SELECT COUNT(*) FROM audit_records WHERE action = 'admin.login'`:        1,
 			`SELECT COUNT(*) FROM server_settings WHERE key LIKE 'messages_%'`:       0,
