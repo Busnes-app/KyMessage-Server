@@ -94,6 +94,9 @@ sql() { dc exec -T postgres psql -U postgres -d "$1" -Atc "$2"; }
 hcurl() { curl -sS --cacert "$scratch/tls/ca.crt" --connect-to "::$tls_addr" "$@"; }
 # status METHOD URL [curl args...]: the HTTP status only.
 status() { local m=$1 u=$2; shift 2; hcurl -o /dev/null -w '%{http_code}' -X "$m" "$@" "$u"; }
+# no_password_flow FILE: succeeds only for a JSON flow list without m.login.password; any jq
+# failure (not JSON, empty, no .flows) counts as a failure.
+no_password_flow() { jq -e '(.flows | type == "array") and ([.flows[].type] | index("m.login.password") | not)' "$1" >/dev/null 2>&1; }
 # answer METHOD URL [curl args...]: "<status> <errcode>"; the body stays in state/answer.json.
 answer() {
 	local m=$1 u=$2 code
@@ -249,10 +252,7 @@ login=$(answer GET https://matrix.kymatrix.test/_matrix/client/v3/login)
 if [[ $login != '404 M_UNRECOGNIZED' ]]; then
 	# Served flows are acceptable only as a 200 that offers no password login.
 	expect "${login%% *}" 200 "GET /login is the exact 404 M_UNRECOGNIZED or a 200 flow list"
-	if jq -e '[.flows[].type] | index("m.login.password")' "$state/answer.json" >/dev/null; then
-		echo "  FAILED: login offers m.login.password: $(cat "$state/answer.json")" >&2
-		false
-	fi
+	no_password_flow "$state/answer.json" || { echo "  FAILED: login flows missing or offer m.login.password: $(cat "$state/answer.json")" >&2; false; }
 fi
 ok "GET /login offers no m.login.password ($login)"
 expect "$(answer POST https://matrix.kymatrix.test/_matrix/client/v3/login -H 'Content-Type: application/json' \
