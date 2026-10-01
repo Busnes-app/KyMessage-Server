@@ -20,6 +20,9 @@ its release gates pass. The user-selected priority is small teams and encrypted 
   scope changes; it records proposed defaults and acceptance gates, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
   before selecting MLS/media libraries or making federation compatibility claims.
+- Read [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) before choosing
+  between custom MLS, Matrix or XMPP, or promising bridges to other chat networks. No
+  bridge preserves end-to-end encryption; a bridged conversation never carries the E2EE label.
 - The isolated browser experiment lives in `mls-proof/`; its UI and harness consume the
   non-UI core in `chat-core/`. Selection evidence is in
   [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Before changing library
