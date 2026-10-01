@@ -35,6 +35,9 @@ jobs:
             echo "These files need gofmt:"; echo "$unformatted"; exit 1
           fi
 
+      - name: Proxy compose overlay
+        run: bash scripts/check-compose-proxy.sh
+
       - name: go.mod is tidy
         run: |
           go mod tidy

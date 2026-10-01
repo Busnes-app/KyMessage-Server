@@ -75,6 +75,10 @@ Optional `docker-compose.static-ip.yml` requires `KY_CONTAINER_IP` and
 `docker-compose.lan-dns.yml` requires `KY_DNS`. Add either to the existing overlay
 chain. Do not replace that chain with an unrelated `-f` list.
 
+Behind a reverse proxy, add `docker-compose.proxy.yml` (needs `KY_APP_URL`; publishes no
+port; names the network `kymessages-net`). Setup, cloudflared and nginx are in
+[docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
+
 ## Identity and recovery configuration
 
 Deployment is still unverified. Prepare these settings for the eventual HTTPS

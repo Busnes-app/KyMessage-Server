@@ -1,0 +1,16 @@
+# Behind a reverse proxy (cloudflared, nginx) on this app's own network. Append to
+# COMPOSE_FILE in .env; see docs/Reverse_Proxy_Networking.md. Publishes nothing: the
+# proxy joins kymessages-net and reaches http://kymessages:8080 by name.
+services:
+  app:
+    ports: !reset []
+    environment:
+      - KY_ENV=production
+      - KY_APP_URL=${KY_APP_URL:?Set KY_APP_URL to the public https origin}
+
+networks:
+  default:
+    name: ${KY_NETWORK:-kymessages-net}
+    ipam:
+      config:
+        - subnet: ${KY_NETWORK_SUBNET:-10.91.0.0/24}

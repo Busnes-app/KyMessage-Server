@@ -126,6 +126,9 @@ When the user requests a durable behavior change, record it here or in the relev
 - Container network IP configuration belongs to Compose: the optional
   `docker-compose.static-ip.yml` overlay requires `KY_CONTAINER_IP` and `KY_NETWORK_SUBNET`.
   Preserve existing overlays when updating `COMPOSE_FILE`; the base keeps automatic addressing.
+- `docker-compose.proxy.yml` names the network `kymessages-net`, publishes no port and sets
+  `KY_ENV=production`; `scripts/check-compose-proxy.sh` checks it, including with the static-IP
+  overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
 
 ## Verification
 
