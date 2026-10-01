@@ -128,9 +128,9 @@ profile test. [Extension representation](https://github.com/openmls/openmls/blob
   [Tagged README](https://github.com/awslabs/mls-rs/blob/0.56.0/mls-rs/README.md),
   [interop workflow](https://github.com/awslabs/mls-rs/blob/0.56.0/.github/workflows/interop_tests.yml).
 
-Keep independent implementation exchange, independent security assessment,
-KyMessages profile compatibility, deployed identity and supported-browser evidence
-as distinct release results. The evidence below completes only the constrained
+Keep independent implementation exchange (a federation gate), the suite security
+review, KyMessages profile compatibility, deployed identity and supported-browser
+evidence as distinct results. The evidence below completes only the constrained
 wire/lifecycle cases.
 
 ## Executed results and reproduction

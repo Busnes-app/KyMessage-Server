@@ -17,7 +17,7 @@ it('shows the account, the chat notice and browser support', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({devices: []})));
   render(<MyAccount user={user} onLogout={() => {}} />);
   expect(screen.getByText('Alice')).toBeTruthy();
-  expect(screen.getByText('Encrypted chat is not available on this server yet. It ships after an independent security review.')).toBeTruthy();
+  expect(screen.getByText('Encrypted chat is not available on this server yet.')).toBeTruthy();
   expect(await screen.findByText(/This browser can run KyMessages chat/)).toBeTruthy();
   expect(await screen.findByText('No messaging devices.')).toBeTruthy();
 });

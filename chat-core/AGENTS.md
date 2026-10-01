@@ -1,6 +1,7 @@
 # Purpose
 
-Non-UI core of the encrypted-chat client and the target of the independent review.
+Non-UI core of the encrypted-chat client and the main target of the suite review when chat
+is integrated (security-audit run, PR security reviewer, task and branch reviews).
 
 ## Ownership
 

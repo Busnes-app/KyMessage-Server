@@ -270,8 +270,8 @@ the snapshot stays paused for clients that are ahead, and those members start a 
 thread; the server never rewinds client state. Without messages, recovery uses fresh
 suite authentication, confirmed identity recovery, independent new-key verification
 and new rooms. Existing browser vaults remain untouched. Raw database rollback is
-unsupported. Native sealed-capsule and store drills exercise this policy; the
-independent MLS review must still assess resumption, and deployment and live-issuer
+unsupported. Native sealed-capsule and store drills exercise this policy; the suite
+review of the integrated client must cover resumption, and deployment and live-issuer
 recovery remain separate gates.
 
 ## Architecture on this base

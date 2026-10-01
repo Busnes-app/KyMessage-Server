@@ -127,9 +127,9 @@ independent certification.
 
 ## Open release gates
 
-- Independent assessment of the MLS implementation and KyMessages application
-  profile. ts-mls 1.6.4 remains unaudited; prototype success is not this evidence.
-- Unmodified OpenMLS interoperability fails: ts-mls rejects valid unknown protocol
+- Suite security review of the integrated client and KyMessages application profile
+  (an external cryptographic review is optional). ts-mls 1.6.4 remains unaudited.
+- Federation only: unmodified OpenMLS interoperability fails: ts-mls rejects valid unknown protocol
   version 999 in capabilities. The MLS-1.0-only fixture passes exchange, updates,
   add/remove and live-secret agreement in both browsers, but this is constrained
   evidence. Custom GroupInfo `0xff01` binding remains unverified independently.

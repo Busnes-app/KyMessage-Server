@@ -22,7 +22,7 @@
 .superpowers/
 # Isolated crypto experiment is never part of the production build context.
 /mls-proof/
-# Unreviewed chat core; lifted only after the independent review
+# Chat core; lifted when the chat client is integrated and passes the suite review
 /chat-core/
 **/.env.*
 !**/.env.example

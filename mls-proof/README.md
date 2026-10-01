@@ -367,8 +367,8 @@ a saved counter shows how much was dropped. Pending sends, keys, verification pi
 and cursor are never trimmed. This removes the old 256-message receive stall.
 The diagnostic inbox is bounded too; new sequenced copies below the transcript
 floor leave with it. Legacy unsequenced copies share their own bounded cache.
-Those recovery paths and an independent application-binding review are required
-before product integration. The underlying MLS library remains unaudited.
+Those recovery paths and the suite security review of the application binding are
+required before product integration. The underlying MLS library remains unaudited.
 
 ## Verified 2026-09-27
 

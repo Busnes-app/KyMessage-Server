@@ -11,9 +11,10 @@ API. Its console states that encrypted chat is not included in that build.
 
 The isolated client exercises real encrypted delivery, fingerprint verification,
 multiple rooms, durable retries, live wakeups, device recovery, retention and local
-data removal on Chromium and Firefox. Independent MLS/application-profile security
-review, interoperability, production client integration, deployed KyIdentity/HTTPS
-checks and declared deployment limits remain release gates.
+data removal on Chromium and Firefox. Production client integration (which passes the
+suite security review), deployed KyIdentity/HTTPS checks and declared deployment limits
+remain release gates. Chat is end-to-end encrypted but not independently audited, and the
+ts-mls library it uses is itself unaudited.
 
 - [First-release execution plan](docs/FIRST-RELEASE-PLAN.md)
 - [Product scope and privacy contract](docs/PRODUCT.md)
