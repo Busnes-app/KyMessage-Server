@@ -77,7 +77,7 @@ export function SuspendedDevices() {
         {state.devices.map(device => <li key={device.id} style={{borderTop:'1px solid var(--line)',padding:'12px 0',overflowWrap:'anywhere'}}>
           <strong>{device.username}</strong> · {device.name}
           <p>Enrolled {new Date(device.createdAt*1000).toLocaleString()} · identity generation {device.generation}</p>
-          {device.expiresAt > 0 && <p>Revoked automatically on {new Date(device.expiresAt*1000).toLocaleDateString()}</p>}
+          <p>Revoked automatically on {new Date(device.expiresAt*1000).toLocaleDateString()}</p>
           <small>Key fingerprint: {device.fingerprint}</small>
           <div><button type="button" className="btn-secondary" onClick={() => void revoke(device)}>Revoke {device.name}</button></div>
         </li>)}

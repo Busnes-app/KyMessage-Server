@@ -121,7 +121,9 @@ once-a-minute maintenance sweep then revokes the device with the owner's revocat
 semantics, which also drops a pending resume, audits `messaging.device_suspension_expired`
 (actor `system`, details `user_id=<owner>`) and wakes live streams. A suspended device's
 entry in `GET /api/messaging/devices` carries `expires_at` (unix seconds, when it is
-revoked); other devices omit it. The 30 days are fixed, not a setting.
+revoked); other devices omit it. The 30 days are fixed, not a setting. A suspended device
+with no recorded suspension time (`suspended_at = 0`) counts as expired: it cannot resume
+and is revoked on the next sweep; its listed `expires_at` is in January 1970.
 
 Suspended devices stay in the delivery roster (the roster query in `deliveryState`,
 `internal/store/messaging_delivery.go`, selects approved devices regardless of token) so restored epochs and roster hashes remain valid and a

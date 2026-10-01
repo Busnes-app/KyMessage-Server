@@ -186,3 +186,37 @@ func TestMessagingSuspendedDeviceExpiryIsListed(t *testing.T) {
 		t.Fatalf("live device lists an expiry: %+v %v", listed, err)
 	}
 }
+
+// A suspended device with no suspension time fails closed: it counts as expired.
+func TestMessagingUnstampedSuspendedDeviceIsExpired(t *testing.T) {
+	ctx := context.Background()
+	st, db := rawMessagingDB(t)
+	owner, id, _, key := suspendedDevice(t, st, db, messagingActor(t, st, "alice"))
+	challenge := "resume " + crypto.RandomHex(8)
+	if err := st.Messaging().StartDeviceResume(ctx, owner, id, crypto.RandomHex(32), challenge, time.Now().Add(5*time.Minute).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE messaging_devices SET suspended_at = 0 WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Messaging().ResumeDevice(ctx, owner, id, ed25519.Sign(key, []byte(challenge))); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unstamped resume verify: %v", err)
+	}
+	if err := st.Messaging().StartDeviceResume(ctx, owner, id, crypto.RandomHex(32), "x", time.Now().Add(5*time.Minute).Unix()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unstamped resume start: %v", err)
+	}
+	live, liveID := deliveryDevice(t, st, messagingActor(t, st, "bob"))
+	if n, err := st.Messaging().ExpireSuspendedDevices(ctx); err != nil || n != 1 {
+		t.Fatalf("sweep revoked %d: %v", n, err)
+	}
+	if got := deviceStatus(t, st, owner, id); got != "revoked" {
+		t.Fatal(got)
+	}
+	if got := deviceStatus(t, st, live, liveID); got != "approved" {
+		t.Fatalf("live device %s", got)
+	}
+	rec, err := st.Audit().LatestAuditRecord(ctx, "messaging.device_suspension_expired")
+	if err != nil || rec.Resource != id || rec.UserID != "system" || rec.Details != "user_id=alice" {
+		t.Fatalf("%+v %v", rec, err)
+	}
+}

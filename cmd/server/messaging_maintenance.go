@@ -28,9 +28,10 @@ func messagingMaintenanceLoop(ctx context.Context, st store.Store, wake func(), 
 func maintainMessaging(ctx context.Context, st store.Store, wake func()) {
 	run, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// First, so slow purges cannot spend the deadline before an expired device is revoked.
+	revoked, deviceErr := st.Messaging().ExpireSuspendedDevices(run)
 	err := st.Messaging().ExpireMessages(run)
 	pairErr := st.Devices().CleanExpiredPairings(run)
-	revoked, deviceErr := st.Messaging().ExpireSuspendedDevices(run)
 	if revoked > 0 {
 		wake() // other members' streams pick up the smaller roster
 	}

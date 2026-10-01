@@ -25,15 +25,13 @@ const suspendedDevice = `status = 'approved' AND token_hash IS NULL`
 // ExpireSuspendedDevices revokes it. Resume refuses it from the same moment.
 const suspendedDeviceLifetime = 30 * 24 * time.Hour
 
-// suspensionExpired takes the cutoff, now minus suspendedDeviceLifetime.
-const suspensionExpired = `suspended_at > 0 AND suspended_at <= ?`
+// suspensionExpired takes the cutoff, now minus suspendedDeviceLifetime. Callers restrict it
+// to suspended devices; an unstamped one (0) counts as expired.
+const suspensionExpired = `suspended_at <= ?`
 
 func suspensionCutoff() int64 { return time.Now().Add(-suspendedDeviceLifetime).Unix() }
 
 func suspensionExpiresAt(suspendedAt int64) int64 {
-	if suspendedAt == 0 {
-		return 0
-	}
 	return suspendedAt + int64(suspendedDeviceLifetime/time.Second)
 }
 

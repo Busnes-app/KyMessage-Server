@@ -32,7 +32,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - Migration 19 adds `messaging_devices.suspended_at` (unix seconds, 0 when not suspended)
   and stamps rows already suspended with the upgrade time. `backup.ImportMessages` stamps
   the import time; `ResumeDevice` and `revokeDeviceSet` clear it. A suspended device is
-  expired once `suspended_at > 0 AND suspended_at <= now - suspendedDeviceLifetime` (fixed
+  expired once `suspended_at <= now - suspendedDeviceLifetime` (an unstamped 0 fails closed; fixed
   30 days): resume start and verify refuse it with `ErrNotFound`, and
   `ExpireSuspendedDevices` revokes it through `revokeDeviceSet`, one transaction per
   device under the owner's user-row lock, auditing `messaging.device_suspension_expired`
