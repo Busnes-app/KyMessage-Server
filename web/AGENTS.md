@@ -18,6 +18,7 @@ Owns user interface components, service worker caching, PWA installation manifes
   at the boundary, revokes only after
   `window.confirm` through `secureFetch`, and shows a step-up refusal's same-origin
   `reauth_url` as a sign-in link. Tested by `SuspendedDevices.test.tsx`.
+- `MyAccount.tsx` is the members' page: account, browser support and the member's own devices from `/api/messaging/devices` (validated at the boundary; any 403 shows the non-suite state), with owner revoke via `secureFetch` after `window.confirm`. Tested by `MyAccount.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
   shell is the operator console and explicitly states that encrypted chat is not
   included; do not imply a successful backup/crypto review from static dashboard text.
