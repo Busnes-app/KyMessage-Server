@@ -151,13 +151,19 @@ no_insecure "shipped templates and docker-compose.matrix.yml" "$repo/internal/ma
 )
 ok "throwaway CA and loopback certificate"
 
-# First pass: the client secret does not exist until the client is registered with the
-# redirect URI this prints. The second pass (kyidentity step) renders the real one.
-KY_MATRIX_MAS_CLIENT_SECRET=pending-registration matrix_init >"$state/init1.out"
+# First pass: KyIdentity issues the client secret only when the client is registered with
+# the redirect URI this prints, so there is no MAS config yet. The kyidentity step saves the
+# secret and runs the second pass.
+client_secret_file=$scratch/matrix/secrets/kyidentity_client_secret
+matrix_init >"$state/init1.out"
 redirect_uri=$(awk '$1 == "redirect" && $2 == "URI" { print $3 }' "$state/init1.out")
 expect "$redirect_uri" "$KY_MATRIX_AUTH_HOST/upstream/callback/$(cat "$scratch/matrix/secrets/upstream_provider_id")" \
 	"matrix-init printed the redirect URI"
-no_insecure "rendered configs (used unmodified)" "${rendered[@]}"
+grep -qF "save the secret it shows to $client_secret_file (mode 0600), and run matrix-init again." "$state/init1.out" ||
+	{ echo "  FAILED: first pass did not say where to save the client secret" >&2; false; }
+[[ ! -e $scratch/matrix/mas/config.yaml ]] || { echo "  FAILED: first pass rendered a MAS config" >&2; false; }
+ok "first pass: no MAS config, told where to save the client secret"
+no_insecure "rendered configs (used unmodified)" "$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/element/config.json"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -167,14 +173,20 @@ if dc config | grep -q 'kymessages-net'; then
 	false
 fi
 ok "network $KY_NETWORK, project-scoped"
+# The documented first-pass behaviour: Compose refuses MAS rather than start it unconfigured.
+if dc up -d --quiet-pull mas >"$state/mas-up.out" 2>&1; then
+	echo "  FAILED: Compose started MAS without mas/config.yaml" >&2
+	false
+fi
+grep -q 'bind source path does not exist: .*/mas/config.yaml' "$state/mas-up.out" ||
+	{ echo "  FAILED: MAS refused for another reason: $(cat "$state/mas-up.out")" >&2; false; }
+[[ ! -e $scratch/matrix/mas/config.yaml ]] || { echo "  FAILED: Docker created mas/config.yaml" >&2; false; }
+ok "Compose refuses MAS until the second pass (bind source path does not exist)"
 dc up -d --quiet-pull --wait --wait-timeout 300 tls >/dev/null
 tls_addr=$(dc port tls 443)
 [[ $tls_addr == 127.0.0.1:* ]] || { echo "  FAILED: proxy not on loopback: $tls_addr" >&2; false; }
 ready https://id.kymatrix.test/healthz
-ready https://auth.kymatrix.test/.well-known/openid-configuration
-published=$(docker ps --filter "label=com.docker.compose.project=$project" --format '{{.Names}} {{.Ports}}' | grep -- '->' || true)
-expect "$(grep -c . <<<"$published" || true)" 1 "only the harness proxy publishes a port ($published)"
-ok "stack healthy behind https://*.kymatrix.test on $tls_addr"
+ok "KyIdentity up behind https://id.kymatrix.test on $tls_addr"
 pass
 
 export KYID_URL=https://id.kymatrix.test KYID_STATE=$state KYID_ADMIN_PASS=$KYMATRIX_ACCEPT_ADMIN_PASS
@@ -203,13 +215,22 @@ for u in "${users[@]}"; do
 	kyid PUT "/api/admin/app-registry/$app/assignments/users/${kid[$u]}" >/dev/null
 done
 ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallory assigned"
-KY_MATRIX_MAS_CLIENT_SECRET=$(jq -r .clientSecret "$state/client.json") matrix_init >"$state/init2.out"
+# The operator's step: KyIdentity showed the secret once; it goes in a 0600 file, never env.
+jq -re .clientSecret "$state/client.json" >"$client_secret_file"
+chmod 600 "$client_secret_file"
+matrix_init >"$state/init2.out"
 grep -q 'kept      secrets/upstream_provider_id' "$state/init2.out"
-ok "matrix-init re-run: secrets kept, client secret rendered"
+grep -q 'rendered  mas/config.yaml' "$state/init2.out"
+expect "$(grep -cF "client_secret: \"$(cat "$client_secret_file")\"" "$scratch/matrix/mas/config.yaml")" 1 \
+	"matrix-init re-run: secrets kept, the saved client secret rendered into MAS"
 no_insecure "re-rendered configs" "${rendered[@]}"
-dc restart mas >/dev/null
+# Element pulls in Synapse, MAS and Postgres; the base file's app service never starts.
+dc up -d --quiet-pull --wait --wait-timeout 300 element >/dev/null
 ready https://auth.kymatrix.test/.well-known/openid-configuration
-dc exec -T tls nginx -s reload 2>/dev/null
+ready https://matrix.kymatrix.test/_matrix/client/versions
+published=$(docker ps --filter "label=com.docker.compose.project=$project" --format '{{.Names}} {{.Ports}}' | grep -- '->' || true)
+expect "$(grep -c . <<<"$published" || true)" 1 "only the harness proxy publishes a port ($published)"
+ok "stack healthy behind https://*.kymatrix.test on $tls_addr"
 pass
 
 # ---------------------------------------------------------------------------------------

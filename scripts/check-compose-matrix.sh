@@ -72,6 +72,10 @@ done
 jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("http://mas:8080/.well-known/openid-configuration")' <<<"$out" >/dev/null \
   || bad "synapse healthcheck does not probe MAS discovery with --fail-early"
 grep -q 8081 <<<"$out" && bad "the stack still names MAS port 8081"
+# Without the client secret matrix-init renders no MAS config; `up` must then refuse MAS, not
+# let Docker create a directory in its place.
+[ "$(jq -c '.services.mas.volumes' <<<"$out")" = "[{\"type\":\"bind\",\"source\":\"$root/matrix/mas/config.yaml\",\"target\":\"/config/config.yaml\",\"read_only\":true,\"bind\":{\"create_host_path\":false}}]" ] \
+  || bad "mas does not bind only ./matrix/mas/config.yaml read-only with create_host_path false: $(jq -c '.services.mas.volumes' <<<"$out")"
 dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition // ""' <<<"$out"; }
 [ "$(dep synapse postgres)" = service_healthy ] || bad "synapse does not wait for a healthy postgres"
 [ "$(dep mas postgres)" = service_healthy ] || bad "mas does not wait for a healthy postgres"

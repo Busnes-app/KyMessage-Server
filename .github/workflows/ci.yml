@@ -179,9 +179,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: scripts/matrix-acceptance/package-lock.json
-      - run: npm ci
-        working-directory: scripts/matrix-acceptance
-      - run: npx playwright install --with-deps chromium
+      # The script runs npm ci itself; install the browser for the version its lockfile pins.
+      - run: npx --yes "playwright@$(jq -r '.packages["node_modules/playwright"].version' package-lock.json)" install --with-deps chromium
         working-directory: scripts/matrix-acceptance
       - name: Matrix acceptance
         env:

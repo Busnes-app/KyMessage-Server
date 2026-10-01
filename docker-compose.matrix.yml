@@ -87,7 +87,13 @@ services:
     command: ["server", "--config", "/config/config.yaml"]
     networks: [default, matrix-db]
     volumes:
-      - ./matrix/mas:/config:ro
+      # The file, never created by Docker: until the operator saves KyIdentity's client secret
+      # and re-runs matrix-init, `up` refuses MAS ("bind source path does not exist").
+      - type: bind
+        source: ./matrix/mas/config.yaml
+        target: /config/config.yaml
+        read_only: true
+        bind: {create_host_path: false}
     depends_on:
       postgres: {condition: service_healthy}
 

@@ -126,6 +126,8 @@ When the user requests a durable behavior change, record it here or in the relev
   it hands the app the `KY_MATRIX_*` locations. `scripts/check-compose-matrix.sh` checks it
   with the proxy and static-IP overlays. MAS's distroless image has no HTTP client, so
   Synapse's healthcheck also probes MAS discovery (`mas:8080/.well-known/openid-configuration`).
+  MAS binds only `matrix/mas/config.yaml` with `create_host_path: false`, so `up` refuses MAS
+  until `matrix-init`'s second pass has the KyIdentity client secret.
 
 ## Verification
 
@@ -145,7 +147,8 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
-  (CI: a pinned checkout), runs `matrix-init` and the Matrix overlay as Compose project
+  (CI: a pinned checkout), runs `matrix-init` twice (proving Compose refuses MAS in between,
+  then saving the issued secret to the 0600 file) and the Matrix overlay as Compose project
   `kymatrix-accept-<pid>` (own network and volumes; its exit trap runs `down -v` on that
   project only) behind a harness TLS proxy with a throwaway CA, so shipped configs run
   unmodified over https. Playwright drives Element: native OIDC sign-in, key setup, DM and

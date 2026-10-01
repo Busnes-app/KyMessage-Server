@@ -17,6 +17,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/url"
 	"os"
@@ -45,10 +46,14 @@ const (
 
 var serverNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
+// ClientSecretFile (relative to the output dir) holds the secret KyIdentity issues for MAS.
+// KyIdentity shows it once; the operator saves it here, never in env.
+const ClientSecretFile = "secrets/kyidentity_client_secret"
+
 // Input is what an operator supplies. Hosts are https origins with no path.
 type Input struct {
 	ServerName, MatrixHost, AuthHost, ChatHost, AdminHost string
-	Issuer, ClientID, ClientSecret                        string
+	Issuer, ClientID                                      string
 }
 
 // Registration is what the operator enters in KyIdentity for the MAS client.
@@ -59,13 +64,15 @@ type Registration struct {
 }
 
 // Result lists paths relative to Dir: Created and Kept are write-once secrets, Rendered are
-// configs rewritten on every run.
+// configs rewritten on every run. ClientSecretMissing means ClientSecretFile is absent, so
+// mas/config.yaml was not rendered.
 type Result struct {
-	Dir          string
-	Created      []string
-	Kept         []string
-	Rendered     []string
-	Registration Registration
+	Dir                 string
+	Created             []string
+	Kept                []string
+	Rendered            []string
+	ClientSecretMissing bool
+	Registration        Registration
 }
 
 // InputFromEnv reads the KY_* variables and validates them.
@@ -78,7 +85,7 @@ func InputFromEnv(getenv func(string) string) (Input, error) {
 		{"KY_MATRIX_SERVER_NAME", &in.ServerName}, {"KY_MATRIX_HOST", &in.MatrixHost},
 		{"KY_MATRIX_AUTH_HOST", &in.AuthHost}, {"KY_MATRIX_CHAT_HOST", &in.ChatHost},
 		{"KY_ADMIN_HOST", &in.AdminHost}, {"KY_KYIDENTITY_ISSUER", &in.Issuer},
-		{"KY_MATRIX_MAS_CLIENT_ID", &in.ClientID}, {"KY_MATRIX_MAS_CLIENT_SECRET", &in.ClientSecret},
+		{"KY_MATRIX_MAS_CLIENT_ID", &in.ClientID},
 	} {
 		if *f.dst = getenv(f.env); *f.dst == "" {
 			return Input{}, fmt.Errorf("%s is required", f.env)
@@ -106,12 +113,14 @@ func (in Input) validate() (Input, error) {
 	if _, err := httpsURL(in.Issuer); err != nil {
 		return Input{}, fmt.Errorf("issuer: %w", err)
 	}
-	for name, v := range map[string]string{"client ID": in.ClientID, "client secret": in.ClientSecret} {
-		if v == "" || strings.ContainsFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-			return Input{}, fmt.Errorf("%s must be non-empty with no control characters", name)
-		}
+	if !cleanValue(in.ClientID) {
+		return Input{}, errors.New("client ID must be non-empty with no control characters")
 	}
 	return in, nil
+}
+
+func cleanValue(v string) bool {
+	return v != "" && !strings.ContainsFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
 // ValidServerName refuses anything but a lowercase DNS name of at least two labels.
@@ -170,18 +179,19 @@ func Run(in Input, dir string) (Result, error) {
 		return Result{}, err
 	}
 	res := Result{Dir: dir}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return Result{}, err
 	}
 	for _, sub := range []string{".", "secrets", "synapse", "mas", "element", "postgres"} {
-		p := filepath.Join(dir, sub)
-		if err := os.Mkdir(p, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-			return Result{}, err
-		}
-		if err := os.Chmod(p, 0o700); err != nil {
+		if err := privateDir(filepath.Join(dir, sub)); err != nil {
 			return Result{}, err
 		}
 	}
+	clientSecret, err := readClientSecret(filepath.Join(dir, ClientSecretFile))
+	if err != nil {
+		return Result{}, fmt.Errorf("%s: %w", ClientSecretFile, err)
+	}
+	res.ClientSecretMissing = clientSecret == ""
 
 	s := map[string]string{}
 	ensure := func(rel string, gen func() ([]byte, error)) (string, error) {
@@ -207,6 +217,7 @@ func Run(in Input, dir string) (Result, error) {
 
 	data := map[string]any{"In": in, "S": s,
 		"Localpart": localpartTemplate, "DisplayName": displayNameTemplate, "Email": emailTemplate}
+	s["kyidentity_client_secret"] = clientSecret
 	for _, r := range []struct {
 		tmpl, rel string
 		mode      os.FileMode
@@ -217,6 +228,9 @@ func Run(in Input, dir string) (Result, error) {
 		// No secrets; the Element container reads it as a different user.
 		{"element.json.tmpl", "element/config.json", 0o644},
 	} {
+		if r.rel == "mas/config.yaml" && res.ClientSecretMissing {
+			continue
+		}
 		var b bytes.Buffer
 		if err := templates.ExecuteTemplate(&b, r.tmpl, data); err != nil {
 			return Result{}, err
@@ -235,10 +249,70 @@ func Run(in Input, dir string) (Result, error) {
 	return res, nil
 }
 
+// privateDir creates dir 0700, or accepts an existing one only if group and other have no
+// access: it holds secrets, and an existing directory's mode is the operator's to change.
+func privateDir(dir string) error {
+	if err := os.Mkdir(dir, 0o700); err == nil {
+		return os.Chmod(dir, 0o700) // umask may have narrowed it below what the owner needs
+	} else if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s exists and is not a directory", dir)
+	}
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("%s is mode %04o and will hold secrets; chmod 700 it or choose a new -dir", dir, perm)
+	}
+	return nil
+}
+
+// readPrivate returns path's content, refusing a file that group or other could read.
+func readPrivate(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, errors.New("is not a regular file")
+	}
+	if perm := fi.Mode().Perm(); perm&^0o600 != 0 {
+		return nil, fmt.Errorf("is mode %04o; it holds a secret, so chmod 600 it", perm)
+	}
+	return io.ReadAll(f)
+}
+
+// readClientSecret returns "" when the operator has not saved the secret yet.
+func readClientSecret(path string) (string, error) {
+	b, err := readPrivate(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	v := strings.TrimSuffix(string(b), "\n")
+	if v == "" {
+		return "", errors.New("is empty; save the secret KyIdentity showed when you registered the client")
+	}
+	if !cleanValue(v) {
+		return "", errors.New("contains control characters; save only the secret, on one line")
+	}
+	return v, nil
+}
+
 // ensureFile returns the existing content of path, or generates it and publishes it with a
 // hard link, which fails rather than overwrite and never exposes a half-written file.
 func ensureFile(path string, gen func() ([]byte, error)) (string, bool, error) {
-	b, err := os.ReadFile(path)
+	b, err := readPrivate(path)
 	if err == nil {
 		if len(bytes.TrimSpace(b)) == 0 {
 			return "", false, errors.New("exists but is empty; restore it from backup (deleting it rotates the secret)")

@@ -28,7 +28,8 @@ services:
     networks:
       default:
         aliases: [id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test]
-    depends_on: [kyidentity, mas, synapse, element]
+    # Only KyIdentity: the client is registered there before MAS has a config.
+    depends_on: [kyidentity]
 
   mas:
     volumes:

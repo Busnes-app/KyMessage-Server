@@ -16,13 +16,19 @@ kcurl() {
 	curl -sS --cacert "$ACCEPT_CACERT" --connect-to "::$ACCEPT_CONNECT" -c "$jar" -b "$jar" "$@"
 }
 csrf() { awk '$6 == "kyidentity_csrf" { v = $7 } END { print v }' "$jar"; }
-# call METHOD PATH [extra curl args...]: fails on HTTP >= 400 and shows the body.
+# call METHOD PATH [extra curl args...]: fails on HTTP >= 400 and shows the body. A 429 is
+# retried up to 5 times, 1s, 2s, 3s, 4s apart.
 call() {
-	local m=$1 p=$2 out code
+	local m=$1 p=$2 out code attempt
 	shift 2
-	out=$(kcurl -X "$m" -w '\n%{http_code}' -H "X-CSRF-Token: $(csrf)" -H 'Content-Type: application/json' "$@" "$KYID_URL$p")
-	code=${out##*$'\n'}
-	out=${out%$'\n'*}
+	for attempt in 1 2 3 4 5; do
+		out=$(kcurl -X "$m" -w '\n%{http_code}' -H "X-CSRF-Token: $(csrf)" -H 'Content-Type: application/json' "$@" "$KYID_URL$p")
+		code=${out##*$'\n'}
+		out=${out%$'\n'*}
+		((code == 429 && attempt < 5)) || break
+		echo "kyid-admin: $m $p -> HTTP 429, retry $attempt" >&2
+		sleep "$attempt"
+	done
 	if ((code >= 400)); then
 		echo "kyid-admin: $m $p -> HTTP $code: $out" >&2
 		return 1

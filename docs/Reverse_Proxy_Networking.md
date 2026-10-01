@@ -105,6 +105,10 @@ ingress:
   - hostname: example.com
     path: ^/\.well-known/matrix/client$
     service: http://kymessages:8080
+  # Synapse's admin API and the MAS-only API: MAS reaches Synapse internally.
+  - hostname: matrix.example.com
+    path: ^/_synapse/(admin|mas)/
+    service: http_status:404
   - hostname: matrix.example.com
     service: http://synapse:8008
   - hostname: auth.example.com
@@ -120,6 +124,17 @@ A dashboard-managed tunnel takes the same hostname-to-service pairs as public ho
 no other MAS port, no Postgres and nothing else on the server-name host: MAS has a
 single listener, 8080, and the compatibility login is not served on it. Element loads its logo
 from `KY_ADMIN_HOST`; do not add a proxy-side `img-src` that excludes it.
+
+KyMessages sends HSTS (`includeSubDomains`) only for requests to its own `KY_APP_URL` host,
+never on the server-name host, so plain-http services under the apex keep working.
+
+If another site already serves the apex, drop the `example.com` rule and have that site serve
+`/.well-known/matrix/client` as a static file instead, with `Content-Type: application/json`
+and `Access-Control-Allow-Origin: *`:
+
+```json
+{"m.homeserver":{"base_url":"https://matrix.example.com"}}
+```
 
 `KY_TRUSTED_PROXIES` stays cloudflared's /32 on `kymessages-net`. Setup order and the
 `KY_MATRIX_UID` step are in the README's "Matrix chat" section.

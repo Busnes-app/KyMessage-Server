@@ -22,8 +22,10 @@ is stored encrypted — proven by a repeatable acceptance test, not assumed.
 
 - **Inputs (env):** `KY_MATRIX_SERVER_NAME` (domain in user IDs), `KY_MATRIX_HOST`,
   `KY_MATRIX_AUTH_HOST`, `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`,
-  `KY_MATRIX_MAS_CLIENT_ID`, `KY_MATRIX_MAS_CLIENT_SECRET`, output dir (default `./matrix`).
-  Refuses missing values, non-https host URLs, an invalid server name.
+  `KY_MATRIX_MAS_CLIENT_ID`, output dir (default `./matrix`). The client secret KyIdentity
+  issues is read only from `<dir>/secrets/kyidentity_client_secret` (0600 or stricter); until
+  it exists the run renders everything but MAS's config and says where to save it.
+  Refuses missing values, non-https host URLs, an invalid server name, uid 0.
 - **Outputs:** Synapse `homeserver.yaml` + signing key, MAS `config.yaml`, Element
   `config.json`, a Postgres init script creating `synapse` and `mas` databases with separate
   users. Secrets (`crypto/rand`) written once at 0600 and never overwritten; re-runs reconcile

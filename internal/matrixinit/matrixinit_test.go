@@ -14,7 +14,19 @@ func goodInput() Input {
 	return Input{ServerName: "example.com", MatrixHost: "https://matrix.example.com",
 		AuthHost: "https://auth.example.com", ChatHost: "https://chat.example.com",
 		AdminHost: "https://admin.example.com", Issuer: "https://id.example.com",
-		ClientID: "mas-client", ClientSecret: "s3cret"}
+		ClientID: "mas-client"}
+}
+
+// runWithSecret saves the KyIdentity-issued client secret the way the operator does, then runs.
+func runWithSecret(t *testing.T, in Input, dir, secret string) (Result, error) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ClientSecretFile), []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Run(in, dir)
 }
 
 func TestInitRefusesBadInputs(t *testing.T) {
@@ -24,7 +36,6 @@ func TestInitRefusesBadInputs(t *testing.T) {
 		"host with query":      func(i *Input) { i.MatrixHost = "https://matrix.example.com?a=b" },
 		"host with userinfo":   func(i *Input) { i.AdminHost = "https://u:p@admin.example.com" },
 		"missing host":         func(i *Input) { i.MatrixHost = "" },
-		"missing secret":       func(i *Input) { i.ClientSecret = "" },
 		"control char in id":   func(i *Input) { i.ClientID = "a\nb: c" },
 		"bad server name":      func(i *Input) { i.ServerName = "Not A Domain" },
 		"single label server":  func(i *Input) { i.ServerName = "localhost" },
@@ -48,7 +59,7 @@ func TestInputFromEnvReadsAndValidates(t *testing.T) {
 		"KY_MATRIX_SERVER_NAME": "example.com", "KY_MATRIX_HOST": "https://matrix.example.com/",
 		"KY_MATRIX_AUTH_HOST": "https://auth.example.com", "KY_MATRIX_CHAT_HOST": "https://chat.example.com",
 		"KY_ADMIN_HOST": "https://admin.example.com", "KY_KYIDENTITY_ISSUER": "https://id.example.com",
-		"KY_MATRIX_MAS_CLIENT_ID": "mas-client", "KY_MATRIX_MAS_CLIENT_SECRET": "s3cret",
+		"KY_MATRIX_MAS_CLIENT_ID": "mas-client",
 	}
 	in, err := InputFromEnv(func(k string) string { return env[k] })
 	if err != nil {
@@ -67,7 +78,7 @@ func TestInputFromEnvReadsAndValidates(t *testing.T) {
 
 func TestInitIsWriteOnceForSecrets(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "m")
-	if _, err := Run(goodInput(), dir); err != nil {
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
 		t.Fatal(err)
 	}
 	before := readAll(t, filepath.Join(dir, "secrets"))
@@ -91,7 +102,8 @@ func TestInitIsWriteOnceForSecrets(t *testing.T) {
 	if string(key1) != string(key2) {
 		t.Error("signing key changed on rerun")
 	}
-	if len(res.Created) != 0 || len(res.Kept) != len(before)+1 {
+	// Kept: every generated secret (all of secrets/ but the operator's client secret) plus the signing key.
+	if len(res.Created) != 0 || len(res.Kept) != len(before) {
 		t.Errorf("rerun created %v, kept %v", res.Created, res.Kept)
 	}
 	el, _ := os.ReadFile(filepath.Join(dir, "element", "config.json"))
@@ -179,7 +191,7 @@ func TestSynapseConfigIsClosedAndEncrypted(t *testing.T) {
 
 func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "m")
-	res, err := Run(goodInput(), dir)
+	res, err := runWithSecret(t, goodInput(), dir, "s3cret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,9 +250,8 @@ func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 
 func TestClientSecretCannotInjectConfig(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "m")
-	in := goodInput()
-	in.ClientSecret = `x" , "passwords": {"enabled": true}, "y": "`
-	if _, err := Run(in, dir); err != nil {
+	secret := `x" , "passwords": {"enabled": true}, "y": "`
+	if _, err := runWithSecret(t, goodInput(), dir, secret); err != nil {
 		t.Fatal(err)
 	}
 	var mas map[string]any
@@ -249,7 +260,7 @@ func TestClientSecretCannotInjectConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := mas["upstream_oauth2"].(map[string]any)["providers"].([]any)[0].(map[string]any)
-	if p["client_secret"] != in.ClientSecret || mas["passwords"].(map[string]any)["enabled"] != false {
+	if p["client_secret"] != secret || mas["passwords"].(map[string]any)["enabled"] != false {
 		t.Errorf("secret escaped its field: %v", p["client_secret"])
 	}
 }
@@ -371,16 +382,129 @@ func TestElementIsBrandedAndContactsNoThirdParty(t *testing.T) {
 	}
 }
 
-func TestInitTightensAnExistingOutputRoot(t *testing.T) {
+// An existing directory is the operator's: refuse a loose one rather than lock down, say, "-dir .".
+func TestInitRefusesALooseExistingDirectory(t *testing.T) {
+	for _, sub := range []string{".", "secrets"} {
+		dir := filepath.Join(t.TempDir(), "m")
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Run(goodInput(), dir)
+		if err == nil || !strings.Contains(err.Error(), "chmod 700") {
+			t.Errorf("%s 0755: err = %v, want a refusal naming chmod 700", sub, err)
+		}
+		if fi, _ := os.Stat(filepath.Join(dir, sub)); fi.Mode().Perm() != 0o755 {
+			t.Errorf("%s: mode changed to %v", sub, fi.Mode().Perm())
+		}
+		if _, err := os.Stat(filepath.Join(dir, "secrets", "mas_encryption")); !os.IsNotExist(err) {
+			t.Errorf("%s: wrote secrets into a loose tree", sub)
+		}
+	}
 	dir := filepath.Join(t.TempDir(), "m")
-	if err := os.Mkdir(dir, 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Run(goodInput(), dir); err != nil {
+		t.Errorf("existing 0700 dir refused: %v", err)
+	}
+}
+
+// Without the KyIdentity-issued secret there is no MAS config, so Compose cannot start MAS
+// half-configured; everything else is rendered so the operator can register the client.
+func TestFirstRunWithoutClientSecretSkipsMAS(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	res, err := Run(goodInput(), dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
-		t.Errorf("output root mode %v", fi.Mode().Perm())
+	if !res.ClientSecretMissing {
+		t.Error("ClientSecretMissing not reported")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mas", "config.yaml")); !os.IsNotExist(err) {
+		t.Errorf("mas/config.yaml rendered without a client secret: %v", err)
+	}
+	for _, p := range []string{"synapse/homeserver.yaml", "element/config.json", "postgres/init.sql"} {
+		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	if res.Registration.RedirectURI == "" {
+		t.Error("no registration values")
+	}
+	res, err = runWithSecret(t, goodInput(), dir, "issued-by-kyidentity")
+	if err != nil || res.ClientSecretMissing {
+		t.Fatalf("second pass: %v, missing=%v", err, res.ClientSecretMissing)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "mas", "config.yaml"))
+	if !strings.Contains(string(b), `client_secret: "issued-by-kyidentity"`) {
+		t.Errorf("MAS config lacks the saved secret:\n%s", b)
+	}
+}
+
+func TestClientSecretFileMustBePrivateAndClean(t *testing.T) {
+	for name, c := range map[string]struct {
+		content string
+		mode    os.FileMode
+		want    string
+	}{
+		"0644":         {"s3cret", 0o644, "chmod 600"},
+		"0640":         {"s3cret", 0o640, "chmod 600"},
+		"empty":        {"", 0o600, "empty"},
+		"control char": {"a\rb", 0o600, "control"},
+	} {
+		dir := filepath.Join(t.TempDir(), "m")
+		if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, ClientSecretFile)
+		if err := os.WriteFile(p, []byte(c.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, c.mode); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Run(goodInput(), dir)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, c.want)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "mas", "config.yaml")); !os.IsNotExist(err) {
+			t.Errorf("%s: rendered MAS anyway", name)
+		}
+	}
+	// 0400 is stricter than 0600 and fine.
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, ClientSecretFile), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Errorf("0400 refused: %v", err)
+	}
+}
+
+// A kept secret that others can read is refused, not silently tightened: the operator should
+// know it was exposed.
+func TestInitRefusesALooseKeptSecret(t *testing.T) {
+	for _, rel := range []string{"secrets/mas_encryption", "synapse/signing.key"} {
+		dir := filepath.Join(t.TempDir(), "m")
+		if _, err := Run(goodInput(), dir); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, rel)
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Run(goodInput(), dir); err == nil || !strings.Contains(err.Error(), "chmod 600") {
+			t.Errorf("%s 0644: err = %v", rel, err)
+		}
+		if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o644 {
+			t.Errorf("%s: mode silently changed", rel)
+		}
 	}
 }
 

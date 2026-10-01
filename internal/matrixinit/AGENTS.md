@@ -12,15 +12,23 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 
 ## Local Contracts
 - Inputs: `KY_MATRIX_SERVER_NAME`, `KY_MATRIX_HOST`, `KY_MATRIX_AUTH_HOST`,
-  `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`, `KY_MATRIX_MAS_CLIENT_ID`,
-  `KY_MATRIX_MAS_CLIENT_SECRET`; `-dir` defaults to `./matrix` (git- and docker-ignored).
-  `KY_ADMIN_HOST` is validated but not rendered into any config yet.
+  `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`, `KY_MATRIX_MAS_CLIENT_ID`;
+  `-dir` defaults to `./matrix` (git- and docker-ignored). `KY_ADMIN_HOST` is validated but
+  not rendered into any config yet. The CLI refuses uid 0 (`runMatrixInit` takes the uid).
+- KyIdentity generates the MAS client secret and shows it once, so it is never an env var:
+  the operator saves it to `secrets/kyidentity_client_secret` (`ClientSecretFile`). Absent:
+  the run renders everything but `mas/config.yaml`, sets `ClientSecretMissing`, and the CLI
+  prints where to save it and exits 0 (two-pass setup). Present: one line (a trailing newline
+  is dropped), non-empty, no control characters, 0600 or stricter, else refused.
 - Hosts are https origins (no path, query, fragment or credentials); the issuer is https and
   kept byte for byte. Never add an http escape hatch: loopback overrides belong to the
   acceptance harness's scratch copy. Everything is validated before `dir` is created.
 - Layout: `secrets/<name>` (write-once), `synapse/{homeserver.yaml,signing.key}`,
   `mas/config.yaml`, `element/config.json`, `postgres/init.sql`. Directories 0700; files
-  0600 except `element/config.json` (0644, no secrets).
+  0600 except `element/config.json` (0644, no secrets). Only directories it creates are
+  chmodded; an existing one with group or other bits is refused (never lock down `-dir .`).
+  A kept secret or signing key looser than 0600 is refused, not tightened: the operator
+  should know it was readable.
 - Secrets come from `crypto/rand` and are published with a hard link from a temp file, so
   they are never overwritten or half-written. An empty secret file is an error, never
   regenerated. `secrets/postgres_password` (Postgres superuser) is never rendered; Compose

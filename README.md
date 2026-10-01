@@ -72,34 +72,50 @@ as the only sign-in. It publishes no port and expects cloudflared in front (rout
 [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md)). Registration and
 federation are closed and MAS's compatibility (password) login is not served.
 
-Encryption label: **End-to-end encrypted in Element (not independently audited)**. Element
-always encrypts, but Synapse does not enforce it: a client or script that does not encrypt can
-post plaintext into an encrypted room. The server does not stop it. Members should use Element.
-Evidence: `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
+Encryption label: **End-to-end encrypted in Element (not independently audited)**. In the
+acceptance run, every message Element sent to an encrypted room (direct and group) was stored
+encrypted and its text appeared nowhere in the database, but Synapse does not enforce
+encryption: a client or script that does not encrypt can post plaintext into an encrypted room,
+and the server does not stop it. Members should use Element. Even with encryption, the server
+sees room names and topics, membership, timestamps, display names and other metadata in
+plaintext. Evidence: `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
 
-Setup, with the proxy overlay already working:
+Setup, with the proxy overlay already working. `matrix-init` runs twice: KyIdentity shows the
+client secret once, when you register the client the first run describes.
 
-1. Export these for the next step (`matrix-init` reads the process environment, not `.env`;
-   `docker compose` reads `.env`, so put the same values there too). All hosts are https
-   origins without a path:
-   `KY_MATRIX_SERVER_NAME` (for example `example.com`), `KY_MATRIX_HOST`,
-   `KY_MATRIX_AUTH_HOST`, `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`,
-   `KY_MATRIX_MAS_CLIENT_ID` and `KY_MATRIX_MAS_CLIENT_SECRET`. Choose the client ID and secret
-   now; the secret goes in `.env` with mode 0600.
-2. Run `./kymessages matrix-init` as an unprivileged user (`-dir` defaults to `./matrix`).
-   It writes the configs and secrets, prints the KyIdentity registration values and prints
-   `KY_MATRIX_UID` and `KY_MATRIX_GID`. Back up `matrix/secrets` and
+1. Export these for `matrix-init` (it reads the process environment, not `.env`). Hosts are
+   https origins without a path: `KY_MATRIX_SERVER_NAME` (for example `example.com`),
+   `KY_MATRIX_HOST`, `KY_MATRIX_AUTH_HOST`, `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`,
+   `KY_KYIDENTITY_ISSUER` and `KY_MATRIX_MAS_CLIENT_ID` (a name you choose; not secret).
+2. Run `./kymessages matrix-init` as the unprivileged user that will own the files
+   (`-dir` defaults to `./matrix`; it refuses root, and an existing directory that group or
+   others can read). It writes every config except MAS's, prints the KyIdentity registration
+   values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Back up `matrix/secrets` and
    `matrix/synapse/signing.key`; they are never regenerated.
-3. Add `KY_MATRIX_UID` and `KY_MATRIX_GID` to `.env`. Postgres, Synapse and MAS run as that
-   user, the owner of `./matrix`, so its 0600 secrets stay unreadable to every other account.
-   Compose refuses to start without them. Do not run `matrix-init` as root: the containers
-   would run as root.
-4. In KyIdentity, register the printed confidential client (client ID, redirect URI, scopes
+3. In KyIdentity, register the printed confidential client (client ID, redirect URI, scopes
    `openid profile email`) and assign the users who may chat. Unassigned users cannot sign in.
-5. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
+4. Save the client secret KyIdentity shows to `matrix/secrets/kyidentity_client_secret` with
+   mode 0600 (for example `install -m 600 /dev/null matrix/secrets/kyidentity_client_secret`,
+   then paste it in with an editor). It lives only in that file, never in env or `.env`;
+   `matrix-init` refuses it if group or others can read it.
+5. Run `./kymessages matrix-init` again. It keeps every secret and now writes
+   `matrix/mas/config.yaml`. Until it exists, `docker compose up` refuses MAS with "bind
+   source path does not exist". Whenever you re-run it on a running stack, apply the configs
+   with `docker compose restart synapse mas element`.
+6. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed, plus `KY_MATRIX_SERVER_NAME`,
+   `KY_MATRIX_HOST` and `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
+   from them). Postgres, Synapse and MAS run as that user, the owner of `./matrix`, so its
+   0600 secrets stay unreadable to every other account; Compose refuses to start without these.
+   If the UID or GID ever changes, `chown -R` `./matrix` and the `matrix-postgres` and
+   `matrix-media` volumes (prefixed with the Compose project name) to the new owner.
+7. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
    rest of the chain, then `docker compose up -d`.
-6. Add the cloudflared routes, then open the chat host. Signed-in members see an "Open chat"
-   link in KyMessages.
+
+After start:
+
+- Add the cloudflared routes, then open the chat host. Signed-in members see an "Open chat"
+  link in KyMessages.
+- `curl https://<server name>/.well-known/matrix/client` must show your `KY_MATRIX_HOST`.
 
 Not built yet: automatic offboarding (disabling a user in KyIdentity does not end live Matrix
 sessions), Matrix backups, and the admin console for the stack. `make matrix-acceptance`
@@ -116,7 +132,7 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_APP_NAME` | Defaults to `KyMessages`; also the capsule service name, pinned at pairing |
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks |
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
-| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS |
+| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
 | `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync` |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
