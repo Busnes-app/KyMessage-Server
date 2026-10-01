@@ -18,6 +18,8 @@ retains the manual wire harness. Root owns product decisions and research in `do
 
 - Use the selected MLS library for wire encoding and cryptography; never substitute
   a home-grown protocol. Keep experiment dependencies out of `web/` and the Go binary.
+- `vite.config.mjs` `server.fs.allow` lists only this directory, `../chat-core/src` and
+  `../web/src/ky-ui/tokens.css`; never `..`, which would serve the repository's data and backups.
 - Use disposable identities and synthetic messages only. The manual suite relays
   KeyPackages and messages in the test driver. The HTTP suite exchanges only
   fingerprints out of band; browsers publish/claim packages and send encrypted
