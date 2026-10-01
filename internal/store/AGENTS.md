@@ -102,9 +102,10 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - SQLite file-URI directory setup decodes the URI path; never create a literal
   `file:` directory. This permits read/write-only restoration of paths with reserved
   characters without accidentally opening a different database.
-- `UpdateProfile` writes only username, email, display name, role and status. SCIM and the KySignOn webhook use it so a stale read cannot revert a concurrent password change or recovery-code redemption. `ListUsers` filters by one exact `UserFilter` field.
+- `UpdateProfile` writes only username, email, display name, role and status. SCIM and the KyIdentity webhook use it so a stale read cannot revert a concurrent password change or recovery-code redemption. `ListUsers` filters by one exact `UserFilter` field.
 - `GetLocalUserByUsername` returns only `sso_provider = 'local'` rows, preferring an exact-case match. Usernames are unique only case-sensitively, so password login and `init-admin` must never resolve an SSO row.
 - Migrations 15 and 16 add `directory_sync_state` (provider, subject, last applied directory revision). It is deliberately not a users column: it outlives deletion as a tombstone. Migration 16 discarded earlier timestamp-based rows and added `directory_sync_events`, the permanent set of delivered directory event IDs per provider (applied or superseded). It grows by one row per directory change, which is small for the target team size. `ApplyDirectoryProfile`, `CreateDirectoryUser` and `DeleteDirectoryUser` advance it with a conditional upsert and write the user in the same transaction.
+- Migration 20 renames the stored suite provider `kysignon` to `kyidentity` in `users.sso_provider`, `directory_sync_state` and `directory_sync_events`; its SQL is idempotent.
 - Migration 14 rebuilds `device_pairings` without the six-digit code column; pending pairings (90 s) are dropped on upgrade.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
 - SQLite runs in WAL mode with foreign keys enabled.
@@ -119,7 +120,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   `RunThrough` seam (`export_test.go`) and checks migration 17 on both engines.
 - Delivery tests cover competing commits across connections, deduplication, Welcome isolation, removal/rejoin history floors, device revocation and directory deactivation.
 - Suspended-device tests cover resume, its refusals (another session, bad signature, expired challenge, another account, stale generation, revoked), the admin list's truncation flag and suspended-only admin revoke.
-- `messaging_expiry_test.go` covers the 30-day expiry (roster removal, audit, idempotent sweep, resume refused before the sweep, untouched young/resumed/live devices); `migrations_test.go` covers migration 19's backfill.
+- `messaging_expiry_test.go` covers the 30-day expiry (roster removal, audit, idempotent sweep, resume refused before the sweep, untouched young/resumed/live devices); `migrations_test.go` covers migration 19's backfill and migration 20 run twice.
 - KeyPackage tests cover cross-room claims on separate connections, lost-ack retries, rejoin/expiry/revocation denial, publication ownership and pool capacity.
 
 ## Child DOX Index

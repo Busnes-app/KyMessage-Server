@@ -64,7 +64,7 @@ func (m *messagingStore) deliveryState(ctx context.Context, tx *sql.Tx, actor Me
 	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT epoch, sequence, roster_hash, owner_id, retained_bytes, retention_days, retained_from FROM messaging_rooms WHERE id = ?`), room).Scan(&state.Epoch, &state.Sequence, &committed, &owner, &retained, &state.RetentionDays, &state.RetainedFrom); err != nil {
 		return state, "", 0, err
 	}
-	rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT d.id, d.user_id, d.public_key, m.generation, d.identity_generation FROM messaging_devices d JOIN messaging_members m ON m.user_id = d.user_id JOIN users u ON u.id = d.user_id WHERE m.room_id = ? AND m.status = 'active' AND m.identity_generation = d.identity_generation AND d.status = 'approved' AND u.status = 'active' AND u.sso_provider = 'kysignon' AND u.sso_subject <> '' AND u.password_hash = '' AND u.must_change_password = ? ORDER BY d.id`), room, false)
+	rows, err := tx.QueryContext(ctx, m.store.rebind(`SELECT d.id, d.user_id, d.public_key, m.generation, d.identity_generation FROM messaging_devices d JOIN messaging_members m ON m.user_id = d.user_id JOIN users u ON u.id = d.user_id WHERE m.room_id = ? AND m.status = 'active' AND m.identity_generation = d.identity_generation AND d.status = 'approved' AND u.status = 'active' AND u.sso_provider = 'kyidentity' AND u.sso_subject <> '' AND u.password_hash = '' AND u.must_change_password = ? ORDER BY d.id`), room, false)
 	if err != nil {
 		return state, "", 0, err
 	}

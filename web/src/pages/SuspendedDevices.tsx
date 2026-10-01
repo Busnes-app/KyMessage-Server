@@ -73,7 +73,7 @@ export function SuspendedDevices() {
     <h2 id="suspended-devices-title" style={{fontSize:18}}>Suspended devices</h2>
     <p>Devices brought back by a message restore. Each stays unusable until its owner signs in again and proves the device key. Revoke any you do not recognise before users return. Devices not resumed within 30 days are revoked automatically.</p>
     {error && <p role="alert">{error}</p>}
-    {reauthUrl && <p>Revoking needs a recent sign-in. <a href={reauthUrl}>Sign in to KySignOn again</a>, then return here.</p>}
+    {reauthUrl && <p>Revoking needs a recent sign-in. <a href={reauthUrl}>Sign in to KyIdentity again</a>, then return here.</p>}
     {state.kind === 'loading' && <p role="status">Loading suspended devices…</p>}
     {state.kind === 'error' && <p role="alert">{state.message}</p>}
     {state.kind === 'ready' && state.truncated && <p>Showing the first 1000 suspended devices.</p>}

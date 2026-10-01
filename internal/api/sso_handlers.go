@@ -14,13 +14,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func (s *Server) handleKySignOnLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleKyIdentityLogin(w http.ResponseWriter, r *http.Request) {
 	state := crypto.RandomHex(16)
 	nonce := crypto.RandomHex(16)
 	verifier := oauth2.GenerateVerifier()
 
-	redirectURI := fmt.Sprintf("%s/api/sso/kysignon/callback", s.config.Server.AppURL)
-	authURL, err := s.kysignon.BuildAuthURL(r.Context(), redirectURI, state, verifier, nonce, r.URL.Query().Get("fresh") == "1")
+	redirectURI := fmt.Sprintf("%s/api/sso/kyidentity/callback", s.config.Server.AppURL)
+	authURL, err := s.kyidentity.BuildAuthURL(r.Context(), redirectURI, state, verifier, nonce, r.URL.Query().Get("fresh") == "1")
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -39,7 +39,7 @@ func (s *Server) handleKySignOnLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "ky_nonce_" + state,
 		Value:    nonce,
-		Path:     "/api/sso/kysignon/callback",
+		Path:     "/api/sso/kyidentity/callback",
 		MaxAge:   300,
 		HttpOnly: true,
 		Secure:   s.config.Security.CookieSecure,
@@ -49,7 +49,7 @@ func (s *Server) handleKySignOnLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
-func (s *Server) handleKySignOnCallback(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 
@@ -65,15 +65,15 @@ func (s *Server) handleKySignOnCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	redirectURI := fmt.Sprintf("%s/api/sso/kysignon/callback", s.config.Server.AppURL)
-	claims, err := s.kysignon.ExchangeCode(r.Context(), code, verifier, redirectURI, nonceCookie.Value)
+	redirectURI := fmt.Sprintf("%s/api/sso/kyidentity/callback", s.config.Server.AppURL)
+	claims, err := s.kyidentity.ExchangeCode(r.Context(), code, verifier, redirectURI, nonceCookie.Value)
 	if err != nil {
 		s.writeError(w, http.StatusUnauthorized, fmt.Sprintf("SSO exchange failed: %v", err))
 		return
 	}
 
 	// Upsert user
-	user, err := s.store.Users().GetUserBySSO(r.Context(), "kysignon", claims.Subject)
+	user, err := s.store.Users().GetUserBySSO(r.Context(), "kyidentity", claims.Subject)
 	if err != nil {
 		if s.config.SSO.AutoProvision {
 			user = &store.User{
@@ -83,7 +83,7 @@ func (s *Server) handleKySignOnCallback(w http.ResponseWriter, r *http.Request) 
 				DisplayName: claims.Name,
 				Role:        "user",
 				Status:      "active",
-				SSOProvider: "kysignon",
+				SSOProvider: "kyidentity",
 				SSOSubject:  claims.Subject,
 			}
 			if err := s.store.Users().CreateUser(r.Context(), user); err != nil {
@@ -106,7 +106,7 @@ func (s *Server) handleKySignOnCallback(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func (s *Server) handleKySignOnSyncWebhook(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleKyIdentitySyncWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
@@ -118,7 +118,7 @@ func (s *Server) handleKySignOnSyncWebhook(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	switch err := s.kysignon.HandleSyncWebhook(r.Context(), syncauth.FromRequest(r), body); {
+	switch err := s.kyidentity.HandleSyncWebhook(r.Context(), syncauth.FromRequest(r), body); {
 	case errors.Is(err, sso.ErrSyncUnauthorized):
 		log.Printf("[SSO] directory webhook refused: %v", err)
 		s.writeError(w, http.StatusUnauthorized, "Directory webhook not authenticated")

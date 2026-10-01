@@ -14,9 +14,11 @@ messaging requests, verified against a disposable local issuer.
 
 ## Authentication
 
-Configure the existing suite OIDC integration with `KY_KYSIGNON_ISSUER`,
-`KY_KYSIGNON_CLIENT_ID` and `KY_KYSIGNON_SECRET`; its callback is
-`/api/sso/kysignon/callback`. The persisted provider name remains `kysignon`.
+Configure the existing suite OIDC integration with `KY_KYIDENTITY_ISSUER`,
+`KY_KYIDENTITY_CLIENT_ID` and `KY_KYIDENTITY_SECRET`; its callback is
+`/api/sso/kyidentity/callback`, the redirect URI to register with KyIdentity
+(`https://<host>/api/sso/kyidentity/callback`). The persisted provider name is `kyidentity`;
+migration 20 renames stored `kysignon` rows. A set `KY_KYSIGNON_*` variable stops startup.
 Messaging requires an active suite account with an OIDC subject and no local
 password. Generic OIDC accounts and local bootstrap administrators are excluded.
 
@@ -94,7 +96,7 @@ cannot read, append, approve, publish or claim KeyPackages, or open a live strea
 
 1. Generate a new device token and `token_hash` as for enrollment. Sign in to the
    suite again: the session must be from the last 10 minutes, or the server returns
-   403 `{code:"reauthentication_required", reauth_url:"/api/sso/kysignon/login?fresh=1"}`.
+   403 `{code:"reauthentication_required", reauth_url:"/api/sso/kyidentity/login?fresh=1"}`.
 2. POST `/api/messaging/devices/{device}/resume` with `{token_hash}`. A 200 returns
    `{signing_input, expires_at}`: the same JSON fields as enrollment with domain
    `KyMessages resume v1` and the device's stored key, valid for five minutes and

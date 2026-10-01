@@ -92,7 +92,7 @@ func (m *messagingStore) transaction(ctx context.Context, actor MessagingActor, 
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE users SET updated_at = updated_at WHERE id = ? AND status = 'active' AND sso_provider = 'kysignon' AND sso_subject <> '' AND password_hash = '' AND must_change_password = ?`), actor.UserID, false)
+	res, err := tx.ExecContext(ctx, m.store.rebind(`UPDATE users SET updated_at = updated_at WHERE id = ? AND status = 'active' AND sso_provider = 'kyidentity' AND sso_subject <> '' AND password_hash = '' AND must_change_password = ?`), actor.UserID, false)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (m *messagingStore) RevokeDevice(ctx context.Context, actor MessagingActor,
 
 func (m *messagingStore) invitationTarget(ctx context.Context, tx *sql.Tx, user string) error {
 	var eligible int
-	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM users WHERE id = ? AND status = 'active' AND sso_provider = 'kysignon' AND sso_subject <> '' AND password_hash = '' AND must_change_password = ?`), user, false).Scan(&eligible); err != nil {
+	if err := tx.QueryRowContext(ctx, m.store.rebind(`SELECT COUNT(*) FROM users WHERE id = ? AND status = 'active' AND sso_provider = 'kyidentity' AND sso_subject <> '' AND password_hash = '' AND must_change_password = ?`), user, false).Scan(&eligible); err != nil {
 		return err
 	}
 	if eligible != 1 {

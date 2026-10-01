@@ -31,7 +31,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
     },
     {
       title: 'Single Sign-On & Federation',
-      desc: 'KySignOn OIDC + Signed Directory Webhooks, Generic OIDC, and SAML 2.0 SP.',
+      desc: 'KyIdentity OIDC + Signed Directory Webhooks, Generic OIDC, and SAML 2.0 SP.',
       status: settings?.sso_enabled ? 'Enabled' : 'Disabled',
       statusType: settings?.sso_enabled ? 'success' : 'neutral',
       icon: Key,

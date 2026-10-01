@@ -28,7 +28,7 @@ func (r ReauthenticationRequest) valid(now time.Time) bool {
 }
 
 // BuildReauthenticationURL requests a new interaction and its signed auth_time.
-func (k *KySignOnClient) BuildReauthenticationURL(ctx context.Context, request ReauthenticationRequest) (string, error) {
+func (k *KyIdentityClient) BuildReauthenticationURL(ctx context.Context, request ReauthenticationRequest) (string, error) {
 	if !request.valid(time.Now()) {
 		return "", ErrReauthenticationRequired
 	}
@@ -39,7 +39,7 @@ func (k *KySignOnClient) BuildReauthenticationURL(ctx context.Context, request R
 // ExchangeReauthenticationCode verifies signed evidence after the ordinary OIDC
 // signature/issuer/audience/expiry/nonce checks. Timestamps use Unix-second precision;
 // no clock-skew allowance or iat fallback weakens the fresh-authentication requirement.
-func (k *KySignOnClient) ExchangeReauthenticationCode(ctx context.Context, code, state string, request ReauthenticationRequest) (*IdentityClaims, error) {
+func (k *KyIdentityClient) ExchangeReauthenticationCode(ctx context.Context, code, state string, request ReauthenticationRequest) (*IdentityClaims, error) {
 	if code == "" || state != request.State || !request.valid(time.Now()) {
 		return nil, ErrReauthenticationRequired
 	}
@@ -60,6 +60,6 @@ func (k *KySignOnClient) ExchangeReauthenticationCode(ctx context.Context, code,
 	if err != nil {
 		return nil, err
 	}
-	claims.Provider = "kysignon"
+	claims.Provider = "kyidentity"
 	return claims, nil
 }

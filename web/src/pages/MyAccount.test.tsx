@@ -6,7 +6,7 @@ vi.mock('../browserSupport', () => ({
   supportedBrowsers: 'current desktop Chrome, Edge and Firefox',
   browserSupport: async () => ({state: 'supported', missing: []}),
 }));
-const user = {display_name: 'Alice', username: 'alice', sso_provider: 'kysignon', sso_subject: 'sub-1'};
+const user = {display_name: 'Alice', username: 'alice', sso_provider: 'kyidentity', sso_subject: 'sub-1'};
 const device = {id: 'dev-1', name: '<img src=x onerror=alert(1)>', fingerprint: 'ab'.repeat(32), status: 'approved', created_at: 1790000000};
 function respond(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {status, headers: {'Content-Type': 'application/json'}});
@@ -49,7 +49,7 @@ it('shows a suspended device with its automatic revocation date', async () => {
 it('non-suite account sees no device actions', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({error: 'Suite OIDC sign-in required'}, 403)));
   render(<MyAccount user={{username: 'admin', sso_provider: 'local'}} onLogout={() => {}} />);
-  expect(await screen.findByText('Messaging needs a KySignOn account.')).toBeTruthy();
+  expect(await screen.findByText('Messaging needs a KyIdentity account.')).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Revoke/})).toBeNull();
 });
 
@@ -90,7 +90,7 @@ it('treats a different 403 as an error, not the non-suite state', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({error: 'Origin not allowed'}, 403)));
   render(<MyAccount user={user} onLogout={() => {}} />);
   expect(await screen.findByText('Devices unavailable. Refresh or sign in again.')).toBeTruthy();
-  expect(screen.queryByText('Messaging needs a KySignOn account.')).toBeNull();
+  expect(screen.queryByText('Messaging needs a KyIdentity account.')).toBeNull();
 });
 
 it('refetches from the error state Refresh button', async () => {

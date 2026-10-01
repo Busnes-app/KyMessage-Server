@@ -91,8 +91,8 @@ instance; the current operator-console preview is not an encrypted-chat release:
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks and WebSockets |
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
 | `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS |
-| `KY_KYSIGNON_ISSUER`, `KY_KYSIGNON_CLIENT_ID`, `KY_KYSIGNON_SECRET` | Suite KyIdentity integration; inherited environment names remain supported |
-| `KY_KYSIGNON_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kysignon/sync` |
+| `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
+| `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync` |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
 | `KY_MESSAGING_IDENTITY_RESET_ENABLED` | Off until deployed fresh-authentication/callback behavior is verified |
 | `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |

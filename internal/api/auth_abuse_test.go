@@ -201,7 +201,7 @@ func TestLoginIgnoresSSOCaseVariant(t *testing.T) {
 	ctx := context.Background()
 	createLocalUser(t, st, "usr_admin", "admin", "admin", "RealAdminPass123!")
 	if err := st.Users().CreateUser(ctx, &store.User{
-		ID: "usr_shadow", Username: "ADMIN", Role: "user", Status: "active", SSOProvider: "kysignon", SSOSubject: "sub-shadow",
+		ID: "usr_shadow", Username: "ADMIN", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-shadow",
 	}); err != nil {
 		t.Fatal(err)
 	}

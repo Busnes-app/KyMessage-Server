@@ -51,7 +51,7 @@ func (s *Server) handleMessagingRecoveryAuth(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	request := sso.ReauthenticationRequest{RedirectURI: s.config.Server.AppURL + recoveryCallbackPath, State: crypto.RandomHex(32), Verifier: oauth2.GenerateVerifier(), Nonce: crypto.RandomHex(32), Subject: user.SSOSubject, StartedAt: time.Now().UTC()}
-	authURL, err := s.kysignon.BuildReauthenticationURL(r.Context(), request)
+	authURL, err := s.kyidentity.BuildReauthenticationURL(r.Context(), request)
 	if err != nil {
 		s.writeError(w, 502, "Suite reauthentication unavailable")
 		return
@@ -120,7 +120,7 @@ func (s *Server) handleMessagingRecoveryAuthCallback(w http.ResponseWriter, r *h
 		s.writeError(w, 403, "Identity reset is disabled")
 		return
 	}
-	claims, err := s.kysignon.ExchangeReauthenticationCode(r.Context(), code, state, saved.Request)
+	claims, err := s.kyidentity.ExchangeReauthenticationCode(r.Context(), code, state, saved.Request)
 	if err != nil {
 		s.writeError(w, 401, "Fresh authentication for the original account is required")
 		return

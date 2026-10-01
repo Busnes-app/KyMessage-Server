@@ -53,7 +53,7 @@ func TestReauthenticationSignedEvidence(t *testing.T) {
 	}))
 	defer server.Close()
 	issuer = server.URL
-	client := sso.NewKySignOnClient(config.SSOConfig{KySignOnIssuer: issuer, KySignOnClientID: "client", KySignOnSecret: "secret"}, nil)
+	client := sso.NewKyIdentityClient(config.SSOConfig{KyIdentityIssuer: issuer, KyIdentityClientID: "client", KyIdentitySecret: "secret"}, nil)
 	now := time.Now().Truncate(time.Second)
 	request := sso.ReauthenticationRequest{RedirectURI: "https://app.example/callback", State: "bound-state", Verifier: verifier, Nonce: "bound-nonce", Subject: "alice", StartedAt: now.Add(-time.Second)}
 	authURL, err := client.BuildReauthenticationURL(context.Background(), request)
@@ -128,7 +128,7 @@ func TestReauthenticationSignedEvidence(t *testing.T) {
 				claims, err = client.ExchangeReauthenticationCode(context.Background(), tc.name, state, request)
 			}
 			if tc.wantOK {
-				if err != nil || claims == nil || claims.Subject != "alice" || claims.Provider != "kysignon" {
+				if err != nil || claims == nil || claims.Subject != "alice" || claims.Provider != "kyidentity" {
 					t.Fatalf("claims=%+v err=%v", claims, err)
 				}
 				if _, err := client.ExchangeReauthenticationCode(context.Background(), tc.name, state, request); err == nil {
@@ -142,7 +142,7 @@ func TestReauthenticationSignedEvidence(t *testing.T) {
 }
 
 func TestReauthenticationRejectsInvalidRequestBeforeNetworking(t *testing.T) {
-	client := sso.NewKySignOnClient(config.SSOConfig{}, nil)
+	client := sso.NewKyIdentityClient(config.SSOConfig{}, nil)
 	valid := sso.ReauthenticationRequest{RedirectURI: "https://app.example/callback", State: "state", Verifier: "verifier", Nonce: "nonce", Subject: "alice", StartedAt: time.Now()}
 	for _, mutate := range []func(*sso.ReauthenticationRequest){
 		func(r *sso.ReauthenticationRequest) { r.RedirectURI = "" },

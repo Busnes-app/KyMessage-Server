@@ -158,7 +158,7 @@ function bytes(n: number): string {
   return `${n} B`;
 }
 
-/** A step-up refusal; `url` forces a fresh suite sign-in when the account uses KySignOn. */
+/** A step-up refusal; `url` forces a fresh suite sign-in when the account uses KyIdentity. */
 class ReauthRequired extends Error {
   constructor(message: string, readonly url: string) {
     super(message);
@@ -569,7 +569,7 @@ export const Backup: React.FC = () => {
 
       {reauthUrl && (
         <Alert kind="warn">
-          Backup changes need a recent sign-in. <a href={reauthUrl}>Sign in to KySignOn again</a>, then return here.
+          Backup changes need a recent sign-in. <a href={reauthUrl}>Sign in to KyIdentity again</a>, then return here.
         </Alert>
       )}
       {statusError && <Alert kind="error">{statusError}</Alert>}

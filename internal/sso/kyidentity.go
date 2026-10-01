@@ -16,8 +16,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// KySignOnClient manages interactions with the central KySignOn identity provider.
-type KySignOnClient struct {
+// KyIdentityClient manages interactions with the suite KyIdentity identity provider.
+type KyIdentityClient struct {
 	config config.SSOConfig
 	store  store.Store
 	flow   *oauthFlow
@@ -27,17 +27,17 @@ type KySignOnClient struct {
 	syncMu sync.Mutex
 }
 
-func NewKySignOnClient(cfg config.SSOConfig, st store.Store) *KySignOnClient {
-	return &KySignOnClient{
+func NewKyIdentityClient(cfg config.SSOConfig, st store.Store) *KyIdentityClient {
+	return &KyIdentityClient{
 		config: cfg,
 		store:  st,
-		flow:   newOAuthFlow(cfg.KySignOnIssuer, cfg.KySignOnClientID, cfg.KySignOnSecret),
+		flow:   newOAuthFlow(cfg.KyIdentityIssuer, cfg.KyIdentityClientID, cfg.KyIdentitySecret),
 	}
 }
 
-// BuildAuthURL generates the authorization code URL with PKCE for KySignOn.
+// BuildAuthURL generates the authorization code URL with PKCE for KyIdentity.
 // fresh asks the IdP for a new credential interaction instead of reusing its own session.
-func (k *KySignOnClient) BuildAuthURL(ctx context.Context, redirectURI, state, verifier, nonce string, fresh bool) (string, error) {
+func (k *KyIdentityClient) BuildAuthURL(ctx context.Context, redirectURI, state, verifier, nonce string, fresh bool) (string, error) {
 	if fresh {
 		return k.flow.authCodeURL(ctx, redirectURI, state, verifier, nonce,
 			oauth2.SetAuthURLParam("prompt", "login"), oauth2.SetAuthURLParam("max_age", "0"))
@@ -46,12 +46,12 @@ func (k *KySignOnClient) BuildAuthURL(ctx context.Context, redirectURI, state, v
 }
 
 // ExchangeCode exchanges the authorization code and verifier for identity claims.
-func (k *KySignOnClient) ExchangeCode(ctx context.Context, code, verifier, redirectURI, expectedNonce string) (*IdentityClaims, error) {
+func (k *KyIdentityClient) ExchangeCode(ctx context.Context, code, verifier, redirectURI, expectedNonce string) (*IdentityClaims, error) {
 	claims, err := k.flow.exchange(ctx, code, verifier, redirectURI, expectedNonce)
 	if err != nil {
 		return nil, err
 	}
-	claims.Provider = "kysignon"
+	claims.Provider = "kyidentity"
 	return claims, nil
 }
 
@@ -103,11 +103,11 @@ var revisionPattern = regexp.MustCompile(`^W/"(-1|0|[1-9][0-9]{0,17})"$`)
 
 // HandleSyncWebhook applies one signed directory event from KyIdentity. Superseded and
 // duplicate events succeed without effect, so the sender's outbox stops retrying them.
-func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, headers syncauth.Headers, body []byte) error {
-	if k.config.KySignOnHMACSecret == "" {
-		return fmt.Errorf("%w: KY_KYSIGNON_HMAC_SECRET is not set", ErrSyncUnauthorized)
+func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncauth.Headers, body []byte) error {
+	if k.config.KyIdentityHMACSecret == "" {
+		return fmt.Errorf("%w: KY_KYIDENTITY_HMAC_SECRET is not set", ErrSyncUnauthorized)
 	}
-	event, err := syncauth.Verify([]byte(k.config.KySignOnHMACSecret), headers, body, syncauth.Options{})
+	event, err := syncauth.Verify([]byte(k.config.KyIdentityHMACSecret), headers, body, syncauth.Options{})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSyncUnauthorized, err)
 	}
@@ -128,11 +128,11 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, headers syncauth
 	case "user.created", "user.updated", "user.mfa_reset":
 		return k.upsertDirectoryUser(ctx, user, ev)
 	case "user.deleted":
-		existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", user.ID)
+		existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
 			// Record the deletion anyway, so an older creation delivered later cannot
 			// bring the account into existence. The delete matches no row.
-			existing, err = &store.User{SSOProvider: "kysignon", SSOSubject: user.ID}, nil
+			existing, err = &store.User{SSOProvider: "kyidentity", SSOSubject: user.ID}, nil
 		}
 		if err != nil {
 			return err
@@ -143,7 +143,7 @@ func (k *KySignOnClient) HandleSyncWebhook(ctx context.Context, headers syncauth
 	return nil // other event types (groups) are not for this product
 }
 
-func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent) error {
+func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent) error {
 	// KyIdentity sends this app's roles when it defines any, else the user's global role.
 	role := "user"
 	if primaryValue(in.Roles) == "admin" {
@@ -159,11 +159,11 @@ func (k *KySignOnClient) upsertDirectoryUser(ctx context.Context, in DirectoryUs
 		displayName = in.Name.Formatted
 	}
 
-	existing, err := k.store.Users().GetUserBySSO(ctx, "kysignon", in.ID)
+	existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", in.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		_, err = k.store.Users().CreateDirectoryUser(ctx, &store.User{
 			ID: fmt.Sprintf("usr_%s", crypto.RandomHex(12)), Username: in.UserName, Email: email,
-			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kysignon", SSOSubject: in.ID,
+			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kyidentity", SSOSubject: in.ID,
 		}, ev)
 		return err
 	}

@@ -22,7 +22,7 @@ import (
 
 const oidcClient = "mls-proof-client"
 const oidcSecret = "disposable-local-issuer-secret"
-const oidcRedirect = "http://127.0.0.1:4178/api/sso/kysignon/callback"
+const oidcRedirect = "http://127.0.0.1:4178/api/sso/kyidentity/callback"
 const recoveryRedirect = "http://127.0.0.1:4178/api/messaging/recovery-auth/callback"
 
 // A test issuer, not an identity service: names are selected without passwords.

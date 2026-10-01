@@ -96,8 +96,8 @@ func TestMessagingRecoveryAuthenticationCallback(t *testing.T) {
 				}))
 				defer idp.Close()
 				issuer = idp.URL
-				cfg.SSO.KySignOnIssuer = issuer
-				cfg.SSO.KySignOnClientID = "client"
+				cfg.SSO.KyIdentityIssuer = issuer
+				cfg.SSO.KyIdentityClientID = "client"
 				srv := api.NewServer(cfg, st)
 				first = verifyEnrollment(t, srv, session, requestEnrollment(t, srv, session))
 				target := verifyEnrollment(t, srv, session, requestEnrollment(t, srv, session))

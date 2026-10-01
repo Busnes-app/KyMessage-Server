@@ -23,7 +23,7 @@ const webhookSecret = "4f1c2a9e8b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4
 type directory struct {
 	t      *testing.T
 	st     store.Store
-	client *sso.KySignOnClient
+	client *sso.KyIdentityClient
 }
 
 func newDirectory(t *testing.T) *directory {
@@ -33,12 +33,12 @@ func newDirectory(t *testing.T) *directory {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return &directory{t: t, st: st, client: sso.NewKySignOnClient(config.SSOConfig{KySignOnHMACSecret: webhookSecret}, st)}
+	return &directory{t: t, st: st, client: sso.NewKyIdentityClient(config.SSOConfig{KyIdentityHMACSecret: webhookSecret}, st)}
 }
 
 // restart is a new process on the same database.
 func (d *directory) restart() {
-	d.client = sso.NewKySignOnClient(config.SSOConfig{KySignOnHMACSecret: webhookSecret}, d.st)
+	d.client = sso.NewKyIdentityClient(config.SSOConfig{KyIdentityHMACSecret: webhookSecret}, d.st)
 }
 
 // scimUser is the body KyIdentity's dispatcher sends (FormatUserAsSCIM plus meta.version).
@@ -80,7 +80,7 @@ func (d *directory) must(eventType string, body []byte) {
 
 func (d *directory) user(subject string) *store.User {
 	d.t.Helper()
-	u, err := d.st.Users().GetUserBySSO(context.Background(), "kysignon", subject)
+	u, err := d.st.Users().GetUserBySSO(context.Background(), "kyidentity", subject)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
@@ -148,7 +148,7 @@ func TestDirectoryWebhookRejectsUnauthenticatedAndMalformed(t *testing.T) {
 	if d.user("kid-eve") != nil {
 		t.Fatal("a refused event created a user")
 	}
-	unconfigured := sso.NewKySignOnClient(config.SSOConfig{}, d.st)
+	unconfigured := sso.NewKyIdentityClient(config.SSOConfig{}, d.st)
 	if err := unconfigured.HandleSyncWebhook(context.Background(), h, body); !errors.Is(err, sso.ErrSyncUnauthorized) {
 		t.Fatalf("no secret: got %v", err)
 	}

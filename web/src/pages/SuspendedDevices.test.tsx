@@ -39,12 +39,12 @@ it('does nothing when the confirmation is declined',async () => {
 it('offers a fresh sign-in when revocation needs step-up',async () => {
   vi.stubGlobal('fetch',vi.fn()
     .mockResolvedValueOnce(respond({devices:[device],truncated:false}))
-    .mockResolvedValueOnce(respond({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kysignon/login?fresh=1'},403)));
+    .mockResolvedValueOnce(respond({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kyidentity/login?fresh=1'},403)));
   vi.spyOn(window,'confirm').mockReturnValue(true);
   render(<SuspendedDevices />);
   fireEvent.click(await screen.findByRole('button',{name:/Revoke/}));
-  const link = await screen.findByRole('link',{name:/Sign in to KySignOn again/});
-  expect(link.getAttribute('href')).toBe('/api/sso/kysignon/login?fresh=1');
+  const link = await screen.findByRole('link',{name:/Sign in to KyIdentity again/});
+  expect(link.getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
 });
 
 it('rejects a malformed list at the response boundary',async () => {

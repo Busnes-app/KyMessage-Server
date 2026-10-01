@@ -44,7 +44,7 @@ export const SCIMAdmin: React.FC = () => {
           <span>SCIM 2.0 Directory & Inbound Provisioning</span>
         </h1>
         <p style={{ color: 'var(--ink)', fontSize: '14px', marginTop: '4px' }}>
-          RFC 7643 and RFC 7644 inbound automated provisioning for Okta, Microsoft Entra ID (Azure AD), and KySignOn.
+          RFC 7643 and RFC 7644 inbound automated provisioning for Okta, Microsoft Entra ID (Azure AD), and KyIdentity.
         </p>
       </div>
 

@@ -66,9 +66,9 @@ func (s *Server) requireMessaging(next messagingHandler) http.HandlerFunc {
 			}
 			return
 		}
-		// kysignon is the existing persisted provider name for suite OIDC. Local
+		// kyidentity is the persisted provider name for suite OIDC. Local
 		// bootstrap administrators cannot enroll or approve a decryption device.
-		if user.SSOProvider != "kysignon" || user.SSOSubject == "" || user.PasswordHash != "" {
+		if user.SSOProvider != "kyidentity" || user.SSOSubject == "" || user.PasswordHash != "" {
 			s.writeError(w, http.StatusForbidden, "Suite OIDC sign-in required")
 			return
 		}
@@ -308,7 +308,7 @@ func (s *Server) freshForResume(w http.ResponseWriter, actor store.MessagingActo
 	if time.Since(time.Unix(actor.SessionCreatedAt, 0)) <= stepUpWindow {
 		return true
 	}
-	s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in to KySignOn again to resume this device: it needs a sign-in from the last 10 minutes", "code": "reauthentication_required", "reauth_url": reauthURL})
+	s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in to KyIdentity again to resume this device: it needs a sign-in from the last 10 minutes", "code": "reauthentication_required", "reauth_url": reauthURL})
 	return false
 }
 

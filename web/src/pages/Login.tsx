@@ -219,12 +219,12 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
                   Or continue with Single Sign-On
                 </div>
                 <a
-                  href="/api/sso/kysignon/login"
+                  href="/api/sso/kyidentity/login"
                   className="btn btn-secondary"
                   style={{ width: '100%', justifyContent: 'center', textDecoration: 'none' }}
                 >
                   <Key size={16} style={{ color: 'var(--accent)' }} />
-                  <span>KySignOn Identity</span>
+                  <span>Sign in with KyIdentity</span>
                 </a>
               </div>
             </form>

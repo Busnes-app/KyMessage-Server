@@ -114,7 +114,7 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
   await nav.getByRole('button', { name: 'My account' }).click();
   await expect(page.getByText('Encrypted chat is not available on this server yet.')).toBeVisible();
-  await expect(page.getByText('Messaging needs a KySignOn account.')).toBeVisible();
+  await expect(page.getByText('Messaging needs a KyIdentity account.')).toBeVisible();
   // Playwright's Chromium is not Chrome or Edge, so it is feature-complete but unverified.
   await expect(page.getByText(browserName === 'firefox'
     ? /This browser can run KyMessages chat\./
