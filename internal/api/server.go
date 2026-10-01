@@ -285,6 +285,12 @@ func (s *Server) routes() {
 	// SCIM 2.0 routes
 	s.scim.RegisterRoutes(s.mux)
 
+	// Unmatched API paths fail instead of falling through to the SPA's 200: a webhook sender
+	// on a retired or mistyped route must see an error and retry, never a false acknowledgement.
+	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		s.writeError(w, http.StatusNotFound, "Unknown API endpoint")
+	})
+
 	// Embedded React PWA Frontend
 	s.mux.Handle("/", web.Handler())
 }
