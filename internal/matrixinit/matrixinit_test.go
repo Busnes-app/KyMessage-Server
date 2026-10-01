@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -91,6 +92,11 @@ func TestInitIsWriteOnceForSecrets(t *testing.T) {
 	}
 	after := readAll(t, filepath.Join(dir, "secrets"))
 	key2, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key"))
+	for _, n := range []string{"mas_admin_client_id", "mas_admin_client_secret"} {
+		if before[n] == "" {
+			t.Errorf("secret %s not created", n)
+		}
+	}
 	if len(before) == 0 || len(before) != len(after) {
 		t.Fatalf("secrets changed in count: %d -> %d", len(before), len(after))
 	}
@@ -223,18 +229,47 @@ func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 	if strings.Contains(string(b), "insecure") {
 		t.Error("shipped MAS config contains an insecure relaxation")
 	}
-	// One listener; no compat login and no admin API on any port (sub-project 3 re-adds the
-	// admin API on an internal-only network).
+	// The public listener serves no compat login and no admin API; the admin API is on its own
+	// listener bound only to the internal matrix-admin network alias.
 	listeners := mas["http"].(map[string]any)["listeners"].([]any)
-	if len(listeners) != 1 {
-		t.Errorf("MAS has %d listeners, want only the public one", len(listeners))
+	if len(listeners) != 2 {
+		t.Fatalf("MAS has %d listeners, want web and admin", len(listeners))
 	}
 	for _, l := range listeners {
-		for _, r := range l.(map[string]any)["resources"].([]any) {
-			if n := r.(map[string]any)["name"]; n == "compat" || n == "adminapi" {
-				t.Errorf("listener %v serves %v", l.(map[string]any)["name"], n)
-			}
+		lm := l.(map[string]any)
+		var names []string
+		for _, r := range lm["resources"].([]any) {
+			names = append(names, r.(map[string]any)["name"].(string))
 		}
+		binds := lm["binds"].([]any)
+		switch lm["name"] {
+		case "web":
+			if slices.Contains(names, "compat") || slices.Contains(names, "adminapi") {
+				t.Errorf("public listener serves %v", names)
+			}
+		case "admin":
+			if !slices.Equal(names, []string{"adminapi", "oauth"}) {
+				t.Errorf("admin listener resources %v", names)
+			}
+			if len(binds) != 1 || binds[0].(map[string]any)["host"] != "mas-admin" || binds[0].(map[string]any)["port"] != 8081 {
+				t.Errorf("admin listener binds %v, want only mas-admin:8081", binds)
+			}
+		default:
+			t.Errorf("unexpected listener %v", lm["name"])
+		}
+	}
+	if p["on_backchannel_logout"] != "logout_all" {
+		t.Errorf("on_backchannel_logout = %v", p["on_backchannel_logout"])
+	}
+	clients := mas["clients"].([]any)
+	admins := mas["policy"].(map[string]any)["data"].(map[string]any)["admin_clients"].([]any)
+	c := clients[0].(map[string]any)
+	if len(clients) != 1 || len(admins) != 1 || admins[0] != c["client_id"] || c["client_id"] != res.AdminClientID ||
+		c["client_auth_method"] != "client_secret_basic" || len(c["client_secret"].(string)) != 64 {
+		t.Errorf("admin client %v, admin_clients %v", clients, admins)
+	}
+	if want := "https://auth.example.com/upstream/backchannel-logout/" + p["id"].(string); res.Registration.BackchannelLogoutURI != want {
+		t.Errorf("back-channel URI %q, want %q", res.Registration.BackchannelLogoutURI, want)
 	}
 	keys := mas["secrets"].(map[string]any)["keys"].([]any)
 	if len(keys) == 0 || !strings.Contains(keys[0].(map[string]any)["key"].(string), "PRIVATE KEY") {

@@ -54,9 +54,11 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 	r := res.Registration
 	fmt.Fprintf(w, "Register the MAS client in KyIdentity and assign the users who may chat:\n")
 	fmt.Fprintf(w, "  client type   %s\n  client ID     the KY_MATRIX_MAS_CLIENT_ID value\n", r.ClientType)
-	fmt.Fprintf(w, "  redirect URI  %s\n  scopes        %s\n\n", r.RedirectURI, strings.Join(r.Scopes, " "))
+	fmt.Fprintf(w, "  redirect URI  %s\n", r.RedirectURI)
+	fmt.Fprintf(w, "  back-channel logout URI  %s\n  scopes        %s\n\n", r.BackchannelLogoutURI, strings.Join(r.Scopes, " "))
 	fmt.Fprintf(w, "Postgres, Synapse and MAS run as the owner of %s. Set:\n", res.Dir)
-	fmt.Fprintf(w, "  KY_MATRIX_UID=%d\n  KY_MATRIX_GID=%d\n\n", uid, os.Getgid())
+	fmt.Fprintf(w, "  KY_MATRIX_UID=%d\n  KY_MATRIX_GID=%d\n", uid, os.Getgid())
+	fmt.Fprintf(w, "  KY_MATRIX_ADMIN_CLIENT_ID=%s\n\n", res.AdminClientID)
 	if res.ClientSecretMissing {
 		fmt.Fprintf(w, "Register this client in KyIdentity, save the secret it shows to %s (mode 0600), and run matrix-init again.\n",
 			filepath.Join(res.Dir, matrixinit.ClientSecretFile))
