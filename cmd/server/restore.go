@@ -18,38 +18,99 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
+// afterExtract is a test seam run between extraction and the target identity check.
+var afterExtract = func(target string) {}
+
 // The library owns custodian-share handling, capsule verification and extraction.
 // The product invalidates stale grants before reporting a usable restored server.
 func restore(capsulePath, targetDir, expectService string, shares []string, stdout io.Writer) error {
-	var manifest bytes.Buffer
-	_, statErr := os.Lstat(targetDir)
-	existed := statErr == nil
-	if err := recoveryclient.Restore(capsulePath, targetDir, expectService, shares, &manifest); err != nil {
+	if err := checkRestoreTarget(targetDir); err != nil {
 		return err
 	}
+	created := false
+	if err := os.Mkdir(targetDir, 0o700); err == nil {
+		created = true
+	} else if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	root, err := os.OpenRoot(targetDir)
+	if err != nil {
+		if created {
+			err = errors.Join(err, os.Remove(targetDir))
+		}
+		return err
+	}
+	defer root.Close()
+
+	var manifest bytes.Buffer
+	if err := recoveryclient.Restore(capsulePath, targetDir, expectService, shares, &manifest); err != nil {
+		return errors.Join(err, removeExtracted(root, targetDir, created))
+	}
+	afterExtract(targetDir)
+	if err := sameDir(root, targetDir); err != nil {
+		return errors.Join(err, removeExtracted(root, targetDir, created))
+	}
 	if err := prepareRestoredData(targetDir); err != nil {
-		return errors.Join(fmt.Errorf("restore failed, restored files were removed: %w", err), removeExtracted(targetDir, existed))
+		return errors.Join(fmt.Errorf("restore failed, restored files were removed: %w", err), removeExtracted(root, targetDir, created))
 	}
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly.")
+	_, err = fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly.")
 	return err
 }
 
-// removeExtracted deletes what extraction wrote: the whole target if restore created it, else
-// only its entries (the lib requires an empty target, so nothing else is in there).
-func removeExtracted(target string, existed bool) error {
-	if !existed {
-		return os.RemoveAll(target)
-	}
-	entries, err := os.ReadDir(target)
+// checkRestoreTarget refuses targets another user could swap: a symlink, or a directory
+// whose parent others can write without the sticky bit.
+func checkRestoreTarget(target string) error {
+	abs, err := filepath.Abs(target)
 	if err != nil {
 		return err
 	}
-	var errs []error
+	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("restore target %s is a symlink; pass the real directory", abs)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	parent := filepath.Dir(abs)
+	info, err := os.Stat(parent)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
+		return fmt.Errorf("restore target parent %s is writable by group or others without the sticky bit, so another user could replace the target; restore under a directory only you can write", parent)
+	}
+	return nil
+}
+
+// sameDir confirms target still names the directory root was opened on.
+func sameDir(root *os.Root, target string) error {
+	a, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	b, err := os.Lstat(target)
+	if err != nil || !b.IsDir() || !os.SameFile(a, b) {
+		return errors.New("restore target was replaced during restore")
+	}
+	return nil
+}
+
+// removeExtracted empties the opened target through its handle, never by path, and removes
+// the directory itself if restore created it. os.Remove deletes only an empty directory and
+// unlinks a symlink without following it.
+func removeExtracted(root *os.Root, target string, created bool) error {
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	entries, err := dir.ReadDir(-1)
+	errs := []error{err, dir.Close()}
 	for _, e := range entries {
-		errs = append(errs, os.RemoveAll(filepath.Join(target, e.Name())))
+		errs = append(errs, root.RemoveAll(e.Name()))
+	}
+	if created {
+		errs = append(errs, os.Remove(target))
 	}
 	return errors.Join(errs...)
 }

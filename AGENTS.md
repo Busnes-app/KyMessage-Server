@@ -176,7 +176,7 @@ work is abandoned with a log line rather than killed silently.
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (running migrations), invalidates
-restored grants and closes it before reporting success. A failure after extraction removes what was extracted (the target itself if restore created it).
+restored grants and closes it before reporting success. Before extraction it refuses a symlink target or a parent writable by group or others without the sticky bit, creates an absent target (`os.Mkdir`, so the parent must exist) and opens an `os.Root` on it. After extraction it requires the path to still name that directory. A failure removes what was extracted through the handle, never by path (and the target itself if restore created it).
 Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. Deployment and Matrix chat integration remain open.

@@ -144,3 +144,83 @@ func TestRestoreFailureRemovesExtractedFiles(t *testing.T) {
 		t.Fatalf("empty target not emptied: %v %v", entries, err)
 	}
 }
+
+// noDatabaseCapsule extracts but fails preparation: it has no data/ky_server.db.
+func noDatabaseCapsule(t *testing.T) (string, []string) {
+	t.Helper()
+	key, shares := testKit(t)
+	return sealTo(t, key, recoveryclient.Payload{ServiceName: "busnes_app", AppVersion: "1.0.0",
+		Files: []recoveryclient.File{{Path: "data/encryption.key", Data: []byte(strings.Repeat("01", 32)), Mode: 0600}}}), shares
+}
+
+// A target swapped for a symlink between extraction and cleanup must not redirect the cleanup.
+func TestRestoreFailureIgnoresAReplacedTarget(t *testing.T) {
+	path, shares := noDatabaseCapsule(t)
+	parent := t.TempDir()
+	target := filepath.Join(parent, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victim := t.TempDir()
+	sentinel := filepath.Join(victim, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(parent, "moved")
+	afterExtract = func(string) {
+		if err := os.Rename(target, moved); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(victim, target); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterExtract = func(string) {} })
+	err := restore(path, target, "busnes_app", shares, &bytes.Buffer{})
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("cleanup followed the swapped target: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "replaced") {
+		t.Fatalf("got %v, want a replaced-target error", err)
+	}
+	if entries, err := os.ReadDir(moved); err != nil || len(entries) != 0 {
+		t.Fatalf("extracted files left in the real target: %v %v", entries, err)
+	}
+}
+
+func TestRestoreRefusesASymlinkTarget(t *testing.T) {
+	path, shares := noDatabaseCapsule(t)
+	real := t.TempDir()
+	target := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, target); err != nil {
+		t.Fatal(err)
+	}
+	err := restore(path, target, "busnes_app", shares, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("got %v, want a symlink refusal", err)
+	}
+	if entries, _ := os.ReadDir(real); len(entries) != 0 {
+		t.Fatalf("extracted through the symlink: %v", entries)
+	}
+}
+
+func TestRestoreChecksTheTargetParent(t *testing.T) {
+	path, shares := sealFixture(t, "busnes_app")
+	for _, mode := range []os.FileMode{0o770, 0o707} {
+		parent := t.TempDir()
+		if err := os.Chmod(parent, mode); err != nil {
+			t.Fatal(err)
+		}
+		err := restore(path, filepath.Join(parent, "target"), "busnes_app", shares, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "sticky") {
+			t.Fatalf("mode %v: got %v, want a writable-parent refusal", mode, err)
+		}
+	}
+	sticky := t.TempDir()
+	if err := os.Chmod(sticky, 0o777|os.ModeSticky); err != nil {
+		t.Fatal(err)
+	}
+	if err := restore(path, filepath.Join(sticky, "target"), "busnes_app", shares, &bytes.Buffer{}); err != nil {
+		t.Fatalf("sticky world-writable parent refused: %v", err)
+	}
+}
