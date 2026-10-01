@@ -365,9 +365,9 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 	st, db := rawMessagingDB(t)
 	owner, id, _, _ := suspendedDevice(t, st, db, messagingActor(t, st, "alice"))
 	live, liveID := deliveryDevice(t, st, messagingActor(t, st, "bob"))
-	devices, err := st.Messaging().SuspendedDevices(ctx)
-	if err != nil {
-		t.Fatal(err)
+	devices, truncated, err := st.Messaging().SuspendedDevices(ctx, 1000)
+	if err != nil || truncated {
+		t.Fatal(truncated, err)
 	}
 	if len(devices) != 1 || devices[0].ID != id || devices[0].UserID != owner.UserID || devices[0].Username != "alice" || devices[0].PublicKey == "" || devices[0].IdentityGeneration != 1 {
 		t.Fatalf("%+v", devices)
@@ -392,7 +392,20 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 	if err != nil || rec.Resource != id || rec.UserID != "admin" || !strings.Contains(rec.Details, "user_id=alice") {
 		t.Fatalf("%+v %v", rec, err)
 	}
-	if devices, err := st.Messaging().SuspendedDevices(ctx); err != nil || len(devices) != 0 {
+	if devices, _, err := st.Messaging().SuspendedDevices(ctx, 1000); err != nil || len(devices) != 0 {
 		t.Fatalf("%+v %v", devices, err)
+	}
+}
+
+func TestMessagingSuspendedDevicesReportTruncation(t *testing.T) {
+	ctx := context.Background()
+	st, db := rawMessagingDB(t)
+	suspendedDevice(t, st, db, messagingActor(t, st, "alice"))
+	suspendedDevice(t, st, db, messagingActor(t, st, "bob"))
+	if devices, truncated, err := st.Messaging().SuspendedDevices(ctx, 1); err != nil || len(devices) != 1 || !truncated {
+		t.Fatalf("%d %v %v", len(devices), truncated, err)
+	}
+	if devices, truncated, err := st.Messaging().SuspendedDevices(ctx, 2); err != nil || len(devices) != 2 || truncated {
+		t.Fatalf("%d %v %v", len(devices), truncated, err)
 	}
 }

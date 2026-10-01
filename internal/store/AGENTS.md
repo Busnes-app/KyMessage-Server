@@ -27,7 +27,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   Ed25519 signature verifies. A bad signature commits a `messaging.device_resume_failed`
   audit and keeps the challenge. Both refuse a superseded identity generation
   (`ErrMessagingDenied`). Every revocation uses `revokeDeviceSet`, which also clears
-  the resume state. `SuspendedDevices`/`RevokeSuspendedDevice` are the admin view:
+  the resume state. `SuspendedDevices(limit)` (reads limit+1 to report truncation)/`RevokeSuspendedDevice` are the admin view:
   revoke locks the owner's user row and touches only suspended devices.
 - `MessagingStore` owns migration 5's messaging device registry and room ACLs, separate from push/QR device pairing. Each operation rechecks the active suite-only account and live session in its transaction; device-gated operations additionally check the approved device token hash.
 - Serialize messaging operations through a non-key update of the acting user row, then the session and relevant room/member rows. Keep the user update compatible with PostgreSQL foreign-key key-share locks; cross-invitations must not take a second account write lock.

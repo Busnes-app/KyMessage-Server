@@ -254,8 +254,7 @@ func (s *Server) handleMessagingResume(w http.ResponseWriter, r *http.Request, a
 		s.writeError(w, http.StatusBadRequest, "Valid SHA-256 token hash required")
 		return
 	}
-	if time.Since(time.Unix(actor.SessionCreatedAt, 0)) > stepUpWindow {
-		s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in to KySignOn again to resume this device: it needs a sign-in from the last 10 minutes", "code": "reauthentication_required", "reauth_url": reauthURL})
+	if !s.freshForResume(w, actor) {
 		return
 	}
 	if !s.allowAccountAttempt("messaging-resume:"+actor.UserID, 10, 5*time.Minute) {
@@ -294,7 +293,20 @@ func (s *Server) handleMessagingResume(w http.ResponseWriter, r *http.Request, a
 	s.writeJSON(w, http.StatusOK, map[string]any{"signing_input": base64.StdEncoding.EncodeToString(challenge), "expires_at": expiresAt})
 }
 
+// freshForResume refuses a session older than stepUpWindow, at start and again at verify,
+// so a credential is never issued from a stale session.
+func (s *Server) freshForResume(w http.ResponseWriter, actor store.MessagingActor) bool {
+	if time.Since(time.Unix(actor.SessionCreatedAt, 0)) <= stepUpWindow {
+		return true
+	}
+	s.writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sign in to KySignOn again to resume this device: it needs a sign-in from the last 10 minutes", "code": "reauthentication_required", "reauth_url": reauthURL})
+	return false
+}
+
 func (s *Server) handleMessagingResumeVerify(w http.ResponseWriter, r *http.Request, actor store.MessagingActor) {
+	if !s.freshForResume(w, actor) {
+		return
+	}
 	var request struct {
 		Signature string `json:"signature"`
 	}
@@ -323,7 +335,7 @@ func (s *Server) handleSuspendedDevices(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, http.StatusBadRequest, "Only status=suspended is supported")
 		return
 	}
-	devices, err := s.store.Messaging().SuspendedDevices(r.Context())
+	devices, truncated, err := s.store.Messaging().SuspendedDevices(r.Context(), suspendedDeviceListLimit)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Suspended devices unavailable")
 		return
@@ -333,8 +345,10 @@ func (s *Server) handleSuspendedDevices(w http.ResponseWriter, r *http.Request) 
 		view := deviceView(store.MessagingDevice{ID: d.ID, PublicKey: d.PublicKey})
 		views = append(views, map[string]any{"id": d.ID, "user_id": d.UserID, "username": d.Username, "name": d.Name, "fingerprint": view["fingerprint"], "created_at": d.CreatedAt, "identity_generation": d.IdentityGeneration})
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"devices": views})
+	s.writeJSON(w, http.StatusOK, map[string]any{"devices": views, "truncated": truncated})
 }
+
+const suspendedDeviceListLimit = 1000
 
 // handleRevokeSuspendedDevice revokes another account's suspended device. Live devices
 // stay the owner's to manage: the store refuses anything not suspended with 404.

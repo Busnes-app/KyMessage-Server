@@ -100,7 +100,8 @@ cannot read, append, approve, publish or claim KeyPackages, or open a live strea
    `KyMessages resume v1` and the device's stored key, valid for five minutes and
    bound to this session. Starting again replaces the pending challenge. At most 10
    starts per account per five minutes.
-3. With the **same session**, POST `/api/messaging/devices/{device}/resume/verify`
+3. With the **same session**, still within 10 minutes of its sign-in (else the same
+   403 `reauthentication_required`), POST `/api/messaging/devices/{device}/resume/verify`
    with `{signature}` from the device's existing Ed25519 key. Success returns
    `{device}` with status `approved`; the new token works from then on, never before.
    A wrong signature returns 403, is audited (`messaging.device_resume_failed`) and
@@ -197,7 +198,7 @@ unless marked 201. All routes require the suite session described above.
 | GET `/devices` | `{devices:[...]}` | Own account |
 | POST `/devices/{device}/verify` | `{signature}` → `{device}` | Original enrollment session and signature |
 | POST `/devices/{device}/resume` | `{token_hash}` → `{signing_input,expires_at}` | Own suspended device, current identity generation, sign-in within 10 minutes |
-| POST `/devices/{device}/resume/verify` | `{signature}` → `{device}` | Session that started the resume, within five minutes |
+| POST `/devices/{device}/resume/verify` | `{signature}` → `{device}` | Session that started the resume, within five minutes; sign-in still within 10 minutes |
 | POST `/devices/{device}/approve` | `{approved:true}` | Approved device of same account; target pending |
 | DELETE `/devices/{device}` | `{revoked:true}` | Own non-revoked device |
 | POST `/devices/{device}/recovery-auth` | `{confirm_identity_reset?:boolean}` → 201 `{authorization_url,expires_at,identity_reset_available,reset_requested}` | Own pending device credential and original live suite session |
@@ -549,7 +550,8 @@ It does not add message deletion or cryptographic access.
 
 `GET /api/admin/messaging/devices?status=suspended` (admin, `no-store`; any other
 query is 400) lists suspended devices across accounts, at most 1,000:
-`{devices:[{id,user_id,username,name,fingerprint,created_at,identity_generation}]}`.
+`{devices:[{id,user_id,username,name,fingerprint,created_at,identity_generation}],truncated}`;
+`truncated` is true when more exist.
 It never returns public keys, tokens, challenges or sessions.
 `POST /api/admin/messaging/devices/{device}/revoke` (admin with a sign-in from the
 last 10 minutes, else 403 `reauthentication_required`) revokes a suspended device of

@@ -63,7 +63,7 @@ type MessagingStore interface {
 	RevokeDevice(context.Context, MessagingActor, string) error
 	StartDeviceResume(ctx context.Context, actor MessagingActor, id, tokenHash, challenge string, expiresAt int64) error
 	ResumeDevice(ctx context.Context, actor MessagingActor, id string, signature []byte) (*MessagingDevice, error)
-	SuspendedDevices(context.Context) ([]SuspendedDevice, error)
+	SuspendedDevices(ctx context.Context, limit int) ([]SuspendedDevice, bool, error)
 	RevokeSuspendedDevice(ctx context.Context, adminID, ip, id string) error
 	CreateRoom(context.Context, MessagingActor, MessagingRoom) error
 	SetRoomRetention(ctx context.Context, actor MessagingActor, room string, days int64) error

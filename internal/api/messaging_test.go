@@ -530,12 +530,13 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 		t.Fatal("admin device list cacheable")
 	}
 	var list struct {
-		Devices []map[string]any `json:"devices"`
+		Devices   []map[string]any `json:"devices"`
+		Truncated *bool            `json:"truncated"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Devices) != 1 || list.Devices[0]["id"] != d.ID || list.Devices[0]["username"] != "alice" || list.Devices[0]["fingerprint"] == "" {
+	if list.Truncated == nil || *list.Truncated || len(list.Devices) != 1 || list.Devices[0]["id"] != d.ID || list.Devices[0]["username"] != "alice" || list.Devices[0]["fingerprint"] == "" {
 		t.Fatal(w.Body.String())
 	}
 	for _, forbidden := range []string{"public_key", "token", "challenge", "session"} {
@@ -566,4 +567,44 @@ func TestMessagingAdminSuspendedDevices(t *testing.T) {
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "reauthentication_required") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
+}
+
+// A session that ages past the step-up window between start and verify gets no credential.
+func TestMessagingResumeVerifyRechecksFreshness(t *testing.T) {
+	srv, st, cfg := setupTestServer(t)
+	other := messagingLogin(t, st, "alice")
+	d := verifyEnrollment(t, srv, other, requestEnrollment(t, srv, other))
+	suspend(t, cfg, d.ID)
+	fresh := messagingSessionAt(t, st, "alice", time.Now())
+	token := crypto.RandomHex(32)
+	w := messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume", fresh, "", map[string]string{"token_hash": crypto.SHA256Hex([]byte(token))})
+	messagingCode(t, w, 200)
+	var started struct {
+		SigningInput string `json:"signing_input"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	d.Input = started.SigningInput
+	driver := cfg.Database.Driver
+	if driver == "postgres" {
+		driver = "pgx"
+	}
+	db, err := sql.Open(driver, cfg.Database.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(), `UPDATE sessions SET created_at = $1 WHERE token_hash = $2`, time.Now().UTC().Add(-11*time.Minute), crypto.SHA256Hex([]byte(fresh))); err != nil {
+		t.Fatal(err)
+	}
+	w = messagingRequest(t, srv, "POST", "/api/messaging/devices/"+d.ID+"/resume/verify", fresh, "", enrollmentProof(t, d))
+	messagingCode(t, w, 403)
+	if !strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) || !strings.Contains(w.Body.String(), `"reauth_url":"/api/sso/kysignon/login?fresh=1"`) {
+		t.Fatal(w.Body.String())
+	}
+	if got := deviceStatusHTTP(t, srv, other, d.ID); got != "suspended" {
+		t.Fatal(got)
+	}
+	messagingCode(t, messagingRequest(t, srv, "GET", "/api/messaging/rooms", other, token, nil), 403)
 }

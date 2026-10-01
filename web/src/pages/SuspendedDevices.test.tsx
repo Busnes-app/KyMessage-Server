@@ -10,9 +10,9 @@ afterEach(() => {cleanup();vi.unstubAllGlobals();vi.restoreAllMocks();});
 
 it('lists suspended devices and revokes one after confirmation',async () => {
   const fetch = vi.fn()
-    .mockResolvedValueOnce(respond({devices:[device]}))
+    .mockResolvedValueOnce(respond({devices:[device],truncated:false}))
     .mockResolvedValueOnce(respond({revoked:true}))
-    .mockResolvedValueOnce(respond({devices:[]}));
+    .mockResolvedValueOnce(respond({devices:[],truncated:false}));
   vi.stubGlobal('fetch',fetch);
   const confirm = vi.spyOn(window,'confirm').mockReturnValue(true);
   const {container} = render(<SuspendedDevices />);
@@ -28,7 +28,7 @@ it('lists suspended devices and revokes one after confirmation',async () => {
 });
 
 it('does nothing when the confirmation is declined',async () => {
-  const fetch = vi.fn().mockResolvedValueOnce(respond({devices:[device]}));
+  const fetch = vi.fn().mockResolvedValueOnce(respond({devices:[device],truncated:false}));
   vi.stubGlobal('fetch',fetch);
   vi.spyOn(window,'confirm').mockReturnValue(false);
   render(<SuspendedDevices />);
@@ -38,7 +38,7 @@ it('does nothing when the confirmation is declined',async () => {
 
 it('offers a fresh sign-in when revocation needs step-up',async () => {
   vi.stubGlobal('fetch',vi.fn()
-    .mockResolvedValueOnce(respond({devices:[device]}))
+    .mockResolvedValueOnce(respond({devices:[device],truncated:false}))
     .mockResolvedValueOnce(respond({error:'Sign in again',code:'reauthentication_required',reauth_url:'/api/sso/kysignon/login?fresh=1'},403)));
   vi.spyOn(window,'confirm').mockReturnValue(true);
   render(<SuspendedDevices />);
@@ -48,8 +48,20 @@ it('offers a fresh sign-in when revocation needs step-up',async () => {
 });
 
 it('rejects a malformed list at the response boundary',async () => {
-  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[{...device,created_at:'soon'}]})));
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[{...device,created_at:'soon'}],truncated:false})));
   render(<SuspendedDevices />);
   expect((await screen.findByRole('alert')).textContent).toContain('Invalid');
   expect(screen.queryByText('No suspended devices.')).toBeNull();
+});
+
+it('says when the list is truncated',async () => {
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[device],truncated:true})));
+  render(<SuspendedDevices />);
+  expect(await screen.findByText('Showing the first 1000 suspended devices.')).toBeTruthy();
+});
+
+it('rejects a non-boolean truncated flag',async () => {
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(respond({devices:[device],truncated:'yes'})));
+  render(<SuspendedDevices />);
+  expect((await screen.findByRole('alert')).textContent).toContain('Invalid');
 });

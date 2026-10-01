@@ -91,22 +91,29 @@ func (m *messagingStore) ResumeDevice(ctx context.Context, actor MessagingActor,
 	return device, err
 }
 
-// SuspendedDevices lists every account's suspended devices for the admin view.
-func (m *messagingStore) SuspendedDevices(ctx context.Context) ([]SuspendedDevice, error) {
-	rows, err := m.store.db.QueryContext(ctx, `SELECT d.id, d.user_id, u.username, d.name, d.public_key, d.created_at, d.identity_generation FROM messaging_devices d JOIN users u ON u.id = d.user_id WHERE d.status = 'approved' AND d.token_hash IS NULL ORDER BY d.created_at, d.id LIMIT 1000`)
+// SuspendedDevices lists up to limit suspended devices across accounts for the admin
+// view, and reports whether more exist.
+func (m *messagingStore) SuspendedDevices(ctx context.Context, limit int) ([]SuspendedDevice, bool, error) {
+	rows, err := m.store.db.QueryContext(ctx, m.store.rebind(`SELECT d.id, d.user_id, u.username, d.name, d.public_key, d.created_at, d.identity_generation FROM messaging_devices d JOIN users u ON u.id = d.user_id WHERE d.status = 'approved' AND d.token_hash IS NULL ORDER BY d.created_at, d.id LIMIT ?`), limit+1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 	devices := []SuspendedDevice{}
 	for rows.Next() {
 		var d SuspendedDevice
 		if err := rows.Scan(&d.ID, &d.UserID, &d.Username, &d.Name, &d.PublicKey, &d.CreatedAt, &d.IdentityGeneration); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		devices = append(devices, d)
 	}
-	return devices, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(devices) > limit {
+		return devices[:limit], true, nil
+	}
+	return devices, false, nil
 }
 
 // RevokeSuspendedDevice is the owner's revocation without the ownership check, limited
