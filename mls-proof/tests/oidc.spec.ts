@@ -357,7 +357,9 @@ async function sharedRoom(owner: Member, peer: Member, name: string) {
 async function send(from: Page, to: Page, message: string) {
   await from.getByLabel('Message',{exact:true}).fill(message);
   await click(from,'Send encrypted message','Message accepted');
-  await click(to,'Check for messages','Messages checked');
+  // The live notice of this send starts a background read; a click landing during it is
+  // dropped by action()'s busy guard, so retry it as a person would.
+  await expect(async () => { await click(to,'Check for messages','Messages checked'); }).toPass({timeout:20_000});
   await expect(to.locator('#messages')).toContainText(message);
 }
 // Mirrors restore-messages: the server keeps the approved device but drops its token.
