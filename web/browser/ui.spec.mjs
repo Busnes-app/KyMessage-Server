@@ -5,7 +5,7 @@ async function fits(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
-test('production CSP, worker, themes, keyboard, dialog and responsive shell', async ({ page, context }, testInfo) => {
+test('production CSP, worker, themes, keyboard, dialog and responsive shell', async ({ page, context, browserName }, testInfo) => {
   const violations = [];
   page.on('console', message => {
     if (/Content Security Policy|violates.*directive/i.test(message.text())) violations.push(message.text());
@@ -23,10 +23,14 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   // Online navigation must refresh the shell rather than pinning a previous deploy.
   await page.reload();
   await page.getByPlaceholder('admin', { exact: true }).fill('admin');
-  await page.locator('input[type=password]').fill('IncorrectPassword123!');
-  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
-  await expect(page.locator('form').locator('..')).toContainText(/invalid|incorrect|failed/i);
-  await fits(page);
+  // The server allows 10 attempts per account per 15 minutes; setup plus one login per
+  // project leaves room for only two wrong passwords, one per theme, width and browser.
+  if (['dark-390', 'firefox-light-1280'].includes(testInfo.project.name)) {
+    await page.locator('input[type=password]').fill('IncorrectPassword123!');
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+    await expect(page.locator('form').locator('..')).toContainText(/invalid|incorrect|failed/i);
+    await fits(page);
+  }
   await page.locator('input[type=password]').fill('BrowserUpdated456!');
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   const nav = page.getByRole('navigation', { name: 'Primary' });
@@ -108,6 +112,14 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(page.getByText(/Last recorded backup attempt: Succeeded/)).toBeVisible();
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
+  await nav.getByRole('button', { name: 'My account' }).click();
+  await expect(page.getByText('Encrypted chat is not available on this server yet. It ships after an independent security review.')).toBeVisible();
+  await expect(page.getByText('Messaging needs a KySignOn account.')).toBeVisible();
+  // Playwright's Chromium is not Chrome or Edge, so it is feature-complete but unverified.
+  await expect(page.getByText(browserName === 'firefox'
+    ? /This browser can run KyMessages chat\./
+    : /This browser has every feature chat needs but has not been verified\./)).toBeVisible();
+  await fits(page);
   expect(violations).toEqual([]);
   await context.setOffline(true);
   const offline = await page.reload();

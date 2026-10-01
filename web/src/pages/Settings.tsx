@@ -1,6 +1,7 @@
 import React from 'react';
 import { Settings as SettingsIcon, Database, Palette } from 'lucide-react';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
+import { NetworkCheck } from '../components/NetworkCheck';
 
 interface SettingsProps {
   settings: any;
@@ -58,6 +59,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings }) => {
           </div>
         </div>
       </div>
+      <NetworkCheck />
     </div>
   );
 };

@@ -18,6 +18,7 @@ Owns user interface components, service worker caching, PWA installation manifes
   at the boundary, revokes only after
   `window.confirm` through `secureFetch`, and shows a step-up refusal's same-origin
   `reauth_url` as a sign-in link. Tested by `SuspendedDevices.test.tsx`.
+- "My account" is the non-admin landing and only page; it validates the device DTO (all five states; `unverified` shows as `enrollment not finished` and is revocable); it revokes through `secureFetch` DELETE after `window.confirm`; a messaging 403 shows `Messaging needs a KySignOn account.`; it is tested by `MyAccount.test.tsx` and `AppHeader.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
   shell is the operator console and explicitly states that encrypted chat is not
   included; do not imply a successful backup/crypto review from static dashboard text.
@@ -36,9 +37,11 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `Backup.tsx` renders a "Message backups" section (`MessagesBackup`) from `status.messages`, validated at the boundary like the people DTO, hidden when absent and a page-level error when malformed: opt-in explanation, own schedule select (Off by default), "Back up messages now", "Run message drill", last run, last receipt and local copies. It calls only `/api/backup/messages/*`.
 - `Backup.tsx` shows the server's same-origin `reauth_url` as a sign-in link when a backup change is refused for step-up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
+- `NetworkCheck.tsx` renders at the end of the admin-only Settings page: it fetches `/api/admin/network-check`, validates the DTO at the boundary (a malformed or failed response shows `Network check unavailable.`), aborts on unmount and lists five Pass/Warn marks: trusted proxy peer, trusted `X-Forwarded-Proto: https`, https `KY_APP_URL`, host match, and `KY_TRUSTED_PROXIES` naming only single addresses (`trusted_proxies_narrow`). Tested by `NetworkCheck.test.tsx`.
+- `browserSupport.ts` detects whether the browser supports chat's required features (Ed25519 signing, IndexedDB, Web Locks, HTTPS) and validates against the declared browser list; it exports only WebCrypto feature detection with no imports from chat-core or ts-mls.
 
 ## Verification
-- Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium && npm run test:browser`. CI also installs browser OS dependencies.
+- Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium firefox && npm run test:browser`. CI also installs browser OS dependencies.
 - `make test-web` or `cd web && npm ci && npm test`, then `npm run build` (vitest with jsdom; `src/pages/Backup.test.tsx` renders the recovery screen against a stubbed status route). Commit `web/dist` after a build; CI diffs it.
 
 ## Shared browser UI

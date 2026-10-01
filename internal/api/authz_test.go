@@ -141,6 +141,7 @@ func TestPrivilegedEndpointsRequireAdmin(t *testing.T) {
 		{"POST", "/api/backup/messages/deposit"},
 		{"PUT", "/api/backup/messages/schedule"},
 		{"GET", "/api/admin/messaging/usage"},
+		{"GET", "/api/admin/network-check"},
 		{"GET", "/api/admin/messaging/devices?status=suspended"},
 		{"POST", "/api/admin/messaging/devices/none/revoke"},
 		{"POST", "/api/settings/theme"},

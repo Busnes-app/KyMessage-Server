@@ -1,8 +1,8 @@
 import { test, expect, firefox, type Browser, type Page } from '@playwright/test';
-import type {} from '../src/delivery';
-import type {} from '../src/device';
-import { object, text, connection } from '../src/delivery-wire';
-import { parseRecord, trimSavedMessages, maxSavedMessageBytes } from '../src/vault';
+import type {} from '../../chat-core/src/delivery';
+import type {} from '../../chat-core/src/device';
+import { object, text, connection } from '../../chat-core/src/delivery-wire';
+import { parseRecord, trimSavedMessages, maxSavedMessageBytes } from '../../chat-core/src/vault';
 
 const password = 'disposable MLS HTTP integration passphrase';
 async function device(browser: Browser, name: string, loseEnrollmentReply = false) {

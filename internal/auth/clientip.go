@@ -24,7 +24,7 @@ import (
 // X-Real-IP is ignored outright. It carries no chain, so it cannot be walked; a deployment
 // that needs a client IP must forward X-Forwarded-For.
 func ClientIP(r *http.Request, trusted []netip.Prefix) string {
-	peer := peerIP(r)
+	peer := PeerIP(r)
 	peerAddr, err := netip.ParseAddr(peer)
 	if err != nil || !isTrusted(peerAddr, trusted) {
 		return peer
@@ -65,9 +65,9 @@ func parseForwardedEntry(entry string) (netip.Addr, error) {
 	return addr.Unmap(), nil
 }
 
-// peerIP is the transport peer: the host half of RemoteAddr, normalised so an IPv4-mapped
+// PeerIP is the transport peer: the host half of RemoteAddr, normalised so an IPv4-mapped
 // IPv6 peer keys the same bucket as the plain IPv4 one.
-func peerIP(r *http.Request) string {
+func PeerIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = strings.Trim(r.RemoteAddr, "[]")
@@ -85,4 +85,11 @@ func isTrusted(addr netip.Addr, trusted []netip.Prefix) bool {
 		}
 	}
 	return false
+}
+
+// TrustedPeer reports whether the direct peer is a configured proxy, so its forwarded
+// headers are honoured.
+func TrustedPeer(r *http.Request, trusted []netip.Prefix) bool {
+	addr, err := netip.ParseAddr(PeerIP(r))
+	return err == nil && isTrusted(addr, trusted)
 }

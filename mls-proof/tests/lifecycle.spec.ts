@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import type {} from '../src/device';
-import { base64, unbase64 } from '../src/vault';
+import type {} from '../../chat-core/src/device';
+import { base64, unbase64 } from '../../chat-core/src/vault';
 
 const password = 'synthetic test passphrase, never a real secret';
 

@@ -6,6 +6,7 @@ import { ChangePassword } from './pages/ChangePassword';
 import { Backup } from './pages/Backup';
 import { SCIMAdmin } from './pages/SCIMAdmin';
 import { Settings } from './pages/Settings';
+import { MyAccount } from './pages/MyAccount';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
 import './ky-ui/navigation.css';
@@ -92,21 +93,24 @@ export const App: React.FC = () => {
     }} />;
   }
 
+  const tab = user.role === 'admin' ? activeTab : 'account';
+
   return (
     <div className="app-shell">
       <AppHeader
         appName={settings?.app_name || 'KyMessages'}
-        activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab)}
+        activeTab={tab}
+        onTabChange={(t) => setActiveTab(t)}
         user={user}
         onLogout={handleLogout}
       />
 
       <main className="app-main">
-        {activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(tab) => setActiveTab(tab)} />}
-        {activeTab === 'scim' && <SCIMAdmin />}
-        {activeTab === 'backup' && <Backup />}
-        {activeTab === 'settings' && <Settings settings={settings} />}
+        {tab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
+        {tab === 'scim' && <SCIMAdmin />}
+        {tab === 'backup' && <Backup />}
+        {tab === 'settings' && <Settings settings={settings} />}
+        {tab === 'account' && <MyAccount user={user} onLogout={handleLogout} />}
       </main>
     </div>
   );

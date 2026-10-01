@@ -20,7 +20,8 @@ its release gates pass. The user-selected priority is small teams and encrypted 
   scope changes; it records proposed defaults and acceptance gates, not shipped behavior.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
   before selecting MLS/media libraries or making federation compatibility claims.
-- The isolated browser experiment lives in `mls-proof/`; selection evidence is in
+- The isolated browser experiment lives in `mls-proof/`; its UI and harness consume the
+  non-UI core in `chat-core/`. Selection evidence is in
   [docs/MLS-LIBRARY-RESEARCH.md](docs/MLS-LIBRARY-RESEARCH.md). Before changing library
   compatibility claims, read [docs/MLS-INTEROP-RESEARCH.md](docs/MLS-INTEROP-RESEARCH.md)
   for the failed extensibility gate and constrained OpenMLS exchange evidence. Its test results do not
@@ -125,6 +126,9 @@ When the user requests a durable behavior change, record it here or in the relev
 - Container network IP configuration belongs to Compose: the optional
   `docker-compose.static-ip.yml` overlay requires `KY_CONTAINER_IP` and `KY_NETWORK_SUBNET`.
   Preserve existing overlays when updating `COMPOSE_FILE`; the base keeps automatic addressing.
+- `docker-compose.proxy.yml` names the network `kymessages-net`, publishes no port and sets
+  `KY_ENV=production`; `scripts/check-compose-proxy.sh` checks it, including with the static-IP
+  overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
 
 ## Verification
 
@@ -147,17 +151,23 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   the scratch database in place of OIDC sign-in. Its write commands refuse paths outside
   `os.TempDir()`; the script preflights go, curl, jq and python3.
 - Docker image build and container HTTP check
-- Chromium regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
+- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
 - The isolated MLS browser proof runs its build, manual, HTTP/UI and OIDC suites
   on Chromium and Firefox in CI. It remains outside the deployment artifacts.
-- Container builds use `npm ci` and exclude `mls-proof/`. CI builds/runs
+- `scripts/check-chat-gate.sh` (lint step, `make lint`) keeps `web/` (source, `index.html`,
+  configs, `package.json`) free of `chat-core`/`mls-proof`/`ts-mls` references, `web/dist` free
+  of the ts-mls marker `MLS 1.0 `, and `/chat-core/` in `.dockerignore` until the independent
+  review passes. An unreadable scan path fails the gate.
+- Container builds use `npm ci` and exclude `mls-proof/` and `chat-core/`. CI builds/runs
   `kymessages:ci` but has no image publication/promotion jobs while release gates
   remain open. Keep the independent MLS review and deployed identity gates explicit.
 
-Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
+`make lint` and `make ci` need docker compose v2.24 or later and jq for
+`scripts/check-compose-proxy.sh`. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
 ## Child DOX Index
 
+- [chat-core/AGENTS.md](chat-core/AGENTS.md): Non-UI encrypted-chat core (delivery, vault, device, session); independent review target, gated out of `web/` and the image.
 - [mls-proof/AGENTS.md](mls-proof/AGENTS.md): Isolated MLS browser experiment, encrypted local persistence and lifecycle tests.
 - [internal/config/AGENTS.md](internal/config/AGENTS.md): Configuration management and environment loader.
 - [internal/store/AGENTS.md](internal/store/AGENTS.md): Pluggable database abstraction layer (SQLite & PostgreSQL).

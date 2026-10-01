@@ -40,6 +40,8 @@ lint:
 	@go vet ./...
 	@go vet -tags rehearsal ./scripts/rehearsal
 	@go test -tags rehearsal ./scripts/rehearsal
+	@bash scripts/check-chat-gate.sh
+	@bash scripts/check-compose-proxy.sh
 
 smoke: build
 	@./scripts/smoke-test.sh
