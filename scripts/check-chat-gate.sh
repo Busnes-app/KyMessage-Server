@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The unreviewed chat client stays out of the deployed console and image until the
-# independent review passes. Lifting this gate is a deliberate, reviewed edit.
+# The chat client stays out of the deployed console and image until it is integrated
+# and passes the suite review. Lifting this gate is a deliberate, reviewed edit.
 set -u
 root=$(git rev-parse --show-toplevel)
 web=$root/web

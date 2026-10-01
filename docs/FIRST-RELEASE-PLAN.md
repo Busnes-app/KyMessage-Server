@@ -58,10 +58,12 @@ prototype test is not production approval.
    local backups and a running-server drill pass. Live remote-deposit/deployment checks
    remain open; `docs/RESTORE.md` records the restore policy.
 6. **Release evidence — open.** Run CI on both database engines, production browser
-   regressions, dependency checks, recovery drills, declared-host load tests and
-   protocol/application-binding security review. Record actual supported browsers
-   and measured limits. Resolve MLS library maintenance/license/security and
-   independent interoperability gates before declaring production E2EE.
+   regressions, dependency checks, recovery drills, declared-host load tests and the
+   suite security review (security-audit run, PR security reviewer, task and branch
+   reviews) of the integrated client, including protocol/application binding. Record
+   actual supported browsers and measured limits. Chat ships labelled "end-to-end
+   encrypted (not independently audited)"; an external cryptographic review is optional.
+   Interoperability with an independent MLS implementation gates federation only.
 
 ## Evidence already available
 
@@ -79,10 +81,9 @@ prototype test is not production approval.
 ## External evidence still required
 
 KyMessages is not deployed yet (user-confirmed); live KyIdentity callback registration
-and deployed reauthentication policy remain unverified; an
-independent security assessment of the chosen MLS implementation/application profile;
-interoperability against an independent implementation; and real supported-browser
-and constrained-host measurements. Local tests may advance these gates but cannot
+and deployed reauthentication policy remain unverified; real supported-browser
+and constrained-host measurements remain open. Interoperability against an independent
+implementation is required before federation, not for single-server chat. Local tests may advance these gates but cannot
 stand in for evidence they did not produce. Continue independent implementation when
 one gate needs external input; never hide that gate or silently downgrade encryption.
 
@@ -162,5 +163,5 @@ pass. The real running-server scheduler acceptance drill passes timer, retry,
 live-disable, copy permissions/pruning and shutdown checks. This is capacity/restore
 evidence, not a demonstrated malicious-member exploit.
 Local audit artifacts remain at
-`/home/yoshi/security-audit-skill/KyMessage-Server/run-1/REPORT.md`; broad hunting and
-independent cryptographic assessment remain incomplete.
+`/home/yoshi/security-audit-skill/KyMessage-Server/run-1/REPORT.md`; broad hunting
+remains incomplete. No external cryptographic review has been done (optional).

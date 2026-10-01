@@ -63,7 +63,7 @@ export function MyAccount({user, onLogout}: {user: {display_name?: string; usern
     <p>{user.display_name || user.username}</p>
     <p>Signed in as {user.username}{user.sso_provider === 'kysignon' ? ' with KySignOn' : ''}.</p>
     <button type="button" className="btn-secondary" onClick={onLogout}>Sign out</button>
-    <p>Encrypted chat is not available on this server yet. It ships after an independent security review.</p>
+    <p>Encrypted chat is not available on this server yet.</p>
     <h3>Browser</h3>
     {support === null ? <p role="status">Checking this browser…</p>
       : support.state === 'supported' ? <p>This browser can run KyMessages chat.</p>

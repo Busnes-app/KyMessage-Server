@@ -116,9 +116,12 @@ Default section order:
 6. Report any docs intentionally left unchanged and why
 
 ## User Preferences
-- Treat agent review of its own implementation as self-review. Separate reproduced
-  defects, regression evidence and reviewer checks from independent cryptographic
-  assessment; never use self-review to close that external release gate.
+- Encrypted chat follows the suite's standard review process (security-audit run,
+  autonomous PR security reviewer, task and whole-branch reviews), like every other Ky
+  product: it is internal, invite-only chat with no public sign-up. An external
+  cryptographic review is optional later work, not a release gate. Never call agent or
+  suite review an independent audit: label chat "end-to-end encrypted (not independently
+  audited)" and keep ts-mls's own unaudited status visible.
 - Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions, MFA challenges and device pairings. Untouched existing accounts are not retroactively flagged.
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
@@ -156,18 +159,18 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   on Chromium and Firefox in CI. It remains outside the deployment artifacts.
 - `scripts/check-chat-gate.sh` (lint step, `make lint`) keeps `web/` (source, `index.html`,
   configs, `package.json`) free of `chat-core`/`mls-proof`/`ts-mls` references, `web/dist` free
-  of the ts-mls marker `MLS 1.0 `, and `/chat-core/` in `.dockerignore` until the independent
-  review passes. An unreadable scan path fails the gate.
+  of the ts-mls marker `MLS 1.0 `, and `/chat-core/` in `.dockerignore` until the chat client is
+  integrated into `web/` and passes the suite review. An unreadable scan path fails the gate.
 - Container builds use `npm ci` and exclude `mls-proof/` and `chat-core/`. CI builds/runs
   `kymessages:ci` but has no image publication/promotion jobs while release gates
-  remain open. Keep the independent MLS review and deployed identity gates explicit.
+  remain open. Keep the chat-integration and deployed identity gates explicit.
 
 `make lint` and `make ci` need docker compose v2.24 or later and jq for
 `scripts/check-compose-proxy.sh`. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
 ## Child DOX Index
 
-- [chat-core/AGENTS.md](chat-core/AGENTS.md): Non-UI encrypted-chat core (delivery, vault, device, session); independent review target, gated out of `web/` and the image.
+- [chat-core/AGENTS.md](chat-core/AGENTS.md): Non-UI encrypted-chat core (delivery, vault, device, session); suite-review target, gated out of `web/` and the image until chat integration.
 - [mls-proof/AGENTS.md](mls-proof/AGENTS.md): Isolated MLS browser experiment, encrypted local persistence and lifecycle tests.
 - [internal/config/AGENTS.md](internal/config/AGENTS.md): Configuration management and environment loader.
 - [internal/store/AGENTS.md](internal/store/AGENTS.md): Pluggable database abstraction layer (SQLite & PostgreSQL).
