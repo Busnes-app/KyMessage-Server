@@ -23,6 +23,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"theme":            theme,
 		"captcha_provider": s.config.Captcha.Provider,
 		"sso_enabled":      s.config.SSO.Enabled,
+		"chat_url":         s.config.Matrix.ChatHost,
 	}
 
 	user, _, err := s.sessions.AuthenticateRequest(r)

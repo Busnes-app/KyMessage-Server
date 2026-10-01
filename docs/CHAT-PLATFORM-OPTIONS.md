@@ -159,9 +159,16 @@ A throwaway loopback build tested option (b). It used Synapse v1.162.0, MAS 1.26
 Backup scope: the Synapse and MAS databases, plus MAS `secrets.encryption`, restored from one point in time. Also the Synapse signing key, the `homeserver.yaml` secrets and `media_store/`. KyIdentity must keep each user's `sub` and the MAS client secret.
 
 Open issues, all blocking a product:
-- One message sent after MAS's compatibility sign-in was stored as plaintext `m.room.message` in an encrypted room. This happened once and the cause is unknown. Messages sent after native OIDC sign-in were `m.room.encrypted`. No encryption claim is possible until this is explained.
 - KyIdentity disable must end live Matrix sessions. That needs back-channel logout into MAS, or a sync job that calls MAS deactivate.
-- KyIdentity usernames such as `Ivy.Q@Example` are not valid Matrix IDs, so a mapping rule is needed.
-- Loopback http needed MAS `discovery_mode: insecure` and `allow_insecure_uris`. A real https deployment is untested and should need neither.
 - MFA enforcement through KyIdentity's per-app policy is untested.
 - No Teams bridge exists for this stack either (see section 3).
+- A public https deployment through cloudflared is untested. The acceptance harness runs the shipped configs over https with a private CA on loopback, which needs neither of the spike's MAS relaxations (`discovery_mode: insecure`, `allow_insecure_uris`).
+
+Resolved by the stack work (`scripts/matrix-acceptance.sh`, same pinned versions):
+- Username mapping. `matrix-init` maps `preferred_username` to a lowercase localpart, with every character outside `[a-z0-9._=-]` replaced by `_`. KyIdentity user `Alice.Q@Ky` signs in as `@alice.q_ky`. An ID token without `preferred_username` (client scopes narrowed to `openid email`) is refused by MAS with no account created, though MAS shows a raw "Unexpected error" page.
+- The plaintext message. Reproduction, run on every PR with the compatibility login routed in the harness's scratch copy only:
+  - Element signed in through MAS's compatibility layer (`m.login.sso`, then `m.login.token`; MAS records a compat session and no OAuth session) sets up encryption like a native session: device keys and all three cross-signing keys are uploaded. Its message in a new room is stored as `m.room.encrypted`. The anomaly does not reproduce through Element.
+  - Synapse stores what a client sends. With the same compat session's token, a plain client-server API send of `m.room.message` into that encrypted room is stored as plaintext. So is the same send with a native OIDC session's token into a room Synapse encrypted by default. `m.room.encryption` instructs clients; the server does not enforce it.
+  - Explanation: a plaintext event in an encrypted room needs a sender that does not encrypt. The compat sign-in alone does not produce one, and the room's encryption state was correct in every case. The spike's evidence was not kept, so the exact path of its one message is not known, but the only path the harness found is a non-encrypting sender, and it is open to any session, compat or native.
+  - Consequence: encrypted storage is a property of the client. The shipped stack does not route the compatibility login, and the harness proves that Element, signed in through native OIDC, stores DM and group messages only as `m.room.encrypted`, with no plaintext anywhere in a dump of the Synapse database. A member using a non-encrypting client or script can still post plaintext into an encrypted room.
+- The label: "End-to-end encrypted in Element (not independently audited)", exactly. The server does not enforce encryption, so a client that does not encrypt can post plaintext into an encrypted room, and nothing server-side stops it.

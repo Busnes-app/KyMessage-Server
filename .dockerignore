@@ -6,6 +6,7 @@
 **/.env.local
 /data/
 /backups/
+/matrix/
 /restored/
 /old-data/
 **/*.db
@@ -16,6 +17,7 @@
 **/*.log
 **/coverage.out
 **/node_modules
+/scripts/matrix-acceptance/artifacts/
 /ky_server_base
 .claude/
 .codex/

@@ -1,0 +1,126 @@
+# Matrix stack: Postgres, Synapse, MAS and Element, configured by `kymessages matrix-init`
+# (./matrix). Append to COMPOSE_FILE after the proxy overlay; nothing is published, the proxy
+# reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
+# internal matrix-db network, shared with Synapse and MAS.
+# Images are the official upstream builds, pinned by tag and digest, configured only by files.
+# Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
+# matrix-init) so its 0600 files stay unreadable to anyone else.
+# Element's page loads the logo from <KY_ADMIN_HOST>/app-icon.png. Its nginx sends no CSP
+# header and its own meta CSP allows img-src *; a proxy in front must not add an img-src that
+# excludes the admin host. Route https://<server name>/.well-known/matrix/client to the app.
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+services:
+  # Serves /.well-known/matrix/client and the members' Open chat link.
+  app:
+    environment:
+      - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}
+      - KY_MATRIX_HOST=${KY_MATRIX_HOST:?Set KY_MATRIX_HOST}
+      - KY_MATRIX_CHAT_HOST=${KY_MATRIX_CHAT_HOST:?Set KY_MATRIX_CHAT_HOST}
+
+  postgres:
+    <<: *hardening
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    user: "${KY_MATRIX_UID:?Set KY_MATRIX_UID (printed by matrix-init)}:${KY_MATRIX_GID:?Set KY_MATRIX_GID (printed by matrix-init)}"
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      # A subdirectory: the volume root belongs to the image's postgres user, and initdb must
+      # own its directory.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets: [postgres_password]
+    networks: [matrix-db]
+    volumes:
+      - matrix-postgres:/var/lib/postgresql/data
+      - ./matrix/postgres:/docker-entrypoint-initdb.d:ro
+    # TCP, not the socket: during first-run init the entrypoint's temporary server listens on
+    # the socket only, so this passes once init.sql has run and the real server is up.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # The media volume starts root-owned (the image's /media); hand it to the Synapse user once
+  # per start. Only CAP_CHOWN, no network.
+  synapse-media-owner:
+    image: ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
+    entrypoint: ["chown", "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}", "/media"]
+    network_mode: none
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes:
+      - matrix-media:/media
+
+  synapse:
+    <<: *hardening
+    image: ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
+    # start.py execs Synapse directly when not root; it changes no ownership in run mode.
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    environment:
+      SYNAPSE_CONFIG_PATH: /config/homeserver.yaml
+    networks: [default, matrix-db]
+    volumes:
+      - ./matrix/synapse:/config:ro
+      - matrix-media:/media
+    depends_on:
+      postgres: {condition: service_healthy}
+      synapse-media-owner: {condition: service_completed_successfully}
+      mas: {condition: service_started}
+    # The MAS image is distroless with no HTTP client, so MAS is probed from here through its
+    # public discovery resource: the homeserver cannot sign anyone in without it.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--fail-early", "-o", "/dev/null", "http://localhost:8008/health", "-o", "/dev/null", "http://mas:8080/.well-known/openid-configuration"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  mas:
+    <<: *hardening
+    image: ghcr.io/element-hq/matrix-authentication-service:1.26.0@sha256:e089f1048a1d4a9a492ed17b9fe759100f1bd619407b001f5927928d88b780c4
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    command: ["server", "--config", "/config/config.yaml"]
+    networks: [default, matrix-db]
+    volumes:
+      # The file, never created by Docker: until the operator saves KyIdentity's client secret
+      # and re-runs matrix-init, `up` refuses MAS ("bind source path does not exist").
+      - type: bind
+        source: ./matrix/mas/config.yaml
+        target: /config/config.yaml
+        read_only: true
+        bind: {create_host_path: false}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  element:
+    <<: *hardening
+    image: ghcr.io/element-hq/element-web:v1.12.30@sha256:3e7dbd4424de9e11c812bc740acf2725b2abe66ea0d0802023b56fd85d3fa09a
+    environment:
+      ELEMENT_WEB_PORT: "8080"
+    volumes:
+      # The file only: its 0700 directory is closed to the image's nginx user.
+      - ./matrix/element/config.json:/app/config.json:ro
+    depends_on:
+      synapse: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/config.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+secrets:
+  postgres_password:
+    file: ./matrix/secrets/postgres_password
+
+networks:
+  matrix-db:
+    internal: true
+
+volumes:
+  matrix-postgres:
+  matrix-media:

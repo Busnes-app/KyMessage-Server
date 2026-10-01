@@ -1,0 +1,76 @@
+{
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": {{ q .In.MatrixHost }},
+      "server_name": {{ q .In.ServerName }}
+    }
+  },
+  "permalink_prefix": {{ q .In.ChatHost }},
+  "disable_custom_urls": true,
+  "disable_guests": true,
+  "room_directory": { "servers": [{{ q .In.ServerName }}] },
+  "brand": "KyMessages",
+  "branding": {
+    "auth_header_logo_url": {{ q (print .In.AdminHost "/app-icon.png") }},
+    "logo_link_url": {{ q .In.ChatHost }},
+    "auth_footer_links": []
+  },
+  "help_url": {{ q (print .In.AdminHost "/") }},
+  "help_encryption_url": {{ q (print .In.AdminHost "/") }},
+  "help_key_storage_url": {{ q (print .In.AdminHost "/") }},
+  "desktop_builds": { "available": false, "logo": {{ q (print .In.AdminHost "/app-icon.png") }}, "url": {{ q .In.ChatHost }} },
+  "integrations_ui_url": null,
+  "integrations_rest_url": null,
+  "integrations_widgets_urls": [],
+  "jitsi": { "preferred_domain": "jitsi.invalid" },
+  "element_call": { "disable": true },
+  "default_theme": "custom-Busnes Light",
+  "setting_defaults": {
+    "UIFeature.voip": false,
+    "UIFeature.widgets": false,
+    "UIFeature.feedback": false,
+    "UIFeature.identityServer": false,
+    "UIFeature.registration": false,
+    "UIFeature.passwordReset": false,
+    "custom_themes": [
+      {
+        "name": "Busnes Light",
+        "is_dark": false,
+        "colors": {
+          "accent-color": "#bf3f18",
+          "primary-color": "#bf3f18",
+          "warning-color": "#b42318",
+          "sidebar-color": "#f2efe7",
+          "roomlist-background-color": "#f2efe7",
+          "roomlist-text-color": "#182326",
+          "roomlist-text-secondary-color": "#566461",
+          "roomlist-highlights-color": "#ffffff",
+          "roomlist-separator-color": "rgba(24, 35, 38, 0.22)",
+          "timeline-background-color": "#f8f6f0",
+          "timeline-text-color": "#182326",
+          "timeline-text-secondary-color": "#566461",
+          "timeline-highlights-color": "#fbf0ec"
+        }
+      },
+      {
+        "name": "Busnes Dark",
+        "is_dark": true,
+        "colors": {
+          "accent-color": "#f5865f",
+          "primary-color": "#f5865f",
+          "warning-color": "#ff8176",
+          "sidebar-color": "#1f2b2e",
+          "roomlist-background-color": "#1f2b2e",
+          "roomlist-text-color": "#f2efe8",
+          "roomlist-text-secondary-color": "#b3bcb8",
+          "roomlist-highlights-color": "#2b383a",
+          "roomlist-separator-color": "rgba(242, 239, 232, 0.24)",
+          "timeline-background-color": "#182326",
+          "timeline-text-color": "#f2efe8",
+          "timeline-text-secondary-color": "#b3bcb8",
+          "timeline-highlights-color": "#2b2622"
+        }
+      }
+    ]
+  }
+}

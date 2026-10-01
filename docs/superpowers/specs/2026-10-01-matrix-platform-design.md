@@ -35,9 +35,13 @@ it is a separate later project (a self-built Teams bot), not part of this design
    only users assigned to the app in KyIdentity get in. MAS's compatibility (legacy) login is
    disabled: only native OIDC clients (current Element Web, Element X).
 5. **Encryption — on by default.** New rooms are encrypted and cannot be made unencrypted
-   where policy requires it. **Gate:** the spike saw one plaintext `m.room.message` in an
-   encrypted room after compatibility sign-in; its cause must be explained and pinned by a
-   test before any "end-to-end encrypted (not independently audited)" label ships.
+   where policy requires it. The label is exactly "End-to-end encrypted in Element (not
+   independently audited)". **Finding (2026-10-01, resolved):** the spike's plaintext
+   `m.room.message` needs a sender that does not encrypt; Element, through compat or native
+   sign-in, stores only `m.room.encrypted`. Synapse stores what a client sends and does not
+   enforce `m.room.encryption`, so a non-encrypting client or script can post plaintext into an
+   encrypted room, and the server does not stop it. Docs say so plainly
+   (`docs/CHAT-PLATFORM-OPTIONS.md` section 7).
 6. **Offboarding — webhook plus sweep.** KyIdentity's signed directory webhook
    (`/api/sso/kyidentity/sync`) deactivate/delete locks the user through the MAS admin API
    (ends sessions, blocks sign-in); reactivation unlocks. A periodic sweep reconciles

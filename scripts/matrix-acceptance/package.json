@@ -1,0 +1,9 @@
+{
+  "name": "kymessages-matrix-acceptance",
+  "private": true,
+  "type": "module",
+  "description": "Drives Element through KyIdentity sign-in for scripts/matrix-acceptance.sh",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
