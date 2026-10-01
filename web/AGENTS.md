@@ -36,6 +36,7 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `Backup.tsx` renders a "Message backups" section (`MessagesBackup`) from `status.messages`, validated at the boundary like the people DTO, hidden when absent and a page-level error when malformed: opt-in explanation, own schedule select (Off by default), "Back up messages now", "Run message drill", last run, last receipt and local copies. It calls only `/api/backup/messages/*`.
 - `Backup.tsx` shows the server's same-origin `reauth_url` as a sign-in link when a backup change is refused for step-up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
+- `browserSupport.ts` detects whether the browser supports chat's required features (Ed25519 signing, IndexedDB, Web Locks, HTTPS) and validates against the declared browser list; it exports only WebCrypto feature detection with no imports from chat-core or ts-mls.
 
 ## Verification
 - Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium && npm run test:browser`. CI also installs browser OS dependencies.
