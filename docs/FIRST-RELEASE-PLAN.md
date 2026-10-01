@@ -47,7 +47,7 @@ prototype test is not production approval.
    deployment, integrated messaging UX and supported-browser declaration remain open. Keep the disposable
    fixture and experimental unaudited client out of deployment until their gates pass.
 5. **Operations and recovery — in progress.** The people capsule (accounts, access,
-   settings, no messaging rows) is scheduled daily by default; the messages capsule is opt-in,
+   settings, no messaging rows) runs daily by default once a key and destination are set; the messages capsule is opt-in,
    on its own schedule. `restore` invalidates restored grants; `restore-messages` then
    imports rooms and history with approved devices suspended (no token). An owner resumes
    a device by re-proving its key after a fresh sign-in; an admin can revoke a suspended
