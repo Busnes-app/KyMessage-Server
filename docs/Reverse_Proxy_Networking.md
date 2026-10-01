@@ -21,9 +21,12 @@ reach each other. Only the proxy is on both.
 
 1. Append `docker-compose.proxy.yml` to `COMPOSE_FILE` in `.env`, keeping existing
    overlays (build, LAN-DNS, static-IP). Never replace the chain with `-f`.
-2. Set `KY_APP_URL=https://<your host>` (the overlay refuses to start without it)
-   and `KY_TRUSTED_PROXIES=<proxy address>/32`, the proxy's pinned address on
-   `kymessages-net`.
+2. Set `KY_APP_URL=https://<your host>`, a durable `KY_SESSION_SECRET` (production
+   refuses to start without it) and `KY_TRUSTED_PROXIES=<proxy address>/32`, the
+   proxy's pinned address on `kymessages-net`. The overlay refuses to start without
+   the first two. `KY_TRUSTED_PROXIES` is exactly the proxy's own /32. Never the
+   network's subnet: it includes the gateway 10.91.0.1 and every container on the
+   network, and any of them could then forge client addresses.
 3. Bring KyMessages up first: it creates and owns the network. The overlay also
    sets `KY_ENV=production`.
 
@@ -93,8 +96,10 @@ server {
 ```
 
 Live messaging holds a WebSocket at `/api/messaging/rooms/{room}/live`; without the
-`Upgrade` headers it fails, and a short `proxy_read_timeout` drops idle rooms. Run
-nginx on `kymessages-net` at a pinned address and put that in `KY_TRUSTED_PROXIES`.
+`Upgrade` headers it fails. The server pings every 15 seconds; keep
+`proxy_read_timeout` above that. Run
+nginx on `kymessages-net` at a pinned address and put that address as a /32, never
+the subnet, in `KY_TRUSTED_PROXIES`.
 
 ## Verify
 

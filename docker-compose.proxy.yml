@@ -7,6 +7,7 @@ services:
     environment:
       - KY_ENV=production
       - KY_APP_URL=${KY_APP_URL:?Set KY_APP_URL to the public https origin}
+      - KY_SESSION_SECRET=${KY_SESSION_SECRET:?Set a durable KY_SESSION_SECRET for production}
 
 networks:
   default:
