@@ -53,10 +53,23 @@ func TestNetworkCheckTrustsForwardedHeadersOnlyFromTrustedPeer(t *testing.T) {
 func TestNetworkCheckIgnoresForwardedHeadersFromUntrustedPeer(t *testing.T) {
 	srv, st, cfg := setupSQLiteServer(t)
 	cfg.Server.AppURL = "http://localhost:8080"
+	cfg.Security.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.91.0.10/32")}
 	session := loginAs(t, srv, st, "net-admin2", "admin")
 	got := networkCheck(t, srv, session, "192.0.2.7:4444", "evil.example", map[string]string{"X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"})
 	want := map[string]any{"peer_ip": "192.0.2.7", "client_ip": "192.0.2.7", "forwarded_trusted": false, "forwarded_proto": "", "app_url_https": false, "host_matches": false}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestNetworkCheckHostMatchUsesSchemeDefaultPort(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	cfg.Server.AppURL = "https://chat.example.com"
+	session := loginAs(t, srv, st, "net-admin3", "admin")
+	for host, want := range map[string]bool{"chat.example.com:443": true, "CHAT.example.com": true, "chat.example.com:8443": false} {
+		got := networkCheck(t, srv, session, "192.0.2.7:4444", host, nil)
+		if got["host_matches"] != want {
+			t.Errorf("host %q: host_matches = %v, want %v", host, got["host_matches"], want)
+		}
 	}
 }

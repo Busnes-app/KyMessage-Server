@@ -25,6 +25,7 @@ export function NetworkCheck() {
     <p>Your address as seen by the server: {check.client_ip} (direct peer {check.peer_ip}).</p>
     <ul>
       {mark(check.forwarded_trusted, 'the request came through a trusted proxy', 'the direct peer is not in KY_TRUSTED_PROXIES; forwarded headers are ignored')}
+      {mark(check.forwarded_trusted && check.forwarded_proto === 'https', 'the proxy reports https', 'no trusted X-Forwarded-Proto: https from the proxy')}
       {mark(check.app_url_https, 'KY_APP_URL is https', 'KY_APP_URL is not https')}
       {mark(check.host_matches, 'the request host matches KY_APP_URL', 'the request host does not match KY_APP_URL')}
     </ul></section>;

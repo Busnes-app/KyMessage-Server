@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,6 +25,25 @@ func (s *Server) handleNetworkCheck(w http.ResponseWriter, r *http.Request) {
 		"forwarded_trusted": trusted,
 		"forwarded_proto":   proto,
 		"app_url_https":     err == nil && strings.EqualFold(app.Scheme, "https"),
-		"host_matches":      err == nil && strings.EqualFold(r.Host, app.Host),
+		"host_matches":      err == nil && hostMatches(r.Host, app),
 	})
+}
+
+// hostMatches compares host names case-insensitively and ports with the scheme's default
+// filled in, so "chat.example.com:443" matches an https KY_APP_URL.
+func hostMatches(reqHost string, app *url.URL) bool {
+	host, port, err := net.SplitHostPort(reqHost)
+	if err != nil {
+		host, port = strings.Trim(reqHost, "[]"), ""
+	}
+	def := func(p string) string {
+		if p != "" {
+			return p
+		}
+		if strings.EqualFold(app.Scheme, "https") {
+			return "443"
+		}
+		return "80"
+	}
+	return strings.EqualFold(host, app.Hostname()) && def(port) == def(app.Port())
 }

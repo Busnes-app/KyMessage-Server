@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"github.com/Busnes-app/ky_server_base/internal/auth"
@@ -148,5 +149,24 @@ func TestParseTrustedProxiesRejectsGarbage(t *testing.T) {
 	}
 	if len(got) != 3 || got[0].String() != "192.0.2.1/32" || got[1].String() != "10.0.0.0/8" || got[2].String() != "10.0.0.1/32" {
 		t.Errorf("parsed %v, want [192.0.2.1/32 10.0.0.0/8 10.0.0.1/32]", got)
+	}
+}
+
+func TestTrustedPeer(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.91.0.10/32")}
+	for name, tc := range map[string]struct {
+		remote string
+		want   bool
+	}{
+		"trusted":    {"10.91.0.10:1", true},
+		"untrusted":  {"192.0.2.7:1", false},
+		"v4 mapped":  {"[::ffff:10.91.0.10]:1", true},
+		"unparsable": {"not-an-address", false},
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = tc.remote
+		if got := auth.TrustedPeer(r, trusted); got != tc.want {
+			t.Errorf("%s: got %v want %v", name, got, tc.want)
+		}
 	}
 }

@@ -15,7 +15,7 @@ it('passes a correctly proxied request', async () => {
 it('warns on an untrusted proxy, plain HTTP and a host mismatch', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({...ok, forwarded_trusted: false, forwarded_proto: '', app_url_https: false, host_matches: false})));
   render(<NetworkCheck />);
-  expect(await screen.findAllByText(/^Warn:/)).toHaveLength(3);
+  expect(await screen.findAllByText(/^Warn:/)).toHaveLength(4);
 });
 it('rejects a malformed response', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({peer_ip: 1})));
