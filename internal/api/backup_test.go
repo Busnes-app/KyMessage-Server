@@ -946,8 +946,12 @@ func TestMessagesScheduleIsIndependentAndOffByDefault(t *testing.T) {
 	if after["interval_sec"] != before["interval_sec"] {
 		t.Errorf("people interval moved: %v -> %v", before["interval_sec"], after["interval_sec"])
 	}
-	if len(auditRows(t, st, "admin.backup_schedule")) == 0 {
-		t.Error("schedule change not audited")
+	rows := auditRows(t, st, "admin.backup_schedule")
+	if len(rows) != 1 {
+		t.Fatalf("messages schedule audit rows: %d", len(rows))
+	}
+	if rows[0].Resource != "messages" || rows[0].Details != "interval_sec=3600" {
+		t.Errorf("messages schedule audit: %+v", *rows[0])
 	}
 }
 
