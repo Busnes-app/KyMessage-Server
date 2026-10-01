@@ -186,6 +186,10 @@ button:disabled, .btn:disabled {
   cursor: not-allowed;
 }
 
+a.btn {
+  text-decoration: none;
+}
+
 .btn-secondary {
   background: var(--panel-hover);
   color: var(--ink-strong);

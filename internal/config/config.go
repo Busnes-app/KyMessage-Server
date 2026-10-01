@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/keyfile"
+	"github.com/Busnes-app/ky_server_base/internal/matrixinit"
 )
 
 // Config encapsulates all runtime configuration for KyMessages.
@@ -23,6 +24,15 @@ type Config struct {
 	SCIM     SCIMConfig     `json:"scim"`
 	Backup   BackupConfig   `json:"backup"`
 	Captcha  CaptchaConfig  `json:"captcha"`
+	Matrix   MatrixConfig   `json:"matrix"`
+}
+
+// MatrixConfig locates the optional Matrix stack: all three set, or none. Hosts are https
+// origins with no trailing slash.
+type MatrixConfig struct {
+	ServerName string `json:"server_name"`
+	Host       string `json:"host"`
+	ChatHost   string `json:"chat_host"`
 }
 
 // ServerConfig defines HTTP and network settings.
@@ -174,6 +184,11 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("KY_TRUSTED_PROXIES: %w", err)
 	}
 
+	matrix, err := matrixFromEnv()
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Host:         host,
@@ -227,6 +242,7 @@ func LoadFromEnv() (*Config, error) {
 			Provider:      getEnv("KY_CAPTCHA_PROVIDER", "pow"),
 			DifficultyPoW: getEnvInt("KY_CAPTCHA_POW_DIFFICULTY", 50000),
 		},
+		Matrix: matrix,
 	}
 	// Login verifies only proof-of-work. Accepting another name would silently disable it.
 	if p := cfg.Captcha.Provider; p != "pow" && p != "none" {
@@ -234,6 +250,33 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// matrixFromEnv validates like matrix-init. A partial block fails: serving half of it would
+// send members to a homeserver nobody configured.
+func matrixFromEnv() (MatrixConfig, error) {
+	m := MatrixConfig{
+		ServerName: getEnv("KY_MATRIX_SERVER_NAME", ""),
+		Host:       getEnv("KY_MATRIX_HOST", ""),
+		ChatHost:   getEnv("KY_MATRIX_CHAT_HOST", ""),
+	}
+	if m == (MatrixConfig{}) {
+		return m, nil
+	}
+	if err := matrixinit.ValidServerName(m.ServerName); err != nil {
+		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_SERVER_NAME: %w", err)
+	}
+	for _, h := range []struct {
+		env string
+		v   *string
+	}{{"KY_MATRIX_HOST", &m.Host}, {"KY_MATRIX_CHAT_HOST", &m.ChatHost}} {
+		o, err := matrixinit.Origin(*h.v)
+		if err != nil {
+			return MatrixConfig{}, fmt.Errorf("%s: %w", h.env, err)
+		}
+		*h.v = o
+	}
+	return m, nil
 }
 
 // rejectLegacyEnvironment refuses the pre-rename KY_KYSIGNON_* names: ignoring a set one

@@ -106,7 +106,7 @@ export const App: React.FC = () => {
       />
 
       <main className="app-main">
-        {!isAdmin && <MemberHome user={user} onLogout={handleLogout} />}
+        {!isAdmin && <MemberHome user={user} chatUrl={typeof settings?.chat_url === 'string' ? settings.chat_url : ''} onLogout={handleLogout} />}
         {isAdmin && activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}
         {isAdmin && activeTab === 'backup' && <Backup />}

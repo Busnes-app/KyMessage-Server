@@ -39,6 +39,7 @@ lint:
 	@test -z "$$(gofmt -l $$(git ls-files '*.go'))" || { echo "gofmt needed:"; gofmt -l $$(git ls-files '*.go'); exit 1; }
 	@go vet ./...
 	@bash scripts/check-compose-proxy.sh
+	@bash scripts/check-compose-matrix.sh
 
 smoke: build
 	@./scripts/smoke-test.sh

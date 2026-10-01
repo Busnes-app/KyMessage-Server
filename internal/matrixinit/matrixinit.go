@@ -89,21 +89,18 @@ func InputFromEnv(getenv func(string) string) (Input, error) {
 
 // validate returns in with host origins normalised (no trailing slash).
 func (in Input) validate() (Input, error) {
-	if len(in.ServerName) > 253 || !serverNameRE.MatchString(in.ServerName) {
-		return Input{}, fmt.Errorf("server name %q is not a lowercase DNS name", in.ServerName)
+	if err := ValidServerName(in.ServerName); err != nil {
+		return Input{}, err
 	}
 	for _, h := range []struct {
 		name string
 		v    *string
 	}{{"matrix host", &in.MatrixHost}, {"auth host", &in.AuthHost}, {"chat host", &in.ChatHost}, {"admin host", &in.AdminHost}} {
-		u, err := httpsURL(*h.v)
+		o, err := Origin(*h.v)
 		if err != nil {
 			return Input{}, fmt.Errorf("%s: %w", h.name, err)
 		}
-		if u.Path != "" && u.Path != "/" {
-			return Input{}, fmt.Errorf("%s %q must have no path", h.name, *h.v)
-		}
-		*h.v = "https://" + u.Host
+		*h.v = o
 	}
 	// The issuer may carry a path and must match what KyIdentity advertises byte for byte.
 	if _, err := httpsURL(in.Issuer); err != nil {
@@ -115,6 +112,26 @@ func (in Input) validate() (Input, error) {
 		}
 	}
 	return in, nil
+}
+
+// ValidServerName refuses anything but a lowercase DNS name of at least two labels.
+func ValidServerName(name string) error {
+	if len(name) > 253 || !serverNameRE.MatchString(name) {
+		return fmt.Errorf("server name %q is not a lowercase DNS name", name)
+	}
+	return nil
+}
+
+// Origin returns raw as "https://host[:port]", refusing other schemes and any path.
+func Origin(raw string) (string, error) {
+	u, err := httpsURL(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", fmt.Errorf("%q must have no path", raw)
+	}
+	return "https://" + u.Host, nil
 }
 
 func httpsURL(raw string) (*url.URL, error) {
@@ -136,6 +153,7 @@ var secretSpecs = []struct {
 }{
 	{"synapse_db_password", hexSecret},
 	{"mas_db_password", hexSecret},
+	{"postgres_password", hexSecret}, // superuser; a Compose secret, never rendered
 	{"synapse_macaroon_secret_key", hexSecret},
 	{"synapse_form_secret", hexSecret},
 	{"mas_synapse_shared_secret", hexSecret},

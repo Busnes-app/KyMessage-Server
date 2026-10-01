@@ -287,8 +287,13 @@ func TestElementAndPostgresConfigs(t *testing.T) {
 			t.Errorf("init.sql lacks %q", want)
 		}
 	}
-	if string(spw) == string(mpw) {
-		t.Error("synapse and mas share a database password")
+	// The Postgres superuser password reaches the container only as a Compose secret file.
+	ppw, err := os.ReadFile(filepath.Join(dir, "secrets", "postgres_password"))
+	if err != nil || len(ppw) == 0 {
+		t.Fatalf("postgres superuser password: %v", err)
+	}
+	if string(spw) == string(mpw) || string(ppw) == string(spw) || string(ppw) == string(mpw) {
+		t.Error("database passwords are shared")
 	}
 }
 

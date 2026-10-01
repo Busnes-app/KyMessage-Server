@@ -7,7 +7,7 @@ React 19 + TypeScript + Vite PWA frontend embedding KySecurity color tokens (Bus
 Owns user interface components, service worker caching, PWA installation manifests, and frontend theme switching.
 
 ## Local Contracts
-- `MemberHome.tsx` is the non-admin page: account name, "Chat isn't available yet." notice and sign out. Non-admins get `AppHeader` (theme switcher, sign out) with no navigation; tested by `MemberHome.test.tsx` and `AppHeader.test.tsx`.
+- `MemberHome.tsx` is the non-admin page: account name, an "Open chat" link (new tab, `rel="noopener noreferrer"`) to `/api/settings` `chat_url` when set, otherwise the "Chat isn't available yet." notice, and sign out. Non-admins get `AppHeader` (theme switcher, sign out) with no navigation; tested by `MemberHome.test.tsx` and `AppHeader.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
   shell is the operator console and states that chat (Matrix) is not set up yet;
   do not imply a successful backup/crypto review from static dashboard text.

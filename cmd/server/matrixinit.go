@@ -50,7 +50,7 @@ func runMatrixInit(args []string, getenv func(string) string, w io.Writer) error
 	fmt.Fprintf(w, "Register the MAS client in KyIdentity and assign the users who may chat:\n")
 	fmt.Fprintf(w, "  client type   %s\n  client ID     the KY_MATRIX_MAS_CLIENT_ID value\n", r.ClientType)
 	fmt.Fprintf(w, "  redirect URI  %s\n  scopes        %s\n\n", r.RedirectURI, strings.Join(r.Scopes, " "))
-	fmt.Fprintf(w, "Synapse and MAS run as the owner of %s. Set:\n", res.Dir)
+	fmt.Fprintf(w, "Postgres, Synapse and MAS run as the owner of %s. Set:\n", res.Dir)
 	fmt.Fprintf(w, "  KY_MATRIX_UID=%d\n  KY_MATRIX_GID=%d\n", os.Getuid(), os.Getgid())
 	if os.Getuid() == 0 {
 		fmt.Fprintln(w, "Warning: running as root makes the Matrix containers run as root; run matrix-init as an unprivileged user.")

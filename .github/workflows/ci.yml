@@ -38,6 +38,9 @@ jobs:
       - name: Proxy compose overlay
         run: bash scripts/check-compose-proxy.sh
 
+      - name: Matrix compose overlay
+        run: bash scripts/check-compose-matrix.sh
+
       - name: go.mod is tidy
         run: |
           go mod tidy

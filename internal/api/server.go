@@ -283,6 +283,9 @@ func (s *Server) routes() {
 		s.writeError(w, http.StatusNotFound, "Unknown API endpoint")
 	})
 
+	// Matrix client discovery lives outside /api/, so it must precede the SPA catch-all.
+	s.mux.HandleFunc("GET /.well-known/matrix/client", s.handleMatrixClientWellKnown)
+
 	// Embedded React PWA Frontend
 	s.mux.Handle("/", web.Handler())
 }

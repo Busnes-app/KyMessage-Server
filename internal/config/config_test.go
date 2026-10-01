@@ -215,3 +215,41 @@ func TestEmptyLegacyKySignOnEnvironmentIsIgnored(t *testing.T) {
 		t.Fatalf("KY_KYIDENTITY_* not loaded: %+v", s)
 	}
 }
+
+// Matrix is optional, but a partial or malformed block must stop startup rather than serve a
+// .well-known that points members at the wrong homeserver.
+func TestMatrixConfigFromEnv(t *testing.T) {
+	set := func(name, host, chat string) {
+		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_MATRIX_SERVER_NAME", name)
+		t.Setenv("KY_MATRIX_HOST", host)
+		t.Setenv("KY_MATRIX_CHAT_HOST", chat)
+	}
+	set("", "", "")
+	cfg, err := config.LoadFromEnv()
+	if err != nil || cfg.Matrix != (config.MatrixConfig{}) {
+		t.Fatalf("unset: %+v, %v", cfg, err)
+	}
+	set("example.com", "https://matrix.example.com/", "https://chat.example.com")
+	cfg, err = config.LoadFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com"}); cfg.Matrix != want {
+		t.Fatalf("got %+v want %+v", cfg.Matrix, want)
+	}
+	for _, tc := range []struct{ name, host, chat, wantVar string }{
+		{"example.com", "https://matrix.example.com", "", "KY_MATRIX_CHAT_HOST"},
+		{"", "https://matrix.example.com", "https://chat.example.com", "KY_MATRIX_SERVER_NAME"},
+		{"example.com", "http://matrix.example.com", "https://chat.example.com", "KY_MATRIX_HOST"},
+		{"example.com", "https://matrix.example.com/x", "https://chat.example.com", "KY_MATRIX_HOST"},
+		{"example.com", "https://matrix.example.com", "https://chat.example.com?a", "KY_MATRIX_CHAT_HOST"},
+		{"Example.com", "https://matrix.example.com", "https://chat.example.com", "KY_MATRIX_SERVER_NAME"},
+		{"localhost", "https://matrix.example.com", "https://chat.example.com", "KY_MATRIX_SERVER_NAME"},
+	} {
+		set(tc.name, tc.host, tc.chat)
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), tc.wantVar) {
+			t.Errorf("%+v: err = %v, want one naming %s", tc, err, tc.wantVar)
+		}
+	}
+}

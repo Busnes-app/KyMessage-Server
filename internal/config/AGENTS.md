@@ -22,6 +22,8 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 
 - Suite sign-in reads `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` and `KY_KYIDENTITY_HMAC_SECRET`. Any nonempty `KY_KYSIGNON_*` fails startup naming its replacement, so a secret under the old name cannot leave sign-in silently unconfigured.
 
+- `KY_MATRIX_SERVER_NAME`, `KY_MATRIX_HOST` and `KY_MATRIX_CHAT_HOST` fill `Config.Matrix`: all unset (Matrix off) or all set, validated with `matrixinit.ValidServerName`/`matrixinit.Origin` (https origin, no path); a partial or malformed set fails startup. The server reads no other Matrix variable and no Matrix secret.
+
 - `KY_CAPTCHA_PROVIDER` is `pow` (default) or `none`; anything else fails startup, because login verifies nothing else. `KY_CAPTCHA_POW_DIFFICULTY` defaults to 50000.
 
 ## Verification

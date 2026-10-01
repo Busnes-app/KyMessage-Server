@@ -119,11 +119,16 @@ When the user requests a durable behavior change, record it here or in the relev
 - `docker-compose.proxy.yml` names the network `kymessages-net`, publishes no port and sets
   `KY_ENV=production`; `scripts/check-compose-proxy.sh` checks it, including with the static-IP
   overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
+- `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
+  `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
+  as `KY_MATRIX_UID:KY_MATRIX_GID`, and it hands the app the `KY_MATRIX_*` locations.
+  `scripts/check-compose-matrix.sh` checks it with the proxy and static-IP overlays. MAS's
+  distroless image has no HTTP client, so Synapse's healthcheck also probes `mas:8081/health`.
 
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`
+- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh` and `scripts/check-compose-matrix.sh`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
@@ -138,7 +143,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
 
 `make lint` and `make ci` need docker compose v2.24 or later and jq for
-`scripts/check-compose-proxy.sh`. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
+the compose checks. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
 ## Child DOX Index
 
