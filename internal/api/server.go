@@ -273,6 +273,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/backup/messages/schedule", s.requireFreshAdmin(s.handleSetMessagesSchedule))
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
 	s.mux.HandleFunc("GET /api/admin/messaging/usage", s.requireAdmin(s.handleMessagingUsage))
+	s.mux.HandleFunc("GET /api/admin/network-check", s.requireAdmin(s.handleNetworkCheck))
 	s.mux.HandleFunc("GET /api/admin/messaging/devices", s.requireAdmin(s.handleSuspendedDevices))
 	s.mux.HandleFunc("POST /api/admin/messaging/devices/{device}/revoke", s.tracked(s.requireFreshAdmin(s.handleRevokeSuspendedDevice)))
 
