@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -291,5 +292,38 @@ func TestDeleteSettingIsIdempotent(t *testing.T) {
 	_ = st.Settings().DeleteSetting(ctx, "k")
 	if _, err := st.Settings().GetSetting(ctx, "k"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestDirectoryStatuses(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	mk := func(sub, status string, rev int64) *store.User {
+		u := &store.User{ID: "usr_" + sub, Username: sub, Role: "user", Status: status, SSOProvider: "kyidentity", SSOSubject: sub}
+		if _, err := st.Users().CreateDirectoryUser(ctx, u, store.DirectoryEvent{ID: "c-" + sub, Revision: rev}); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	mk("on", "active", 1)
+	mk("off", "inactive", 1)
+	gone := mk("gone", "active", 1)
+	if _, err := st.Users().DeleteDirectoryUser(ctx, gone, store.DirectoryEvent{ID: "d-gone", Revision: 2}); err != nil {
+		t.Fatal(err)
+	}
+	// A suite sign-in with no webhook yet: a user row and no order row.
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_oidc", Username: "oidc", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "oidc"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_local", Username: "local", Role: "user", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"on": "active", "off": "inactive", "gone": "deleted", "oidc": "active"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
