@@ -43,6 +43,9 @@ func main() {
 		case "restore":
 			runRestore(os.Args[2:])
 			return
+		case "matrix-init":
+			runMatrixInitCmd(os.Args[2:])
+			return
 		case "version":
 			fmt.Printf("kymessages %s\n", appVersion)
 			return

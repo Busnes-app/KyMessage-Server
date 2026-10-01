@@ -8,6 +8,7 @@ ky_server_base
 # Data & Backups
 /data/
 /backups/
+/matrix/
 *.db
 *.db-wal
 *.db-shm

@@ -1,0 +1,12 @@
+{
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": {{ q .In.MatrixHost }},
+      "server_name": {{ q .In.ServerName }}
+    }
+  },
+  "permalink_prefix": {{ q .In.ChatHost }},
+  "disable_custom_urls": true,
+  "disable_guests": true,
+  "brand": "KyMessages"
+}
