@@ -19,6 +19,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -118,8 +119,16 @@ func runServer() {
 	go backupLoop(ctx, cfg, st, backupDone)
 	maintenanceDone := make(chan struct{})
 	go maintenanceLoop(ctx, st, maintenanceDone)
+	matrixDone := make(chan struct{})
+	if cfg.Matrix.Enabled() {
+		syncer := matrixsync.New(matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret), st, cfg.Matrix.ServerName)
+		srv.OnDirectoryChange(syncer.Wake)
+		go syncer.Run(ctx, 5*time.Minute, matrixDone)
+	} else {
+		close(matrixDone)
+	}
 	backgroundDone := make(chan struct{})
-	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone }()
+	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone; <-matrixDone }()
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	httpServer := &http.Server{
@@ -156,7 +165,8 @@ func runServer() {
 	log.Println("[KYMESSAGES] Server stopped")
 }
 
-// waitForBackupWork blocks until both background loops and every detached handler have finished,
+// waitForBackupWork blocks until the background loops (backup scheduler, maintenance sweep,
+// Matrix offboarding sweep) and every detached handler have finished,
 // or until ctx expires. Backup work ignores cancellation once bytes are moving: the scheduler's
 // run, and the pair, pin-key and deposit handlers, all detach from their caller. They are waited
 // out before the store closes, or they write into a closed store -- a key pinned on disk with no
@@ -176,7 +186,7 @@ func waitForBackupWork(ctx context.Context, backgroundDone <-chan struct{}, wait
 	select {
 	case <-backgroundDone:
 	default:
-		log.Println("[KYMESSAGES] waiting for scheduled backup or pairing sweep in flight...")
+		log.Println("[KYMESSAGES] waiting for scheduled backup, pairing sweep or Matrix offboarding sweep in flight...")
 		select {
 		case <-backgroundDone:
 		case <-ctx.Done():

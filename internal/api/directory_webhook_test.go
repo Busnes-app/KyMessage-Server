@@ -52,6 +52,41 @@ func TestDirectoryWebhookRouteSpeaksKyIdentity(t *testing.T) {
 	}
 }
 
+func TestDirectoryWebhookWakesOffboarding(t *testing.T) {
+	_, st, cfg := setupTestServer(t)
+	cfg.SSO.KyIdentityHMACSecret = "4f1c2a9e8b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e"
+	srv := api.NewServer(cfg, st)
+	woke := make(chan struct{}, 10)
+	srv.OnDirectoryChange(func() { woke <- struct{}{} })
+	body := []byte(`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"id":"kid-5","externalId":"kid-5","userName":"five","roles":[],"active":false,"meta":{"resourceType":"User","version":"W/\"2\""}}`)
+	post := func(sign bool) int {
+		req := httptest.NewRequest("POST", "/api/sso/kyidentity/sync", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/scim+json")
+		if sign {
+			h, err := syncauth.Sign([]byte(cfg.SSO.KyIdentityHMACSecret), time.Now(), "user.updated", uuid.NewString(), body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.Apply(req)
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := post(true); code != http.StatusOK {
+		t.Fatalf("signed delivery: %d", code)
+	}
+	if len(woke) != 1 {
+		t.Fatalf("wakes after one acknowledged event: %d, want 1", len(woke))
+	}
+	if code := post(false); code != http.StatusUnauthorized {
+		t.Fatalf("unsigned delivery: %d", code)
+	}
+	if len(woke) != 1 {
+		t.Fatalf("a refused delivery woke the sweep: %d wakes", len(woke))
+	}
+}
+
 // A sender still configured with a retired or mistyped API path must never be acknowledged:
 // the SPA fallback answered 200 with HTML, so a signed deactivation was "delivered" while the
 // account and its sessions stayed live. Unknown /api/ paths now fail with a JSON 404.

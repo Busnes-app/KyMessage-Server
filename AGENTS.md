@@ -190,7 +190,7 @@ only where it returns, between runs, and `runServer` cancels and waits on that c
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
 the pair, pin-key, unpair and deposit handlers, which detach from their requests and can outlive
 `Shutdown`. `maintenanceLoop` sweeps expired device pairings every minute with a 30-second
-deadline; its completion joins the backup scheduler's before the same shutdown drain finishes. Nothing writes
+deadline; its completion and the Matrix offboarding syncer's (`matrixsync.Syncer.Run`, started only when `cfg.Matrix.Enabled()`, woken by directory webhooks) join the backup scheduler's before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
 which delivers once and would leave the second wait unbounded; the HTTP drain is `shutdownTimeout`

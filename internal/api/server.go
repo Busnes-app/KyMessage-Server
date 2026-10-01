@@ -31,16 +31,17 @@ type recoveryClient interface {
 }
 
 type Server struct {
-	config     *config.Config
-	store      store.Store
-	sessions   *auth.SessionManager
-	pairing    *devices.PairingService
-	kyidentity *sso.KyIdentityClient
-	oidc       *sso.GenericOIDCClient
-	saml       *sso.SAMLServiceProvider
-	scim       *scim.Server
-	recovery   recoveryClient
-	mux        *http.ServeMux
+	config           *config.Config
+	store            store.Store
+	sessions         *auth.SessionManager
+	pairing          *devices.PairingService
+	kyidentity       *sso.KyIdentityClient
+	directoryChanged func()
+	oidc             *sso.GenericOIDCClient
+	saml             *sso.SAMLServiceProvider
+	scim             *scim.Server
+	recovery         recoveryClient
+	mux              *http.ServeMux
 	// clientAttempts throttles anonymous callers by address; accountAttempts throttles by
 	// user ID. Separate maps, so anonymous traffic filling one cannot evict the other.
 	clientAttempts  attemptLimiter
@@ -142,6 +143,10 @@ type attemptLimiter struct {
 // is therefore equally likely to go. No key carries caller-supplied bytes, and IPv6 clients
 // share one key per /64, so filling the map costs an attacker a distinct IPv4 address or /64.
 const attemptsCap = 10000
+
+// OnDirectoryChange registers fn to run after each applied-or-acknowledged directory event.
+// fn must not block: the webhook's sender is waiting.
+func (s *Server) OnDirectoryChange(fn func()) { s.directoryChanged = fn }
 
 func NewServer(cfg *config.Config, st store.Store) *Server {
 	sessions := auth.NewSessionManager(st, cfg.Security)
