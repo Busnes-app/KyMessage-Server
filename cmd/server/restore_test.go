@@ -224,3 +224,30 @@ func TestRestoreChecksTheTargetParent(t *testing.T) {
 		t.Fatalf("sticky world-writable parent refused: %v", err)
 	}
 }
+
+func TestRestoreParentRefusal(t *testing.T) {
+	me := uint32(os.Getuid())
+	other := me + 1
+	if other == 0 {
+		other = 2
+	}
+	cases := []struct {
+		uid  uint32
+		mode os.FileMode
+		want string
+	}{
+		{me, os.ModeDir | 0o700, ""},
+		{0, os.ModeDir | 0o755, ""},
+		{0, os.ModeDir | os.ModeSticky | 0o777, ""},
+		{me, os.ModeDir | os.ModeSticky | 0o777, ""},
+		{me, os.ModeDir | 0o770, "sticky"},
+		{other, os.ModeDir | 0o755, "owned by uid"},
+		{other, os.ModeDir | os.ModeSticky | 0o777, "owned by uid"},
+	}
+	for _, c := range cases {
+		err := parentRefusal("/p", c.uid, c.mode)
+		if c.want == "" && err != nil || c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("uid %d mode %v: got %v, want %q", c.uid, c.mode, err, c.want)
+		}
+	}
+}

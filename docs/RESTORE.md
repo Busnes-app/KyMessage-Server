@@ -53,8 +53,9 @@ SQLite copies and database rollbacks bypass the preparation below and are unsupp
    shares. Paste one `ky2-...` share per line, then Ctrl-D; do not supply them as flags.
    The library verifies the capsule and key binding and refuses a nonempty target.
    The target's parent must already exist. The command refuses a target that is a
-   symlink, or whose parent is writable by group or others without the sticky bit
-   (`/tmp` is fine), because another user could swap the target mid-restore.
+   symlink, or whose parent is owned by anyone but you or root, or is writable by group
+   or others without the sticky bit (`/tmp` is fine), because another user could swap
+   the target mid-restore.
 4. Compare the printed authenticated manifest's capsule ID, service, creation time,
    recovery key ID and payload hash with your trusted records. Payload hash and the
    downloaded container's SHA-256 are different checks. Preserve the receipt.

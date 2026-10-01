@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
@@ -61,7 +62,7 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 }
 
 // checkRestoreTarget refuses targets another user could swap: a symlink, or a directory
-// whose parent others can write without the sticky bit.
+// whose parent is not ours or root's, or that others can write without the sticky bit.
 func checkRestoreTarget(target string) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -77,7 +78,16 @@ func checkRestoreTarget(target string) error {
 	if err != nil {
 		return err
 	}
-	if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
+	return parentRefusal(parent, info.Sys().(*syscall.Stat_t).Uid, info.Mode())
+}
+
+// parentRefusal allows a parent owned by us or root that others cannot write, or can only
+// under the sticky bit.
+func parentRefusal(parent string, uid uint32, mode os.FileMode) error {
+	if uid != 0 && uid != uint32(os.Getuid()) {
+		return fmt.Errorf("restore target parent %s is owned by uid %d, not you or root, so its owner could replace the target; restore under a directory you or root own", parent, uid)
+	}
+	if mode.Perm()&0o022 != 0 && mode&os.ModeSticky == 0 {
 		return fmt.Errorf("restore target parent %s is writable by group or others without the sticky bit, so another user could replace the target; restore under a directory only you can write", parent)
 	}
 	return nil
