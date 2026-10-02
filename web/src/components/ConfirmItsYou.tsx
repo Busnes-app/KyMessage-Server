@@ -28,6 +28,7 @@ export function ConfirmItsYou() {
   if (!pending) return null;
   return (
     <dialog ref={dialog} className="modal-window" aria-labelledby="confirm-title"
+      onClose={() => answer(false)}
       onCancel={(e) => { e.preventDefault(); answer(false); }}>
       <h3 id="confirm-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', marginBottom: '12px' }}>
         <ShieldCheck size={20} style={{ color: 'var(--accent)' }} />

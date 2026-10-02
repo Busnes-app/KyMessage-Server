@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
@@ -237,6 +238,27 @@ func TestMatrixSessionsListed(t *testing.T) {
 	for _, id := range []string{"not-a-ulid", "..%2F..%2Fusers", strings.ToLower(uAlice)} {
 		if w := adminDo(t, srv, admin, "GET", "/api/admin/matrix/users/"+id+"/sessions", nil); w.Code != http.StatusBadRequest {
 			t.Errorf("id %q: %d", id, w.Code)
+		}
+	}
+}
+
+func TestMatrixSessionsClipLongDeviceAndClient(t *testing.T) {
+	srv, st, _, f := setupMatrixServer(t)
+	admin := loginAs(t, srv, st, "root", "admin")
+	long := strings.Repeat("é", 300)
+	f.sessions[uAlice] = []matrixsync.Session{{Kind: matrixsync.OAuth2Session, ID: sOAuth, UserID: uAlice, Device: long, Client: long}}
+	var got struct {
+		Sessions []struct{ Device, Client string }
+	}
+	got = decode[struct {
+		Sessions []struct{ Device, Client string }
+	}](t, adminDo(t, srv, admin, "GET", "/api/admin/matrix/users/"+uAlice+"/sessions", nil))
+	if len(got.Sessions) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	for _, v := range []string{got.Sessions[0].Device, got.Sessions[0].Client} {
+		if len(v) > 200 || !utf8.ValidString(v) || v == "" {
+			t.Errorf("not clipped to 200 valid bytes: %d bytes", len(v))
 		}
 	}
 }

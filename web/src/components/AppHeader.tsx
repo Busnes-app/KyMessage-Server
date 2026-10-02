@@ -15,7 +15,7 @@ const adminItems = [
   { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: MessageSquare },
   { id: 'scim', label: 'Directory & SCIM', icon: Users },
-  { id: 'backup', label: 'Backup & recovery', icon: Archive, MessageSquare },
+  { id: 'backup', label: 'Backup & recovery', icon: Archive },
   { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
 ];
 // Admin pages are refused server-side for non-admins; navigation only mirrors that.

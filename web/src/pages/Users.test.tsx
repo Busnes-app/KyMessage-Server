@@ -136,4 +136,37 @@ describe('Users', () => {
     expect((await within(panel).findByRole('alert')).textContent).toContain("Confirm it's you");
     expect(posts).toHaveLength(1);
   });
+
+  it('lists a session whose device id is as long as the server allows', async () => {
+    const device = 'D'.repeat(200);
+    serve((url) => (url.endsWith('/sessions') ? json({ sessions: [{ ...SESSIONS.sessions[1], device }] }) : users(url)));
+    render(<Users />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sessions for alice' }));
+    expect(await screen.findByText(device)).toBeTruthy();
+  });
+
+  it('keeps Close disabled while ending, and stops the loop once the panel is gone', async () => {
+    const posts: string[] = [];
+    let release: (r: Response) => void = () => {};
+    serve((url, init) => {
+      if (url.endsWith('/sessions')) return json(SESSIONS);
+      if (init?.method === 'POST') { posts.push(url); return undefined; }
+      return users(url);
+    });
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/sessions')) return json(SESSIONS);
+      if (init?.method === 'POST') { posts.push(url); return new Promise<Response>((r) => { release = r; }); }
+      return users(url)!;
+    });
+    const { unmount } = render(<Users />);
+    const panel = await openSessions();
+    fireEvent.click(within(panel).getByRole('button', { name: 'End all sessions' }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((within(panel).getByRole('button', { name: 'Close sessions' }) as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+    release(json({ outcome: 'ended', mxid: '@alice:example.com' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(posts).toHaveLength(1);
+  });
 });

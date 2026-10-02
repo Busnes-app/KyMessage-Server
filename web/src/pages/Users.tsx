@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Loader2, LogOut, Search, X } from 'lucide-react';
 import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
 import { arr, count, iso, obj, oneOf, str } from '../dto';
@@ -43,6 +43,8 @@ const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ use
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const gone = useRef(false);
+  useEffect(() => { gone.current = false; return () => { gone.current = true; }; }, []);
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +66,7 @@ const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ use
     let ended = 0;
     try {
       for (const s of targets) {
+        if (gone.current) return;
         const res = await adminFetch(`/api/admin/matrix/sessions/${s.kind}/${encodeURIComponent(s.id)}/finish`, { method: 'POST' });
         if (res.ok) { ended++; continue; }
         failures.push(await errorMessage(res, 'Could not end the session'));
@@ -72,6 +75,7 @@ const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ use
     } catch (err) {
       failures.push(errorText(err, 'Could not end the session'));
     }
+    if (gone.current) return;
     if (ended) setMessage(`Ended ${ended} session${ended === 1 ? '' : 's'}.`);
     if (failures.length) setError(failures.join(' '));
     setBusy(false);
@@ -87,7 +91,7 @@ const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ use
             {busy ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
             <span>End all sessions</span>
           </button>
-          <button type="button" className="btn-secondary" onClick={onClose} aria-label="Close sessions"><X size={14} /></button>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={onClose} aria-label="Close sessions"><X size={14} /></button>
         </div>
       </div>
       <p className="dr-hint">Ending a session signs that device out. The person can sign in again unless KyIdentity refuses them.</p>

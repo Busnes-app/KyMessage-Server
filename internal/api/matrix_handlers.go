@@ -171,14 +171,18 @@ func (s *Server) handleMatrixUserSessions(w http.ResponseWriter, r *http.Request
 	}
 	out := make([]sessionView, 0, len(sessions))
 	for _, x := range sessions {
-		client := x.Client
-		if len(client) > 200 {
-			client = strings.ToValidUTF8(client[:200], "")
-		}
-		out = append(out, sessionView{Kind: string(x.Kind), ID: x.ID, Device: x.Device, Client: client, IP: x.IP, CreatedAt: x.CreatedAt, LastActiveAt: x.LastActiveAt})
+		out = append(out, sessionView{Kind: string(x.Kind), ID: x.ID, Device: clip200(x.Device), Client: clip200(x.Client), IP: x.IP, CreatedAt: x.CreatedAt, LastActiveAt: x.LastActiveAt})
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+}
+
+// clip200 bounds a MAS-supplied label (device ids are client-chosen) to 200 bytes of valid UTF-8.
+func clip200(v string) string {
+	if len(v) <= 200 {
+		return v
+	}
+	return strings.ToValidUTF8(v[:200], "")
 }
 
 // handleMatrixSessionFinish ends one MAS session. It runs detached, so a dropped connection
