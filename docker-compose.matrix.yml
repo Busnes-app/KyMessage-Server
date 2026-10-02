@@ -53,10 +53,11 @@ services:
     volumes:
       - {<<: *matrix-ro, source: ./matrix/synapse, target: /matrix/synapse}
       - {<<: *matrix-ro, source: ./matrix/mas, target: /matrix/mas}
-      - {<<: *matrix-ro, source: ./matrix/element, target: /matrix/element}
-      # The one writable file under ./matrix: the console sets Element's "brand" in it, in place
-      # (same inode, so Element's own bind sees it). It belongs to KY_MATRIX_UID; the root app
-      # writes it through Docker's default CAP_DAC_OVERRIDE, as this service drops no capability.
+      # The one writable file under ./matrix, and all of ./matrix/element: the console sets
+      # Element's "brand" in it, in place (same inode, so Element's own bind sees it). It belongs
+      # to KY_MATRIX_UID; the root app writes it through Docker's default CAP_DAC_OVERRIDE, as
+      # this service drops no capability. Not nested in a read-only ./matrix/element bind: Docker
+      # cannot recreate a mountpoint inside one, which breaks `docker cp` from the app.
       - {type: bind, source: ./matrix/element/config.json, target: /matrix/element/config.json, read_only: false, bind: {create_host_path: false}}
       - {<<: *matrix-ro, source: ./matrix/postgres, target: /matrix/postgres}
       - {<<: *matrix-ro, source: ./matrix/secrets/synapse_db_password, target: /matrix/secrets/synapse_db_password}
@@ -162,8 +163,13 @@ services:
     environment:
       ELEMENT_WEB_PORT: "8080"
     volumes:
-      # The file only: its 0700 directory is closed to the image's nginx user.
-      - ./matrix/element/config.json:/app/config.json:ro
+      # The file only: its 0700 directory is closed to the image's nginx user. nginx serves
+      # /config.json from /tmp/element-web-config, which the image's start script fills with a
+      # copy of /app/config.json: a copy never sees the console's in-place rename. So the file is
+      # bound there directly and the copying script masked (not a regular file, so skipped);
+      # the image's module loading, which that script also does, is unused.
+      - ./matrix/element/config.json:/tmp/element-web-config/config.json:ro
+      - /dev/null:/docker-entrypoint.d/18-load-element-modules.sh:ro
     depends_on:
       synapse: {condition: service_healthy}
     healthcheck:

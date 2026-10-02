@@ -1,5 +1,6 @@
 // usage: node e2e.mjs prove|refused|compat|noclaim|media|restored
 //        node e2e.mjs room|token|disabled|reread|reads USER
+//        node e2e.mjs title BRAND
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback, and the browser trusts only that proxy's key (SPKI pin, which Chromium
 // honours only with a user data dir, hence persistent contexts). Writes its findings to
@@ -438,7 +439,15 @@ async function restored() {
   out({ mxid, after });
 }
 
-const scenarios = { prove, refused, compat, noclaim, room, token, disabled, reread, reads, media, restored };
+// Element's tab title carries the brand the console set: each page load fetches config.json.
+async function title() {
+  const page = await launch('element');
+  await page.goto(`${CHAT}/#/login`);
+  await page.waitForFunction((brand) => document.title.includes(brand), user, { timeout: 30000 });
+  console.log(`  ok: Element's title is "${await page.title()}"`);
+}
+
+const scenarios = { prove, refused, compat, noclaim, room, token, disabled, reread, reads, media, restored, title };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

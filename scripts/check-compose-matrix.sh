@@ -43,6 +43,8 @@ for s in "${!image[@]}"; do
   jq -e '.environment // {} | to_entries | any(.key | test("PASSWORD|SECRET|KEY|TOKEN") and (endswith("_FILE") | not))' <<<"$svc" >/dev/null \
     && bad "$s has a secret in plain env"
   while IFS=$'\t' read -r type src target ro; do
+    # Element's config-copying start script, masked so nginx serves the live file.
+    if [ "$s/$type/$src/$target/$ro" = "element/bind//dev/null//docker-entrypoint.d/18-load-element-modules.sh/true" ]; then continue; fi
     case $type in
       volume) [ "$src" = "${named[$s]}" ] || bad "$s mounts volume $src" ;;
       bind)
@@ -52,6 +54,11 @@ for s in "${!image[@]}"; do
     esac
   done < <(jq -r '.volumes // [] | .[] | [.type, .source, .target, (.read_only // false)] | @tsv' <<<"$svc")
 done
+# Element serves the live file, so the console's in-place rename reaches it: bound where nginx
+# serves /config.json, with the image's copying script masked.
+[ "$(jq -r '.services.element.volumes[] | "\(.source) \(.target)"' <<<"$out" | sort)" = "$(printf '%s\n' \
+  "/dev/null /docker-entrypoint.d/18-load-element-modules.sh" "$root/matrix/element/config.json /tmp/element-web-config/config.json" | sort)" ] \
+  || bad "element does not serve ./matrix/element/config.json live"
 for s in postgres synapse mas element; do
   [ "$(jq -r --arg s "$s" '.services[$s].restart' <<<"$out")" = unless-stopped ] || bad "$s restart is not unless-stopped"
 done
@@ -145,12 +152,16 @@ jq -e --arg r "$root/matrix" --argjson nc "$nocreate" 'length > 0 and all(.[]; .
     and .read_only == true and .bind == $nc and .source != $r and .source != $r + "/secrets")' <<<"$appmx" >/dev/null \
   || bad "app ./matrix binds are not read-only, same-path, non-creating pieces: $appmx"
 jq -e 'any(.[]; .source | test("postgres_password")) | not' <<<"$appmx" >/dev/null || bad "app can read the Postgres superuser password"
-for d in synapse mas element postgres; do
+for d in synapse mas postgres; do
   jq -e --arg t "/matrix/$d" 'any(.[]; .target == $t)' <<<"$appmx" >/dev/null || bad "app does not mount ./matrix/$d"
 done
-# The app's only writable bind under ./matrix: Element's config.json, nested over the read-only
-# ./matrix/element (Docker mounts the deeper target second) and never created by Docker.
-# Element's own mount of it stays read-only (the per-service loop above).
+# No app mount inside another: Docker cannot recreate a nested mountpoint inside a read-only
+# bind, and `docker cp` from the app then fails.
+nested=$(jq -c '[.services.app.volumes[].target] as $t | [$t[] as $a | $t[] | select(startswith($a + "/"))]' <<<"$out")
+[ "$nested" = '[]' ] || bad "app mounts nested inside another app mount break docker cp: $nested"
+# The app's only writable bind under ./matrix: Element's config.json (all it needs of
+# ./matrix/element), never created by Docker. Element's own mount of it stays read-only (the
+# per-service loop above).
 rw_check() {
   local rw
   rw=$(jq -c --arg r "$root/matrix" '[.services.app.volumes[] | select(.type == "bind" and (.source == $r or (.source | startswith($r + "/"))) and (.read_only // false) == false)]' <<<"$1")

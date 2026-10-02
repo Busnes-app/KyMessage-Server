@@ -47,8 +47,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 - Container contract (`docker-compose.matrix.yml`, checked by `scripts/check-compose-matrix.sh`):
   Postgres, Synapse and MAS run as `KY_MATRIX_UID:KY_MATRIX_GID` so the 0600 files stay
   private; each mounts only its own `./matrix/<service>` read-only (Element the single 0644
-  `config.json`, since nginx cannot enter the 0700 dir). The app's only read-write path under `./matrix` is `./matrix/element/config.json`
-  (`create_host_path: false`), nested over its read-only `./matrix/element`, so the console can
+  `config.json`, since nginx cannot enter the 0700 dir, at the path its nginx serves live). The app's only read-write path under `./matrix` is `./matrix/element/config.json`
+  (`create_host_path: false`), its only mount of `./matrix/element`, so the console can
   set `brand` (`internal/branding`); the file belongs to `KY_MATRIX_UID`, and the root app
   writes it through Docker's default `CAP_DAC_OVERRIDE` (a `cap_drop: [ALL]` on the app would
   make the write fail, which Settings then shows). Synapse reads `/config` (its dir) and writes media to `/media`;

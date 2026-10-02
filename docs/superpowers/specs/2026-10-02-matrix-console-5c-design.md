@@ -27,6 +27,11 @@ the last sweep went, with a hint naming the fix.
   `/app/config.json`. A single-file bind keeps the inode it was given, so a rename is invisible
   to a running Element: rewrites must be in place.
 - Element fetches `/config.json` on each page load. The app has no Docker access.
+- The Element image's start script (`18-load-element-modules.sh`) copies `/app/config.json` to
+  `/tmp/element-web-config`, and nginx serves that copy, which a later write never reaches.
+  Compose therefore binds the file at `/tmp/element-web-config/config.json` and masks the
+  script with `/dev/null` (Element modules are unused); the acceptance run proves the rename
+  reaches Element live.
 - Nothing records webhook or sweep times today; rejected webhooks are only logged.
 
 ## Section 1: branding
@@ -55,14 +60,17 @@ the last sweep went, with a hint naming the fix.
 
 ## Section 2: KyIdentity sync status
 
-- **Webhook.** On each delivery that passes the signature check, the handler writes
-  `kyidentity_webhook_last` (time, event kind). It is the key's only writer.
+- **Webhook.** On each acknowledged delivery (applied, superseded or duplicate), the handler
+  writes `kyidentity_webhook_last` (time, event kind). It is the key's only writer. A delivery
+  that fails with a server error is neither recorded nor counted.
 - **Rejections.** Unauthenticated, so never written to the database or audit: an in-memory
-  count since start, plus the time and reason class (bad signature, stale, malformed) of the
-  last one. Bodies are never kept.
+  count since start, plus the time and reason class of the last one: `not_configured` (secret
+  unset or short), `bad_signature`, `stale`, `bad_headers`, `malformed` (signed, but not a
+  usable SCIM user). Bodies are never kept.
 - **Sweep.** The syncer writes `matrix_sweep_last` after every sweep: finished at, ok or failed,
   error text (bounded, no secrets), actions applied and failed, start of the current failing
-  streak. It is the key's only writer.
+  streak. It is the key's only writer. The streak survives a restart: it is seeded from the
+  stored record.
 - **Route.** `GET /api/admin/matrix/sync-status` (admin; Matrix off: 404) returns both records
   and the rejection counters.
 - **Settings panel "KyIdentity sync"**: last accepted webhook, rejections since restart and the
@@ -70,22 +78,26 @@ the last sweep went, with a hint naming the fix.
   system and `KY_KYIDENTITY_HMAC_SECRET`; bad signatures → the secrets differ; sweep failing →
   the error and since when; always → "A change made while KyMessages was down waits in
   KyIdentity as an uncertain write; resume it there", linking KyIdentity.
-- **Overview** gains a sync card (ok, warning, failing) linking to the panel.
+- **Overview** gains a sync card (ok, warning, failing) linking to the panel. A
+  `bad_signature` or `not_configured` rejection warns only while it is not older than the last
+  accepted webhook.
 
 ## Section 3: build, failures, proof
 
 - **Server.** New `internal/branding` (pure: name validation, `NormalizePNG`,
-  `PatchElementBrand(path, name)`); the routes and `/app-icon.png` handler in `internal/api`;
-  the reconcile in `cmd/server`'s maintenance loop and startup; the webhook record and
-  rejection counters in the KyIdentity sync handler; the sweep record in `internal/matrixsync`.
-- **Compose.** The app gains a read-write bind of `./matrix/element/config.json` nested over its
-  read-only `./matrix/element`; `scripts/check-compose-matrix.sh` asserts it is the only
-  read-write path under `./matrix`.
+  `PatchElementBrand(path, name)`); the routes, `/app-icon.png` handler and the reconcile
+  (`Server.ReconcileBrand`, one writer at a time) in `internal/api`, which `cmd/server` runs at
+  the start of its maintenance loop and on every tick; the webhook record and rejection
+  counters in the KyIdentity sync handler; the sweep record in `internal/matrixsync`.
+- **Compose.** The app's mount of `./matrix/element` becomes a read-write bind of its one file,
+  `config.json` (not nested in a read-only directory bind, which breaks `docker cp`);
+  `scripts/check-compose-matrix.sh` asserts it is the only read-write path under `./matrix`.
 - **Web.** Settings gains Branding (name, logo upload with preview, resets) and KyIdentity
   sync panels; Overview the sync card. Existing design system, confirm prompt, no new
   dependencies.
 - **Known limit.** Element's nginx can read the file mid-write; that page load fails and the
-  next succeeds. Writes happen only on change.
+  next succeeds. Writes happen only on change. A crash mid-write can leave the file truncated;
+  re-running `matrix-init` restores it and the next tick re-applies the name.
 - **Tests.** Name validation (empty, 65 characters, control characters); PNG refusals (JPEG,
   SVG, 1025 px, 1 MiB + 1 byte, a decompression bomb) and a `tEXt` chunk stripped; the patch
   keeps every other key and the inode (`os.SameFile`) and is idempotent; refuses a missing or
