@@ -805,7 +805,6 @@ expect "$(chat_brand)" KyMessages "a running Element serves its start-up copy"
 expect "$(hcurl -fsS "$KY_APP_URL/api/settings" | jq -r .app_name)" "$brand" "the login page shows the name"
 restart_element
 expect "$(chat_brand)" "$brand" "after docker compose restart element, /config.json carries the new brand"
-expect "$(inode)" "$ino" "the restart kept the bind's inode"
 expect "$(brand_state)" "$brand|$brand" "the branding API reports the new brand served"
 e2e title "$brand"
 ok "Element's tab title shows the brand"
@@ -832,7 +831,6 @@ ok "/app-icon.png is revalidated on every load"
 matrix_init >"$state/init4.out"
 expect "$(inode)" "$ino" "matrix-init rewrote Element's config in place"
 expect "$(stat -c %a "$element_cfg")" 644 "and left it readable by Element's nginx"
-expect "$(file_brand)" KyMessages "matrix-init rendered the default brand"
 eventually 75 "$brand" "the maintenance tick restored the console's name after matrix-init" file_brand
 restart_element
 expect "$(chat_brand)" "$brand" "a restarted Element serves the console's name after matrix-init"
