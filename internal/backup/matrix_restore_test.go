@@ -263,8 +263,10 @@ exit 1
 	}
 }
 
-// CountRelations sees a table created in any user schema, and a wrong password's error does not
-// carry it. Needs KY_TEST_POSTGRES_DSN.
+// CountRelations is database-wide by design (a restore precondition), so the test counts in a
+// scratch database of its own: other tests' schemas cannot move the count. It sees a table in any
+// user schema, and a wrong password's error does not carry the password. Needs
+// KY_TEST_POSTGRES_DSN with CREATEDB rights.
 func TestCountRelationsSeesUserTables(t *testing.T) {
 	dsn := os.Getenv("KY_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -275,28 +277,39 @@ func TestCountRelationsSeesUserTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	pw, _ := u.User.Password()
-	db := strings.TrimPrefix(u.Path, "/")
 	ctx := context.Background()
-	before, err := backup.CountRelations(ctx, u.Host, db, u.User.Username(), pw)
+	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer admin.Close()
+	db := fmt.Sprintf("countrel_%d", time.Now().UnixNano())
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+db); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = admin.ExecContext(ctx, "DROP DATABASE "+db+" WITH (FORCE)") })
+	count := func(password string) (int, error) {
+		return backup.CountRelations(ctx, u.Host, db, u.User.Username(), password)
+	}
+	if n, err := count(pw); err != nil || n != 0 {
+		t.Fatalf("fresh database: %d relations (%v)", n, err)
+	}
 	const wrong = "wrong-pw-5d1e"
-	if _, err := backup.CountRelations(ctx, u.Host, db, u.User.Username(), wrong); err == nil || strings.Contains(err.Error(), wrong) {
+	if _, err := count(wrong); err == nil || strings.Contains(err.Error(), wrong) {
 		t.Fatalf("wrong password: %v", err)
 	}
-	conn, err := sql.Open("pgx", dsn)
+	su := *u
+	su.Path = "/" + db
+	conn, err := sql.Open("pgx", su.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	schema := fmt.Sprintf("countrel_%d", time.Now().UnixNano())
-	if _, err := conn.ExecContext(ctx, "CREATE SCHEMA "+schema+"; CREATE TABLE "+schema+".t (id int)"); err != nil {
+	if _, err := conn.ExecContext(ctx, "CREATE SCHEMA s; CREATE TABLE s.t (id int)"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = conn.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE") })
-	if after, err := backup.CountRelations(ctx, u.Host, db, u.User.Username(), pw); err != nil || after != before+1 {
-		t.Fatalf("before %d, after %d (%v)", before, after, err)
+	if n, err := count(pw); err != nil || n != 1 {
+		t.Fatalf("after one table: %d relations (%v)", n, err)
 	}
 }
 
