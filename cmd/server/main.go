@@ -45,6 +45,9 @@ func main() {
 		case "restore":
 			runRestore(os.Args[2:])
 			return
+		case "restore-matrix":
+			runRestoreMatrix(os.Args[2:])
+			return
 		case "matrix-init":
 			runMatrixInitCmd(os.Args[2:])
 			return

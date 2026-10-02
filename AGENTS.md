@@ -131,7 +131,11 @@ When the user requests a durable behavior change, record it here or in the relev
   with the proxy and static-IP overlays. MAS's distroless image has no HTTP client, so
   Synapse's healthcheck also probes MAS discovery (`mas:8080/.well-known/openid-configuration`).
   MAS binds only `matrix/mas/config.yaml` with `create_host_path: false`, so `up` refuses MAS
-  until `matrix-init`'s second pass has the KyIdentity client secret.
+  until `matrix-init`'s second pass has the KyIdentity client secret. `restore-matrix` (profile
+  `restore`, `docker compose run --rm restore-matrix`) runs the app image as
+  `KY_MATRIX_UID:KY_MATRIX_GID` with no capability on `matrix-db` only; it is the only
+  read-write media mount besides Synapse, and its `./data`, `./backups` and `./matrix` are
+  read-only. The check script holds it to that.
 
 ## Verification
 
@@ -216,6 +220,11 @@ work is abandoned with a log line rather than killed silently.
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
 then opens the offline SQLite snapshot (running migrations), invalidates
 restored grants and closes it before reporting success. Before extraction it resolves symlinked parents and checks the real path up to `/`: an existing target must be a non-symlink directory owned by the current user, each ancestor owned by the current user or root, and none group- or world-writable except a root-owned sticky ancestor (`/tmp`). It creates an absent target (`os.Mkdir`, so the parent must exist; a target that appears meanwhile is refused), opens an `os.Root` on it, checks the opened directory against the target rule and the path (`checkTarget`), and refuses a nonempty target without touching it. A library failure is rolled back by the library; only a created target is then removed. After extraction it requires the path to still name that directory. A later failure removes what was extracted through the handle, never by path (and the target itself if restore created it).
+It restores `matrix/` with the rest and chmods `matrix/element/config.json` back to 0644 (Element's
+nginx reads it as another user). `cmd/server/restorematrix.go` (`restore-matrix`) then loads the
+dumps and media into a fresh stack (`internal/backup.MatrixRestore`); its usage text is the
+operator sequence: restore as `KY_MATRIX_UID`, then after `restore-matrix` chown `data` and
+`backups` to root, because the app runs as root and `keyfile` refuses keys it does not own.
 Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
 The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. The Matrix stack (`matrix-init`, `docker-compose.matrix.yml`, the `.well-known` and Open chat link, the README's Matrix setup and the cloudflared routes in `docs/Reverse_Proxy_Networking.md`) exists; a public cloudflared deployment is untested. Offboarding is shipped (back-channel logout plus lock/deactivate; see `internal/matrixsync/AGENTS.md`). Open: Matrix backups, the console and removal of the custom messaging stack.

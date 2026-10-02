@@ -8,7 +8,8 @@ deployment key, the payload the scaffold seals (`Collect`) and its drill checks 
 
 ## Ownership
 Owns the settings adapter (`settings.go`), payload collection (`payload.go`), Matrix dumps and
-config collection plus expanded-size accounting (`matrix.go`, `size.go`),
+config collection plus expanded-size accounting (`matrix.go`, `size.go`), loading a restored
+Matrix half into a fresh stack (`matrix_restore.go`),
 restore-drill checks (`drill.go`), serialized drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
 live in `recoveryclient` and in the settings rows it reads and writes through the adapter.
 
@@ -36,6 +37,15 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   v0.8.0 `Seal` undercounts against `Open` (Busnes-app/ky-primitives#20). A payload past it fails
   with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`) before sealing. `CollectForRun` records
   the measured size in `backup_last_expanded_bytes`; `LastSize` warns from 75% of 256 MiB.
+- `MatrixRestore.Run` (`kymessages restore-matrix`) checks everything before writing: both
+  owner passwords from `matrix/secrets`, gapless parts with no stray, `pg_restore --list` per
+  dump with any `EXTENSION` refused (unproven for MAS/Synapse schemas until the acceptance run),
+  zero user relations in `mas` and `synapse` (`CountRelations`, host or host:port), and unless
+  `SkipMedia` an empty media store owned by the process's uid:gid, the media key
+  (`keyfile.Load`, so the process must own it) and every media file (`media.Restore` with
+  write false). Then `pg_restore` as each owner, MAS first, `--no-owner --no-privileges
+  --single-transaction --exit-on-error`, child env only `PGPASSWORD` and `PGCONNECT_TIMEOUT`;
+  then media. No owner password reaches argv or an error.
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment

@@ -142,6 +142,29 @@ services:
       timeout: 5s
       retries: 30
 
+  # One-shot, after `kymessages restore`, against a fresh stack with only postgres up:
+  #   docker compose run --rm restore-matrix
+  # Loads the restored dumps as their owners and writes media back. It runs as the owner of
+  # ./matrix, which must own the restored data/ and be able to read ./backups/media. The only
+  # writer of the media volume besides Synapse; everything else is read-only.
+  restore-matrix:
+    profiles: [restore]
+    image: ${KY_IMAGE:-kymessages:local}
+    pull_policy: never
+    entrypoint: ["/app/kymessages", "restore-matrix"]
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [matrix-db]
+    volumes:
+      - ./data:/app/data:ro
+      - ./backups:/app/backups:ro
+      - ./matrix:/matrix:ro
+      - matrix-media:/media
+    depends_on:
+      postgres: {condition: service_healthy}
+      synapse-media-owner: {condition: service_completed_successfully}
+
 secrets:
   postgres_password:
     file: ./matrix/secrets/postgres_password

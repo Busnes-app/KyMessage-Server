@@ -137,4 +137,17 @@ appvol() { jq -r --arg t "$1" '.services.app.volumes[] | select(.target == $t) |
 client=$(grep -E '^RUN apk .*postgresql[0-9]+-client' "$root/Dockerfile" | grep -oE 'postgresql[0-9]+-client' | grep -oE '[0-9]+')
 server=$(jq -r '.services.postgres.image' <<<"$out" | sed -E 's/^postgres:([0-9]+).*/\1/')
 { [ -n "$client" ] && [ "$client" = "$server" ]; } || bad "Dockerfile installs postgresql${client}-client but postgres runs major $server"
+# restore-matrix: a one-shot under the restore profile, as KY_MATRIX_UID:GID with no capability.
+# The only writer of the media volume besides Synapse; everything else it mounts is read-only.
+jq -e '.services | has("restore-matrix") | not' <<<"$out" >/dev/null || bad "restore-matrix runs without --profile restore"
+rs=$(render "${stack[@]}" --profile restore) || { echo "restore profile does not compose"; exit 1; }
+r=$(jq -c '.services["restore-matrix"]' <<<"$rs")
+[ "$(jq -c '[.entrypoint, (.networks | keys), .user, .cap_drop, .cap_add, .security_opt, .profiles, .pull_policy, .environment,
+    .depends_on.postgres.condition, .depends_on["synapse-media-owner"].condition]' <<<"$r")" \
+  = '[["/app/kymessages","restore-matrix"],["matrix-db"],"1234:5678",["ALL"],null,["no-new-privileges:true"],["restore"],"never",null,"service_healthy","service_completed_successfully"]' ] \
+  || bad "restore-matrix is not locked down: $r"
+[ "$(jq -r .image <<<"$r")" = "$(jq -r .services.app.image <<<"$out")" ] || bad "restore-matrix does not run the app image"
+want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	true" "/matrix	$root/matrix	true" "/media	matrix-media	false")
+[ "$(jq -r '.volumes[] | [.target, .source, (.read_only // false)] | @tsv' <<<"$r" | sort)" = "$want" ] \
+  || bad "restore-matrix mounts: $(jq -c .volumes <<<"$r")"
 exit $fail
