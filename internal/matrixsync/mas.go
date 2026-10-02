@@ -481,8 +481,8 @@ func (c *Client) AsConsole(ctx context.Context, fn func(ctx context.Context, tok
 	if err := c.call(mctx, http.MethodPost, adminPrefix+"personal-sessions", body, &doc); err != nil {
 		return fmt.Errorf("console session: %w", err)
 	}
-	if doc.Data.ID == "" || doc.Data.Attributes.AccessToken == "" {
-		return errors.New("console session: MAS returned no token")
+	if doc.Data.ID == "" {
+		return errors.New("console session: MAS returned no session ID")
 	}
 	defer func() {
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -493,5 +493,8 @@ func (c *Client) AsConsole(ctx context.Context, fn func(ctx context.Context, tok
 			log.Printf("[MATRIX] console session %s not revoked; it expires within %s: %v", doc.Data.ID, consoleSessionTTL, err)
 		}
 	}()
+	if doc.Data.Attributes.AccessToken == "" {
+		return errors.New("console session: MAS returned no token")
+	}
 	return fn(ctx, doc.Data.Attributes.AccessToken)
 }

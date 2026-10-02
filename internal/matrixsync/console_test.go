@@ -30,6 +30,7 @@ type consoleFake struct {
 	minted       []map[string]any
 	revoked      []string
 	revokeStatus int    // non-zero: revoke answers this
+	noToken      bool   // the mint answers an ID without a token
 	onMint       func() // runs while MAS handles the mint, before it answers
 	srv          *httptest.Server
 }
@@ -103,6 +104,10 @@ func (f *consoleFake) handle(w http.ResponseWriter, r *http.Request) {
 			f.onMint()
 		}
 		w.WriteHeader(http.StatusCreated)
+		if f.noToken {
+			fmt.Fprintf(w, `{"data":{"type":"personal-session","id":"PS%d","attributes":{}}}`, len(f.minted))
+			return
+		}
 		fmt.Fprintf(w, `{"data":{"type":"personal-session","id":"PS%d","attributes":{"access_token":"mpt_secret%d"}}}`, len(f.minted), len(f.minted))
 	case r.Method == http.MethodPost && strings.HasPrefix(p, "/api/admin/v1/personal-sessions/") && strings.HasSuffix(p, "/revoke"):
 		f.revoked = append(f.revoked, strings.TrimSuffix(strings.TrimPrefix(p, "/api/admin/v1/personal-sessions/"), "/revoke"))
@@ -212,6 +217,17 @@ func TestAsConsoleRevokesASessionMintedAsTheRequestDies(t *testing.T) {
 	called := false
 	err := f.client().AsConsole(ctx, func(ctx context.Context, _ string) error { called = true; return ctx.Err() })
 	if !errors.Is(err, context.Canceled) || !called || !reflect.DeepEqual(f.revoked, []string{"PS1"}) {
+		t.Fatalf("err %v called %v revoked %v", err, called, f.revoked)
+	}
+}
+
+// A session MAS created is revoked even when its reply carries no token.
+func TestAsConsoleRevokesASessionWithoutAToken(t *testing.T) {
+	f := newConsoleFake(t)
+	f.noToken = true
+	called := false
+	err := f.client().AsConsole(context.Background(), func(context.Context, string) error { called = true; return nil })
+	if err == nil || called || !reflect.DeepEqual(f.revoked, []string{"PS1"}) {
 		t.Fatalf("err %v called %v revoked %v", err, called, f.revoked)
 	}
 }
