@@ -92,10 +92,10 @@ func auditValue(v any) string {
 	return strings.ReplaceAll(fmt.Sprintf("%q", fmt.Sprint(v)), "=", `\x3d`)
 }
 
-// auditBackup records a backup event against the acting admin. Details never carry the
+// audit records an admin event against the acting admin. Details never carry the
 // token or capsule bytes, and both text fields are bounded and printable before they are
 // stored: a resource may be an operator-typed URL and details may quote a remote body.
-func (s *Server) auditBackup(ctx context.Context, userID string, r *http.Request, action, resource, details string) {
+func (s *Server) audit(ctx context.Context, userID string, r *http.Request, action, resource, details string) {
 	resource, details = recoveryclient.AuditSafe(resource), recoveryclient.AuditSafe(details)
 	if err := s.store.Audit().LogAudit(ctx, &store.AuditRecord{
 		UserID:    userID,
@@ -104,7 +104,7 @@ func (s *Server) auditBackup(ctx context.Context, userID string, r *http.Request
 		Details:   details,
 		IPAddress: s.requestIP(r),
 	}); err != nil {
-		log.Printf("[BACKUP] audit %s for %s not recorded: %v", action, resource, err)
+		log.Printf("[AUDIT] audit %s for %s not recorded: %v", action, resource, err)
 	}
 }
 
@@ -216,7 +216,7 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 	if werr != nil {
 		details["outcome"], details["error"] = "interrupted", werr.Error()
 	}
-	s.auditBackup(context.WithoutCancel(ctx), actor, r, "admin.backup_export", m.CapsuleID, AuditDetails(details))
+	s.audit(context.WithoutCancel(ctx), actor, r, "admin.backup_export", m.CapsuleID, AuditDetails(details))
 }
 
 type RemotePairRequest struct {
@@ -263,7 +263,7 @@ func (s *Server) handlePairRemoteRecovery(w http.ResponseWriter, r *http.Request
 	// capsule's manifest is checked against, so it is the same AppName the collector seals under.
 	result, err := s.recovery.ClaimPairing(ctx, req.RecoveryURL, req.PairingCode, s.config.Server.AppName, s.config.Server.AppName)
 	if err != nil {
-		s.auditBackup(ctx, actor, r, "backup.pair_failed", target, "error="+err.Error())
+		s.audit(ctx, actor, r, "backup.pair_failed", target, "error="+err.Error())
 		s.writeError(w, http.StatusBadRequest, "Recovery pairing failed")
 		return
 	}
@@ -271,11 +271,11 @@ func (s *Server) handlePairRemoteRecovery(w http.ResponseWriter, r *http.Request
 	settings := backup.Settings(ctx, s.store.Settings())
 	if err := recoveryclient.StoreRecoveryKey(s.config.Database.DataDir, settings, result.Key); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			s.auditBackup(ctx, actor, r, "backup.pair_failed", target, "error=already paired to a different recovery key")
+			s.audit(ctx, actor, r, "backup.pair_failed", target, "error=already paired to a different recovery key")
 			s.writeError(w, http.StatusConflict, "Already paired to a different recovery key")
 			return
 		}
-		s.auditBackup(ctx, actor, r, "backup.pair_failed", target, "error=recovery key not saved: "+err.Error())
+		s.audit(ctx, actor, r, "backup.pair_failed", target, "error=recovery key not saved: "+err.Error())
 		s.writeError(w, http.StatusInternalServerError, "Failed to save recovery key")
 		return
 	}
@@ -287,12 +287,12 @@ func (s *Server) handlePairRemoteRecovery(w http.ResponseWriter, r *http.Request
 	// The key is now pinned on disk whatever happens next, so it is recorded whatever happens
 	// next: a write-once pin that exists nowhere in the audit trail is the gap this closes.
 	if err := recoveryclient.StorePairing(settings, sealer, req.RecoveryURL, result.APIToken); err != nil {
-		s.auditBackup(ctx, actor, r, "backup.pair_failed", target,
+		s.audit(ctx, actor, r, "backup.pair_failed", target,
 			"error=key pinned but the pairing was not stored: "+err.Error())
 		s.writeError(w, http.StatusInternalServerError, "Failed to save recovery pairing")
 		return
 	}
-	s.auditBackup(ctx, actor, r, "backup.paired", target,
+	s.audit(ctx, actor, r, "backup.paired", target,
 		fmt.Sprintf("recovery_key_id=%s allow_private=%v", result.Key.Public.ID(), s.config.Backup.AllowPrivateRecovery))
 
 	s.writeJSON(w, http.StatusOK, map[string]any{
@@ -334,7 +334,7 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 
 	action, outcome, details := recoveryclient.Outcome(res, err)
 	details["outcome"] = outcome
-	s.auditBackup(ctx, actor, r, action, res.Manifest.CapsuleID, AuditDetails(details))
+	s.audit(ctx, actor, r, action, res.Manifest.CapsuleID, AuditDetails(details))
 
 	if errors.Is(err, recoveryclient.ErrReceiptUnrecorded) {
 		// The store has the capsule; only this side's record is missing. This is the one path
@@ -409,11 +409,11 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusPreconditionFailed, "Not paired with KyRecovery")
 			return
 		}
-		s.auditBackup(ctx, actor, r, "admin.backup_unpair", target, "error="+err.Error())
+		s.audit(ctx, actor, r, "admin.backup_unpair", target, "error="+err.Error())
 		s.writeError(w, http.StatusInternalServerError, "Failed to remove the pairing")
 		return
 	}
-	s.auditBackup(ctx, actor, r, "admin.backup_unpair", target, "success")
+	s.audit(ctx, actor, r, "admin.backup_unpair", target, "success")
 	s.writeJSON(w, http.StatusOK, map[string]any{"paired": false})
 }
 
@@ -443,22 +443,22 @@ func (s *Server) handlePinKey(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithoutCancel(r.Context())
 	key, err := recoveryclient.ParsePinRequest(req.PublicKey, req.Threshold, req.TotalShares)
 	if err != nil {
-		s.auditBackup(ctx, actor, r, "admin.backup_key_pin", "", "error="+err.Error())
+		s.audit(ctx, actor, r, "admin.backup_key_pin", "", "error="+err.Error())
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	settings := backup.Settings(ctx, s.store.Settings())
 	if err := recoveryclient.StoreRecoveryKey(s.config.Database.DataDir, settings, key); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			s.auditBackup(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(), "error=already pinned to a different recovery key")
+			s.audit(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(), "error=already pinned to a different recovery key")
 			s.writeError(w, http.StatusConflict, "Already pinned to a different recovery key")
 			return
 		}
-		s.auditBackup(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(), "error=recovery key not saved: "+err.Error())
+		s.audit(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(), "error=recovery key not saved: "+err.Error())
 		s.writeError(w, http.StatusInternalServerError, "Failed to save recovery key")
 		return
 	}
-	s.auditBackup(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(),
+	s.audit(ctx, actor, r, "admin.backup_key_pin", key.Public.ID(),
 		fmt.Sprintf("threshold=%d total_shares=%d", key.Threshold, key.TotalShares))
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"recovery_key_id": key.Public.ID(), "threshold": key.Threshold, "total_shares": key.TotalShares,
@@ -500,7 +500,7 @@ func (s *Server) handleSetSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sec := int64(stored / time.Second)
-	s.auditBackup(ctx, actor, r, "admin.backup_schedule", "", fmt.Sprintf("interval_sec=%d", sec))
+	s.audit(ctx, actor, r, "admin.backup_schedule", "", fmt.Sprintf("interval_sec=%d", sec))
 	s.writeJSON(w, http.StatusOK, map[string]any{"interval_sec": sec})
 }
 

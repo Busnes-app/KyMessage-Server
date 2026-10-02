@@ -17,6 +17,8 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/devices"
+	"github.com/Busnes-app/ky_server_base/internal/health"
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/scim"
 	"github.com/Busnes-app/ky_server_base/internal/sso"
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -30,6 +32,16 @@ type recoveryClient interface {
 	recoveryclient.Depositor
 }
 
+// MatrixAdmin is the MAS admin surface the console uses; *matrixsync.Client implements it.
+type MatrixAdmin interface {
+	Users(ctx context.Context) ([]matrixsync.User, error)
+	User(ctx context.Context, id string) (matrixsync.User, error)
+	Sessions(ctx context.Context, userID string) ([]matrixsync.Session, error)
+	Session(ctx context.Context, kind matrixsync.SessionKind, id string) (matrixsync.Session, error)
+	FinishSession(ctx context.Context, kind matrixsync.SessionKind, id string) (bool, error)
+	Version(ctx context.Context) (string, error)
+}
+
 type Server struct {
 	config           *config.Config
 	store            store.Store
@@ -41,6 +53,9 @@ type Server struct {
 	saml             *sso.SAMLServiceProvider
 	scim             *scim.Server
 	recovery         recoveryClient
+	mas              MatrixAdmin // nil when Matrix is off
+	matrixTargets    health.Targets
+	probeHTTP        *http.Client
 	mux              *http.ServeMux
 	// clientAttempts throttles anonymous callers by address; accountAttempts throttles by
 	// user ID. Separate maps, so anonymous traffic filling one cannot evict the other.
@@ -148,6 +163,10 @@ const attemptsCap = 10000
 // fn must not block: the webhook's sender is waiting.
 func (s *Server) OnDirectoryChange(fn func()) { s.directoryChanged = fn }
 
+// SetMatrixAdmin enables the Matrix console routes with the client the offboarding sweep
+// also uses, so they share one token and one path guard.
+func (s *Server) SetMatrixAdmin(m MatrixAdmin) { s.mas = m }
+
 func NewServer(cfg *config.Config, st store.Store) *Server {
 	sessions := auth.NewSessionManager(st, cfg.Security)
 	pairing := devices.NewPairingService(st, cfg.Server.AppName, cfg.Server.AppURL)
@@ -167,6 +186,8 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		saml:            saml,
 		scim:            scimSrv,
 		recovery:        recovery,
+		matrixTargets:   health.ComposeTargets,
+		probeHTTP:       health.NewHTTPClient(),
 		mux:             http.NewServeMux(),
 		clientAttempts:  attemptLimiter{m: make(map[string]attemptWindow), cap: attemptsCap},
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
@@ -275,6 +296,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
 	s.mux.HandleFunc("GET /api/admin/network-check", s.requireAdmin(s.handleNetworkCheck))
 
+	// Console. Reads are any admin; ending a session needs a recent sign-in and is audited.
+	s.mux.HandleFunc("GET /api/admin/matrix/users", s.requireAdmin(s.handleMatrixUsers))
+	s.mux.HandleFunc("GET /api/admin/matrix/users/{id}/sessions", s.requireAdmin(s.handleMatrixUserSessions))
+	s.mux.HandleFunc("POST /api/admin/matrix/sessions/{kind}/{id}/finish", s.tracked(s.requireFreshAdmin(s.handleMatrixSessionFinish)))
+	s.mux.HandleFunc("GET /api/admin/health", s.requireAdmin(s.handleHealth))
+	s.mux.HandleFunc("GET /api/admin/audit", s.requireAdmin(s.handleAudit))
+
 	// Settings & Theme. The read endpoint tiers its own payload by role.
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("/api/settings/theme", s.requireAdmin(s.handleSetTheme))
@@ -324,10 +352,9 @@ func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 			return
 		}
 		if fresh && time.Since(sess.CreatedAt) > stepUpWindow {
-			body := map[string]string{"error": "Sign out and sign in again to confirm this change: backup changes need a sign-in from the last 10 minutes", "code": "reauthentication_required"}
+			body := map[string]string{"error": "Confirm it's you: this change needs a sign-in from the last 10 minutes", "code": "reauthentication_required"}
 			if user.SSOProvider == "kyidentity" {
 				// A plain SSO login may silently reuse the IdP session; this one forces credentials.
-				body["error"] = "Sign in to KyIdentity again to confirm this change: backup changes need a sign-in from the last 10 minutes"
 				body["reauth_url"] = reauthURL
 			}
 			s.writeJSON(w, http.StatusForbidden, body)
