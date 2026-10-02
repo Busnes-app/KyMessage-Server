@@ -6,7 +6,7 @@ Date: 2026-10-02. Parent: `2026-10-01-matrix-platform-design.md` (decision 11), 
 ## Intent
 
 A KyMessages admin sees every room and deals with a bad one from the console: closes it
-(members removed, rejoin blocked, history kept), reopens it, or deletes it permanently.
+(members removed, rejoin blocked, history kept; final) or deletes it permanently.
 Every change needs a fresh sign-in and is audited.
 
 ## Decisions (owner-approved 2026-10-02)
@@ -16,8 +16,10 @@ Every change needs a fresh sign-in and is audited.
    KyIdentity link, Synapse admin. The offboarding sweep exempts exactly that username. Each
    room action mints a session with scopes `urn:matrix:client:api:* urn:synapse:admin:*` and a
    5-minute lifetime, uses it and revokes it.
-2. Two separate removal actions: **Close** (`block=true`, `purge=false`; reversible by
-   **Reopen**) and **Delete permanently** (purge; typed room-name confirmation).
+2. Two separate removal actions: **Close** (`block=true`, `purge=false`; final) and **Delete
+   permanently** (purge; typed room-name confirmation). Amended 2026-10-02 (owner, option A):
+   Reopen is dropped — Close makes every local member leave, and with federation off nobody can
+   rejoin or be invited afterwards (Synapse source, `handlers/room.py`, `room_member.py`).
 
 ## Evidence (source, MAS v1.26.0 and Synapse v1.162.0; unproven live until the plan's first task)
 
@@ -41,14 +43,13 @@ Every change needs a fresh sign-in and is audited.
   paged and searchable: name, id, members, encrypted, public/invite-only, creator, size,
   blocked. Detail: members. Actions (fresh admin, audited):
   - **Close:** remove all members, block rejoin, keep history.
-  - **Reopen:** unblock; members can be invited back, nobody is re-added.
   - **Delete permanently:** purge history and media; the admin types the room name.
-  Audit actions `matrix.room_close`, `matrix.room_reopen`, `matrix.room_delete` (room id,
+  Audit actions `matrix.room_close`, `matrix.room_delete` (room id,
   admin, outcome). Delete is a Synapse background job: the row records it started; the page
   polls status.
 - **Routes.** `GET /api/admin/matrix/rooms` (paged, `search`), `GET
   /api/admin/matrix/rooms/{id}` (admin); `POST /api/admin/matrix/rooms/{id}/close`,
-  `/reopen`, `/delete` with `{"confirm":"<room name>"}` (fresh admin); `GET
+  `/delete` with `{"confirm":"<room name>"}` (fresh admin); `GET
   /api/admin/matrix/rooms/{id}/delete-status` (admin). Matrix off: 404.
 - **Health.** A Synapse admin probe (mint and revoke a session) joins Health.
 
@@ -64,12 +65,11 @@ Every change needs a fresh sign-in and is audited.
 - Member lists and room names are admin-only; messages are never shown.
 - **Tests.** Service-account ensure (idempotent, admin); sweep exemption limited to that exact
   username; session mint (exact scopes, 5-minute lifetime) and revoke on success and failure;
-  Synapse admin client against a fake (list, detail, close, reopen, delete, status); routes
+  Synapse admin client against a fake (list, detail, close, delete, status); routes
   (role, freshness, audit, delete confirmation, Matrix off 404); vitest for the page, typed
   confirmation and status polling.
 - **Acceptance.** Health shows Synapse admin up; the console lists the harness's group room
-  as encrypted with members; Close removes Bob and refuses his rejoin; Reopen lets an invite
-  work; Delete permanently of a separate throwaway room leaves no events for it in Synapse's
+  as encrypted with members; Close removes Bob and refuses his rejoin; Delete permanently of a separate throwaway room leaves no events for it in Synapse's
   database; audit rows present; `@kymessages-console` never locked by the sweep.
 - **Browser regressions.** The Rooms tab across themes, widths and keyboard use.
 
