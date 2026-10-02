@@ -172,7 +172,12 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   live token within the same 30s and locks without deactivating; with KyMessages stopped the back-channel still cuts,
   and the lock lands once the missed webhook is redelivered (KyIdentity fences it as an
   uncertain write; the harness resumes it as the operator would); Synapse cannot reach
-  `mas:8081` or `mas-admin`.
+  `mas:8081` or `mas-admin`. Backup: a throwaway 2-of-3 suite key is pinned, `deposit` and
+  `backup-drill` pass and bob's image is mirrored as ciphertext; the app and Matrix containers
+  and volumes are then deleted (KyIdentity kept) and the operator sequence is followed:
+  host-built `restore` with shares on stdin, `restore-matrix`, `chown` to root in a throwaway
+  container. Alice on a new device reads history and the image; server name and signing key
+  are unchanged. The later steps run on the restored stack.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.

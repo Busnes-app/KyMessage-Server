@@ -1,4 +1,4 @@
-// usage: node e2e.mjs prove|refused|compat|noclaim
+// usage: node e2e.mjs prove|refused|compat|noclaim|media|restored
 //        node e2e.mjs room|token|disabled|reread|reads USER
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback, and the browser trusts only that proxy's key (SPKI pin, which Chromium
@@ -155,10 +155,10 @@ async function prove() {
   const bob = await launch('bob');
   const alice = await launch('alice');
   const bobId = await nativeSignIn(bob, 'bob', `@bob:${SERVER}`);
-  await setUpRecovery(bob);
+  fs.writeFileSync(`${dir}/state/bob.recovery`, await setUpRecovery(bob), { mode: 0o600 });
   // Mixed-case KyIdentity username: the localpart is its lowercased, sanitised form.
   const aliceId = await nativeSignIn(alice, 'Alice.Q@Ky', `@alice.q_ky:${SERVER}`);
-  await setUpRecovery(alice);
+  fs.writeFileSync(`${dir}/state/alice.recovery`, await setUpRecovery(alice), { mode: 0o600 });
 
   const msgs = { dm1: text('dm-alice'), dm2: text('dm-bob'), g1: text('group-alice'), g2: text('group-bob') };
 
@@ -266,8 +266,9 @@ async function noclaim() {
 
 // Offboarding scenarios, one KyIdentity user each (USER).
 const mxid = () => `@${user}:${SERVER}`;
-const aliceSession = async () => {
-  const page = await launch('alice', 'prove-alice');
+// NAME's browser session from an earlier scenario's PROFILE.
+async function resume(name, profile) {
+  const page = await launch(name, profile);
   // Element would otherwise reopen the room prove left open.
   await page.goto(`${CHAT}/#/home`);
   // Element's session lock outlives the closed browser: "open in another window".
@@ -277,12 +278,13 @@ const aliceSession = async () => {
   if (await takeOver.isVisible()) await takeOver.click();
   await start.waitFor();
   return page;
-};
+}
+const aliceSession = () => resume('alice', 'prove-alice');
 const roomState = () => JSON.parse(fs.readFileSync(stateFile('room'), 'utf8'));
 
-// Element uploads room keys to the key backup in the background; wait until USER's backup
+// Element uploads room keys to the key backup in the background; wait until WHO's backup
 // holds both senders' sessions for the room, so a later device can restore them.
-async function backedUp(page, id) {
+async function backedUp(page, id, who = user) {
   const count = () => page.evaluate(async ({ hs, id }) => {
     const auth = { headers: { Authorization: `Bearer ${window.mxMatrixClientPeg.get().getAccessToken()}` } };
     const { version } = await (await fetch(`${hs}/_matrix/client/v3/room_keys/version`, auth)).json();
@@ -291,7 +293,7 @@ async function backedUp(page, id) {
   }, { hs: MATRIX, id });
   let n = 0;
   for (let i = 0; i < 60 && (n = await count()) < 2; i++) await page.waitForTimeout(1000);
-  check(n >= 2, `${user}'s backup holds both room keys (${n})`);
+  check(n >= 2, `${who}'s backup holds both room keys (${n})`);
 }
 
 // USER signs in and sets up recovery; alice (her session from prove) invites USER to a new
@@ -374,7 +376,56 @@ async function reads() {
   out({ room: id });
 }
 
-const scenarios = { prove, refused, compat, noclaim, room, token, disabled, reread, reads };
+// A 1x1 PNG: Element uploads it encrypted, so Synapse's local_content holds ciphertext.
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+async function decryptedImage(page) {
+  const img = timeline(page).locator('.mx_ImageBody img').last();
+  await img.waitFor({ timeout: 60000 });
+  await page.waitForFunction((el) => el.complete && el.naturalWidth > 0, await img.elementHandle(), { timeout: 60000 });
+  console.log('  ok: image decrypted and shown');
+}
+
+// Bob sends an image into the DM; alice sees it; alice's key backup then holds the DM's keys.
+async function media() {
+  const { rooms: { dm } } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
+  const bob = await resume('bob', 'prove-bob');
+  await openRoom(bob, dm, false);
+  await bob.locator('input[type="file"]').first().setInputFiles({ name: `kymatrix-${tag}.png`, mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') });
+  await bob.getByRole('dialog').getByRole('button', { name: 'Upload' }).click();
+  await bob.locator('.mx_EventTile[data-event-id^="$"] .mx_ImageBody').last().waitFor();
+  const alice = await aliceSession();
+  await openRoom(alice, dm, false);
+  await decryptedImage(alice);
+  await backedUp(alice, dm, 'alice');
+  out({ dm });
+}
+
+// After the restore: alice on a new device confirms her identity with her recovery key, then
+// reads bob's earlier message and image from key backup, and sends one message.
+async function restored() {
+  const { rooms: { dm }, messages } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
+  const page = await launch('alice', 'restored-alice');
+  await page.goto(`${CHAT}/#/login`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await kyidentityLogin(page, 'Alice.Q@Ky');
+  await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.locator('input, textarea').first().fill(fs.readFileSync(`${dir}/state/alice.recovery`, 'utf8'));
+  await dlg.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const mxid = await signedIn(page, `@alice.q_ky:${SERVER}`);
+  await openRoom(page, dm, false);
+  await sees(page, messages[1]); // prove's dm2, bob's DM message
+  await decryptedImage(page);
+  const after = text('after-restore');
+  await send(page, after);
+  // The reproduction step's native-session control needs a live token.
+  fs.writeFileSync(`${dir}/state/alice.token`, await page.evaluate(() => window.mxMatrixClientPeg.get().getAccessToken()), { mode: 0o600 });
+  out({ mxid, after });
+}
+
+const scenarios = { prove, refused, compat, noclaim, room, token, disabled, reread, reads, media, restored };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);
