@@ -39,13 +39,13 @@ More users are added later with no redeploy.
   redundant; KyRecovery is the off-node copy.
 - Mounts mirror the Compose overlay: the app mounts `kymessages-matrix` read-only piece by piece
   (`subPath`), never `secrets/postgres_password`, with one read-write `element/config.json`.
-  Synapse, MAS and Postgres run as `KY_MATRIX_UID` 10020; all containers drop every
-  capability except what the Compose file grants (the app keeps the default it needs to write
-  Element's config), no service-account token, read-only root filesystems where the image
-  allows. The app's `terminationGracePeriodSeconds` is 1260 (Compose's 21-minute backup
+  Synapse, MAS, Postgres and the app run as `KY_MATRIX_UID` 10020; all containers drop every
+  capability, no service-account token, read-only root filesystems where the image allows.
+  (Fallback only if 10020 cannot write Element's config: the app runs as root with
+  `DAC_OVERRIDE` alone.) The app's `terminationGracePeriodSeconds` is 1260 (Compose's 21-minute backup
   drain).
-- `matrix-init` runs in-cluster as one-off Pods of the app image on the matrix PV as
-  `KY_MATRIX_UID`. Pass 1 prints the KyIdentity registration values; the issued client secret
+- `matrix-init` runs in-cluster by exec in a long-lived holder pod of the app image on the
+  matrix PV as `KY_MATRIX_UID`. Pass 1 prints the KyIdentity registration values; the issued client secret
   goes in through stdin; pass 2 renders MAS's config. Secrets never leave the cluster.
 
 ## Section 2: isolation and routing
