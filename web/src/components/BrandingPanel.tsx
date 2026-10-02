@@ -17,6 +17,12 @@ export interface Branding {
 
 export const MAX_LOGO_BYTES = 1 << 20;
 
+// Element's file is hand-editable: clip what it says rather than refuse the whole panel.
+const clip = (v: unknown, max: number) => {
+  const s = str(v, Infinity);
+  return s.length > max ? `${s.slice(0, max)}\u2026` : s;
+};
+
 export function parseBranding(v: unknown): Branding {
   const b = obj(v);
   const logo = obj(b.logo);
@@ -24,8 +30,8 @@ export function parseBranding(v: unknown): Branding {
   if (b.element !== undefined) {
     const e = obj(b.element);
     element = {
-      brand: e.brand === undefined ? null : str(e.brand, 1024), error: e.error === undefined ? '' : str(e.error, 2048),
-      served: e.served === undefined ? null : str(e.served, 1024), served_error: e.served_error === undefined ? '' : str(e.served_error, 2048),
+      brand: e.brand === undefined ? null : clip(e.brand, 256), error: e.error === undefined ? '' : clip(e.error, 1024),
+      served: e.served === undefined ? null : clip(e.served, 256), served_error: e.served_error === undefined ? '' : clip(e.served_error, 1024),
     };
   }
   return {
@@ -35,11 +41,16 @@ export function parseBranding(v: unknown): Branding {
   };
 }
 
-/** The warning while Element does not show the saved name; null when it does, or without Matrix. */
-export function elementNotice(b: Branding): string | null {
+/**
+ * The warning while Element's file does not hold the name; null when it does, or without Matrix.
+ * `saved` is true right after a change, so a plain page load never claims one.
+ */
+export function elementNotice(b: Branding, saved: boolean): string | null {
   if (!b.element || b.element.brand === b.name) return null;
-  if (b.element.brand === null) return `Saved, but Element's config could not be read: ${b.element.error}`;
-  return `Saved, but Element shows "${b.element.brand}"${b.element.error ? `: ${b.element.error}` : ''}. It is retried every minute.`;
+  const notice = b.element.brand === null
+    ? `Element's config could not be read: ${b.element.error}`
+    : `Element shows "${b.element.brand}"${b.element.error ? `: ${b.element.error}` : ''}. It is retried every minute.`;
+  return saved ? `Saved, but ${notice}` : notice;
 }
 
 /** The brand a running Element still serves once its file holds the saved name; null otherwise. */
@@ -55,6 +66,7 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -84,6 +96,7 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
       const res = await adminFetch(path, init);
       if (!res.ok) throw new Error(await errorMessage(res, 'The change was refused'));
       apply(parseBranding(await res.json()));
+      setSaved(true);
       setMessage(done);
       onChanged();
     } catch (err) {
@@ -104,7 +117,7 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
     void change('/api/admin/branding/logo', { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: file }, 'Logo saved. It shows on the next page load.');
   };
 
-  const notice = state ? elementNotice(state) : null;
+  const notice = state ? elementNotice(state, saved) : null;
   const served = state ? staleServed(state) : null;
   return (
     <section className="panel dr-section" aria-label="Branding">

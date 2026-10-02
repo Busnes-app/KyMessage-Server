@@ -27,16 +27,29 @@ describe('parseBranding and elementNotice', () => {
     expect(parseBranding({ ...STATE, element: undefined }).element).toBeNull();
     expect(parseBranding({ ...STATE, element: { error: 'open: no such file' } }).element).toEqual({ brand: null, error: 'open: no such file', served: null, served_error: '' });
     expect(() => parseBranding({ ...STATE, logo: { custom: 'yes', sha256: '', size: 0 } })).toThrow();
+    expect(() => parseBranding({ ...STATE, element: { brand: 7 } })).toThrow();
+  });
+  it('clips an over-long brand from a hand-edited Element file instead of refusing the body', () => {
+    const e = parseBranding({ ...STATE, element: { brand: 'x'.repeat(5000), served: 'y'.repeat(5000), error: 'e'.repeat(5000) } }).element;
+    expect(e?.brand).toBe(`${'x'.repeat(256)}\u2026`);
+    expect(e?.served).toBe(`${'y'.repeat(256)}\u2026`);
+    expect(e?.error).toHaveLength(1025);
   });
   it('names what Element shows and why, and is quiet when it matches', () => {
-    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'KyMessages', error: 'permission denied' } })))
+    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'KyMessages', error: 'permission denied' } }), true))
       .toBe('Saved, but Element shows "KyMessages": permission denied. It is retried every minute.');
-    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { error: 'open: no such file' } })))
+    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { error: 'open: no such file' } }), true))
       .toBe("Saved, but Element's config could not be read: open: no such file");
-    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'KyMessages' } })))
+    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'KyMessages' } }), true))
       .toBe('Saved, but Element shows "KyMessages". It is retried every minute.');
-    expect(elementNotice(parseBranding(STATE))).toBeNull();
-    expect(elementNotice(parseBranding({ ...STATE, element: undefined }))).toBeNull();
+    expect(elementNotice(parseBranding(STATE), true)).toBeNull();
+    expect(elementNotice(parseBranding({ ...STATE, element: undefined }), true)).toBeNull();
+  });
+  it('claims no save on a plain load', () => {
+    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'KyMessages', error: 'permission denied' } }), false))
+      .toBe('Element shows "KyMessages": permission denied. It is retried every minute.');
+    expect(elementNotice(parseBranding({ ...STATE, name: 'Acme', element: { error: 'open: no such file' } }), false))
+      .toBe("Element's config could not be read: open: no such file");
   });
   it('names the brand a running Element serves until it restarts', () => {
     expect(staleServed(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'Acme', served: 'KyMessages' } }))).toBe('KyMessages');
@@ -80,6 +93,24 @@ describe('BrandingPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
     expect(await screen.findByText('Saved, but Element shows "KyMessages": open /matrix/element/config.json: permission denied. It is retried every minute.')).toBeTruthy();
     expect(screen.queryByText(/until it restarts/)).toBeNull();
+  });
+
+  it('on load, says what Element shows without claiming a save', async () => {
+    serve((url) => (url === '/api/admin/branding' ? json({ ...STATE, name: 'Acme', stored_name: 'Acme', element: { brand: 'KyMessages' } }) : undefined));
+    render(<BrandingPanel onChanged={() => {}} />);
+    expect((await screen.findByRole('alert')).textContent).toBe('Element shows "KyMessages". It is retried every minute.');
+  });
+
+  it('keeps the panel when Element\'s file holds an over-long hand-edited brand', async () => {
+    const long = `<b>${'x'.repeat(5000)}`;
+    serve((url) => (url === '/api/admin/branding' ? json({ ...STATE, element: { brand: long, served: long } }) : undefined));
+    render(<BrandingPanel onChanged={() => {}} />);
+    expect(await screen.findByLabelText('Product name')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save name' })).toBeTruthy();
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe(`Element shows "${long.slice(0, 256)}\u2026". It is retried every minute.`);
+    expect(alert.querySelector('b')).toBeNull();
+    expect(screen.queryByText(/Invalid response/)).toBeNull();
   });
 
   it('resets the name to the default', async () => {
