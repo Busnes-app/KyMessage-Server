@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,12 @@ type MatrixConfig struct {
 	AdminURL      string `json:"admin_url"`
 	AdminClientID string `json:"admin_client_id"`
 	AdminSecret   string `json:"-"`
+	// Backups: matrix-init's output and Synapse's media store, both mounted read-only, the
+	// Postgres host on matrix-db, and the read-only kybackup role's password.
+	Dir              string `json:"dir"`
+	MediaDir         string `json:"media_dir"`
+	DBHost           string `json:"db_host"`
+	BackupDBPassword string `json:"-"`
 }
 
 // Enabled reports whether the Matrix stack is configured.
@@ -108,6 +115,8 @@ type BackupConfig struct {
 	// AllowPrivateRecovery admits private and CGNAT KyRecovery destinations (HTTPS still
 	// required). Off by default: KyRecovery destinations must be public.
 	AllowPrivateRecovery bool `json:"allow_private_recovery"`
+	// MediaFullKeep is how many monthly media archives to keep (Matrix only).
+	MediaFullKeep int `json:"media_full_keep"`
 }
 
 // CaptchaConfig holds anti-abuse settings for password login.
@@ -179,6 +188,11 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("KY_BACKUP_KEEP: must be at least 1, got %d", backupKeep)
 	}
 
+	mediaKeep := getEnvInt("KY_BACKUP_MEDIA_FULL_KEEP", 3)
+	if mediaKeep < 1 {
+		return nil, fmt.Errorf("KY_BACKUP_MEDIA_FULL_KEEP: must be at least 1, got %d", mediaKeep)
+	}
+
 	// An https app URL means browsers reach it over TLS, so cookies are Secure (and HSTS sent)
 	// whatever KY_ENV says. Production over plain HTTP must be an explicit choice.
 	https := strings.HasPrefix(strings.ToLower(appURL), "https://")
@@ -245,6 +259,7 @@ func LoadFromEnv() (*Config, error) {
 			Keep:                 backupKeep,
 			DepositInterval:      depositInterval,
 			AllowPrivateRecovery: getEnvBool("KY_BACKUP_ALLOW_PRIVATE_RECOVERY", false),
+			MediaFullKeep:        mediaKeep,
 		},
 		Captcha: CaptchaConfig{
 			Provider:      getEnv("KY_CAPTCHA_PROVIDER", "pow"),
@@ -275,9 +290,14 @@ func matrixFromEnv() (MatrixConfig, error) {
 
 		AdminURL:      getEnv("KY_MATRIX_ADMIN_URL", ""),
 		AdminClientID: getEnv("KY_MATRIX_ADMIN_CLIENT_ID", ""),
+
+		Dir:      getEnv("KY_MATRIX_DIR", ""),
+		MediaDir: getEnv("KY_MATRIX_MEDIA_DIR", ""),
+		DBHost:   getEnv("KY_MATRIX_DB_HOST", ""),
 	}
 	secretFile := getEnv("KY_MATRIX_ADMIN_SECRET_FILE", "")
-	if m == (MatrixConfig{}) && secretFile == "" {
+	backupPWFile := getEnv("KY_MATRIX_BACKUP_DB_PASSWORD_FILE", "")
+	if m == (MatrixConfig{}) && secretFile == "" && backupPWFile == "" {
 		return m, nil
 	}
 	if err := matrixinit.ValidServerName(m.ServerName); err != nil {
@@ -308,8 +328,27 @@ func matrixFromEnv() (MatrixConfig, error) {
 	if err != nil || m.AdminSecret == "" {
 		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_ADMIN_SECRET_FILE %q must name a readable, non-empty file: %v", secretFile, err)
 	}
+	for _, d := range []struct{ env, v string }{{"KY_MATRIX_DIR", m.Dir}, {"KY_MATRIX_MEDIA_DIR", m.MediaDir}} {
+		if !filepath.IsAbs(d.v) {
+			return MatrixConfig{}, fmt.Errorf("%s must be an absolute path (the Matrix overlay sets it)", d.env)
+		}
+	}
+	if m.DBHost == "" {
+		m.DBHost = "postgres"
+	}
+	if !dbHostRE.MatchString(m.DBHost) {
+		return MatrixConfig{}, errors.New("KY_MATRIX_DB_HOST must be a host name")
+	}
+	pw, err := os.ReadFile(backupPWFile)
+	m.BackupDBPassword = strings.TrimSpace(string(pw))
+	if err != nil || m.BackupDBPassword == "" {
+		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_BACKUP_DB_PASSWORD_FILE %q must name a readable, non-empty file: %v", backupPWFile, err)
+	}
 	return m, nil
 }
+
+// dbHostRE keeps KY_MATRIX_DB_HOST a plain host name: it is passed to pg_dump as --host=.
+var dbHostRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 
 // rejectLegacyEnvironment refuses the pre-rename KY_KYSIGNON_* names: ignoring a set one
 // would silently leave suite sign-in unconfigured.

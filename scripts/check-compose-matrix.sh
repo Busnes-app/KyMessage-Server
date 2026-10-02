@@ -91,8 +91,8 @@ dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition 
   || bad "postgres superuser password is not read from its secret file"
 [ "$(jq -r '.secrets.postgres_password.file' <<<"$out")" = "$root/matrix/secrets/postgres_password" ] \
   || bad "postgres_password secret is not ./matrix/secrets/postgres_password"
-[ "$(jq -c '[.services[] | .secrets // [] | .[].source]' <<<"$out")" = '["mas_admin_client_secret","postgres_password"]' ] \
-  || bad "secrets go to a service other than app (admin) and postgres"
+[ "$(jq -c '[.services[] | .secrets // [] | .[].source] | sort' <<<"$out")" = '["kybackup_db_password","mas_admin_client_secret","postgres_password"]' ] \
+  || bad "secrets go to a service other than app (admin, backup) and postgres"
 
 both=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" -f "$root/docker-compose.static-ip.yml") || { echo "matrix + static-ip does not compose"; exit 1; }
 [ "$(jq -r '.services.app.networks.default.ipv4_address' <<<"$both")" = 10.91.0.20 ] || bad "static IP lost with matrix overlay"
@@ -108,6 +108,7 @@ admin_checks() {
 }
 admin_checks "$out"
 admin_checks "$both"
+[ "$(jq -c '.services.app.networks | keys' <<<"$both")" = '["default","matrix-admin","matrix-db"]' ] || bad "static-IP overlay drops an app network"
 for k in default matrix-db; do
   jq -e --arg k "$k" '.services.mas.networks[$k].aliases // [] | index("mas-admin") | not' <<<"$out" >/dev/null || bad "mas-admin alias leaks onto $k"
 done
@@ -120,4 +121,20 @@ for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MAT
     && { bad "matrix overlay accepted a missing $v"; continue; }
   grep -q "$v" <<<"$err" || bad "missing $v failed for another reason: $err"
 done
+# Backups: the app dumps on matrix-db as kybackup and reads ./matrix and the media store read-only.
+[ "$(jq -c '.services.app.networks | keys' <<<"$out")" = '["default","matrix-admin","matrix-db"]' ] || bad "app is not on default, matrix-admin and matrix-db"
+[ "$(jq -r '[.services | to_entries[] | select(.value.networks | has("matrix-db")) | .key] | sort | join(",")' <<<"$out")" = app,mas,postgres,synapse ] \
+  || bad "matrix-db members are not app,mas,postgres,synapse"
+for kv in KY_MATRIX_DIR=/matrix KY_MATRIX_MEDIA_DIR=/matrix-media KY_MATRIX_DB_HOST=postgres \
+  KY_MATRIX_BACKUP_DB_PASSWORD_FILE=/run/secrets/kybackup_db_password KY_BACKUP_MEDIA_FULL_KEEP=3; do
+  [ "$(jq -r --arg k "${kv%%=*}" '.services.app.environment[$k]' <<<"$out")" = "${kv#*=}" ] || bad "app ${kv%%=*} is not ${kv#*=}"
+done
+[ "$(jq -r '.secrets.kybackup_db_password.file' <<<"$out")" = "$root/matrix/secrets/kybackup_db_password" ] || bad "kybackup secret source"
+appvol() { jq -r --arg t "$1" '.services.app.volumes[] | select(.target == $t) | [.type, .source, (.read_only // false)] | @tsv' <<<"$out"; }
+[ "$(appvol /matrix)" = "$(printf 'bind\t%s\ttrue' "$root/matrix")" ] || bad "app does not mount ./matrix read-only at /matrix"
+[ "$(appvol /matrix-media)" = "$(printf 'volume\tmatrix-media\ttrue')" ] || bad "app does not mount matrix-media read-only at /matrix-media"
+# pg_dump must match the server's major version: the image's client package against the postgres tag.
+client=$(grep -E '^RUN apk .*postgresql[0-9]+-client' "$root/Dockerfile" | grep -oE 'postgresql[0-9]+-client' | grep -oE '[0-9]+')
+server=$(jq -r '.services.postgres.image' <<<"$out" | sed -E 's/^postgres:([0-9]+).*/\1/')
+{ [ -n "$client" ] && [ "$client" = "$server" ]; } || bad "Dockerfile installs postgresql${client}-client but postgres runs major $server"
 exit $fail

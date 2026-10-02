@@ -19,7 +19,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o kymessages ./cmd/serve
 
 # Stage 3: Minimal Production Container
 FROM alpine:3.24
-RUN apk --no-cache add ca-certificates tzdata
+# postgresql17-client: pg_dump/pg_restore for Matrix backups; its major must equal the
+# postgres service's (scripts/check-compose-matrix.sh).
+RUN apk --no-cache add ca-certificates tzdata postgresql17-client
 WORKDIR /app
 COPY --from=backend-builder /app/kymessages /app/kymessages
 # /app/backups is the optional mount for sealed local capsules; KY_BACKUP_DIR is set by the

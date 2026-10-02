@@ -225,8 +225,15 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 	if err := os.WriteFile(secret, []byte("s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	backupPW := filepath.Join(t.TempDir(), "kybackup")
+	if err := os.WriteFile(backupPW, []byte("kybpw\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	set := func(name, host, chat string) {
 		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_MATRIX_DIR", "/matrix")
+		t.Setenv("KY_MATRIX_MEDIA_DIR", "/matrix-media")
+		t.Setenv("KY_MATRIX_BACKUP_DB_PASSWORD_FILE", backupPW)
 		t.Setenv("KY_MATRIX_ADMIN_URL", "http://mas-admin:8081")
 		t.Setenv("KY_MATRIX_ADMIN_CLIENT_ID", "01J0000000000000000000ADMN")
 		t.Setenv("KY_MATRIX_ADMIN_SECRET_FILE", secret)
@@ -236,7 +243,7 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 		t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "hmac")
 	}
 	set("", "", "")
-	for _, k := range []string{"KY_MATRIX_ADMIN_URL", "KY_MATRIX_ADMIN_CLIENT_ID", "KY_MATRIX_ADMIN_SECRET_FILE"} {
+	for _, k := range []string{"KY_MATRIX_ADMIN_URL", "KY_MATRIX_ADMIN_CLIENT_ID", "KY_MATRIX_ADMIN_SECRET_FILE", "KY_MATRIX_DIR", "KY_MATRIX_MEDIA_DIR", "KY_MATRIX_BACKUP_DB_PASSWORD_FILE"} {
 		t.Setenv(k, "")
 	}
 	cfg, err := config.LoadFromEnv()
@@ -248,7 +255,7 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret"}); cfg.Matrix != want {
+	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret", Dir: "/matrix", MediaDir: "/matrix-media", DBHost: "postgres", BackupDBPassword: "kybpw"}); cfg.Matrix != want {
 		t.Fatalf("got %+v want %+v", cfg.Matrix, want)
 	}
 	// Without the webhook secret every directory delivery is refused, so a KyIdentity disable
@@ -270,5 +277,17 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), tc.wantVar) {
 			t.Errorf("%+v: err = %v, want one naming %s", tc, err, tc.wantVar)
 		}
+	}
+}
+
+func TestMediaFullKeepFromEnv(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	cfg, err := config.LoadFromEnv()
+	if err != nil || cfg.Backup.MediaFullKeep != 3 {
+		t.Fatalf("default: %v %v", cfg, err)
+	}
+	t.Setenv("KY_BACKUP_MEDIA_FULL_KEEP", "0")
+	if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_BACKUP_MEDIA_FULL_KEEP") {
+		t.Errorf("keep 0: %v", err)
 	}
 }

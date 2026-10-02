@@ -3,6 +3,8 @@
 # reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
 # internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
 # (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
+# The app also joins matrix-db and reads ./matrix and the media volume read-only, for server
+# backups (docs/RESTORE.md).
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -27,10 +29,22 @@ services:
       - KY_MATRIX_ADMIN_URL=http://mas-admin:8081
       - KY_MATRIX_ADMIN_CLIENT_ID=${KY_MATRIX_ADMIN_CLIENT_ID:?Set KY_MATRIX_ADMIN_CLIENT_ID (printed by matrix-init)}
       - KY_MATRIX_ADMIN_SECRET_FILE=/run/secrets/mas_admin_client_secret
-    secrets: [mas_admin_client_secret]
+      # Server backups: pg_dump as the read-only kybackup role on matrix-db, plus matrix-init's
+      # files and the media store, both read-only. Cost, recorded: the app can read the Matrix
+      # databases (metadata and ciphertext) and the Matrix secrets.
+      - KY_MATRIX_DIR=/matrix
+      - KY_MATRIX_MEDIA_DIR=/matrix-media
+      - KY_MATRIX_DB_HOST=postgres
+      - KY_MATRIX_BACKUP_DB_PASSWORD_FILE=/run/secrets/kybackup_db_password
+      - KY_BACKUP_MEDIA_FULL_KEEP=${KY_BACKUP_MEDIA_FULL_KEEP:-3}
+    secrets: [mas_admin_client_secret, kybackup_db_password]
     networks:
       default: {}
       matrix-admin: {}
+      matrix-db: {}
+    volumes:
+      - ./matrix:/matrix:ro
+      - matrix-media:/matrix-media:ro
 
   postgres:
     <<: *hardening
@@ -133,6 +147,8 @@ secrets:
     file: ./matrix/secrets/postgres_password
   mas_admin_client_secret:
     file: ./matrix/secrets/mas_admin_client_secret
+  kybackup_db_password:
+    file: ./matrix/secrets/kybackup_db_password
 
 networks:
   matrix-db:

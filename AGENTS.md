@@ -122,7 +122,9 @@ When the user requests a durable behavior change, record it here or in the relev
   overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
-  as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network, and
+  as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network (the app joins it
+  for `pg_dump` as the read-only `kybackup` role, and mounts `./matrix` and `matrix-media` read-only;
+  the image's `postgresql17-client` major must equal the Postgres tag, which the check enforces), and
   it hands the app the `KY_MATRIX_*` locations and MAS admin settings: the internal
   `matrix-admin` network (only app and mas; alias `mas-admin`) and the admin secret as a Compose secret.
   It requires `KY_KYIDENTITY_HMAC_SECRET`, as config does with Matrix set. `scripts/check-compose-matrix.sh` checks it
