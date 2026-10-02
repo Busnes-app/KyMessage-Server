@@ -44,6 +44,9 @@ func Plan(users []User, dir map[string]string) []Action {
 		if u.Deactivated {
 			continue // reactivation restores nothing; never undone here
 		}
+		if u.Username == ConsoleUsername && u.Subject == "" && !u.Ambiguous {
+			continue // the console's service account; linked, it is a person and judged as one
+		}
 		status, known := dir[u.Subject]
 		switch {
 		case u.Ambiguous:

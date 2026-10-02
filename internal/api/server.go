@@ -22,6 +22,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/scim"
 	"github.com/Busnes-app/ky_server_base/internal/sso"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
 	"github.com/Busnes-app/ky_server_base/web"
 )
 
@@ -40,6 +41,19 @@ type MatrixAdmin interface {
 	Session(ctx context.Context, kind matrixsync.SessionKind, id string) (matrixsync.Session, error)
 	FinishSession(ctx context.Context, kind matrixsync.SessionKind, id string) (bool, error)
 	Version(ctx context.Context) (string, error)
+	// AsConsole runs fn with a 5-minute console session token for Synapse's admin API.
+	AsConsole(ctx context.Context, fn func(ctx context.Context, token string) error) error
+}
+
+// RoomAdmin is the Synapse admin surface the console uses; *synapseadmin.Client implements it.
+type RoomAdmin interface {
+	Rooms(ctx context.Context, token string, q synapseadmin.RoomQuery) (synapseadmin.RoomPage, error)
+	Room(ctx context.Context, token, id string) (synapseadmin.Room, error)
+	Members(ctx context.Context, token, id string) ([]string, error)
+	Blocked(ctx context.Context, token, id string) (bool, error)
+	Close(ctx context.Context, token, id string) (string, error)
+	Delete(ctx context.Context, token, id string) (string, error)
+	DeleteJobs(ctx context.Context, token, id string) ([]synapseadmin.DeleteJob, error)
 }
 
 type Server struct {
@@ -54,6 +68,8 @@ type Server struct {
 	scim             *scim.Server
 	recovery         recoveryClient
 	mas              MatrixAdmin // nil when Matrix is off
+	rooms            RoomAdmin
+	roomBudget       time.Duration // a room change's steps before its final Close or Delete
 	matrixTargets    health.Targets
 	probeHTTP        *http.Client
 	mux              *http.ServeMux
@@ -192,6 +208,8 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		clientAttempts:  attemptLimiter{m: make(map[string]attemptWindow), cap: attemptsCap},
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
 	}
+	s.rooms = synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
+	s.roomBudget = roomChangeTimeout
 
 	s.routes()
 	return s
@@ -302,6 +320,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/admin/matrix/sessions/{kind}/{id}/finish", s.tracked(s.requireFreshAdmin(s.handleMatrixSessionFinish)))
 	s.mux.HandleFunc("GET /api/admin/health", s.requireAdmin(s.handleHealth))
 	s.mux.HandleFunc("GET /api/admin/audit", s.requireAdmin(s.handleAudit))
+
+	// Rooms act through a 5-minute console session on Synapse's admin API. Close and delete
+	// need a recent sign-in, run detached and are audited. Close is final: there is no reopen.
+	s.mux.HandleFunc("GET /api/admin/matrix/rooms", s.requireAdmin(s.handleRooms))
+	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}", s.requireAdmin(s.handleRoom))
+	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}/delete-status", s.requireAdmin(s.handleRoomJobs))
+	s.mux.HandleFunc("POST /api/admin/matrix/rooms/{id}/close", s.tracked(s.requireFreshAdmin(s.handleRoomClose)))
+	s.mux.HandleFunc("POST /api/admin/matrix/rooms/{id}/delete", s.tracked(s.requireFreshAdmin(s.handleRoomDelete)))
 
 	// Settings & Theme. The read endpoint tiers its own payload by role.
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)

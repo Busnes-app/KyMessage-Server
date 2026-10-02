@@ -19,6 +19,9 @@ Owns `Check`, the per-component probes, `ComposeTargets`, the source links and `
   Postgres: `SHOW server_version` as `kybackup` on database `synapse`.
 - The HTTP client ignores proxy variables and follows no redirects. Errors carry no credential:
   `Check` redacts the secrets it is given; the Postgres DSN never appears in an error.
+- `synapse-admin` (built in `internal/api`) mints and revokes a console session and reads one
+  room through Synapse's admin API on every Health load; it has no version. The first load
+  also creates the console account and may time out.
 - `pins.go` is generated (`go generate ./internal/health`); never edit it by hand.
   `genpins.TestPinsMatchCompose` fails when it drifts from the Compose file.
 - Source links point at the exact upstream tag of the running version (AGPL rule).

@@ -47,3 +47,15 @@ func SetHealthTargetsForTest(s *Server, t health.Targets) { s.matrixTargets = t 
 
 // DetailOutcomeForTest exposes the audit view's outcome parser. Test-only.
 func DetailOutcomeForTest(details string) string { return detailOutcome(details) }
+
+// SetRoomAdminForTest replaces the Synapse admin client. Test-only.
+func SetRoomAdminForTest(s *Server, r RoomAdmin) { s.rooms = r }
+
+// SetRoomBudgetForTest shortens the time a room change has before its final Close or Delete. Test-only.
+func SetRoomBudgetForTest(s *Server, d time.Duration) { s.roomBudget = d }
+
+// RoomWriteDeadlineForTest returns the default room budget, the fixed steps after it and the
+// write deadline a room change sets. Test-only.
+func RoomWriteDeadlineForTest() (budget, steps, total time.Duration) {
+	return roomChangeTimeout, roomAfterBudget, roomWriteTimeout(roomChangeTimeout)
+}

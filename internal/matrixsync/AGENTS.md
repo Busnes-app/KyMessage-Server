@@ -6,7 +6,8 @@ records it, so offboarding sticks after KyIdentity's back-channel logout cuts se
 
 ## Ownership
 Owns `Plan` and `Syncer` (`matrixsync.go`) and the MAS admin client (`mas.go`).
-The client also serves the console through `api.MatrixAdmin` (sessions, finish, user, version).
+The client also serves the console through `api.MatrixAdmin` (sessions, finish, user, version,
+`AsConsole`).
 `cmd/server` wires it: one `NewClient` from `cfg.Matrix.Admin*` shared by the sweep and the API, a sweep at start and every
 5 minutes, and `Wake` from the directory webhook. `store.UserStore.DirectoryStatuses`
 supplies subject → status.
@@ -17,6 +18,20 @@ supplies subject → status.
   lock if unlocked; no link, or links to more than one subject (`Ambiguous`) → lock if
   unlocked (fail closed). A lock applied by hand in MAS to a user active in KyIdentity is
   undone by the next sweep; operators offboard in KyIdentity.
+- The console account is MAS user `kymessages-console` (`ConsoleUsername`): no password, no
+  upstream link, never MAS admin (`can_request_admin`): personal sessions do not need it, and it
+  would let an interactive login as the account request `urn:mas:admin`. `EnsureConsoleUser`
+  creates it on first use (never at start-up) and refuses it locked, deactivated, MAS admin or
+  linked to any upstream identity (a linked one is a person), before any session is minted.
+  `Plan` skips exactly that username while it has no link and is not `Ambiguous`, so the sweep
+  never locks or unlocks it; linked, it is judged as a person. Locking it in MAS cuts the
+  console's Synapse admin access.
+- `AsConsole` mints one MAS personal session per action: scope exactly
+  `urn:matrix:client:api:* urn:synapse:admin:*`, `expires_in` 300, `human_name`
+  `KyMessages console`. The mint runs on a detached `ConsoleCallTimeout` (10 s) context, so a session MAS creates while
+  the request dies is still known and revoked. Once MAS returns a session ID it revokes the session afterwards on a detached
+  `ConsoleCallTimeout` context, also when the reply has no token, the action fails or its context ends; a failed revoke (other than 409, already revoked) is
+  logged with the session ID, never the token, and the session expires on its own.
 - Deactivate always sends `{"skip_erase":true}`; messages are never erased.
 - A deactivated MAS user is never reactivated or otherwise touched.
 - MAS must have exactly one upstream provider; any other count is an error.

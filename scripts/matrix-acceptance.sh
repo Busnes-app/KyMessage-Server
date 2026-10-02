@@ -6,9 +6,11 @@
 # disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
 # making offboarding (including delete) stick in MAS. The operator console reports every
 # component up on its pinned version and ends a live Element session within 30 seconds,
-# audited. It also takes a server backup, loses the host and restores the whole stack from
-# custodian shares, proving history, media, accounts, the server name and the signing key
-# come back.
+# audited. Health proves Synapse admin access through the console's service account. It
+# also takes a server backup, loses the host and restores the whole stack from custodian
+# shares, proving history, media, accounts, the server name and the signing key come back.
+# On the restored stack the console closes the group room (bob removed, rejoin refused) and
+# permanently deletes a throwaway room, audited.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
@@ -503,9 +505,20 @@ admin_pass=$(openssl rand -hex 16)
 app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
 app_login "$admin_pass"
 ok "operator signed in to the console and replaced the bootstrap password"
+# Warm-up: the first load creates the console account inside the probe's 3s, which may time out.
+app_api GET /api/admin/health >"$state/health-warmup.json"
 app_api GET /api/admin/health >"$state/health.json"
-expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres "health checks every component"
-expect "$(jq -r '[.components[] | select(.status != "up") | .name] | join(",")' "$state/health.json")" "" "every component up"
+expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres,synapse-admin "health checks every component"
+expect "$(jq -r '[.components[] | select(.status != "up") | "\(.name): \(.error)"] | join("; ")' "$state/health.json")" "" "every component up"
+# Synapse admin access, proven by the probe above: the console account exists without MAS admin
+# (Synapse decides by the session's scope alone), unlocked and unlinked, and every session it
+# used carried exactly the two scopes, expired within 5 minutes and was revoked.
+expect "$(mas_user kymessages-console 'NOT can_request_admin AND locked_at IS NULL AND deactivated_at IS NULL')" t "the console account exists, not MAS admin, unlocked"
+expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links l JOIN users u USING (user_id) WHERE u.username = 'kymessages-console'")" 0 "the console account has no KyIdentity link"
+expect "$(sql mas "SELECT string_agg(DISTINCT array_to_string(s.scope_list, ' '), '|') FROM personal_sessions s JOIN users u ON u.user_id = s.actor_user_id WHERE u.username = 'kymessages-console'")" \
+	'urn:matrix:client:api:* urn:synapse:admin:*' "console sessions carry exactly the client API and Synapse admin scopes"
+expect "$(sql mas "SELECT count(*) FROM personal_sessions WHERE revoked_at IS NULL")" 0 "every console session was revoked"
+expect "$(sql mas "SELECT bool_and(expires_at <= created_at + interval '5 minutes') FROM personal_access_tokens")" t "console tokens expire within 5 minutes"
 # Only the image map: the resolved config holds secrets.
 dc config --format json | jq '.services | map_values(.image)' >"$state/images.json"
 for svc in synapse mas element postgres; do
@@ -662,6 +675,86 @@ expect "$(hcurl -fsS -H "Authorization: Bearer $(cat "$state/alice.token")" http
 sql synapse "SELECT json FROM event_json j JOIN events e USING (event_id) WHERE e.sender = '@alice.q_ky:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1" |
 	grep -qF "\"ed25519:$keyid\"" || { echo "  FAILED: alice's newest event is not signed with $keyid" >&2; false; }
 ok "new events signed with the restored key $keyid"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Rooms in the console, on the restored stack: the group room is listed encrypted with both
+# members; Close removes bob and refuses his rejoin; Delete permanently of a throwaway room
+# leaves none of its rows; both audited. The start-up sweep after the restore ran with the
+# console account present and never touched it. Before reproduce and no-username, which
+# change sign-in for everyone.
+step rooms
+uri() { jq -rn --arg v "$1" '$v | @uri'; }
+# job_status ROOM DELETE_ID: the console's status for that job ("absent" until Synapse starts it).
+job_status() { app_api GET "/api/admin/matrix/rooms/$(uri "$1")/delete-status" | jq -r --arg d "$2" '[.jobs[] | select(.delete_id == $d) | .status] | first // "absent"'; }
+latest_membership() { sql synapse "SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '$1' AND m.room_id = '$2' ORDER BY e.stream_ordering DESC LIMIT 1"; }
+bob_id="@bob:$KY_MATRIX_SERVER_NAME"
+app_login "$admin_pass"
+app_api GET /api/admin/health | jq -e '.components[] | select(.name == "synapse-admin" and .status == "up")' >/dev/null ||
+	{ echo "  FAILED: Synapse admin access is not up on the restored stack" >&2; false; }
+ok "Synapse admin access works on the restored stack"
+app_api GET '/api/admin/matrix/rooms?search=kymatrix-group' >"$state/rooms.json"
+expect "$(jq -r --arg r "$group" '.rooms[] | select(.id == $r) | "\(.encrypted) \(.closed) \(.members)"' "$state/rooms.json")" \
+	"true false 2" "the console lists the group room: encrypted, open, two members"
+expect "$(app_api GET "/api/admin/matrix/rooms/$(uri "$group")" | jq -r '.members | sort | join(",")')" \
+	"@alice.q_ky:$KY_MATRIX_SERVER_NAME,$bob_id" "its members are alice and bob"
+e2e token bob
+expect "$(token_status bob)" 200 "bob's captured Element token is live"
+
+# Close and Delete need a sign-in from the last 10 minutes: one right before each.
+app_login "$admin_pass"
+read -r outcome job < <(app_api POST "/api/admin/matrix/rooms/$(uri "$group")/close" | jq -r '"\(.outcome) \(.delete_id)"')
+expect "$outcome" started "the console started closing the group room"
+eventually 120 complete "Synapse finished closing the group room" job_status "$group" "$job"
+expect "$(latest_membership "$bob_id" "$group")" leave "bob was removed from the group room"
+expect "$(answer POST "https://matrix.kymatrix.test/_matrix/client/v3/join/$(uri "$group")" \
+	-H "Authorization: Bearer $(cat "$state/bob.token")" -H 'Content-Type: application/json' -d '{}')" '403 M_UNKNOWN' "bob's rejoin is refused"
+expect "$(jq -r .error "$state/answer.json")" "This room has been blocked on this server" "refused because the room is blocked"
+app_login "$admin_pass"
+expect "$(app_api POST "/api/admin/matrix/rooms/$(uri "$group")/close" | jq -r .outcome)" already_closed "closing it again succeeds"
+expect "$(app_api GET "/api/admin/matrix/rooms/$(uri "$group")" | jq -r '"\(.room.closed) \(.members | length)"')" "true 0" "the console shows it closed and empty"
+
+# A throwaway room bob creates, with one non-message event (no plaintext m.room.message:
+# earlier steps assert there is none).
+throwaway_name=kymatrix-throwaway-$$
+throwaway=$(hcurl -fsS -X POST -H "Authorization: Bearer $(cat "$state/bob.token")" -H 'Content-Type: application/json' \
+	-d "$(jq -n --arg n "$throwaway_name" '{name: $n, preset: "private_chat"}')" \
+	https://matrix.kymatrix.test/_matrix/client/v3/createRoom | jq -re .room_id)
+hcurl -fsS -X PUT -H "Authorization: Bearer $(cat "$state/bob.token")" -H 'Content-Type: application/json' -d '{"probe": true}' \
+	"https://matrix.kymatrix.test/_matrix/client/v3/rooms/$(uri "$throwaway")/send/org.kymatrix.probe/1" >/dev/null
+events=$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$throwaway'")
+((events > 0)) || { echo "  FAILED: the throwaway room holds no events" >&2; false; }
+ok "throwaway room $throwaway holds $events events"
+app_login "$admin_pass"
+csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
+expect "$(status POST "$KY_APP_URL/api/admin/matrix/rooms/$(uri "$throwaway")/delete" -b "$jar" -H "Origin: $KY_APP_URL" \
+	-H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"confirm":"not the name"}')" 400 "a delete with the wrong room name is refused"
+app_login "$admin_pass"
+read -r outcome job < <(app_api POST "/api/admin/matrix/rooms/$(uri "$throwaway")/delete" "$(jq -n --arg n "$throwaway_name" '{confirm: $n}')" |
+	jq -r '"\(.outcome) \(.delete_id)"')
+expect "$outcome" started "the console started deleting the throwaway room"
+eventually 180 complete "Synapse finished deleting the throwaway room" job_status "$throwaway" "$job"
+for table in events event_json state_events current_state_events room_memberships rooms; do
+	expect "$(sql synapse "SELECT count(*) FROM $table WHERE room_id = '$throwaway'")" 0 "no $table rows left for the throwaway room"
+done
+expect "$(status GET "$KY_APP_URL/api/admin/matrix/rooms/$(uri "$throwaway")" -b "$jar")" 404 "the deleted room is gone from the console"
+
+# The sweep runs at start-up with a 2-minute deadline and logs a failure: an app up longer than
+# that with none logged has finished a sweep, which saw the console account.
+app_up() { echo $(($(date +%s) - $(date -d "$(docker inspect -f '{{.State.StartedAt}}' "$(dc ps -q app)")" +%s) > 125)); }
+eventually 130 1 "the restored app has run its start-up sweep" app_up
+if dc logs --no-color app 2>&1 | grep -F 'offboarding sweep failing'; then echo "  FAILED: the restored app's sweep failed" >&2; false; fi
+ok "the restored app's sweeps all succeeded"
+app_api GET '/api/admin/audit?kind=matrix&limit=100' >"$state/audit.json"
+expect "$(jq '.total <= .limit' "$state/audit.json")" true "the audit page holds every matrix row ($(jq .total "$state/audit.json"))"
+expect "$(jq -r --arg r "$group" '[.records[] | select(.action == "matrix.room_close" and .target == $r and .actor == "admin") | .outcome] | join(",")' "$state/audit.json")" \
+	already_closed,started "the audit shows both closes, newest first"
+expect "$(jq -r --arg r "$throwaway" '[.records[] | select(.action == "matrix.room_delete" and .target == $r and .actor == "admin") | .outcome] | join(",")' "$state/audit.json")" \
+	"started,refused: confirmation does not match" "the audit shows the delete and the refused one"
+expect "$(jq --arg c "@kymessages-console:$KY_MATRIX_SERVER_NAME" '[.records[] | select(.target == $c)] | length' "$state/audit.json")" 0 \
+	"the sweep never acted on the console account"
+expect "$(mas_user kymessages-console 'locked_at IS NULL AND deactivated_at IS NULL')" t "the console account is unlocked after the start-up sweep"
+expect "$(sql mas "SELECT count(*) FROM personal_sessions WHERE revoked_at IS NULL")" 0 "every console session was revoked"
 pass
 
 # ---------------------------------------------------------------------------------------

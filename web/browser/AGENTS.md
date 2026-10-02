@@ -17,7 +17,7 @@ This directory owns test setup, disposable server launch and UI assertions. The 
   local sealed copies through the real API; no private recovery key or shares are
   present. Check the persisted result and layout at both widths/themes.
 - Login allows 10 attempts per account per 15 minutes and the harness spends one in setup plus one per project: only `dark-390` and `firefox-light-1280` also try a wrong password. Do not relax the limiter; budget attempts before adding projects.
-- The suite also covers Users (Matrix off), Health, the Audit kind filter with keyboard navigation and the Overview, at every project.
+- The suite also covers Users and Rooms (Matrix off; Rooms by keyboard from Users), Health, the Audit kind filter with keyboard navigation and the Overview, at every project.
 - Screenshots and failure traces live in ignored `test-results/` and CI artifacts, not production assets.
 
 ## Work Guidance
