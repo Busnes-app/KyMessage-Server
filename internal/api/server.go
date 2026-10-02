@@ -325,6 +325,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/admin/matrix/sessions/{kind}/{id}/finish", s.tracked(s.requireFreshAdmin(s.handleMatrixSessionFinish)))
 	s.mux.HandleFunc("GET /api/admin/health", s.requireAdmin(s.handleHealth))
 	s.mux.HandleFunc("GET /api/admin/audit", s.requireAdmin(s.handleAudit))
+	s.mux.HandleFunc("GET /api/admin/matrix/sync-status", s.requireAdmin(s.handleSyncStatus))
 
 	// Rooms act through a 5-minute console session on Synapse's admin API. Close and delete
 	// need a recent sign-in, run detached and are audited. Close is final: there is no reopen.

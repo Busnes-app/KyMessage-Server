@@ -103,16 +103,21 @@ func (s *Syncer) Wake() {
 }
 
 // Run sweeps at start, every interval and on Wake. done closes between sweeps, so shutdown
-// can wait for it before the store closes. A failure is logged once per streak.
+// can wait for it before the store closes. A failure is logged once per streak. Every sweep
+// that shutdown did not interrupt is recorded under SweepRecordKey.
 func (s *Syncer) Run(ctx context.Context, interval time.Duration, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	failing := false
+	since := s.storedStreak(ctx)
 	for {
 		run, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		err := s.Sweep(run)
+		applied, failed, err := s.sweep(run)
 		cancel()
+		if ctx.Err() == nil {
+			since = s.record(ctx, applied, failed, err, since)
+		}
 		switch {
 		case err != nil && ctx.Err() == nil && !failing:
 			log.Printf("[MATRIX] offboarding sweep failing (retrying every %s): %v", interval, err)
@@ -133,13 +138,19 @@ func (s *Syncer) Run(ctx context.Context, interval time.Duration, done chan<- st
 // Sweep applies Plan once. Every action is audited, success or failure; one failed action
 // does not stop the rest.
 func (s *Syncer) Sweep(ctx context.Context) error {
+	_, _, err := s.sweep(ctx)
+	return err
+}
+
+// sweep is Sweep, also counting the MAS actions applied and failed.
+func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 	users, err := s.mas.Users(ctx)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	dir, err := s.st.Users().DirectoryStatuses(ctx, "kyidentity")
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	var errs []error
 	for _, a := range Plan(users, dir) {
@@ -154,8 +165,11 @@ func (s *Syncer) Sweep(ctx context.Context) error {
 		}
 		outcome := "ok"
 		if err != nil {
+			failed++
 			outcome = "error: " + err.Error()
 			errs = append(errs, fmt.Errorf("%s %s: %w", a.Kind, a.User.Username, err))
+		} else {
+			applied++
 		}
 		// The MAS action happened; record it even if shutdown cancelled the sweep.
 		actx, acancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -169,5 +183,5 @@ func (s *Syncer) Sweep(ctx context.Context) error {
 			errs = append(errs, aerr)
 		}
 	}
-	return errors.Join(errs...)
+	return applied, failed, errors.Join(errs...)
 }

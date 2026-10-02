@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
+	"github.com/Busnes-app/ky_server_base/internal/sso"
 )
 
 type ThemeUpdateRequest struct {
 	Theme string `json:"theme"`
 }
 
-// notExtra are settings extra_settings never carries: the logo is up to 1 MiB and is served
-// at /app-icon.png.
-var notExtra = map[string]bool{brandLogoKey: true}
+// notExtra are settings extra_settings never carries: the logo is up to 1 MiB and is served at
+// /app-icon.png; the sync records have their own route.
+var notExtra = map[string]bool{brandLogoKey: true, sso.WebhookRecordKey: true, matrixsync.SweepRecordKey: true}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	theme, _ := s.store.Settings().GetSetting(r.Context(), "site_theme")
