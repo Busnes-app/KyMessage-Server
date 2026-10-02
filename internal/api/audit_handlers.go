@@ -27,20 +27,23 @@ type auditView struct {
 	IP      string    `json:"ip"`
 }
 
-var detailField = regexp.MustCompile(`(\w+)=("(?:[^"\\]|\\.)*"|\S+)`)
+var (
+	detailsStrict = regexp.MustCompile(`^\w+="(?:[^"\\]|\\.)*"(?: \w+="(?:[^"\\]|\\.)*")*$`)
+	detailField   = regexp.MustCompile(`(\w+)=("(?:[^"\\]|\\.)*")`)
+)
 
-// detailOutcome is the outcome= field in a row's details, unquoted; "" when absent. Fields are
-// read in order with quoted values consumed whole, so text quoted in an earlier field cannot
-// pose as the outcome.
+// detailOutcome is the outcome= field of a row whose whole details string is key="quoted"
+// tokens, unquoted; "" otherwise. Older rows hold unquoted remote text, which could pose as an
+// outcome, so they show none.
 func detailOutcome(details string) string {
+	if !detailsStrict.MatchString(details) {
+		return ""
+	}
 	for _, m := range detailField.FindAllStringSubmatch(details, -1) {
-		if m[1] != "outcome" {
-			continue
-		}
-		if v, err := strconv.Unquote(m[2]); err == nil {
+		if m[1] == "outcome" {
+			v, _ := strconv.Unquote(m[2])
 			return v
 		}
-		return m[2]
 	}
 	return ""
 }
@@ -50,7 +53,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	offset, limit, ok := pageParams(r)
 	kind := r.URL.Query().Get("kind")
 	prefixes, known := auditKinds[kind]
-	if !ok || (kind != "" && !known) {
+	if !ok || (r.URL.Query().Has("kind") && !known) {
 		s.writeError(w, http.StatusBadRequest, "Invalid paging or kind")
 		return
 	}

@@ -401,7 +401,7 @@ func TestAuditListsNewestFirstByKind(t *testing.T) {
 	if p := get("?limit=1&offset=1"); len(p.Records) != 1 || p.Records[0] != all.Records[1] || p.Total != all.Total {
 		t.Errorf("page: %+v", p)
 	}
-	for _, bad := range []string{"?kind=messaging", "?limit=500", "?offset=x"} {
+	for _, bad := range []string{"?kind=", "?kind=messaging", "?limit=500", "?offset=x"} {
 		if w := adminDo(t, srv, admin, "GET", "/api/admin/audit"+bad, nil); w.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, w.Code)
 		}
@@ -416,20 +416,35 @@ func TestSessionFinishClipsLongErrorsInAudit(t *testing.T) {
 	if !strings.HasPrefix(r.Details, `outcome="error: MAS POST`) || !strings.Contains(r.Details, `session="`+sOAuth+`"`) {
 		t.Fatalf("details %q", r.Details)
 	}
-	if got := api.AuditOutcomeForTest(r.Details); !strings.HasPrefix(got, "error: MAS POST") || strings.Contains(got, `"`) {
+	if got := api.DetailOutcomeForTest(r.Details); !strings.HasPrefix(got, "error: MAS POST") || strings.Contains(got, `"`) {
 		t.Errorf("outcome %q", got)
 	}
 }
 
-func TestAuditOutcomeIgnoresQuotedSpoofs(t *testing.T) {
+func TestAuditOutcomeIgnoresSpoofs(t *testing.T) {
 	for details, want := range map[string]string{
-		`trigger="admin" outcome="success"`:         "success",
-		`remote="boom outcome=ok" outcome="failed"`: "failed",
-		`remote="a \" outcome=ok"`:                  "",
-		`subject="s" reason="r"`:                    "",
+		`trigger="admin" outcome="success"`:                 "success",
+		`remote="boom outcome=ok" outcome="failed"`:         "failed",
+		`remote="a \" outcome=ok"`:                          "",
+		`subject="s" reason="r"`:                            "",
+		`error=recovery pairing: HTTP 400: outcome=success`: "",
+		`bad.outcome=delivered`:                             "",
+		`outcome="error: abc`:                               "",
+		`outcome="success" trailing outcome=failure`:        "",
+		`outcome="success"  trigger="x"`:                    "",
 	} {
-		if got := api.AuditOutcomeForTest(details); got != want {
+		if got := api.DetailOutcomeForTest(details); got != want {
 			t.Errorf("%q: got %q want %q", details, got, want)
 		}
+	}
+}
+
+func TestSessionFinishMultibyteErrorKeepsQuotes(t *testing.T) {
+	srv, st, _, f := setupMatrixServer(t)
+	f.finishErr = errors.New(strings.Repeat("\U0001F4A5", 120))
+	adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "POST", "/api/admin/matrix/sessions/oauth2/"+sOAuth+"/finish", nil)
+	r := auditRows(t, st, "matrix.session_end")[0]
+	if !strings.HasSuffix(r.Details, `kind="oauth2"`) || !strings.HasPrefix(api.DetailOutcomeForTest(r.Details), "error: ") {
+		t.Fatalf("details %q", r.Details)
 	}
 }

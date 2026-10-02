@@ -40,12 +40,20 @@ func pageParams(r *http.Request) (offset, limit int, ok bool) {
 	return offset, limit, true
 }
 
-// clip cuts s to n runes, so a long error can never push the audit cap into the details.
-func clip(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "..."
+// auditDetailsMax is AuditSafe's byte cap on details.
+const auditDetailsMax = 200
+
+// sessionEndDetails formats the row, shortening the outcome by whole runes until the quoted
+// details fit the audit cap, so the cut can never take a closing quote.
+func sessionEndDetails(outcome, id string, kind matrixsync.SessionKind) string {
+	r := []rune(outcome)
+	for {
+		d := fmt.Sprintf("outcome=%q session=%q kind=%q", string(r), id, kind)
+		if len(d) <= auditDetailsMax || len(r) == 0 {
+			return d
+		}
+		r = r[:len(r)-1]
 	}
-	return s
 }
 
 // matrixOn answers 404 when the Matrix stack is not configured: its routes do not exist then.
@@ -193,10 +201,10 @@ func (s *Server) handleMatrixSessionFinish(w http.ResponseWriter, r *http.Reques
 	record := func(outcome string) {
 		actx, acancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 		defer acancel()
-		s.audit(actx, actor, r, "matrix.session_end", mxid, fmt.Sprintf("outcome=%q session=%q kind=%q", outcome, id, kind))
+		s.audit(actx, actor, r, "matrix.session_end", mxid, sessionEndDetails(outcome, id, kind))
 	}
 	fail := func(err error) {
-		record("error: " + clip(err.Error(), 80))
+		record("error: " + err.Error())
 		s.matrixError(w, err)
 	}
 	sess, err := s.mas.Session(ctx, kind, id)
