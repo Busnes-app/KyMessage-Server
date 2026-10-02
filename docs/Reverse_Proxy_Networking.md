@@ -120,6 +120,10 @@ ingress:
   - service: http_status:404
 ```
 
+`/upstream/backchannel-logout/*` on the auth host reaches `mas:8080` through the `auth` route
+above: KyIdentity posts there to end a disabled user's sessions, so register that URL on its
+client and do not block that path. MAS's admin port 8081 is never routed.
+
 A dashboard-managed tunnel takes the same hostname-to-service pairs as public hostnames. Route
 no other MAS port, no Postgres and nothing else on the server-name host: MAS has a
 single listener, 8080, and the compatibility login is not served on it. Element loads its logo

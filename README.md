@@ -92,8 +92,10 @@ client secret once, when you register the client the first run describes.
    others can read). It writes every config except MAS's, prints the KyIdentity registration
    values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Back up `matrix/secrets` and
    `matrix/synapse/signing.key`; they are never regenerated.
-3. In KyIdentity, register the printed confidential client (client ID, redirect URI, scopes
-   `openid profile email`) and assign the users who may chat. Unassigned users cannot sign in.
+3. In KyIdentity, register the printed confidential client (client ID, redirect URI, back-channel
+   logout URI, scopes `openid profile email`) and assign the users who may chat. Unassigned
+   users cannot sign in. The back-channel logout URI is what ends a disabled user's open
+   Element sessions; without it they keep working until their token expires.
 4. Save the client secret KyIdentity shows to `matrix/secrets/kyidentity_client_secret` with
    mode 0600 (for example `install -m 600 /dev/null matrix/secrets/kyidentity_client_secret`,
    then paste it in with an editor). It lives only in that file, never in env or `.env`;
@@ -103,13 +105,20 @@ client secret once, when you register the client the first run describes.
    source path does not exist". Whenever you re-run it on a running stack, apply the configs
    with `docker compose restart synapse mas element`.
 6. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed, plus `KY_MATRIX_SERVER_NAME`,
-   `KY_MATRIX_HOST` and `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
-   from them). Postgres, Synapse and MAS run as that user, the owner of `./matrix`, so its
+   `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
+   from them) and `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`; KyMessages refuses to
+   start with Matrix enabled and no working MAS admin access). Postgres, Synapse and MAS run as that user, the owner of `./matrix`, so its
    0600 secrets stay unreadable to every other account; Compose refuses to start without these.
    If the UID or GID ever changes, `chown -R` `./matrix` and the `matrix-postgres` and
    `matrix-media` volumes (prefixed with the Compose project name) to the new owner.
 7. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
    rest of the chain, then `docker compose up -d`.
+
+8. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`,
+   secret in `KY_KYIDENTITY_HMAC_SECRET`) and link it to the MAS client's app. With the Matrix
+   stack it is required: its directory events are what lock and deactivate users in MAS.
+   If MAS and KyMessages resolve only to private addresses (LAN-only), set
+   `KYIDENTITY_ALLOW_PRIVATE_CALLBACKS=true` on KyIdentity so it may call them.
 
 After start:
 
@@ -117,10 +126,26 @@ After start:
   link in KyMessages.
 - `curl https://<server name>/.well-known/matrix/client` must show your `KY_MATRIX_HOST`.
 
-Not built yet: automatic offboarding (disabling a user in KyIdentity does not end live Matrix
-sessions), Matrix backups, and the admin console for the stack. `make matrix-acceptance`
-proves encrypted storage in Element and a closed server (needs Docker, node and a KyIdentity
-checkout; see [AGENTS.md](AGENTS.md)).
+Offboarding, as measured by `make matrix-acceptance` (cut within 30 s, in practice 0.3-3 s):
+
+- **Disable or unassign** in KyIdentity: open Element sessions end and sign-in is refused;
+  KyMessages locks the MAS user (sessions are gone either way, history stays).
+- **Re-enable**: MAS unlocks within seconds. Sign in again on a new device and restore keys from
+  key backup with the security key to read earlier history; a device whose session ended
+  stays ended.
+- **Delete**: MAS deactivates the user without erasing; they leave their rooms and colleagues
+  still read their messages. A deactivated user is never reactivated.
+- MAS's admin API listens on `mas-admin:8081` on an internal network only KyMessages and MAS
+  join; it is never routed.
+- **After any KyMessages outage**, open the system in KyIdentity and check its deliveries. A
+  disable sent while KyMessages was down is held as an uncertain write ("operator recovery
+  required") and is not retried: resume it (allowed after 60 s), then resync the system.
+  Until then that user has no sessions and cannot sign in, but stays unlocked in MAS. Other
+  failed deliveries KyIdentity retries itself.
+
+Not built yet: Matrix backups and the admin console for the stack. `make matrix-acceptance`
+proves encrypted storage in Element, a closed server and offboarding (needs Docker, node and a
+KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
 
 ## Identity and recovery configuration
 
@@ -134,7 +159,7 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
 | `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
-| `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync` |
+| `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync`; required with the Matrix stack |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
 | `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |
 | `KY_BACKUP_DIR`, `KY_BACKUP_KEEP` | Optional local sealed copies; keep newest N (default 7) |

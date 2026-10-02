@@ -45,7 +45,7 @@ it is a separate later project (a self-built Teams bot), not part of this design
 6. **Offboarding — back-channel logout, webhook plus sweep.** KyIdentity's back-channel
    logout ends the user's MAS sessions within seconds; its signed directory webhook
    (`/api/sso/kyidentity/sync`) then locks (disable) or deactivates (delete) the user through
-   the MAS admin API; reactivation unlocks. A sweep repairs failed MAS calls. Every action is
+   the MAS admin API; reactivation unlocks. A sweep repairs failed MAS calls only; a webhook missed during a KyMessages outage is resumed by an operator in KyIdentity. Every action is
    audited. Detail: `2026-10-01-matrix-offboarding-design.md`.
    (Spike: KyIdentity disable alone leaves live sessions; Synapse deactivate is undone by MAS.)
 7. **Backups — one consistent server capsule.** Synapse and MAS database dumps taken as one

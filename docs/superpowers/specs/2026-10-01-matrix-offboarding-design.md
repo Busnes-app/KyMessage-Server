@@ -63,12 +63,18 @@ assumed.
 ## Section 2: failure handling and proof
 
 - KyMessages down: back-channel logout still cuts sessions and KyIdentity still refuses
-  sign-in; the start-up sweep applies the missed actions.
+  sign-in. The start-up sweep does not repair a missed disable: KyMessages never received it,
+  so its directory still says active. KyIdentity holds a delivery interrupted by the outage as
+  an uncertain write ("operator recovery required"), does not retry it and queues that user's
+  later events behind it, until an operator resumes it in KyIdentity (allowed after 60 s). The
+  lock then lands within seconds.
 - MAS down or an admin call failing: the webhook is acknowledged once recorded locally; the
   sweep retries.
 - Bad admin secret or scope: the sweep logs and retries (console health is sub-project 5).
-- KyIdentity abandons a webhook (5 attempts): the user has no sessions and cannot sign in, but
-  stays unlocked in MAS until a KyIdentity resync. Docs tell admins to resync after an outage.
+- KyIdentity abandons a webhook that failed cleanly (retries at 30/60/120/240 s, then failed):
+  the user has no sessions and cannot sign in, but stays unlocked in MAS until a KyIdentity
+  resync. The sweep's retry covers failed MAS calls only. Docs tell admins to check the
+  system's deliveries after any outage, resume held ones, then resync.
 - **Tests.** `Plan` decision table; MAS client against a fake (token cache, 401 refetch,
   pagination, `skip_erase` body); webhook wakes the loop; start refused without admin access;
   shutdown drain; `matrix-init` (admin client, policy, listener, write-once secret,
@@ -79,8 +85,9 @@ assumed.
      (time recorded); a fresh sign-in is refused.
   2. Reactivate: they sign in again; rooms and history intact.
   3. Delete: deactivated, out of their rooms; the other user still reads their messages.
-  4. KyMessages stopped during a disable: back-channel logout still cuts; after restart the
-     sweep locks the user.
+  4. KyMessages stopped during a disable: back-channel logout still cuts and MAS stays
+     unlocked; the harness proves the webhook was missed, resumes the held delivery in
+     KyIdentity, and the user is then locked.
   5. The admin port is unreachable from a container on `kymessages-net`.
   If the cut misses 30 seconds (Synapse token caching, missing `sid`), the cause is recorded
   and taken back to the owner; the bound is not loosened silently.
@@ -96,4 +103,5 @@ KyIdentity code changes.
   unproven until the acceptance test runs.
 - KyIdentity's netguard may refuse a back-channel URL that resolves only to a private address
   (no issue behind cloudflared); checked during implementation.
-- An abandoned webhook leaves a sessionless, sign-in-refused user unlocked in MAS until resync.
+- A held or abandoned webhook leaves a sessionless, sign-in-refused user unlocked in MAS until
+  an operator resumes it or resyncs.
