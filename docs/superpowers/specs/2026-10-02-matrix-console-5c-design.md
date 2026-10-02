@@ -16,10 +16,9 @@ the last sweep went, with a hint naming the fix.
 2. The app writes Element's `config.json` itself (option A): only the `brand` key, in place,
    through a read-write bind of that one file. A compromised app could repoint Element; it
    already holds the MAS admin secret, so this adds little.
-3. No restart flow: name and logo take effect on the next page load. Owner decision 2026-10-02:
-   Element serves a copy of config.json made at container start (18-load-element-modules.sh),
-   so a rename reaches Element after `docker compose restart element`; the logo needs no
-   restart. Element stays stock.
+3. Element stays stock (owner decision 2026-10-02). It serves a copy of config.json made at
+   container start (18-load-element-modules.sh), so a rename reaches Element after
+   `docker compose restart element`, which Settings shows; the logo needs no restart.
 
 ## Evidence
 
@@ -101,9 +100,11 @@ the last sweep went, with a hint naming the fix.
 - **Web.** Settings gains Branding (name, logo upload with preview, resets) and KyIdentity
   sync panels; Overview the sync card. Existing design system, confirm prompt, no new
   dependencies.
-- **Known limit.** Element's nginx can read the file mid-write; that page load fails and the
-  next succeeds. Writes happen only on change. A crash mid-write can leave the file truncated;
-  re-running `matrix-init` restores it and the next tick re-applies the name.
+- **Known limit.** Writes happen only on change and in place, so a crash mid-write, or an
+  operator's `matrix-init` overlapping an app write (`brandMu` serialises only the app), can
+  leave the file truncated or invalid. A running Element is unaffected (it serves its start-up
+  copy); an Element that restarts copies the broken file and fails to load. The console shows
+  the error. Re-run `matrix-init`, the next tick re-applies the name, then restart Element.
 - **Tests.** Name validation (empty, 65 characters, control characters); PNG refusals (JPEG,
   SVG, 1025 px, 1 MiB + 1 byte, a decompression bomb) and a `tEXt` chunk stripped; the patch
   keeps every other key and the inode (`os.SameFile`) and is idempotent; refuses a missing or
@@ -125,4 +126,5 @@ history or alerting; Element X branding.
 ## Risks
 
 - The app can now write one file Element trusts; decision 2 accepts this.
-- A partially written `config.json` can fail one page load (known limit above).
+- A partially written `config.json` breaks Element only when it next restarts (known limit
+  above).

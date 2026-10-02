@@ -689,6 +689,8 @@ In the root `AGENTS.md` Child DOX Index, after the `internal/matrixinit/AGENTS.m
 
 ### Task 2: matrix-init writes Element's config in place; the app gets that one file read-write
 
+> **Superseded (Compose layout):** the nested mount below (a rw `config.json` over a read-only `./matrix/element`) was dropped. The app's only `./matrix/element` mount is the rw `config.json` file, and Element stays stock (owner decision 2026-10-02).
+
 **Files:**
 - Modify: `internal/matrixinit/matrixinit.go` (the render loop in `Run`, about lines 224-250; add `writeInPlace` after `replaceFile`)
 - Modify: `internal/matrixinit/matrixinit_test.go` (append)

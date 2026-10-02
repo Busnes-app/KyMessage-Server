@@ -223,8 +223,9 @@ Upgrading a stack from before Matrix backups:
   `brand` key of `matrix/element/config.json`, in place, through the one read-write file it
   mounts under `./matrix`, and puts it back within a minute if `matrix-init` re-renders it. If it cannot
   write that file, the name is still saved and Settings shows what Element says and why.
-  If a crash mid-write ever leaves that file truncated or invalid, Element stops loading:
-  re-run `./kymessages matrix-init`; the app re-applies the name within a minute, then restart
+  If a crash mid-write ever leaves that file truncated or invalid, Settings shows the error
+  and a running Element is unaffected, but a restarted Element fails to load: re-run
+  `./kymessages matrix-init`; the app re-applies the name within a minute, then restart
   Element.
   Changes need a sign-in from the last 10 minutes and are audited (`admin.brand_name`,
   `admin.brand_logo`). `KY_APP_NAME` stays the backup service name: capsules and
