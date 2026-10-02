@@ -92,7 +92,7 @@ func TestInitIsWriteOnceForSecrets(t *testing.T) {
 	}
 	after := readAll(t, filepath.Join(dir, "secrets"))
 	key2, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key"))
-	for _, n := range []string{"mas_admin_client_id", "mas_admin_client_secret"} {
+	for _, n := range []string{"mas_admin_client_id", "mas_admin_client_secret", "kybackup_db_password"} {
 		if before[n] == "" {
 			t.Errorf("secret %s not created", n)
 		}
@@ -117,7 +117,7 @@ func TestInitIsWriteOnceForSecrets(t *testing.T) {
 		t.Error("non-secret settings not reconciled")
 	}
 	for _, p := range []string{"secrets", "synapse", "mas", "postgres", "element",
-		"synapse/signing.key", "mas/config.yaml", "synapse/homeserver.yaml", "postgres/init.sql"} {
+		"synapse/signing.key", "mas/config.yaml", "synapse/homeserver.yaml", "postgres/init.sql", "postgres/kybackup-role.sql"} {
 		fi, err := os.Stat(filepath.Join(dir, p))
 		if err != nil {
 			t.Fatal(err)
@@ -555,4 +555,139 @@ func readAll(t *testing.T, dir string) map[string]string {
 		out[e.Name()] = string(b)
 	}
 	return out
+}
+
+// The backup role is created by its own idempotent file, which must sort after init.sql: the
+// Postgres entrypoint runs /docker-entrypoint-initdb.d/*.sql in name order and stops at the
+// first error, and the role's grants name databases init.sql creates.
+func TestBackupRoleSQL(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	res, err := Run(goodInput(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Rendered, "postgres/kybackup-role.sql") {
+		t.Fatalf("rendered %v", res.Rendered)
+	}
+	if !slices.Contains(res.Created, "secrets/kybackup_db_password") {
+		t.Fatalf("created %v", res.Created)
+	}
+	var names []string
+	for _, r := range res.Rendered {
+		if strings.HasPrefix(r, "postgres/") && strings.HasSuffix(r, ".sql") {
+			names = append(names, filepath.Base(r))
+		}
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"init.sql", "kybackup-role.sql"}) {
+		t.Fatalf("entrypoint order %v: init.sql must run first", names)
+	}
+	pw, _ := os.ReadFile(filepath.Join(dir, "secrets", "kybackup_db_password"))
+	b, err := os.ReadFile(filepath.Join(dir, "postgres", "kybackup-role.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(b)
+	for _, want := range []string{
+		"CREATE ROLE kybackup;",
+		"EXCEPTION WHEN duplicate_object THEN NULL;",
+		"ALTER ROLE kybackup WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '" + string(pw) + "';",
+		"GRANT pg_read_all_data TO kybackup;",
+		"GRANT CONNECT ON DATABASE synapse, mas TO kybackup;",
+		"REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC;",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("kybackup-role.sql lacks %q:\n%s", want, sql)
+		}
+	}
+	for _, bad := range []string{"pg_write_all_data", "GRANT ALL"} {
+		if strings.Contains(sql, bad) {
+			t.Errorf("kybackup-role.sql grants %q", bad)
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, "postgres", "kybackup-role.sql")); fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, want 0600: it holds the password", fi.Mode().Perm())
+	}
+}
+
+// After a restore the capsule has every secret but postgres_password; matrix-init makes only
+// that one and keeps the rest, so the restored configs and databases still match.
+func TestInitRegeneratesOnlyAMissingSecret(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	before := readAll(t, filepath.Join(dir, "secrets"))
+	key1, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key"))
+	rendered := []string{"synapse/homeserver.yaml", "mas/config.yaml", "postgres/init.sql", "postgres/kybackup-role.sql"}
+	configs := map[string]string{}
+	for _, rel := range rendered {
+		b, _ := os.ReadFile(filepath.Join(dir, rel))
+		configs[rel] = string(b)
+	}
+	if err := os.Remove(filepath.Join(dir, "secrets", "postgres_password")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(goodInput(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Created, []string{"secrets/postgres_password"}) {
+		t.Errorf("created %v, want only secrets/postgres_password", res.Created)
+	}
+	after := readAll(t, filepath.Join(dir, "secrets"))
+	for name, v := range before {
+		if name != "postgres_password" && after[name] != v {
+			t.Errorf("secret %s changed", name)
+		}
+	}
+	if after["postgres_password"] == "" || after["postgres_password"] == before["postgres_password"] {
+		t.Error("postgres_password not regenerated")
+	}
+	if key2, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key")); string(key1) != string(key2) {
+		t.Error("signing key changed")
+	}
+	for _, rel := range rendered {
+		if b, _ := os.ReadFile(filepath.Join(dir, rel)); string(b) != configs[rel] || len(b) == 0 {
+			t.Errorf("%s changed: the superuser password must not be rendered", rel)
+		}
+	}
+}
+
+// The app mounts ./matrix piece by piece so the superuser password stays out of its view. Every
+// other secret must be mounted, or the capsule silently lacks it and a restore regenerates it.
+func TestComposeMountsEverySecretButTheSuperusers(t *testing.T) {
+	raw, err := os.ReadFile("../../docker-compose.matrix.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compose struct {
+		Services map[string]struct {
+			Volumes []any `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(raw, &compose); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, v := range compose.Services["app"].Volumes {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if target, _ := m["target"].(string); strings.HasPrefix(target, "/matrix/secrets/") {
+			got = append(got, strings.TrimPrefix(target, "/matrix/secrets/"))
+		}
+	}
+	want := []string{filepath.Base(ClientSecretFile)}
+	for _, spec := range secretSpecs {
+		if spec.name != "postgres_password" {
+			want = append(want, spec.name)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("app mounts secrets %v, want %v", got, want)
+	}
 }

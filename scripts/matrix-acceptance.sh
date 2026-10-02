@@ -4,7 +4,9 @@
 # encrypted rooms are stored encrypted, that the server is closed (no registration,
 # password login or federation; unassigned KyIdentity users refused), and that a KyIdentity
 # disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
-# making offboarding (including delete) stick in MAS.
+# making offboarding (including delete) stick in MAS. It also takes a server backup, loses the
+# host and restores the whole stack from custodian shares, proving history, media, accounts,
+# the server name and the signing key come back.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
@@ -81,6 +83,12 @@ cleanup() {
 		echo "matrix-acceptance: logs and traces in $artifacts" >&2
 	fi
 	dc down -v --timeout 10 >/dev/null 2>&1 || echo "matrix-acceptance: down -v failed for project $project" >&2
+	# The restore step hands ./data and ./backups to root, as an operator does; take them back.
+	if [[ -n ${handed_to_root:-} ]]; then
+		docker run --rm --network none --user 0:0 -v "$scratch/data:/data" -v "$scratch/backups:/backups" \
+			--entrypoint chown "$app_image" -R "$(id -u):$(id -g)" /data /backups ||
+			echo "matrix-acceptance: could not hand back $scratch/data and $scratch/backups" >&2
+	fi
 	docker image rm "$kyid_image" "$app_image" >/dev/null 2>&1 || true
 	echo "== summary (total $((SECONDS - started))s)"
 	[[ -f $summary ]] && cat "$summary"
@@ -251,6 +259,16 @@ kyid POST "/api/admin/app-registry/$app/link" "$(jq -c .body <<<"$link")" >/dev/
 record=$(kyid GET /api/admin/app-registry | jq -c --arg a "$app" '.records[] | select(.id == $a)')
 expect "$(jq -r .systemId <<<"$record")" "$system" "the webhook system shares the MAS client's app record"
 expect "$(jq -r .accessMode <<<"$record")" assigned_only "the MAS client admits assigned users only"
+# The operator's step: KyIdentity showed the secret once; it goes in a 0600 file, never env.
+# Before the app starts: Compose refuses the app until that file exists (it is in the capsule).
+jq -re .clientSecret "$state/client.json" >"$client_secret_file"
+chmod 600 "$client_secret_file"
+matrix_init >"$state/init2.out"
+grep -q 'kept      secrets/upstream_provider_id' "$state/init2.out"
+grep -q 'rendered  mas/config.yaml' "$state/init2.out"
+expect "$(grep -cF "client_secret: \"$(cat "$client_secret_file")\"" "$scratch/matrix/mas/config.yaml")" 1 \
+	"matrix-init re-run: secrets kept, the saved client secret rendered into MAS"
+no_insecure "re-rendered configs" "${rendered[@]}"
 # KyMessages first, so it is listening when the assignments below are delivered.
 dc up -d app >/dev/null
 ready "$KY_APP_URL/.well-known/matrix/client"
@@ -264,15 +282,6 @@ ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallor
 # MAS user it has no record for.
 delivered() { kyid GET "/api/admin/systems/$system/provisioning" | jq '[.users[] | select(.desired and .acknowledged)] | length'; }
 eventually 60 "$((${#users[@]} - 1))" "KyMessages acknowledged every assigned user's webhook" delivered
-# The operator's step: KyIdentity showed the secret once; it goes in a 0600 file, never env.
-jq -re .clientSecret "$state/client.json" >"$client_secret_file"
-chmod 600 "$client_secret_file"
-matrix_init >"$state/init2.out"
-grep -q 'kept      secrets/upstream_provider_id' "$state/init2.out"
-grep -q 'rendered  mas/config.yaml' "$state/init2.out"
-expect "$(grep -cF "client_secret: \"$(cat "$client_secret_file")\"" "$scratch/matrix/mas/config.yaml")" 1 \
-	"matrix-init re-run: secrets kept, the saved client secret rendered into MAS"
-no_insecure "re-rendered configs" "${rendered[@]}"
 # Element pulls in Synapse, MAS and Postgres; the base file's app service never starts.
 dc up -d --quiet-pull --wait --wait-timeout 300 element >/dev/null
 ready https://auth.kymatrix.test/.well-known/openid-configuration
@@ -469,6 +478,147 @@ expect "$rc" 7 "synapse cannot connect to mas:8081 (connection refused)"
 rc=0
 dc run --rm --no-deps --entrypoint curl synapse -sS -m 5 -o /dev/null http://mas-admin:8081/ 2>/dev/null || rc=$?
 expect "$rc" 6 "mas-admin does not resolve for synapse"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Server backup: the operator's admin API and `kymessages deposit`, sealed to a throwaway
+# suite key whose 2-of-3 shares only this harness holds.
+jar=$state/app.cookies
+# app_api METHOD PATH [JSON]: the KyMessages admin API as the browser calls it (CSRF header from the cookie).
+app_api() {
+	local csrf body=()
+	csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
+	[[ $# -ge 3 ]] && body=(-d "$3")
+	hcurl -fsS -b "$jar" -c "$jar" -X "$1" -H "Origin: $KY_APP_URL" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" "${body[@]}" "$KY_APP_URL$2"
+}
+kyb() { dc exec -T -e PGPASSWORD="$(cat "$scratch/matrix/secrets/kybackup_db_password")" postgres psql -h 127.0.0.1 -U kybackup -v ON_ERROR_STOP=1 "$@"; }
+
+step backup
+e2e media
+dc exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/kybackup-role.sql >/dev/null
+ok "kybackup-role.sql re-applied on a running stack"
+expect "$(kyb -d synapse -Atc 'SELECT count(*) > 0 FROM users')" t "kybackup reads synapse"
+if kyb -d postgres -c 'SELECT 1' >/dev/null 2>&1; then echo "  FAILED: kybackup connected to database postgres" >&2; false; fi
+ok "kybackup cannot connect to database postgres"
+if kyb -d synapse -c 'CREATE TABLE kyb_probe ()' >/dev/null 2>&1; then echo "  FAILED: kybackup created a table in synapse" >&2; false; fi
+ok "kybackup cannot create a table in synapse"
+if kyb -d mas -c 'UPDATE users SET locked_at = now()' >/dev/null 2>&1; then echo "  FAILED: kybackup updated MAS users" >&2; false; fi
+ok "kybackup cannot write MAS users"
+app_api POST /api/auth/login "$(jq -n --arg p "$KY_ADMIN_PASSWORD" '{username: "admin", password: $p}')" >/dev/null
+admin_pass=$(openssl rand -hex 16)
+app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
+app_api POST /api/auth/login "$(jq -n --arg p "$admin_pass" '{username: "admin", password: $p}')" >/dev/null
+# Off, so the scheduler cannot race the CLI.
+app_api PUT /api/backup/schedule '{"interval_sec": 0}' >/dev/null
+pub=$(go run -C "$repo" ./scripts/matrix-acceptance/suitekey "$state/shares")
+app_api POST /api/backup/pin-key "$(jq -n --arg k "$pub" '{public_key: $k, threshold: 2, total_shares: 3}')" >/dev/null
+ok "operator signed in, replaced the bootstrap password and pinned a throwaway 2-of-3 suite key"
+# The restore step's one-time-key check is vacuous unless the source holds some.
+otks=$(sql synapse 'SELECT count(*) FROM e2e_one_time_keys_json')
+((otks > 0)) || { echo "  FAILED: Synapse holds no one-time keys to exclude" >&2; false; }
+ok "Synapse holds $otks one-time keys before the backup"
+# The app reads ./matrix for the capsule, but not the superuser password.
+[[ -s $scratch/matrix/secrets/postgres_password ]] || { echo "  FAILED: no superuser password to hide" >&2; false; }
+dc exec -T app test -s /matrix/secrets/kybackup_db_password
+if dc exec -T app test -e /matrix/secrets/postgres_password; then echo "  FAILED: the app sees the Postgres superuser password" >&2; false; fi
+ok "the app sees the Matrix secrets but not the Postgres superuser password"
+dc exec -T app /app/kymessages deposit >"$state/deposit.out"
+ok "kymessages deposit sealed a capsule"
+dc exec -T app /app/kymessages backup-drill | tee "$state/drill.out"
+for want in 'Status:   PASSED' '[✓] Postgres Dump: matrix/dumps/mas.dump' '[✓] Postgres Dump: matrix/dumps/synapse.dump'; do
+	grep -qF "$want" "$state/drill.out" || { echo "  FAILED: drill output lacks '$want'" >&2; false; }
+done
+ok "backup drill passed, both dumps checked"
+app_api GET /api/backup/status >"$state/status.json"
+jq -e '.capsule_size.bytes > 0 and .capsule_size.warning == false and .media_last_run.outcome == "success"' "$state/status.json" >/dev/null ||
+	{ echo "  FAILED: backup status: $(jq -c '{capsule_size, media_last_run}' "$state/status.json")" >&2; false; }
+ok "status: capsule $(jq -r '"\(.capsule_size.bytes) bytes, \(.capsule_size.percent)%"' "$state/status.json") of the limit, media run succeeded" | tee -a "$summary"
+mid=$(sql synapse "SELECT media_id FROM local_media_repository WHERE user_id = '@bob:$KY_MATRIX_SERVER_NAME' ORDER BY created_ts DESC LIMIT 1")
+rel="local_content/${mid:0:2}/${mid:2:2}/${mid:4}"
+plain=$(dc exec -T synapse stat -c %s "/media/$rel")
+expect "$(dc exec -T app stat -c %s "/app/backups/media/mirror/$rel")" $((plain + 28)) "bob's image mirrored as AES-GCM ciphertext"
+media_sum=$(dc exec -T synapse sha256sum "/media/$rel" | awk '{print $1}')
+mirror_sum=$(dc exec -T app sha256sum "/app/backups/media/mirror/$rel" | awk '{print $1}')
+[[ $mirror_sum != "$media_sum" ]] || { echo "  FAILED: the mirror holds bob's image bytes unchanged" >&2; false; }
+ok "the mirror's bytes differ from the media store's"
+dc exec -T app test -f "/app/backups/media/full-$(date -u +%Y-%m).tar"
+ok "this month's media archive exists"
+cp "$scratch/matrix/synapse/signing.key" "$state/signing.key"
+keyid=$(awk '{print $2}' "$state/signing.key")
+pass
+
+# ---------------------------------------------------------------------------------------
+# Lose the KyMessages host (KyIdentity survives), then restore-matrix's usage text, step by
+# step: kymessages restore from custodian shares, matrix-init, then restore-matrix.
+step restore
+dc cp app:/app/backups "$state/backups"
+caps=("$state"/backups/*.kycap)
+# Unmatched, the glob stays literal and still counts one.
+[[ -f ${caps[0]} ]] || { echo "  FAILED: no sealed capsule in the backup copy" >&2; false; }
+expect "${#caps[@]}" 1 "one sealed capsule"
+dc rm -sfv app element synapse mas postgres synapse-media-owner >/dev/null
+for v in matrix-postgres matrix-media app-data app-backups; do docker volume rm "${project}_$v" >/dev/null; done
+expect "$(docker volume ls -q --filter "label=com.docker.compose.project=$project" | grep -cE '_(matrix-postgres|matrix-media|app-data|app-backups)$' || true)" 0 "Matrix and app volumes gone"
+mv "$scratch/matrix" "$state/matrix.before"
+# Usage step 1: restore as KY_MATRIX_UID (this user), shares on stdin, then move data/ and matrix/ in.
+"$scratch/kymessages" restore -capsule "${caps[0]}" -to "$scratch/restored" -service KyMessages <"$state/shares" | tee "$state/restore.out"
+mv "$scratch/restored/matrix" "$scratch/matrix"
+mv "$scratch/restored/data" "$scratch/data"
+cmp "$state/signing.key" "$scratch/matrix/synapse/signing.key"
+ok "Synapse signing key restored"
+[[ ! -e $scratch/matrix/secrets/postgres_password ]] || { echo "  FAILED: the capsule carried the superuser password" >&2; false; }
+diff -r -x postgres_password "$state/matrix.before/secrets" "$scratch/matrix/secrets"
+ok "matrix-init secrets restored, all but the superuser password"
+# Usage step 2: matrix-init with the setup environment creates only the missing secret.
+matrix_init >"$state/init3.out"
+expect "$(awk '$1 == "created" { print $2 }' "$state/init3.out")" secrets/postgres_password "matrix-init created only the superuser password"
+diff -r -x postgres_password "$state/matrix.before/secrets" "$scratch/matrix/secrets"
+cmp "$state/signing.key" "$scratch/matrix/synapse/signing.key"
+cmp -s "$state/matrix.before/secrets/postgres_password" "$scratch/matrix/secrets/postgres_password" &&
+	{ echo "  FAILED: the new superuser password equals the lost one" >&2; false; }
+ok "matrix-init kept every restored secret and the signing key"
+expect "$(stat -c %a "$scratch/matrix/element/config.json")" 644 "Element config readable by its nginx again"
+# Usage step 3: docker cp wrote the copy as this user, so ./backups/media is readable by it.
+mv "$state/backups" "$scratch/backups"
+# Usage step 4: the volumes are already gone; a fresh stack, database only.
+dc up -d --quiet-pull --wait --wait-timeout 300 postgres >/dev/null
+# Usage step 5.
+dc run --rm -T restore-matrix | tee "$state/restore-matrix.out"
+for want in 'Restored database mas' 'Restored database synapse'; do
+	grep -qF "$want" "$state/restore-matrix.out" || { echo "  FAILED: restore-matrix did not say '$want'" >&2; false; }
+done
+grep -qE 'Restored [1-9][0-9]* media files' "$state/restore-matrix.out" || { echo "  FAILED: restore-matrix restored no media" >&2; false; }
+ok "restore-matrix loaded both dumps as their owners and wrote media back"
+expect "$(sql synapse 'SELECT count(*) FROM e2e_one_time_keys_json')" 0 "no one-time keys restored"
+restored_sum() { dc run --rm --no-deps -T --entrypoint sha256sum synapse "/media/$rel" | awk '{print $1}'; }
+expect "$(restored_sum)" "$media_sum" "bob's image restored byte for byte"
+if dc run --rm -T restore-matrix >"$state/again.out" 2>&1; then echo "  FAILED: restore-matrix ran twice" >&2; false; fi
+grep -q 'refused: database mas already holds' "$state/again.out" ||
+	{ echo "  FAILED: second restore-matrix failed for another reason: $(cat "$state/again.out")" >&2; false; }
+expect "$(restored_sum)" "$media_sum" "a second restore-matrix refused and changed nothing"
+# Usage step 6 is `sudo chown -R root:root ./data ./backups`; CI has no sudo, so a throwaway
+# root container with only those two binds does the chown. cleanup hands them back.
+handed_to_root=1
+docker run --rm --network none --user 0:0 -v "$scratch/data:/data" -v "$scratch/backups:/backups" \
+	--entrypoint chown "$app_image" -R 0:0 /data /backups
+ok "./data and ./backups chowned to root"
+# The app now uses the shipped ./data and ./backups binds, as a deployment would.
+export KYMATRIX_ACCEPT_APP_DATA=./data KYMATRIX_ACCEPT_APP_BACKUPS=./backups
+dc up -d --quiet-pull --wait --wait-timeout 300 element >/dev/null
+dc up -d app >/dev/null
+ready "$KY_APP_URL/.well-known/matrix/client"
+ready https://matrix.kymatrix.test/_matrix/client/versions
+ok "restored stack up"
+e2e restored
+expect "$(mas_user bob 'locked_at IS NULL AND deactivated_at IS NULL')" t "bob's MAS account intact"
+for r in "$dm" "$group"; do
+	expect "$(sql synapse "SELECT membership FROM local_current_membership WHERE user_id = '@bob:$KY_MATRIX_SERVER_NAME' AND room_id = '$r'")" join "bob still in $r"
+done
+expect "$(hcurl -fsS -H "Authorization: Bearer $(cat "$state/alice.token")" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami | jq -r .user_id)" \
+	"@alice.q_ky:$KY_MATRIX_SERVER_NAME" "server name unchanged"
+sql synapse "SELECT json FROM event_json j JOIN events e USING (event_id) WHERE e.sender = '@alice.q_ky:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1" |
+	grep -qF "\"ed25519:$keyid\"" || { echo "  FAILED: alice's newest event is not signed with $keyid" >&2; false; }
+ok "new events signed with the restored key $keyid"
 pass
 
 # ---------------------------------------------------------------------------------------

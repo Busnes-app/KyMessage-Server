@@ -25,6 +25,7 @@ Owns user interface components, service worker caching, PWA installation manifes
   scheduled failures, partial success and unknown history must remain distinguishable.
 - `Backup.tsx` shows the server's same-origin `reauth_url` as a sign-in link when a backup change is refused for step-up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
+- `Backup.tsx` shows `capsule_size` (highlighting `warning` at 75% of the limit) and, with Matrix, `media_last_run` and its read error, beside the capsule attempt.
 - `NetworkCheck.tsx` renders at the end of the admin-only Settings page: it fetches `/api/admin/network-check`, validates the DTO at the boundary (a malformed or failed response shows `Network check unavailable.`), aborts on unmount and lists five Pass/Warn marks: trusted proxy peer, trusted `X-Forwarded-Proto: https`, https `KY_APP_URL`, host match, and `KY_TRUSTED_PROXIES` naming only single addresses (`trusted_proxies_narrow`). Tested by `NetworkCheck.test.tsx`.
 
 ## Verification

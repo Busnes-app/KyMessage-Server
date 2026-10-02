@@ -57,6 +57,9 @@ func TestMatrixInitTwoPassesPrintRegistrationButNoSecrets(t *testing.T) {
 	if !strings.Contains(s, "back-channel logout URI") || !strings.Contains(s, "KY_MATRIX_ADMIN_CLIENT_ID=") {
 		t.Errorf("output lacks back-channel URI or admin client ID:\n%s", s)
 	}
+	if !strings.Contains(s, "-f /docker-entrypoint-initdb.d/kybackup-role.sql") {
+		t.Errorf("second pass does not say how to apply the backup role to a running stack:\n%s", s)
+	}
 	entries, _ := os.ReadDir(filepath.Join(dir, "secrets"))
 	for _, e := range entries {
 		b, _ := os.ReadFile(filepath.Join(dir, "secrets", e.Name()))

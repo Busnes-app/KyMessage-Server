@@ -110,4 +110,29 @@ describe('Backup', () => {
     const link = await screen.findByRole('link', { name: 'Sign in to KyIdentity again' });
     expect(link.getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
   });
+
+  it('shows the capsule size and highlights the 75% warning', async () => {
+    mockStatus({ ...PAIRED, capsule_size: { bytes: 220 * 1048576, limit: 256 * 1048576, percent: 85, warning: true } });
+    render(<Backup />);
+    const alert = await screen.findByText(/Last capsule: 220\.0 MiB of 256\.0 MiB \(85%\)/);
+    expect(alert.textContent).toContain('Warning: at 75% or more');
+  });
+
+  it('shows a small capsule without a warning', async () => {
+    mockStatus({ ...PAIRED, capsule_size: { bytes: 1048576, limit: 268435456, percent: 0, warning: false } });
+    render(<Backup />);
+    const alert = await screen.findByText(/Last capsule: 1\.0 MiB/);
+    expect(alert.textContent).not.toContain('Warning');
+  });
+
+  it('shows the last media run and its read error', async () => {
+    mockStatus({ ...PAIRED,
+      media_last_run: { outcome: 'failure', trigger: 'scheduled', recorded_at: '2026-10-01T12:00:00Z', archive: 'full-2026-10.tar' },
+      media_last_run_error: 'Could not read the latest media backup result',
+    });
+    render(<Backup />);
+    const run = await screen.findByText(/Last media backup: Failed/);
+    expect(run.textContent).toContain('full-2026-10.tar');
+    expect(screen.getByText('Could not read the latest media backup result')).toBeTruthy();
+  });
 });

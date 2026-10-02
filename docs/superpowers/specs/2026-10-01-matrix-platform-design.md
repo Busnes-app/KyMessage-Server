@@ -48,10 +48,12 @@ it is a separate later project (a self-built Teams bot), not part of this design
    the MAS admin API; reactivation unlocks. A sweep repairs failed MAS calls only; a webhook missed during a KyMessages outage is resumed by an operator in KyIdentity. Every action is
    audited. Detail: `2026-10-01-matrix-offboarding-design.md`.
    (Spike: KyIdentity disable alone leaves live sessions; Synapse deactivate is undone by MAS.)
-7. **Backups — one consistent server capsule.** Synapse and MAS database dumps taken as one
-   point in time, plus MAS secrets (`secrets.encryption`, keys), the Synapse signing key and
-   config secrets, through the existing KyRecovery pairing, schedule, local copies and drills.
-   Media goes to the local backup directory (newest N), outside the capsule. Users restore
+7. **Backups — one server capsule.** Synapse and MAS database dumps (MAS first, seconds
+   apart; Postgres snapshots do not span databases), plus MAS secrets (`secrets.encryption`,
+   keys), the Synapse signing key and config secrets, through the existing KyRecovery pairing,
+   schedule, local copies and drills. Media goes to the local backup directory as an encrypted
+   incremental mirror plus monthly archives, outside the capsule. Detail:
+   `2026-10-01-matrix-backups-design.md`. Users restore
    history with their own security keys; the server never sees plaintext. The people/messages
    capsule split is retired.
 8. **Usernames.** Matrix localpart = KyIdentity username lowercased with characters Matrix

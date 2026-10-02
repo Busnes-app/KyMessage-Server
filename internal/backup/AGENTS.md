@@ -7,7 +7,9 @@ what differs per product: a `Settings` adapter over `store.SettingsStore`, a `Se
 deployment key, the payload the scaffold seals (`Collect`) and its drill checks (`Checks`).
 
 ## Ownership
-Owns the settings adapter (`settings.go`), payload collection (`payload.go`),
+Owns the settings adapter (`settings.go`), payload collection (`payload.go`), Matrix dumps and
+config collection plus expanded-size accounting (`matrix.go`, `size.go`), loading a restored
+Matrix half into a fresh stack (`matrix_restore.go`),
 restore-drill checks (`drill.go`), serialized drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
 live in `recoveryclient` and in the settings rows it reads and writes through the adapter.
 
@@ -20,11 +22,39 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
 - `Collect` snapshots SQLite with the lib's `SQLiteSnapshot` (`VACUUM INTO`; the store runs in
   WAL mode, so a plain file read misses uncheckpointed commits) and returns
   `ErrNoDatabaseSnapshot` for any other driver, so a capsule without a consistent database is
-  never sealed. The people capsule is the whole application database, compacted (`VACUUM`) on the
+  never sealed. The server capsule is the whole application database, compacted (`VACUUM`) on the
   owned snapshot and rejected above the shared capsule file limit before reading it into memory. Metadata/receipt/audit growth remains capped at 64 MiB;
   initial snapshot disk space still scales with the complete live database. It also carries the encryption key (`data/encryption.key`, required — restores
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key
   (`data/recovery.pub`, only when paired).
+- With Matrix enabled `Collect` adds `data/media.key` (write-once, `MediaKeyPath`), `matrix/<sub>/<file>`
+  for secrets, synapse, mas, element and postgres (dot-files skipped; never
+  `secrets/postgres_password`, the superuser's: a fresh volume needs none and `matrix-init`
+  regenerates it), and `pg_dump --format=custom`
+  parts `matrix/dumps/{mas,synapse}.dump.NNN` (MAS first, 64 MiB parts) run as `kybackup`: the child
+  gets only `PGPASSWORD` and `PGCONNECT_TIMEOUT`. The Synapse dump excludes `e2e_one_time_keys_json`
+  data. A dump failure fails the run. Recipe key `pg_dumps` lists the bases; `Checks` requires
+  gapless parts, the `matrixRequired` members (media key, signing key, Synapse and MAS configs,
+  `init.sql`, `kybackup-role.sql`) and reads each joined dump in full (`pg_restore
+  --file=/dev/null`, `DumpCheckTimeout` each).
+- The expanded limit counts tar framing (`Measure`) and holds back 1 MiB, because ky-primitives
+  v0.8.0 `Seal` undercounts against `Open` (Busnes-app/ky-primitives#20). A payload past it fails
+  with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`; its message rounds the size up and
+  names the enforced 255 MiB) before sealing. `CollectForRun` records
+  the measured size in `backup_last_expanded_bytes`; `LastSize` warns from 75% of 256 MiB.
+- `MatrixRestore.Run` (`kymessages restore-matrix`) checks everything before writing: both
+  owner passwords from `matrix/secrets`, gapless parts with no stray, `pg_restore --list` per
+  dump refusing every extension entry except MAS's trusted `pg_trgm` (`EXTENSION - pg_trgm` and
+  `COMMENT - EXTENSION pg_trgm`, which the owner restores; no superuser),
+  a full read of each dump (`pg_restore --file=/dev/null`; `--list` misses a truncated or
+  missing last part),
+  zero user relations in `mas` and `synapse` (`CountRelations`, host or host:port), and unless
+  `SkipMedia` an empty media store owned by the process's uid:gid, the media key
+  (`keyfile.Load`, so the process must own it) and every media file (`media.Restore` with
+  write false). Then `pg_restore` as each owner, MAS first, `--no-owner --no-privileges
+  --single-transaction --exit-on-error`, child env only `PGPASSWORD` and `PGCONNECT_TIMEOUT`;
+  then media. No owner password reaches argv or an error, and tool stderr in errors drops
+  CONTEXT/DETAIL lines (row data). A refusal on a populated stack names what `down -v` deletes.
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment
@@ -57,4 +87,4 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   no recovery private key.
 
 ## Child DOX Index
-None.
+- [media/AGENTS.md](media/AGENTS.md): encrypted media mirror and monthly archives.

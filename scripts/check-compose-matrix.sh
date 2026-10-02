@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The Matrix overlay must publish nothing, pin every image by tag and digest, run the stateful
 # services as the matrix-init owner, mount only each service's own ./matrix path read-only,
-# pass the Postgres superuser password as a secret file, and keep composing with the proxy and
-# static-IP overlays. Uses throwaway values and ignores any local .env; contacts nothing.
+# pass the Postgres superuser password as a secret file and keep it out of the app's view, and
+# keep composing with the proxy and static-IP overlays.
+# Uses throwaway values and ignores any local .env; contacts nothing.
 set -u
 root=$(git rev-parse --show-toplevel)
 export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only \
@@ -87,12 +88,15 @@ dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition 
 [ "$(dep mas postgres)" = service_healthy ] || bad "mas does not wait for a healthy postgres"
 [ "$(dep element synapse)" = service_healthy ] || bad "element does not wait for a healthy synapse"
 [ "$(dep synapse synapse-media-owner)" = service_completed_successfully ] || bad "synapse starts before its media volume is owned"
+# Docker re-copies the image's root-owned /media onto an empty volume at each mount without nocopy.
+[ "$(jq -c '[.services.synapse.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$out")" = '[true]' ] \
+  || bad "synapse mounts matrix-media without nocopy, which resets the media owner"
 [ "$(jq -r '.services.postgres.environment.POSTGRES_PASSWORD_FILE' <<<"$out")" = /run/secrets/postgres_password ] \
   || bad "postgres superuser password is not read from its secret file"
 [ "$(jq -r '.secrets.postgres_password.file' <<<"$out")" = "$root/matrix/secrets/postgres_password" ] \
   || bad "postgres_password secret is not ./matrix/secrets/postgres_password"
-[ "$(jq -c '[.services[] | .secrets // [] | .[].source]' <<<"$out")" = '["mas_admin_client_secret","postgres_password"]' ] \
-  || bad "secrets go to a service other than app (admin) and postgres"
+[ "$(jq -c '[.services[] | .secrets // [] | .[].source] | sort' <<<"$out")" = '["kybackup_db_password","mas_admin_client_secret","postgres_password"]' ] \
+  || bad "secrets go to a service other than app (admin, backup) and postgres"
 
 both=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" -f "$root/docker-compose.static-ip.yml") || { echo "matrix + static-ip does not compose"; exit 1; }
 [ "$(jq -r '.services.app.networks.default.ipv4_address' <<<"$both")" = 10.91.0.20 ] || bad "static IP lost with matrix overlay"
@@ -108,6 +112,7 @@ admin_checks() {
 }
 admin_checks "$out"
 admin_checks "$both"
+[ "$(jq -c '.services.app.networks | keys' <<<"$both")" = '["default","matrix-admin","matrix-db"]' ] || bad "static-IP overlay drops an app network"
 for k in default matrix-db; do
   jq -e --arg k "$k" '.services.mas.networks[$k].aliases // [] | index("mas-admin") | not' <<<"$out" >/dev/null || bad "mas-admin alias leaks onto $k"
 done
@@ -120,4 +125,44 @@ for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MAT
     && { bad "matrix overlay accepted a missing $v"; continue; }
   grep -q "$v" <<<"$err" || bad "missing $v failed for another reason: $err"
 done
+# Backups: the app dumps on matrix-db as kybackup and reads ./matrix and the media store read-only.
+[ "$(jq -c '.services.app.networks | keys' <<<"$out")" = '["default","matrix-admin","matrix-db"]' ] || bad "app is not on default, matrix-admin and matrix-db"
+[ "$(jq -r '[.services | to_entries[] | select(.value.networks | has("matrix-db")) | .key] | sort | join(",")' <<<"$out")" = app,mas,postgres,synapse ] \
+  || bad "matrix-db members are not app,mas,postgres,synapse"
+for kv in KY_MATRIX_DIR=/matrix KY_MATRIX_MEDIA_DIR=/matrix-media KY_MATRIX_DB_HOST=postgres \
+  KY_MATRIX_BACKUP_DB_PASSWORD_FILE=/run/secrets/kybackup_db_password KY_BACKUP_MEDIA_FULL_KEEP=3; do
+  [ "$(jq -r --arg k "${kv%%=*}" '.services.app.environment[$k]' <<<"$out")" = "${kv#*=}" ] || bad "app ${kv%%=*} is not ${kv#*=}"
+done
+[ "$(jq -r '.secrets.kybackup_db_password.file' <<<"$out")" = "$root/matrix/secrets/kybackup_db_password" ] || bad "kybackup secret source"
+appvol() { jq -r --arg t "$1" '.services.app.volumes[] | select(.target == $t) | [.type, .source, (.read_only // false)] | @tsv' <<<"$out"; }
+# ./matrix piece by piece: each bind read-only at the same path under /matrix, never created by
+# Docker, and none of them ./matrix, ./matrix/secrets or the Postgres superuser password.
+appmx=$(jq -c --arg r "$root/matrix" '[.services.app.volumes[] | select(.type == "bind" and (.source == $r or (.source | startswith($r + "/"))))]' <<<"$out")
+jq -e --arg r "$root/matrix" --argjson nc "$nocreate" 'length > 0 and all(.[]; .target == "/matrix" + (.source | ltrimstr($r))
+    and .read_only == true and .bind == $nc and .source != $r and .source != $r + "/secrets")' <<<"$appmx" >/dev/null \
+  || bad "app ./matrix binds are not read-only, same-path, non-creating pieces: $appmx"
+jq -e 'any(.[]; .source | test("postgres_password")) | not' <<<"$appmx" >/dev/null || bad "app can read the Postgres superuser password"
+for d in synapse mas element postgres; do
+  jq -e --arg t "/matrix/$d" 'any(.[]; .target == $t)' <<<"$appmx" >/dev/null || bad "app does not mount ./matrix/$d"
+done
+[ "$(appvol /matrix-media)" = "$(printf 'volume\tmatrix-media\ttrue')" ] || bad "app does not mount matrix-media read-only at /matrix-media"
+# pg_dump must match the server's major version: the image's client package against the postgres tag.
+client=$(grep -E '^RUN apk .*postgresql[0-9]+-client' "$root/Dockerfile" | grep -oE 'postgresql[0-9]+-client' | grep -oE '[0-9]+')
+server=$(jq -r '.services.postgres.image' <<<"$out" | sed -E 's/^postgres:([0-9]+).*/\1/')
+{ [ -n "$client" ] && [ "$client" = "$server" ]; } || bad "Dockerfile installs postgresql${client}-client but postgres runs major $server"
+# restore-matrix: a one-shot under the restore profile, as KY_MATRIX_UID:GID with no capability.
+# The only writer of the media volume besides Synapse; everything else it mounts is read-only.
+jq -e '.services | has("restore-matrix") | not' <<<"$out" >/dev/null || bad "restore-matrix runs without --profile restore"
+rs=$(render "${stack[@]}" --profile restore) || { echo "restore profile does not compose"; exit 1; }
+r=$(jq -c '.services["restore-matrix"]' <<<"$rs")
+[ "$(jq -c '[.entrypoint, (.networks | keys), .user, .cap_drop, .cap_add, .security_opt, .profiles, .pull_policy, .environment,
+    .depends_on.postgres.condition, .depends_on["synapse-media-owner"].condition]' <<<"$r")" \
+  = '[["/app/kymessages","restore-matrix"],["matrix-db"],"1234:5678",["ALL"],null,["no-new-privileges:true"],["restore"],"never",null,"service_healthy","service_completed_successfully"]' ] \
+  || bad "restore-matrix is not locked down: $r"
+[ "$(jq -r .image <<<"$r")" = "$(jq -r .services.app.image <<<"$out")" ] || bad "restore-matrix does not run the app image"
+want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	true" "/matrix	$root/matrix	true" "/media	matrix-media	false")
+[ "$(jq -r '.volumes[] | [.target, .source, (.read_only // false)] | @tsv' <<<"$r" | sort)" = "$want" ] \
+  || bad "restore-matrix mounts: $(jq -c .volumes <<<"$r")"
+[ "$(jq -c '[.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$r")" = '[true]' ] \
+  || bad "restore-matrix mounts matrix-media without nocopy, which resets the media owner"
 exit $fail

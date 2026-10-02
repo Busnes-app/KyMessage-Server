@@ -17,6 +17,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
+	"github.com/Busnes-app/ky_server_base/internal/backup/media"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
@@ -44,6 +45,9 @@ func main() {
 		case "restore":
 			runRestore(os.Args[2:])
 			return
+		case "restore-matrix":
+			runRestoreMatrix(os.Args[2:])
+			return
 		case "matrix-init":
 			runMatrixInitCmd(os.Args[2:])
 			return
@@ -65,10 +69,11 @@ const shutdownTimeout = 5 * time.Second
 
 // backupWaitTimeout bounds the wait for detached backup work. recoveryclient caps one deposit
 // at 15 minutes (its uploadTimeout, for a container of at most capsule.MaxContainerBytes,
-// 384 MiB); the extra two minutes cover sealing and the local copy either side of the upload.
-// docker-compose.yml's stop_grace_period must exceed shutdownTimeout + backupWaitTimeout, and
-// TestComposeGracePeriodCoversTheShutdownBudget holds the two in step.
-const backupWaitTimeout = 17 * time.Minute
+// 384 MiB); backup.DumpTimeout (3m) covers the Matrix dumps before sealing, and two more
+// minutes cover sealing and the local copy. Media mirroring honours shutdown and is not
+// counted. docker-compose.yml's stop_grace_period must exceed shutdownTimeout +
+// backupWaitTimeout, and TestComposeGracePeriodCoversTheShutdownBudget holds them in step.
+const backupWaitTimeout = 20 * time.Minute
 
 func runServer() {
 	cfg, err := config.LoadFromEnv()
@@ -168,7 +173,8 @@ func runServer() {
 // waitForBackupWork blocks until the background loops (backup scheduler, maintenance sweep,
 // Matrix offboarding sweep) and every detached handler have finished,
 // or until ctx expires. Backup work ignores cancellation once bytes are moving: the scheduler's
-// run, and the pair, pin-key and deposit handlers, all detach from their caller. They are waited
+// run, and the pair, pin-key and deposit handlers, all detach from their caller; export and drill
+// run for minutes under their own write deadlines. They are waited
 // out before the store closes, or they write into a closed store -- a key pinned on disk with no
 // row recording it, or a capsule at KyRecovery with no receipt this side.
 //
@@ -200,9 +206,14 @@ func waitForBackupWork(ctx context.Context, backgroundDone <-chan struct{}, wait
 	}
 }
 
-// runBackup is recoveryclient.Run for the people capsule; tests replace it.
+// runBackup is recoveryclient.Run for the server capsule; tests replace it.
 var runBackup = func(ctx context.Context, cfg *config.Config, rc recoveryclient.RunConfig, s recoveryclient.Settings, client recoveryclient.Depositor) (recoveryclient.Result, error) {
-	return recoveryclient.Run(ctx, rc, s, func() (recoveryclient.Payload, error) { return backup.Collect(ctx, cfg, appVersion) }, client)
+	return recoveryclient.Run(ctx, rc, s, func() (recoveryclient.Payload, error) { return backup.CollectForRun(ctx, cfg, s, appVersion) }, client)
+}
+
+// runMedia mirrors Matrix media after a capsule run; tests replace it.
+var runMedia = func(ctx context.Context, cfg *config.Config) (media.Result, error) {
+	return backup.RunMedia(ctx, cfg, time.Now())
 }
 
 // backupLoop polls the admin's schedule once a minute; a change in the UI needs no restart
@@ -231,7 +242,7 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 	}
 }
 
-// backupTick runs the people capsule if due. A run that finds the library lock held (an admin
+// backupTick runs the server capsule if due, then mirrors Matrix media. A run that finds the library lock held (an admin
 // run) is left unstamped and so still due; the next tick retries it.
 func backupTick(ctx context.Context, cfg *config.Config, st store.Store, rc recoveryclient.RunConfig, client recoveryclient.Depositor) {
 	if ctx.Err() != nil {
@@ -256,6 +267,20 @@ func backupTick(ctx context.Context, cfg *config.Config, st store.Store, rc reco
 		return
 	}
 	recordRun(runCtx, st, "system", backupRunAction, res, err)
+	if cfg.Matrix.Enabled() && delivered(res, err) && ctx.Err() == nil {
+		// Incremental, so unlike the capsule it stops for shutdown and resumes next run. Only
+		// after a delivered capsule: that capsule holds the media key. Past shutdown the store
+		// may already be closing.
+		mres, merr := runMedia(ctx, cfg)
+		if !errors.Is(merr, context.Canceled) {
+			recordMedia(runCtx, st, "system", mres, merr)
+		}
+	}
+}
+
+// delivered is a run that put its capsule somewhere: the media key it carries is recoverable.
+func delivered(res recoveryclient.Result, err error) bool {
+	return err == nil || res.LocalPath != "" || res.Receipt != nil
 }
 
 const backupRunAction = "admin.backup_run"
@@ -271,6 +296,30 @@ func recordRun(ctx context.Context, st store.Store, actor, action string, res re
 		return
 	}
 	log.Printf("[BACKUP] %s: capsule %s (%d bytes) local=%q deposited=%t", actor, res.Manifest.CapsuleID, res.SizeBytes, res.LocalPath, res.Receipt != nil)
+}
+
+const mediaRunAction = "admin.backup_media"
+
+// recordMedia audits one media run; the status route reads the latest row.
+func recordMedia(ctx context.Context, st store.Store, actor string, res media.Result, err error) {
+	if errors.Is(err, media.ErrBusy) {
+		log.Printf("[BACKUP] media %s: another media backup is running; skipped", actor)
+		return
+	}
+	details := map[string]any{"outcome": "success", "copied": res.Copied, "unchanged": res.Unchanged, "pruned": res.Pruned}
+	if res.Archive != "" {
+		details["archive"] = res.Archive
+	}
+	if err != nil {
+		details["outcome"] = "failure"
+		details["error"] = recoveryclient.AuditSafe(err.Error())
+	}
+	_ = st.Audit().LogAudit(ctx, &store.AuditRecord{UserID: actor, Action: mediaRunAction, Resource: res.Archive, Details: api.AuditDetails(details)})
+	if err != nil {
+		log.Printf("[BACKUP] media %s: %s", actor, recoveryclient.AuditSafe(err.Error()))
+		return
+	}
+	log.Printf("[BACKUP] media %s: %d copied, %d unchanged, %d pruned, archive %q", actor, res.Copied, res.Unchanged, res.Pruned, res.Archive)
 }
 
 // parseNoArgs refuses every flag and positional argument: these commands take none.
@@ -315,11 +364,20 @@ func runDeposit(args []string) {
 	client := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
 	res, err := runBackup(ctx, cfg, rc, backup.Settings(ctx, st.Settings()), client)
 	recordRun(ctx, st, "cli", backupRunAction, res, err)
+	var merr error
+	if cfg.Matrix.Enabled() && delivered(res, err) {
+		var mres media.Result
+		mres, merr = runMedia(ctx, cfg)
+		recordMedia(ctx, st, "cli", mres, merr)
+	}
 	if err != nil {
 		log.Fatalf("Backup: %v", err)
 	}
 	if res.Receipt != nil {
 		log.Printf("✓ Capsule %s deposited at %s; digest %s", res.Manifest.CapsuleID, res.Receipt.DepositedAt.Format(time.RFC3339), res.Receipt.Digest)
+	}
+	if merr != nil && !errors.Is(merr, media.ErrBusy) {
+		log.Fatalf("Media backup: %v", merr)
 	}
 }
 

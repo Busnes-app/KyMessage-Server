@@ -1,7 +1,7 @@
 # Acceptance harness only (scripts/matrix-acceptance.sh); never part of a deployment. Runs
-# KyMessages itself, built from this checkout, for the offboarding sweep and the directory
-# webhook. It reaches MAS's admin API exactly as shipped (docker-compose.matrix.yml); only
-# the deployment knobs that would leave the project are reset.
+# KyMessages itself, built from this checkout, for the offboarding sweep, the directory
+# webhook and server backups. It reaches MAS's admin API exactly as shipped
+# (docker-compose.matrix.yml); only the deployment knobs that would leave the project are reset.
 services:
   app:
     image: ${KYMATRIX_ACCEPT_APP_IMAGE:?}
@@ -9,9 +9,22 @@ services:
     container_name: !reset null
     # Only the harness proxy publishes a port.
     ports: !reset []
-    # A project volume, removed by `down -v`; bind mounts would leave root-owned files.
-    volumes: !override
-      - app-data:/app/data
+    # Harness login without proof-of-work; never in a deployment.
+    environment:
+      KY_CAPTCHA_PROVIDER: none
+    # Project volumes, removed by `down -v`; bind mounts would leave root-owned files. After the
+    # restore step the harness sets these to ./data and ./backups, the shipped binds, and its
+    # cleanup hands them back. Compose merges mounts by target, so the Matrix overlay's ./matrix
+    # and media mounts apply exactly as shipped.
+    volumes:
+      - ${KYMATRIX_ACCEPT_APP_DATA:-app-data}:/app/data
+      - ${KYMATRIX_ACCEPT_APP_BACKUPS:-app-backups}:/app/backups
+
+  # Its shipped ./data, ./backups and ./matrix binds resolve under the scratch project
+  # directory, which the harness fills with user-owned files.
+  restore-matrix:
+    image: ${KYMATRIX_ACCEPT_APP_IMAGE:?}
 
 volumes:
   app-data:
+  app-backups:

@@ -3,6 +3,8 @@
 # reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
 # internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
 # (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
+# The app also joins matrix-db and reads ./matrix (minus the Postgres superuser password) and the
+# media volume read-only, for server backups (docs/RESTORE.md).
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -13,6 +15,8 @@ x-hardening: &hardening
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
   cap_drop: [ALL]
+# A read-only bind of a path matrix-init made; a missing one refuses the start, never creates it.
+x-matrix-ro: &matrix-ro {type: bind, read_only: true, bind: {create_host_path: false}}
 
 services:
   # Serves /.well-known/matrix/client and the members' Open chat link.
@@ -27,10 +31,43 @@ services:
       - KY_MATRIX_ADMIN_URL=http://mas-admin:8081
       - KY_MATRIX_ADMIN_CLIENT_ID=${KY_MATRIX_ADMIN_CLIENT_ID:?Set KY_MATRIX_ADMIN_CLIENT_ID (printed by matrix-init)}
       - KY_MATRIX_ADMIN_SECRET_FILE=/run/secrets/mas_admin_client_secret
-    secrets: [mas_admin_client_secret]
+      # Server backups: pg_dump as the read-only kybackup role on matrix-db, plus matrix-init's
+      # files and the media store, both read-only. Cost, recorded: the configs it must back up
+      # hold the synapse and mas owner passwords and the shared secrets, so a compromised app can
+      # write both databases and act as Synapse admin. It cannot decrypt E2EE messages. The
+      # superuser password is never mounted here and never backed up.
+      - KY_MATRIX_DIR=/matrix
+      - KY_MATRIX_MEDIA_DIR=/matrix-media
+      - KY_MATRIX_DB_HOST=postgres
+      - KY_MATRIX_BACKUP_DB_PASSWORD_FILE=/run/secrets/kybackup_db_password
+      - KY_BACKUP_MEDIA_FULL_KEEP=${KY_BACKUP_MEDIA_FULL_KEEP:-3}
+    secrets: [mas_admin_client_secret, kybackup_db_password]
     networks:
       default: {}
       matrix-admin: {}
+      matrix-db: {}
+    # ./matrix piece by piece, so secrets/postgres_password (the superuser's) is not in view:
+    # every secret matrix-init writes but that one, plus the operator's KyIdentity client
+    # secret (TestComposeMountsEverySecretButTheSuperusers keeps the list in step).
+    volumes:
+      - {<<: *matrix-ro, source: ./matrix/synapse, target: /matrix/synapse}
+      - {<<: *matrix-ro, source: ./matrix/mas, target: /matrix/mas}
+      - {<<: *matrix-ro, source: ./matrix/element, target: /matrix/element}
+      - {<<: *matrix-ro, source: ./matrix/postgres, target: /matrix/postgres}
+      - {<<: *matrix-ro, source: ./matrix/secrets/synapse_db_password, target: /matrix/secrets/synapse_db_password}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_db_password, target: /matrix/secrets/mas_db_password}
+      - {<<: *matrix-ro, source: ./matrix/secrets/synapse_macaroon_secret_key, target: /matrix/secrets/synapse_macaroon_secret_key}
+      - {<<: *matrix-ro, source: ./matrix/secrets/synapse_form_secret, target: /matrix/secrets/synapse_form_secret}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_synapse_shared_secret, target: /matrix/secrets/mas_synapse_shared_secret}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_encryption, target: /matrix/secrets/mas_encryption}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_signing_rsa, target: /matrix/secrets/mas_signing_rsa}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_signing_ec, target: /matrix/secrets/mas_signing_ec}
+      - {<<: *matrix-ro, source: ./matrix/secrets/upstream_provider_id, target: /matrix/secrets/upstream_provider_id}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_admin_client_id, target: /matrix/secrets/mas_admin_client_id}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_admin_client_secret, target: /matrix/secrets/mas_admin_client_secret}
+      - {<<: *matrix-ro, source: ./matrix/secrets/kybackup_db_password, target: /matrix/secrets/kybackup_db_password}
+      - {<<: *matrix-ro, source: ./matrix/secrets/kyidentity_client_secret, target: /matrix/secrets/kyidentity_client_secret}
+      - matrix-media:/matrix-media:ro
 
   postgres:
     <<: *hardening
@@ -77,7 +114,9 @@ services:
     networks: [default, matrix-db]
     volumes:
       - ./matrix/synapse:/config:ro
-      - matrix-media:/media
+      # nocopy: while the volume is empty, Docker copies the image's root-owned /media onto it
+      # at every mount, undoing synapse-media-owner's chown.
+      - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
     depends_on:
       postgres: {condition: service_healthy}
       synapse-media-owner: {condition: service_completed_successfully}
@@ -128,11 +167,38 @@ services:
       timeout: 5s
       retries: 30
 
+  # One-shot, after `kymessages restore` and `kymessages matrix-init` (which recreates the
+  # superuser password the capsule leaves out), against a fresh stack with only postgres up:
+  #   docker compose run --rm restore-matrix
+  # Loads the restored dumps as their owners and writes media back. It runs as the owner of
+  # ./matrix, which must own the restored data/ and be able to read ./backups/media. The only
+  # writer of the media volume besides Synapse; everything else is read-only.
+  restore-matrix:
+    profiles: [restore]
+    image: ${KY_IMAGE:-kymessages:local}
+    pull_policy: never
+    entrypoint: ["/app/kymessages", "restore-matrix"]
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [matrix-db]
+    volumes:
+      - ./data:/app/data:ro
+      - ./backups:/app/backups:ro
+      - ./matrix:/matrix:ro
+      # nocopy, as for synapse: keeps synapse-media-owner's chown of the empty volume.
+      - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      synapse-media-owner: {condition: service_completed_successfully}
+
 secrets:
   postgres_password:
     file: ./matrix/secrets/postgres_password
   mas_admin_client_secret:
     file: ./matrix/secrets/mas_admin_client_secret
+  kybackup_db_password:
+    file: ./matrix/secrets/kybackup_db_password
 
 networks:
   matrix-db:

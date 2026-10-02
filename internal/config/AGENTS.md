@@ -24,6 +24,8 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 
 - `KY_MATRIX_SERVER_NAME`, `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST`, `KY_MATRIX_ADMIN_URL`, `KY_MATRIX_ADMIN_CLIENT_ID` and `KY_MATRIX_ADMIN_SECRET_FILE` fill `Config.Matrix`: all unset (Matrix off, `Enabled()` false) or all set; a partial or malformed set fails startup. Names and hosts are validated with `matrixinit.ValidServerName`/`matrixinit.Origin` (https origin, no path); `AdminURL` is an http(s) origin (the internal `mas-admin` listener); its error never echoes the value, which may carry credentials. `AdminSecret` is read from the file (trimmed, must be non-empty), is `json:"-"`, and never appears in an error; errors may name the file path. With Matrix enabled, an empty `KY_KYIDENTITY_HMAC_SECRET` fails startup: unsigned directory webhooks are refused, so offboarding would never reach MAS. Only presence is checked; a wrong admin secret starts and fails each sweep.
 
+- Server backups add `KY_MATRIX_DIR` and `KY_MATRIX_MEDIA_DIR` (absolute paths of the read-only `./matrix` and media mounts), `KY_MATRIX_DB_HOST` (default `postgres`, plain host name because it becomes `--host=`) and `KY_MATRIX_BACKUP_DB_PASSWORD_FILE` (the read-only `kybackup` role's password; trimmed, non-empty, `json:"-"`, a bad file fails startup) to `Config.Matrix`. `KY_BACKUP_MEDIA_FULL_KEEP` (default 3, below 1 fails startup) is `Backup.MediaFullKeep`, the monthly media archives kept.
+
 - `KY_CAPTCHA_PROVIDER` is `pow` (default) or `none`; anything else fails startup, because login verifies nothing else. `KY_CAPTCHA_POW_DIFFICULTY` defaults to 50000.
 
 ## Verification

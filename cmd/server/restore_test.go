@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -345,6 +346,36 @@ func TestRestoreRefusesATargetThatAppears(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), "appeared during restore") {
 			t.Fatalf("sentinel=%v: got %v, want an appeared-target refusal", plant, err)
+		}
+	}
+}
+
+// restore extracts matrix/ with the rest; Element's config gets back the 0644 its nginx needs,
+// everything else stays owner-only.
+func TestRestoreBringsBackMatrix(t *testing.T) {
+	key, shares := testKit(t)
+	dbPath := filepath.Join(t.TempDir(), "s.db")
+	st, err := store.Open(context.Background(), config.DatabaseConfig{Driver: "sqlite", DSN: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	db, _ := os.ReadFile(dbPath)
+	path := sealTo(t, key, recoveryclient.Payload{ServiceName: "busnes_app", AppVersion: "1.0.0", Files: []recoveryclient.File{
+		{Path: "data/ky_server.db", Data: db, Mode: 0600},
+		{Path: "data/encryption.key", Data: []byte(strings.Repeat("01", 32)), Mode: 0600},
+		{Path: "matrix/synapse/signing.key", Data: []byte("ed25519 a_abcd seed\n"), Mode: 0600},
+		{Path: "matrix/element/config.json", Data: []byte("{}"), Mode: 0600},
+		{Path: "matrix/dumps/mas.dump.000", Data: []byte("PGDMP"), Mode: 0600},
+	}})
+	target := filepath.Join(t.TempDir(), "restored")
+	if err := restore(path, target, "busnes_app", shares, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for rel, mode := range map[string]os.FileMode{"matrix/element/config.json": 0o644, "matrix/synapse/signing.key": 0o600, "matrix/dumps/mas.dump.000": 0o600} {
+		fi, err := os.Stat(filepath.Join(target, rel))
+		if err != nil || fi.Mode().Perm() != mode {
+			t.Errorf("%s: %v %v, want %v", rel, fi, err, mode)
 		}
 	}
 }

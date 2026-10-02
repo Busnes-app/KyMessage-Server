@@ -6,8 +6,8 @@ services:
     pull_policy: never
     container_name: kymessages
     restart: unless-stopped
-    # Covers the 5s HTTP drain and 17m in-flight backup shutdown budget.
-    stop_grace_period: 20m
+    # Covers the 5s HTTP drain and the 20m in-flight backup shutdown budget.
+    stop_grace_period: 21m
     ports:
       - "${KY_BIND:-127.0.0.1}:8080:8080"
     environment:

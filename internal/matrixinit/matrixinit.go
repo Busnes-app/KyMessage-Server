@@ -174,6 +174,7 @@ var secretSpecs = []struct {
 	{"upstream_provider_id", newULID},
 	{"mas_admin_client_id", newULID},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
 	{"mas_admin_client_secret", hexSecret}, // mounted into KyMessages, never in env
+	{"kybackup_db_password", hexSecret},    // read-only backup role; KyMessages reads it as a Compose secret
 }
 
 // Run validates in fully, then writes the configuration under dir.
@@ -229,6 +230,9 @@ func Run(in Input, dir string) (Result, error) {
 		{"homeserver.yaml.tmpl", "synapse/homeserver.yaml", 0o600},
 		{"mas.yaml.tmpl", "mas/config.yaml", 0o600},
 		{"pg-init.sql.tmpl", "postgres/init.sql", 0o600},
+		// After init.sql by name: the entrypoint runs both on a new volume; operators run it once
+		// on an existing stack. Idempotent.
+		{"kybackup-role.sql.tmpl", "postgres/kybackup-role.sql", 0o600},
 		// No secrets; the Element container reads it as a different user.
 		{"element.json.tmpl", "element/config.json", 0o644},
 	} {

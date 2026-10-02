@@ -1,14 +1,14 @@
 # KyMessages server restore
 
 KyMessages is not deployed yet. These instructions cover the source-built server's
-SQLite capsule restore, which is tested with disposable custodian keys. No published
+SQLite capsule restore and the Matrix stack restore, which is tested with disposable custodian keys. No published
 KyMessages image or production identity/deployment verification is implied by this
 runbook. Do not substitute the upstream `ky-server-base` image: it does not contain
 this repository's restore policy.
 
 ## What recovery can restore
 
-The inherited `ky-primitives/recoveryclient` adapter seals these files:
+The inherited `ky-primitives/recoveryclient` adapter seals the server capsule:
 
 | File | Contents |
 |---|---|
@@ -16,11 +16,20 @@ The inherited `ky-primitives/recoveryclient` adapter seals these files:
 | `data/encryption.key` | Deployment key needed to open stored MFA secrets and the recovery token |
 | `data/recovery.pub` | Pinned suite recovery public key, when configured |
 | `config/settings.json` | App name, URL, port and database driver for operator reference; not automatically loaded |
+| `data/media.key` | With Matrix: the key that opens the media mirror |
+| `matrix/` | With Matrix: secrets except the Postgres superuser's, Synapse signing key, Synapse/MAS/Element configs, Postgres init SQL |
+| `matrix/dumps/{mas,synapse}.dump.NNN` | With Matrix: `pg_dump` parts, MAS first, seconds apart. Synapse's one-time keys are excluded, as Synapse's backup guide says |
+
+Media is not in the capsule. It lives in `KY_BACKUP_DIR/media`: an encrypted mirror plus
+`full-YYYY-MM.tar` archives. Copy that directory off the host together with the capsules;
+only the capsule's `data/media.key` opens it.
 
 Custodians together can open the capsule, including its operational secrets and
-metadata. KyRecovery cannot. The compacted snapshot has a 64 MiB limit; an oversized
-snapshot fails backup explicitly. Initial snapshot scratch space still needs room
-for the complete live database.
+metadata. KyRecovery cannot. The expanded limit is 256 MiB (the library's cap, counted
+with tar framing; the product reserves 1 MiB, see Busnes-app/ky-primitives#20). A larger
+payload fails the run with its size, and the backup screen warns from 75%. Allow about
+2 GiB of memory for the app near the limit (an estimate, not measured). Initial snapshot
+scratch space still needs room for the complete live database.
 
 Only SQLite capsule backup/restore is supported here. The collector refuses
 PostgreSQL because it cannot produce its consistent snapshot. PostgreSQL store
@@ -74,6 +83,45 @@ path no longer names the directory extraction started in, the extracted files ar
 removed through a handle to that directory, never by path, and the command reports the failure; nothing is left to serve. Repeat restoration into an empty directory. The
 command never silently falls back to the old grants.
 
+## Restore the Matrix stack
+
+Only on a new stack, and only for a capsule sealed with Matrix enabled. Matrix is proven
+end to end by `make matrix-acceptance`: Alice read Bob's earlier message and image after
+restoring her keys from key backup; the server name and signing key were unchanged.
+
+1. Restore as the unprivileged user that owns `./matrix` (`KY_MATRIX_UID`, the user who ran
+   `matrix-init`), as above. Move `restored/data` to `./data` and `restored/matrix` to
+   `./matrix`. Copy the backup directory (with `media/`) to `./backups`; `./backups/media`
+   must be readable by `KY_MATRIX_UID`, because the app writes it as root, owner-only.
+2. As the same user, export the `matrix-init` environment from setup (README, Matrix step 1)
+   and run `./kymessages matrix-init`. It keeps every restored secret and the signing key, and
+   creates `secrets/postgres_password`: the capsule never carries the Postgres superuser
+   password, and a fresh volume does not need the old one. Compose refuses to start
+   `postgres` without it.
+3. Set `.env` as before, with `KY_MATRIX_UID` and `KY_MATRIX_GID` for that user. Build the
+   image (build overlay).
+4. Only if this stack is meant to be replaced: `docker compose down -v`, which deletes its
+   Matrix database and media. Then `docker compose up -d postgres`, nothing else.
+5. `docker compose run --rm restore-matrix`. Add `-skip-media` only if no media backup
+   survived; uploads from before the backup are then missing. It runs as `KY_MATRIX_UID`
+   with no capabilities and restores as the database owners, with no superuser.
+6. In the deployment directory, `sudo chown -R root:root ./data ./backups`: the app runs as
+   root and refuses key files it does not own. Then `docker compose up -d`.
+7. Delete `./matrix/dumps`.
+8. Members sign in on a new device and restore message keys from key backup with their own
+   recovery key. KyRecovery cannot do this for them.
+
+`restore-matrix` refuses, before writing anything, if a database is not empty, a dump part
+is missing or truncated, a dump creates any extension other than MAS's trusted `pg_trgm`,
+or (unless `-skip-media`) the media store is not empty or a media file does not open at its
+path. Every dump is read in full first. A failure after those checks leaves a partial stack:
+remove it (`docker compose down -v`, which deletes the Matrix database and media) and start
+again.
+
+Restored MAS and Synapse sessions and access tokens stay valid. If a compromise caused the
+restore, end them: disable the affected users in KyIdentity, which ends their sessions, then
+re-enable them to sign in afresh. A lock applied in MAS alone is undone by the next sweep.
+
 ## Return to service
 
 Do not run old and restored servers simultaneously behind the same origin. Stop the
@@ -106,10 +154,13 @@ according to the operator's storage policy; deletion is not a physical-erasure g
 
 ## Verification
 
-`go test -race ./cmd/server ./internal/store` includes a real 2-of-3 capsule round
+`go test -race ./cmd/server ./internal/store ./internal/backup/...` includes a real 2-of-3 capsule round
 trip, wrong-service/key/threshold refusals, restored-grant invalidation and removal of
 the extracted files when preparation fails. The store policy is also tested on
 PostgreSQL; capsule extraction remains SQLite-only.
 `backup-drill` uses a throwaway key, so a successful automated drill does not prove
 that the real custodian cards are available. A controlled ceremony restore with the
 actual cards, and the deployed identity checks, remain operator acceptance work.
+The Matrix dump split, size limit, media mirror and the `restore-matrix` refusals are
+covered by `go test`. `make matrix-acceptance` proves the full cycle: back up, lose the
+host, restore from custodian shares on stdin, then read old history.

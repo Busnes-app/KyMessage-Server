@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -295,5 +296,104 @@ func TestChecksSQLiteFilenameIsNotADSN(t *testing.T) {
 	}
 	if !result.Passed {
 		t.Fatalf("escaped filename failed: %+v", result)
+	}
+}
+
+// fakePgRestore reads a whole dump for --file=/dev/null: it must start with PGDMP and, complete,
+// end in a PGEND line.
+func fakePgRestore(t *testing.T) {
+	fakeTool(t, "pg_restore", `[ "$1" = --file=/dev/null ] || exit 3
+IFS= read -r first || [ -n "$first" ] || exit 1
+case $first in PGDMP*) ;; *) echo 'pg_restore: error: input file does not appear to be a valid archive' >&2; exit 1 ;; esac
+last=
+while IFS= read -r line; do last=$line; done
+[ "$last" = PGEND ] && exit 0
+echo 'pg_restore: error: could not read from input file: end of file' >&2
+exit 1
+`)
+}
+
+func matrixScratch(t *testing.T, p recoveryclient.Payload, skip string, corrupt string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, f := range p.Files {
+		if f.Path == skip {
+			continue
+		}
+		data := f.Data
+		if f.Path == corrupt {
+			data = []byte("not a dump\n")
+		}
+		full := filepath.Join(dir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestDrillChecksDumps(t *testing.T) {
+	t.Setenv("KY_PORT", "8080")
+	t.Setenv("KY_DB_DRIVER", "sqlite")
+	backup.SetLimitsForTest(t, 1000, 1<<20)
+	fakePgRestore(t)
+	cfg, _ := matrixInstance(t, append(dumpOf(1500), []byte("\n; TABLE public users\nPGEND\n")...), append(dumpOf(10), []byte("\nPGEND\n")...))
+	p, err := backup.Collect(context.Background(), cfg, "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := func(checks []recoveryclient.Check) bool {
+		for _, c := range checks {
+			if !c.Passed {
+				return false
+			}
+		}
+		return len(checks) > 0
+	}
+	byName := func(checks []recoveryclient.Check, name string) *recoveryclient.Check {
+		for i := range checks {
+			if checks[i].Name == name {
+				return &checks[i]
+			}
+		}
+		return nil
+	}
+	ok := backup.Checks(matrixScratch(t, p, "", ""), manifestFor(p))
+	if !passed(ok) || byName(ok, "Postgres Dump: matrix/dumps/mas.dump") == nil || byName(ok, "Postgres Dump: matrix/dumps/synapse.dump") == nil {
+		t.Fatalf("complete dumps: %+v", ok)
+	}
+	if c := byName(backup.Checks(matrixScratch(t, p, "", "matrix/dumps/synapse.dump.000"), manifestFor(p)), "Postgres Dump: matrix/dumps/synapse.dump"); c == nil || c.Passed {
+		t.Errorf("corrupt dump passed: %+v", c)
+	}
+	// A truncated last part has a whole TOC; only the full read catches it.
+	cut := matrixScratch(t, p, "", "")
+	if err := os.Truncate(filepath.Join(cut, "matrix/dumps/mas.dump.001"), 100); err != nil {
+		t.Fatal(err)
+	}
+	if c := byName(backup.Checks(cut, manifestFor(p)), "Postgres Dump: matrix/dumps/mas.dump"); c == nil || c.Passed || !strings.Contains(c.Message, "in full") {
+		t.Errorf("truncated dump: %+v", c)
+	}
+	if passed(backup.Checks(matrixScratch(t, p, "matrix/dumps/mas.dump.001", ""), manifestFor(p))) {
+		t.Error("missing dump part passed")
+	}
+	// The recipe must account for every dump member.
+	bad := p
+	bad.VerificationRecipe = maps.Clone(p.VerificationRecipe)
+	delete(bad.VerificationRecipe, "pg_dumps")
+	if c := backup.Checks(matrixScratch(t, p, "", ""), manifestFor(bad)); len(c) != 1 || c[0].Name != "Verification Recipe" {
+		t.Errorf("recipe without pg_dumps: %+v", c)
+	}
+	// A Matrix capsule without the backup role's SQL cannot rebuild a stack that dumps.
+	const role = "matrix/postgres/kybackup-role.sql"
+	noRole := p
+	noRole.Files = slices.DeleteFunc(slices.Clone(p.Files), func(f recoveryclient.File) bool { return f.Path == role })
+	noRole.VerificationRecipe = maps.Clone(p.VerificationRecipe)
+	req, _ := p.VerificationRecipe["required_files"].([]string)
+	noRole.VerificationRecipe["required_files"] = slices.DeleteFunc(slices.Clone(req), func(s string) bool { return s == role })
+	if c := backup.Checks(matrixScratch(t, noRole, "", ""), manifestFor(noRole)); len(c) != 1 || c[0].Message != "required_files omits "+role {
+		t.Errorf("capsule without %s: %+v", role, c)
 	}
 }
