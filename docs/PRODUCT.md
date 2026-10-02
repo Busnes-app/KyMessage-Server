@@ -1,152 +1,123 @@
 # KyMessages product definition
 
-The chat platform is Matrix; see docs/superpowers/specs/2026-10-01-matrix-platform-design.md. Product-level sections below are reworded in Matrix sub-project 2.
+KyMessages is a Ky-integrated Matrix deployment: stock Synapse, Matrix Authentication Service
+(MAS), PostgreSQL and Element Web, run and backed up by the KyMessages control plane. Design:
+[Matrix platform design](superpowers/specs/2026-10-01-matrix-platform-design.md). Setup and
+operation: [README](../README.md). Restore: [RESTORE.md](RESTORE.md).
 
-Status: proposed product contract, grounded in the existing server base. Only the
-small-team, encrypted-chat-first priority is user-confirmed; the defaults below are
-recommendations, not implemented features. Protocol evidence is in
-[KYMESSAGES-PROTOCOL-RESEARCH.md](KYMESSAGES-PROTOCOL-RESEARCH.md).
+Sections below separate what ships (in code and proven by `make matrix-acceptance`) from what
+is later work. KyMessages is not yet deployed or approved for private team use; no image is
+published.
 
 ## Promise and audience
 
 **Private team conversations, on infrastructure you control.**
 
-KyMessages is the Busnes.app real-time companion to KyPost. Its first job is to let
-a small team exchange reliable encrypted messages without operating a distributed
-communications platform. The initial design target is one organization, 5–50 people,
-one application instance, and a responsive web client. These are planning targets,
-not measured capacity or enforced account limits.
+- Small business teams first: one organization per deployment, self-hosted.
+- Encrypted text chat first. Calls, widgets and integrations are off.
+- Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
+  guests.
+- Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
+- Not offered: Slack or Teams parity, calling, compliance archiving, federation.
 
-Small businesses are the first audience; homelab alerts and family calling remain
-expansion paths. The first release competes on understandable privacy, reliable
-delivery, simple operation, and suite identity. It does not promise Slack feature
-parity, Zoom replacement, compliance archiving, or cross-vendor interoperability.
-Avoid a licensing/pricing promise until the distribution terms have been reviewed.
+## What ships
 
-## First-release experience
+**Stack.**
+- `kymessages matrix-init` generates Synapse, MAS, Element and Postgres configs and write-once
+  secrets; `docker-compose.matrix.yml` adds the four upstream images, pinned by tag and digest,
+  unmodified (AGPL rule below).
+- One subdomain per part (Synapse, MAS, Element, console); user IDs stay `@alice:<server name>`
+  through `.well-known` served by KyMessages. Nothing is published; cloudflared fronts it.
+- Federation off (empty allow-list, no federation listener). Registration, guest access and
+  password login off.
 
-1. An operator deploys the app behind HTTPS, connects KyIdentity, and configures a
-   local sealed-backup destination or KyRecovery. Setup explains what recovery saves.
-2. A member signs in, enrolls their browser as a messaging device, and sees the
-   device fingerprint and the consequences of clearing browser storage.
-3. They create a DM or invitation-only room, verify unfamiliar device identities,
-   and exchange messages. The UI distinguishes pending, accepted by server, and
-   failed sends; server acceptance does not mean a recipient read the message.
-4. After a connection interruption, the client resumes from its durable cursor
-   without duplicate visible messages. A retention gap is shown explicitly.
-5. A new browser is a new device. Approval by an existing device admits it to future
-   conversations. A user who loses every device re-enrolls visibly and starts with
-   new keys; signing in does not magically recover history.
-6. Removing a member immediately revokes server access. The room also completes a
-   cryptographic membership change before accepting new application messages.
+**Sign-in.**
+- KyIdentity is the only upstream identity, through MAS. MAS's compatibility (legacy) login is
+  not served; only native OIDC clients (current Element Web, Element X) sign in.
+- Matrix localpart = KyIdentity username lowercased, characters outside `[a-z0-9._=-]` replaced
+  by `_`. Accounts link by KyIdentity `sub`, so renames do not orphan them.
+- The KyMessages console keeps a local operator login (bootstrap password must be replaced
+  before privileged use); members reach chat only through KyIdentity.
 
-The workspace shell has rooms and DMs, a conversation pane, a composer, and room
-members. Account settings expose devices, fingerprint verification, and local data
-removal. Admin settings expose identity, retention, storage usage, and backup health.
-Use existing ky-ui tokens and Busnes Light/Dark defaults, preserve saved themes,
-and make keyboard operation, focus behavior, narrow screens, and contrast release gates.
+**Encryption.**
+- Synapse encrypts every new room by default (`encryption_enabled_by_default_for_room_type: all`).
+- Label, exactly: "End-to-end encrypted in Element (not independently audited)". Never call
+  suite or agent review an independent audit.
+- Synapse does not enforce encryption: a client or script that does not encrypt can post
+  plaintext into an encrypted room, and the server does not stop it. Members should use
+  Element. Evidence: [CHAT-PLATFORM-OPTIONS.md](CHAT-PLATFORM-OPTIONS.md) section 7.
+- The server sees metadata in plaintext: room names and topics, membership, display names,
+  timestamps, devices and IPs.
+- Users restore history on a new device from key backup with their own security key. The
+  server and KyRecovery custodians cannot read message content.
 
-## Scope
+**Offboarding** (driven from KyIdentity; detail in
+[the offboarding design](superpowers/specs/2026-10-01-matrix-offboarding-design.md)).
+- Disable or unassign: back-channel logout ends open Element sessions (bound 30 s, measured
+  0.3-3 s), then KyMessages locks the MAS user. Re-enable unlocks; history stays.
+- Delete: MAS deactivates without erasing; the user leaves their rooms, their messages stay
+  readable. Never reactivated.
+- A signed directory webhook triggers the change; a sweep every 5 minutes repairs failed MAS
+  calls. A change sent while KyMessages was down waits in KyIdentity until an operator resumes
+  it. Every action is audited.
 
-| Ship in v1 | Follow after v1 | Separate feasibility work |
-| --- | --- | --- |
-| KyIdentity OIDC, DMs, invitation-only rooms | Workspace-discoverable channels and SCIM room mappings | Nextcloud Talk interoperability |
-| MLS-encrypted text, basic Markdown with raw HTML disabled | Threads, reactions, edits, encrypted attachments | Cross-server MLS trust and delivery |
-| Device enrollment, approval, verification and revocation | Approved device-to-device history transfer | Native shared crypto library and packaging |
-| Offline reconnect, deduplication, retention gaps | 1:1 audio/video and screen share | SFrame SFU calls |
-| SQLite, one instance, existing recovery facilities | Alert integrations and private wake-up push | PostgreSQL recovery and multi-node operation |
+**Backups** (detail in [the backups design](superpowers/specs/2026-10-01-matrix-backups-design.md)).
+- One sealed server capsule to KyRecovery and/or the local backup directory, on the admin's
+  schedule: app database and key, Matrix configs and secrets (not the Postgres superuser
+  password), Synapse signing key, `pg_dump`s of MAS and Synapse.
+- Media: an encrypted incremental mirror in `KY_BACKUP_DIR/media` after each scheduled run or
+  `deposit`, plus monthly full archives (default newest 3).
+- Capsule limit 256 MiB expanded; the run fails loudly past it and the screen warns from 75%.
+- `restore` then `restore-matrix` rebuild a lost host; proven end to end in acceptance.
 
-Text v1 includes safe links and code blocks; fetching remote link previews on the
-server is excluded. Search, if added, runs over locally decrypted messages. Typing
-indicators, presence, read receipts, recordings, transcription, and moderation bots
-are deferred. Each has privacy and lifecycle costs beyond its UI.
+**Console.** Changes need a sign-in from the last 10 minutes and are audited.
+- Overview: chat health, users, backups, KyIdentity sync cards.
+- Users: Matrix users with their KyIdentity link and sessions; end one or all sessions. No
+  lock or unlock: access is controlled in KyIdentity.
+- Rooms: list, search, members (never messages). Close (final: members removed, rejoin
+  blocked, history kept) or Delete permanently (typed name; media stays in the media store).
+  Runs as the service account `@kymessages-console` through 5-minute MAS sessions.
+- Health: per-load probes of Synapse, MAS, Element, Postgres and the app, versions compared
+  with the Compose pins, links to each upstream source release.
+- Audit: read-only log filtered by kind.
+- Settings: product name and PNG logo; the logo reaches Element at once, a name after
+  `docker compose restart element`. KyIdentity sync status: last accepted webhook, rejected
+  deliveries, last sweep, with fix hints.
 
-## Privacy contract
+**Clients.** Element Web is branded by config only (name, logo, Busnes Light/Dark). Element X
+stays Element-branded. Any Matrix client can connect; the encryption label covers Element only.
 
-Say **end-to-end encrypted content**, rather than describing the whole service as
-zero-knowledge. The server sees accounts, device public keys, room membership, routing
-identifiers, timing, ciphertext sizes, expiry, and connection IP addresses. Proposed
-v1 room names are server-visible metadata; the UI must say so. Audit administrative
-events without bodies, attachment keys, plaintext notifications, or message previews.
+## Licensing
 
-Only enrolled room devices possess message decryption keys. OIDC proves account
-authentication; it does not prove a messaging device is trustworthy. An administrator
-can manage access but cannot silently add an invisible decryption device. Device
-changes are visible and fingerprints can be compared out of band. The first release
-must document what directory substitution it detects; key transparency is not assumed.
+- Synapse, MAS and Element Web are used as unmodified official images pulled by Compose,
+  configured only through config files and HTTP APIs: no patches, no template overrides. The
+  console links to each component's exact upstream source release.
+- KyMessages' own code is MIT.
+- Pricing and distribution terms are not decided.
 
-Encryption does not protect against compromised endpoints, malicious recipients,
-screenshots, or a compromised web origin shipping a modified client. CSP, dependency
-controls, reproducible release practices, and avoiding third-party runtime scripts
-reduce browser risk but cannot remove that trust boundary.
+## Later or out of scope
 
-## Follow-on features and their constraints
+- Teams interop: no maintained bridge exists; a self-built Teams bot is a separate project.
+- Other bridges (mautrix): later, admin-enabled. A bridge decrypts, so a bridged
+  conversation never carries the E2EE label.
+- A lighter homeserver (Tuwunel) trial.
+- Federation: off.
+- Calls, widgets and integrations: disabled in Element's config.
+- Console: room creation, membership editing, message moderation, colour editing, health
+  history and alerting.
 
-**Calls.** First prove authenticated 1:1 WebRTC calls, including relayed calls through
-TURN. Bind signaling and endpoint fingerprints to the encrypted conversation.
-DTLS-SRTP protects its endpoints; if those endpoints become an SFU, it is not alone
-participant-to-participant E2EE. Group calls need SFrame, authenticated key distribution,
-membership rekeying, and browser capability tests. Unsupported clients must fail
-closed rather than silently downgrade encryption. Screen/system-audio capture is
-platform-dependent. Pion supplies building blocks, not a finished congestion-managed
-SFU. Account for TURN deployment, UDP reachability and bandwidth; the full calling
-deployment may need more than the application container.
+## Known risks
 
-**Alerts.** A webhook recipient sees plaintext. Prefer a separately operated bridge
-that receives alerts and joins a dedicated room as a visible MLS bot/device; its
-operator is trusted with that room's contents. The messaging daemon remains blind.
-Generic webhook support therefore adds a component and cannot be marketed as both
-server-blind and a plaintext in-process sink. Start with links into KyPulse/KyYard;
-action buttons later require destination-side authorization, confirmation and audit,
-not ambient administrator credentials in chat messages.
-
-**Federation.** First prove KyMessages-to-KyMessages identity, invitation, removal,
-delivery and abuse handling. OCM discovery/invitations are not an MLS chat wire
-protocol. Nextcloud Talk interoperability is a separate compatibility milestone,
-requiring tests against named versions and an explicit encryption profile. Do not
-promise transparent encrypted interop or silently introduce a decrypting bridge.
-HTTP Message Signatures/JWKS support must follow negotiated peer capabilities.
-
-**Native clients.** Build after the message/device protocol stabilizes. Prove the
-chosen MLS implementation can share interoperable state formats and behavior across
-WASM and native targets before committing to four client platforms.
-
-## Delivery sequence and acceptance gates
-
-| Milestone | Concrete outcome | Exit evidence |
-| --- | --- | --- |
-| 0 — feasibility | Two browsers exchange real MLS messages with the selected library | License/maintenance/security review; test vectors; refresh/crash recovery; concurrent commits; offline rejoin; device add/remove; browser storage/key-wrapping decision |
-| 1 — product foundation | Product identity, KyIdentity enrollment and a durable opaque delivery path | Existing CI remains green; access-control tests; revoked sessions disconnect; replay/retry/cursor tests; no plaintext in server persistence/logs |
-| 2 — private team pilot | DMs, rooms, device UI, reconnect, retention and recovery | Multi-user browser tests; lost-device drill; unauthorized join fails; membership pause/rekey works; backup restore cannot resurrect expired messages |
-| 3 — first release | Documented installation, upgrades, storage limits and support matrix | Restore drill; security review of protocol binding; cross-browser checks; measured load and resource envelope |
-| 4 — expansion | Calls, alerts, attachments and push in independently usable increments | NAT/TURN tests; bot trust disclosure; client-side attachment encryption; metadata-only push |
-| 5 — interoperability | Federation and native clients | Named peer/version compatibility tests and device lifecycle parity |
-
-Proposed pilot load: 50 accounts, 100 connected devices, rooms up to 50 accounts,
-10 messages/second sustained and 50/second bursts. On a declared 2-vCPU/2-GiB test
-host, target p95 server acceptance below 250 ms and foreground receipt below 1 s
-on a controlled low-latency network. Record ciphertext sizes, database size and
-network conditions. These are pass/fail targets to validate, not advertised results.
-Measure binary/image size; remove the unverified less-than-35-MB promise.
-
-## Decisions to settle in the feasibility milestone
-
-The recommended defaults are: one organization per deployment; KyIdentity-only
-member login; no anonymous guests; visible device approval; no historical key escrow;
-90-day default ciphertext retention; SQLite for the first supported deployment. Validate
-these with the pilot team, especially the loss-of-all-devices experience.
-
-The base currently has local administrator login. Decide and test an operator-only
-bootstrap/recovery path that cannot enroll a messaging device or bypass member SSO
-before enforcing exclusive KyIdentity login. Do not remove the existing recovery
-path before a replacement has been demonstrated.
-
-The technical go/no-go is the MLS browser proof, including a maintainable library,
-supported browser matrix, device trust binding, durable state, and a documented
-epoch-concurrency profile. If that proof fails, revisit scope/library choice; do not
-ship plaintext chat beneath an E2EE label.
-
-PostgreSQL already exists in the store, but the backup collector currently rejects it.
-Keep it outside the initial supported product configuration until consistent backup
-and restore are proven. PostgreSQL alone also does not provide multi-node fanout,
-coordinated scheduling, or media routing.
+- MFA relies on KyIdentity's per-app policy; MAS ignores `acr`. Untested.
+- A public deployment through cloudflared is untested; acceptance runs the shipped configs
+  over HTTPS with a private CA on loopback.
+- A busy server will pass the 256 MiB capsule limit; backups then fail until the limit is
+  raised. Sealing holds the capsule in memory.
+- The app can read the Matrix databases and secrets, and the configs it backs up hold the
+  database owner passwords: a compromised app can write both databases and act as Synapse
+  admin. It cannot decrypt messages.
+- A held or abandoned KyIdentity webhook leaves a sessionless, sign-in-refused user unlocked in
+  MAS until an operator resumes it or resyncs.
+- `@kymessages-console` holds Synapse admin scope; sessions last 5 minutes and every use is
+  audited.
+- Operational weight: PostgreSQL plus several services, against the old single binary.

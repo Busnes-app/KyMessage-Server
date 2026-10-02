@@ -13,8 +13,9 @@ priority is small teams and encrypted text chat.
   preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
 
-- Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it records proposed
-  defaults, being reworded for Matrix, not shipped behavior.
+- Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product
+  definition on Matrix: what ships, what is later or out of scope, and known risks. Keep it
+  in step when a shipped capability or approved decision changes.
 - Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
   before selecting media libraries or making federation compatibility claims.
 - The chat platform is decided: Matrix (see
