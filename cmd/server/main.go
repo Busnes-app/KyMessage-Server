@@ -173,7 +173,8 @@ func runServer() {
 // waitForBackupWork blocks until the background loops (backup scheduler, maintenance sweep,
 // Matrix offboarding sweep) and every detached handler have finished,
 // or until ctx expires. Backup work ignores cancellation once bytes are moving: the scheduler's
-// run, and the pair, pin-key and deposit handlers, all detach from their caller. They are waited
+// run, and the pair, pin-key and deposit handlers, all detach from their caller; export and drill
+// run for minutes under their own write deadlines. They are waited
 // out before the store closes, or they write into a closed store -- a key pinned on disk with no
 // row recording it, or a capsule at KyRecovery with no receipt this side.
 //

@@ -609,3 +609,47 @@ func TestBackupRoleSQL(t *testing.T) {
 		t.Errorf("mode %v, want 0600: it holds the password", fi.Mode().Perm())
 	}
 }
+
+// After a restore the capsule has every secret but postgres_password; matrix-init makes only
+// that one and keeps the rest, so the restored configs and databases still match.
+func TestInitRegeneratesOnlyAMissingSecret(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	before := readAll(t, filepath.Join(dir, "secrets"))
+	key1, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key"))
+	rendered := []string{"synapse/homeserver.yaml", "mas/config.yaml", "postgres/init.sql", "postgres/kybackup-role.sql"}
+	configs := map[string]string{}
+	for _, rel := range rendered {
+		b, _ := os.ReadFile(filepath.Join(dir, rel))
+		configs[rel] = string(b)
+	}
+	if err := os.Remove(filepath.Join(dir, "secrets", "postgres_password")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(goodInput(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Created, []string{"secrets/postgres_password"}) {
+		t.Errorf("created %v, want only secrets/postgres_password", res.Created)
+	}
+	after := readAll(t, filepath.Join(dir, "secrets"))
+	for name, v := range before {
+		if name != "postgres_password" && after[name] != v {
+			t.Errorf("secret %s changed", name)
+		}
+	}
+	if after["postgres_password"] == "" || after["postgres_password"] == before["postgres_password"] {
+		t.Error("postgres_password not regenerated")
+	}
+	if key2, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key")); string(key1) != string(key2) {
+		t.Error("signing key changed")
+	}
+	for _, rel := range rendered {
+		if b, _ := os.ReadFile(filepath.Join(dir, rel)); string(b) != configs[rel] || len(b) == 0 {
+			t.Errorf("%s changed: the superuser password must not be rendered", rel)
+		}
+	}
+}

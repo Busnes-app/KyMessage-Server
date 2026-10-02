@@ -41,6 +41,10 @@ var expandLimit = capsule.MaxExpandedBytes - 1<<20
 // key and every rendered config. dumps/ exists only in a restored tree and is never collected.
 var matrixDirs = []string{"secrets", "synapse", "mas", "element", "postgres"}
 
+// superuserSecret is never collected: a fresh Postgres volume needs no old superuser password,
+// and matrix-init regenerates it. Compose hides it from the app too.
+const superuserSecret = "secrets/postgres_password"
+
 // dumps run MAS first: Postgres snapshots do not span databases, and MAS re-provisions a user
 // created in between at sign-in. Synapse's backup guide: one-time keys must not be restored.
 var dumps = []struct {
@@ -66,9 +70,10 @@ type SizeError struct {
 	Member string
 }
 
+// Error rounds the size up and the limit down, so the size always reads as past the limit.
 func (e *SizeError) Error() string {
 	return fmt.Sprintf("backup: the capsule would expand to %d MiB, past the %d MiB limit, at %s",
-		e.Bytes>>20, capsule.MaxExpandedBytes>>20, e.Member)
+		(e.Bytes+1<<20-1)>>20, expandLimit>>20, e.Member)
 }
 
 func (e *SizeError) Unwrap() error { return capsule.ErrCapsuleTooLarge }
@@ -117,11 +122,11 @@ func collectMatrix(ctx context.Context, m config.MatrixConfig, b *budget) ([]rec
 			if !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".") {
 				return nil
 			}
-			data, err := os.ReadFile(path)
-			if err != nil {
+			rel, err := filepath.Rel(m.Dir, path)
+			if err != nil || filepath.ToSlash(rel) == superuserSecret {
 				return err
 			}
-			rel, err := filepath.Rel(m.Dir, path)
+			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}

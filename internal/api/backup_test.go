@@ -25,6 +25,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
+	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -970,27 +971,54 @@ func TestStatusReportsCapsuleSizeAndMediaRun(t *testing.T) {
 	}
 }
 
-// A payload past the expanded limit is a 413 that names the measured size and the member.
-func TestRunBackupOverTheExpandedLimitIs413WithTheSize(t *testing.T) {
-	srv, st, cfg := setupSQLiteServer(t)
-	ctx := context.Background()
+// pairedForBackup pins a throwaway suite key and stores a KyRecovery pairing backed by a fake
+// depositor, so drill, export and run all have a key and a destination.
+func pairedForBackup(t *testing.T, srv *api.Server, st store.Store, cfg *config.Config) {
+	t.Helper()
 	priv, err := recoverykey.Generate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := recoveryclient.StoreRecoveryKey(cfg.Database.DataDir, backup.Settings(ctx, st.Settings()), recoveryclient.RecoveryKey{Public: priv.Public(), Threshold: 2, TotalShares: 3}); err != nil {
+	if err := recoveryclient.StoreRecoveryKey(cfg.Database.DataDir, backup.Settings(context.Background(), st.Settings()), recoveryclient.RecoveryKey{Public: priv.Public(), Threshold: 2, TotalShares: 3}); err != nil {
 		t.Fatal(err)
 	}
 	if err := storePairing(t, cfg, st, "https://recovery.busnes.app", "kyrec_live_t"); err != nil {
 		t.Fatal(err)
 	}
 	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
+}
+
+// withMatrix enables Matrix on cfg: an empty matrix-init tree, a pg_dump running script and a
+// pg_restore that reads its input whole.
+func withMatrix(t *testing.T, cfg *config.Config, script string) string {
+	t.Helper()
 	mdir := t.TempDir()
 	for _, sub := range []string{"secrets", "synapse", "mas", "element", "postgres"} {
 		if err := os.MkdirAll(filepath.Join(mdir, sub), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
+	bin := t.TempDir()
+	for name, body := range map[string]string{"pg_dump": script, "pg_restore": "exec /bin/cat >/dev/null\n"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfg.Matrix.ServerName = "example.com"
+	cfg.Matrix.Dir = mdir
+	cfg.Matrix.MediaDir = t.TempDir()
+	cfg.Matrix.DBHost = "postgres"
+	cfg.Matrix.BackupDBPassword = "pw"
+	return mdir
+}
+
+// A payload past the expanded limit is a 413 that names the measured size and the member, on
+// every route that seals.
+func TestBackupRoutesOverTheExpandedLimitAre413WithTheSize(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	pairedForBackup(t, srv, st, cfg)
+	mdir := withMatrix(t, cfg, "printf x\n")
 	for i := range 5 { // sparse 60 MiB files: past 256 MiB together
 		f, err := os.Create(filepath.Join(mdir, "secrets", fmt.Sprintf("big%d", i)))
 		if err != nil {
@@ -1001,23 +1029,89 @@ func TestRunBackupOverTheExpandedLimitIs413WithTheSize(t *testing.T) {
 		}
 		_ = f.Close()
 	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "pg_dump"), []byte("#!/bin/sh\nprintf x\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	cfg.Matrix.ServerName = "example.com"
-	cfg.Matrix.Dir = mdir
-	cfg.Matrix.MediaDir = t.TempDir()
-	cfg.Matrix.DBHost = "postgres"
-	cfg.Matrix.BackupDBPassword = "pw"
-
 	admin := loginAs(t, srv, st, "alice", "admin")
-	w := adminPost(t, srv, admin, "/api/backup/deposit")
-	if w.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("got %d, want 413: %s", w.Code, w.Body.String())
+	for _, path := range []string{"/api/backup/deposit", "/api/backup/export-capsule", "/api/backup/drill"} {
+		w := adminPost(t, srv, admin, path)
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s: got %d, want 413: %s", path, w.Code, w.Body.String())
+			continue
+		}
+		if !strings.Contains(w.Body.String(), "MiB") || !strings.Contains(w.Body.String(), "matrix/secrets/big") {
+			t.Errorf("%s: body does not name size and member: %s", path, w.Body.String())
+		}
 	}
-	if !strings.Contains(w.Body.String(), "MiB") || !strings.Contains(w.Body.String(), "matrix/secrets/big") {
-		t.Errorf("body does not name size and member: %s", w.Body.String())
+}
+
+// With Matrix on, drill, export and run dump both databases before sealing: far longer than the
+// listener's WriteTimeout, which is sized for JSON replies. Each route extends its own deadline,
+// or the reply is lost and the button breaks.
+func TestSealingRoutesOutliveTheWriteTimeout(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	pairedForBackup(t, srv, st, cfg)
+	withMatrix(t, cfg, "/bin/sleep 0.4\nprintf PGDMP\n")
+	session := loginAs(t, srv, st, "alice", "admin")
+	ts := httptest.NewUnstartedServer(srv)
+	ts.Config.WriteTimeout = 200 * time.Millisecond
+	ts.Start()
+	defer ts.Close()
+	for _, path := range []string{"/api/backup/drill", "/api/backup/export-capsule", "/api/backup/deposit"} {
+		req, _ := http.NewRequest("POST", ts.URL+path, nil)
+		req.AddCookie(session)
+		req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
+		req.Header.Set(auth.HeaderCSRF, "test-csrf")
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Errorf("%s: reply lost past the write timeout: %v", path, err)
+			continue
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: %d %v: %.200s", path, resp.StatusCode, err, body)
+		}
+	}
+}
+
+// Export audits after its download and drill extracts plaintext into the data directory; both
+// may run for minutes, so both are tracked: a SIGTERM mid-run must not close the store under
+// the export's audit row or exit with the drill's scratch copy still on disk.
+func TestDetachedTrackingCoversExportAndDrill(t *testing.T) {
+	for _, path := range []string{"/api/backup/export-capsule", "/api/backup/drill"} {
+		t.Run(path, func(t *testing.T) {
+			srv, st, cfg := setupSQLiteServer(t)
+			pairedForBackup(t, srv, st, cfg)
+			gate := t.TempDir()
+			entered, release := filepath.Join(gate, "entered"), filepath.Join(gate, "release")
+			withMatrix(t, cfg, fmt.Sprintf(": > %s\nwhile [ ! -e %s ]; do /bin/sleep 0.02; done\nprintf PGDMP\n", entered, release))
+			session := loginAs(t, srv, st, "alice", "admin")
+			done := make(chan int)
+			go func() { done <- adminPost(t, srv, session, path).Code }()
+			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				if _, err := os.Stat(entered); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("pg_dump never started")
+				}
+			}
+			waited := make(chan struct{})
+			go func() { defer close(waited); srv.WaitDetached() }()
+			select {
+			case <-waited:
+				t.Fatal("WaitDetached returned while the route was still dumping")
+			case <-time.After(100 * time.Millisecond):
+			}
+			if err := os.WriteFile(release, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if code := <-done; code != http.StatusOK {
+				t.Errorf("got %d", code)
+			}
+			select {
+			case <-waited:
+			case <-time.After(5 * time.Second):
+				t.Fatal("WaitDetached did not return after the route finished")
+			}
+		})
 	}
 }

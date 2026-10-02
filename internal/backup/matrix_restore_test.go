@@ -315,3 +315,25 @@ exit 1
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// Every pg_restore child (--list, the full read and the restore) drops inherited PG* variables.
+func TestPgRestoreDropsInheritedPGEnv(t *testing.T) {
+	r, _ := restoreFixture(t, "")
+	t.Setenv("PGHOST", "attacker.example")
+	t.Setenv("PGSERVICEFILE", "/tmp/evil")
+	envLog := filepath.Join(t.TempDir(), "env")
+	fakeTool(t, "pg_restore", fmt.Sprintf(`echo "call $1" >> %[1]s
+export -p >> %[1]s
+case $1 in --list) exec /bin/cat ;; --file=/dev/null) exec /bin/cat >/dev/null ;; esac
+`, envLog))
+	if err := r.Run(context.Background(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := os.ReadFile(envLog)
+	if n := strings.Count(string(env), "call "); n != 6 {
+		t.Fatalf("%d pg_restore calls, want 6 (list, read, restore per database):\n%s", n, env)
+	}
+	if strings.Contains(string(env), "PGHOST") || strings.Contains(string(env), "PGSERVICEFILE") {
+		t.Errorf("pg_restore inherited PG* variables:\n%s", env)
+	}
+}

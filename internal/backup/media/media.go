@@ -512,6 +512,10 @@ func fromArchive(ctx context.Context, p string, a cipher.AEAD, put func(string, 
 		}
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
+			// A tar cut at a member boundary ends cleanly; what is left in idx was never read.
+			if len(idx) > 0 {
+				return fmt.Errorf("the archive lacks %d files its index lists", len(idx))
+			}
 			return nil
 		}
 		if err != nil {
@@ -528,6 +532,7 @@ func fromArchive(ctx context.Context, p string, a cipher.AEAD, put func(string, 
 		if err := put(rel, sealed); err != nil {
 			return err
 		}
+		delete(idx, rel)
 	}
 }
 

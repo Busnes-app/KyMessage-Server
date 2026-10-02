@@ -28,14 +28,19 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key
   (`data/recovery.pub`, only when paired).
 - With Matrix enabled `Collect` adds `data/media.key` (write-once, `MediaKeyPath`), `matrix/<sub>/<file>`
-  for secrets, synapse, mas, element and postgres (dot-files skipped), and `pg_dump --format=custom`
+  for secrets, synapse, mas, element and postgres (dot-files skipped; never
+  `secrets/postgres_password`, the superuser's: a fresh volume needs none and `matrix-init`
+  regenerates it), and `pg_dump --format=custom`
   parts `matrix/dumps/{mas,synapse}.dump.NNN` (MAS first, 64 MiB parts) run as `kybackup`: the child
   gets only `PGPASSWORD` and `PGCONNECT_TIMEOUT`. The Synapse dump excludes `e2e_one_time_keys_json`
   data. A dump failure fails the run. Recipe key `pg_dumps` lists the bases; `Checks` requires
-  gapless parts and passes each joined dump through `pg_restore --list`.
+  gapless parts, the `matrixRequired` members (media key, signing key, Synapse and MAS configs,
+  `init.sql`, `kybackup-role.sql`) and reads each joined dump in full (`pg_restore
+  --file=/dev/null`, `DumpCheckTimeout` each).
 - The expanded limit counts tar framing (`Measure`) and holds back 1 MiB, because ky-primitives
   v0.8.0 `Seal` undercounts against `Open` (Busnes-app/ky-primitives#20). A payload past it fails
-  with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`) before sealing. `CollectForRun` records
+  with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`; its message rounds the size up and
+  names the enforced 255 MiB) before sealing. `CollectForRun` records
   the measured size in `backup_last_expanded_bytes`; `LastSize` warns from 75% of 256 MiB.
 - `MatrixRestore.Run` (`kymessages restore-matrix`) checks everything before writing: both
   owner passwords from `matrix/secrets`, gapless parts with no stray, `pg_restore --list` per

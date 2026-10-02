@@ -19,7 +19,10 @@ import (
 
 // matrixRequired are the Matrix members a rebuilt stack cannot start without.
 var matrixRequired = []string{mediaKeyPath, "matrix/synapse/signing.key", "matrix/synapse/homeserver.yaml",
-	"matrix/mas/config.yaml", "matrix/postgres/init.sql"}
+	"matrix/mas/config.yaml", "matrix/postgres/init.sql", "matrix/postgres/kybackup-role.sql"}
+
+// DumpCheckTimeout bounds the drill's full read of one dump.
+const DumpCheckTimeout = 2 * time.Minute
 
 // Checks validates the recipe from the capsule that was actually opened. A malformed
 // recipe is a failed drill, never permission to omit a required product check.
@@ -221,7 +224,8 @@ func dumpMembersFailure(opened capsule.Manifest, bases []string) string {
 	return ""
 }
 
-// dumpChecks reports each base's parts, joined in order, passing pg_restore --list.
+// dumpChecks reports each base's parts, joined in order, read in full by pg_restore: --list
+// reads only the TOC, so a truncated last part would pass it.
 func dumpChecks(dir string, bases []string) []recoveryclient.Check {
 	var checks []recoveryclient.Check
 	for _, base := range bases {
@@ -231,20 +235,14 @@ func dumpChecks(dir string, bases []string) []recoveryclient.Check {
 			checks = append(checks, recoveryclient.Check{Name: name, Message: "No parts"})
 			continue
 		}
-		r, closeAll, err := openFiles(paths)
-		if err != nil {
-			checks = append(checks, recoveryclient.Check{Name: name, Message: "Part unreadable"})
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		_, err = restoreTOC(ctx, r)
+		ctx, cancel := context.WithTimeout(context.Background(), DumpCheckTimeout)
+		err := readFiles(ctx, paths)
 		cancel()
-		closeAll()
 		if err != nil {
-			checks = append(checks, recoveryclient.Check{Name: name, Message: "pg_restore --list failed: " + recoveryclient.AuditSafe(err.Error())})
+			checks = append(checks, recoveryclient.Check{Name: name, Message: "pg_restore could not read it in full: " + recoveryclient.AuditSafe(err.Error())})
 			continue
 		}
-		checks = append(checks, recoveryclient.Check{Name: name, Passed: true, Message: fmt.Sprintf("pg_restore --list read %d parts", len(paths))})
+		checks = append(checks, recoveryclient.Check{Name: name, Passed: true, Message: fmt.Sprintf("pg_restore read all %d parts in full", len(paths))})
 	}
 	return checks
 }

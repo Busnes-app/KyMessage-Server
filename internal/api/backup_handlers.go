@@ -31,9 +31,28 @@ const errRecoveryKeyMismatch = "Recovery key file does not match the pinned key 
 // the pairing and the run refusals end with it.
 const privateRecoveryHint = " (set KY_BACKUP_ALLOW_PRIVATE_RECOVERY=true for a KyRecovery on your own network)"
 
-// depositWriteBudget is how long the admin's connection may stay open for the receipt: the
-// upload budget plus room for sealing. The listener's WriteTimeout is sized for JSON replies.
-const depositWriteBudget = 16 * time.Minute
+// Write budgets for the routes that seal: the listener's WriteTimeout is sized for JSON replies,
+// and with Matrix on each route first dumps both databases (backup.DumpTimeout).
+const (
+	sealBudget = 2 * time.Minute // sealing, opening or extracting up to the capsule limits
+	// depositWriteBudget: dumps, sealing, then the lib's 15-minute upload ceiling.
+	depositWriteBudget = backup.DumpTimeout + sealBudget + 15*time.Minute
+	// drillWriteBudget: dumps, seal, open and extract, then each of the two dumps read in full.
+	drillWriteBudget = backup.DumpTimeout + 2*sealBudget + 2*backup.DumpCheckTimeout
+	// exportWriteBudget: dumps, sealing, then up to 384 MiB to the browser.
+	exportWriteBudget = backup.DumpTimeout + sealBudget + 10*time.Minute
+)
+
+// writeTooLarge answers a payload past the capsule limits. A SizeError names the measured size
+// and the member; nothing secret.
+func (s *Server) writeTooLarge(w http.ResponseWriter, err error) {
+	var se *backup.SizeError
+	if errors.As(err, &se) {
+		s.writeError(w, http.StatusRequestEntityTooLarge, se.Error())
+		return
+	}
+	s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+}
 
 // AuditDetails flattens the lib's details map into the bounded audit column. Locally
 // derived fields go first so a long remote error cannot displace the useful facts.
@@ -100,15 +119,17 @@ func (s *Server) actorID(r *http.Request) string {
 
 // handleBackupDrill seals the live payload to a throwaway key, opens it in a sandbox and
 // runs the verification recipe. It reports, not proves, whether the suite key is pinned.
+// The route wraps it in `tracked`: the sandbox holds plaintext until the drill returns.
 func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(drillWriteBudget))
 	ctx := r.Context()
 	payload, err := backup.Collect(ctx, s.config, appVersion)
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
-		s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+		s.writeTooLarge(w, err)
 		return
 	}
 	if errors.Is(err, backup.ErrNoDatabaseSnapshot) {
@@ -136,11 +157,13 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 // handleExportCapsule hands the operator the sealed capsule itself. Only the custodians'
 // shares open it, so the download is safe to store anywhere; kyrecovery is where it belongs.
 // It is a POST so the CSRF check applies: a cross-site GET must not be able to pull it.
+// The route wraps it in `tracked`, so its audit row lands before the store closes.
 func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(exportWriteBudget))
 	ctx := r.Context()
 	actor := s.actorID(r)
 	settings := backup.Settings(ctx, s.store.Settings())
@@ -159,7 +182,7 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 	}
 	payload, err := backup.Collect(ctx, s.config, appVersion)
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
-		s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+		s.writeTooLarge(w, err)
 		return
 	}
 	if errors.Is(err, backup.ErrNoDatabaseSnapshot) {
@@ -176,7 +199,7 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 		// outgrown the capsule limits is a bare 500 with nothing anywhere naming the cause.
 		log.Printf("[BACKUP] export capsule: seal failed: %s", recoveryclient.AuditSafe(err.Error()))
 		if errors.Is(err, capsule.ErrCapsuleTooLarge) {
-			s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+			s.writeTooLarge(w, err)
 			return
 		}
 		s.writeError(w, http.StatusInternalServerError, "Failed to seal capsule")
@@ -185,10 +208,15 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.kycap"`, recoveryclient.FilenameSafe(m.CapsuleID)))
 	w.Header().Set("X-Recovery-Key-ID", m.RecoveryKeyID)
-	// A capsule leaving the server is a copy of everything it holds; the trail says who took one.
-	s.auditBackup(ctx, actor, r, "admin.backup_export", m.CapsuleID, AuditDetails(map[string]any{"size_bytes": len(raw)}))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	_, werr := w.Write(raw)
+	// A capsule leaving the server is a copy of everything it holds; the trail says who took one,
+	// and whether the download completed. Detached: a dropped download still gets its row.
+	details := map[string]any{"size_bytes": len(raw), "outcome": "delivered"}
+	if werr != nil {
+		details["outcome"], details["error"] = "interrupted", werr.Error()
+	}
+	s.auditBackup(context.WithoutCancel(ctx), actor, r, "admin.backup_export", m.CapsuleID, AuditDetails(details))
 }
 
 type RemotePairRequest struct {
@@ -339,13 +367,7 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 			// private. Nothing left; the operator needs the switch named, not a 500.
 			s.writeError(w, http.StatusPreconditionFailed, "The recovery host resolves to a private address"+privateRecoveryHint)
 		case errors.Is(err, capsule.ErrCapsuleTooLarge):
-			// A SizeError names the measured size and the member; nothing secret.
-			var se *backup.SizeError
-			if errors.As(err, &se) {
-				s.writeError(w, http.StatusRequestEntityTooLarge, se.Error())
-			} else {
-				s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
-			}
+			s.writeTooLarge(w, err)
 		case errors.Is(err, recoveryclient.ErrRemote):
 			// The cause is audited; the browser gets only that the store did not take it.
 			log.Printf("[BACKUP] run failed: %s", recoveryclient.AuditSafe(err.Error()))

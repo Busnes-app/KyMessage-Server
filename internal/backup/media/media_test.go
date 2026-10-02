@@ -400,3 +400,39 @@ func TestWriteArchiveStopsOnCancelWithoutLeavingFiles(t *testing.T) {
 		}
 	}
 }
+
+// An archive cut at a member boundary still reads as a valid tar; every file its index lists
+// must have been read, or the restore errors.
+func TestRestoreRefusesATruncatedArchive(t *testing.T) {
+	src, dir := store(t), t.TempDir()
+	if _, err := Run(context.Background(), src, dir, key, 3, jan); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "full-2026-01.tar")
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cut bytes.Buffer
+	tw, tr := tar.NewWriter(&cut), tar.NewReader(f)
+	for i := 0; i < 2; i++ { // the index and the first of two files
+		h, err := tr.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = tw.WriteHeader(h)
+		_, _ = io.Copy(tw, tr)
+	}
+	_ = tw.Close()
+	f.Close()
+	if err := os.WriteFile(p, cut.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Archive only: the mirror would otherwise supply the missing file.
+	if err := os.RemoveAll(filepath.Join(dir, "mirror")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(context.Background(), dir, key, t.TempDir(), os.Getuid(), os.Getgid(), false); err == nil || !strings.Contains(err.Error(), "lacks") {
+		t.Fatalf("truncated archive: %v", err)
+	}
+}

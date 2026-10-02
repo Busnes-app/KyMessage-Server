@@ -37,6 +37,7 @@ func matrixInstance(t *testing.T, masDump, synapseDump []byte) (*config.Config, 
 	mdir := t.TempDir()
 	for rel, body := range map[string]string{
 		"secrets/synapse_db_password":      "spw",
+		"secrets/postgres_password":        "superuser-pw",
 		"secrets/.synapse_db_password.123": "matrix-init temp file",
 		"synapse/signing.key":              "ed25519 a_abcd seed",
 		"synapse/homeserver.yaml":          "server_name: example.com",
@@ -133,6 +134,10 @@ func TestCollectSplitsDumpsAndRejoins(t *testing.T) {
 	}
 	if findFile(p.Files, "matrix/secrets/.synapse_db_password.123") != nil {
 		t.Error("collected a matrix-init temp file")
+	}
+	// The superuser password stays out: a fresh volume does not need it, matrix-init makes a new one.
+	if findFile(p.Files, "matrix/secrets/postgres_password") != nil {
+		t.Error("collected the Postgres superuser password")
 	}
 	if dumps, _ := p.VerificationRecipe["pg_dumps"].([]string); !slices.Equal(dumps, []string{"matrix/dumps/mas.dump", "matrix/dumps/synapse.dump"}) {
 		t.Errorf("recipe pg_dumps = %v", p.VerificationRecipe["pg_dumps"])
@@ -248,5 +253,31 @@ func TestMeasureMatchesTarFraming(t *testing.T) {
 	}
 	if got, want := backup.Measure(files), int64(buf.Len()); got != want {
 		t.Fatalf("Measure %d, tar stream %d", got, want)
+	}
+}
+
+// The message rounds the size up and names the limit actually enforced, so it never reads
+// "255 MiB, past the 256 MiB limit".
+func TestSizeErrorNamesTheEnforcedLimit(t *testing.T) {
+	err := &backup.SizeError{Bytes: 255<<20 + 1, Member: "matrix/dumps/synapse.dump.003"}
+	if want := "backup: the capsule would expand to 256 MiB, past the 255 MiB limit, at matrix/dumps/synapse.dump.003"; err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
+}
+
+// pg_dump gets only what it needs: an inherited PG* variable must not point it elsewhere.
+func TestPgDumpDropsInheritedPGEnv(t *testing.T) {
+	cfg, _ := matrixInstance(t, dumpOf(10), dumpOf(10))
+	t.Setenv("PGHOST", "attacker.example")
+	t.Setenv("PGSERVICEFILE", "/tmp/evil")
+	envLog := filepath.Join(t.TempDir(), "env")
+	fakeTool(t, "pg_dump", fmt.Sprintf("export -p >> %s\nprintf PGDMP12345\n", envLog))
+	_, _ = backup.Collect(context.Background(), cfg, "1.0.0")
+	env, err := os.ReadFile(envLog)
+	if err != nil || len(env) == 0 {
+		t.Fatalf("fake pg_dump did not run: %v", err)
+	}
+	if strings.Contains(string(env), "PGHOST") || strings.Contains(string(env), "PGSERVICEFILE") || !strings.Contains(string(env), "PGPASSWORD") {
+		t.Errorf("pg_dump environment:\n%s", env)
 	}
 }

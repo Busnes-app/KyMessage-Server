@@ -23,14 +23,18 @@ Owns `media.go`: `Run`, `Restore`, `Sources`, `ErrBusy`, `ErrNoBackup`. The key 
 - The monthly decision: archive only when the UTC month's name is newer than every existing
   archive, so a clock gone backwards never archives, prunes or deletes. Only after a new archive
   does the mirror drop media deleted from the store, index rewritten first, then the newest
-  `keep` (at least 1) archives remain. A crash after the archive rename defers pruning to the
-  next month: extra data is kept, nothing is lost.
+  `keep` (at least 1) archives remain. A crash between the archive rename and the index rewrite
+  defers the mirror cleanup and pruning to the next month. A crash after the index rewrite
+  leaves orphaned mirror files that no later run removes: disk only, no data loss.
 - Every write is temp-then-rename (`writeAtomic`); a run sweeps `.*.tmp-*` leftovers under the lock.
 - A run under another key refuses (the index does not open) and rewrites nothing.
 - `Restore` applies the newest archive, then the mirror, which wins. `write=false` proves every
   file opens at its own path and changes nothing; `write=true` writes through `os.Root` as
-  `uid:gid`. Index and archive entries outside `Sources` are refused. It returns the number of
+  `uid:gid`. Index and archive entries outside `Sources` are refused, and an archive missing
+  any file its index lists (cut at a member boundary) is an error. It returns the number of
   distinct files; one in both the archive and the mirror counts once.
+- No rollback protection: entries carry no digest or generation, so an older ciphertext or index
+  sealed under the same key still opens. Integrity is per file and path, not per backup.
 
 ## Verification
 `go test -race ./internal/backup/media/`
