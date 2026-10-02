@@ -16,8 +16,9 @@ priority is small teams and encrypted text chat.
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product
   definition on Matrix: what ships, what is later or out of scope, and known risks. Keep it
   in step when a shipped capability or approved decision changes.
-- Read [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
-  before selecting media libraries or making federation compatibility claims.
+- [docs/KYMESSAGES-PROTOCOL-RESEARCH.md](docs/KYMESSAGES-PROTOCOL-RESEARCH.md) is research
+  for the retired custom MLS design (OCM/Nextcloud Talk, SFrame calling); it does not
+  describe Matrix. Background only.
 - The chat platform is decided: Matrix (see
   [the design](docs/superpowers/specs/2026-10-01-matrix-platform-design.md)).
   [docs/CHAT-PLATFORM-OPTIONS.md](docs/CHAT-PLATFORM-OPTIONS.md) is the evidence behind it;
