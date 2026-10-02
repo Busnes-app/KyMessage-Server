@@ -8,7 +8,7 @@ root=$(git rev-parse --show-toplevel)
 export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only \
   KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 \
   KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com \
-  KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN
+  KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
 unset KY_NETWORK_SUBNET KY_NETWORK
 render() { docker compose --env-file /dev/null --project-directory "$root" "$@" config --format json; }
 stack=(-f "$root/docker-compose.yml" -f "$root/docker-compose.proxy.yml" -f "$root/docker-compose.matrix.yml")
@@ -115,7 +115,7 @@ done
 [ "$(jq -r '.services.app.environment.KY_MATRIX_ADMIN_SECRET_FILE' <<<"$out")" = /run/secrets/mas_admin_client_secret ] || bad "app admin secret path"
 [ "$(jq -r '.secrets.mas_admin_client_secret.file' <<<"$out")" = "$root/matrix/secrets/mas_admin_client_secret" ] || bad "admin secret source"
 jq -e '.services.app.environment | has("KY_MATRIX_ADMIN_CLIENT_SECRET") | not' <<<"$out" >/dev/null || bad "admin secret in env"
-for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MATRIX_CHAT_HOST KY_MATRIX_ADMIN_CLIENT_ID; do
+for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MATRIX_CHAT_HOST KY_MATRIX_ADMIN_CLIENT_ID KY_KYIDENTITY_HMAC_SECRET; do
   err=$(env -u "$v" docker compose --env-file /dev/null --project-directory "$root" "${stack[@]}" config 2>&1 >/dev/null) \
     && { bad "matrix overlay accepted a missing $v"; continue; }
   grep -q "$v" <<<"$err" || bad "missing $v failed for another reason: $err"

@@ -21,6 +21,8 @@ services:
       - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}
       - KY_MATRIX_HOST=${KY_MATRIX_HOST:?Set KY_MATRIX_HOST}
       - KY_MATRIX_CHAT_HOST=${KY_MATRIX_CHAT_HOST:?Set KY_MATRIX_CHAT_HOST}
+      # Signs KyIdentity's directory webhook; without it offboarding never reaches MAS.
+      - KY_KYIDENTITY_HMAC_SECRET=${KY_KYIDENTITY_HMAC_SECRET:?Set KY_KYIDENTITY_HMAC_SECRET (the KyIdentity suite_webhook secret)}
       # Offboarding sync: MAS's admin API, reachable only on matrix-admin.
       - KY_MATRIX_ADMIN_URL=http://mas-admin:8081
       - KY_MATRIX_ADMIN_CLIENT_ID=${KY_MATRIX_ADMIN_CLIENT_ID:?Set KY_MATRIX_ADMIN_CLIENT_ID (printed by matrix-init)}

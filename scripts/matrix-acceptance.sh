@@ -2,9 +2,9 @@
 # Matrix stack acceptance: a throwaway KyIdentity, `kymessages matrix-init` and
 # docker-compose.matrix.yml on loopback, Element driven by Playwright. Proves that messages in
 # encrypted rooms are stored encrypted, that the server is closed (no registration,
-# password login or federation; unassigned KyIdentity users refused), and that KyIdentity
-# offboarding cuts open Element sessions within 30 seconds, with KyMessages' sweep making it
-# stick in MAS.
+# password login or federation; unassigned KyIdentity users refused), and that a KyIdentity
+# disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
+# making offboarding (including delete) stick in MAS.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
@@ -48,8 +48,9 @@ KY_MATRIX_UID=$(id -u) KY_MATRIX_GID=$(id -g)
 export KY_MATRIX_UID KY_MATRIX_GID
 KY_ADMIN_PASSWORD=$(openssl rand -hex 16) KY_SESSION_SECRET=$(openssl rand -hex 32)
 export KY_ADMIN_PASSWORD KY_SESSION_SECRET
-# Compose requires it on every command; the matrix-init step sets the real value.
-export KY_MATRIX_ADMIN_CLIENT_ID=pending-matrix-init
+# Compose requires these on every command; the matrix-init and kyidentity steps set the real
+# values before the app starts.
+export KY_MATRIX_ADMIN_CLIENT_ID=pending-matrix-init KY_KYIDENTITY_HMAC_SECRET=pending-kyidentity
 export KY_MATRIX_SERVER_NAME=kymatrix.test
 export KY_MATRIX_HOST=https://matrix.kymatrix.test
 export KY_MATRIX_AUTH_HOST=https://auth.kymatrix.test
@@ -221,7 +222,7 @@ export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_SPKI ACCEPT_ARTIFA
 
 # ---------------------------------------------------------------------------------------
 step kyidentity
-users=("Alice.Q@Ky" bob mallory nadia carol dave erin)
+users=("Alice.Q@Ky" bob mallory nadia carol dave erin frank)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
 for u in "${users[@]}"; do
@@ -393,6 +394,30 @@ expect "$(mas_user dave 'locked_at IS NULL')" t "dave deactivated, not just lock
 eventually 60 leave "dave left his rooms" sql synapse \
 	"SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '@dave:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1"
 e2e reads dave
+pass
+
+# ---------------------------------------------------------------------------------------
+# Deleting someone already locked still deactivates them.
+step offboard-delete-locked
+kyid PUT "/api/admin/users/${kid[carol]}" '{"status": "disabled"}' >/dev/null
+eventually 60 t "MAS locked carol again" mas_user carol 'locked_at IS NOT NULL'
+kyid DELETE "/api/admin/users/${kid[carol]}" >/dev/null
+eventually 60 t "MAS deactivated the locked carol" mas_user carol 'deactivated_at IS NOT NULL'
+eventually 60 leave "carol left her rooms" sql synapse \
+	"SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '@carol:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Unassigning from the MAS client cuts like a disable and locks, without deactivating.
+step offboard-unassign
+e2e token frank
+expect "$(token_status frank)" 200 "frank's captured Element token is live"
+start=$(now_ms)
+kyid DELETE "/api/admin/app-registry/$app/assignments/users/${kid[frank]}" >/dev/null
+secs=$(cut_within 30 frank "$start")
+ok "frank's open Element session refused ${secs}s after the unassign (bound 30s)" | tee -a "$summary"
+eventually 60 t "MAS locked frank after the unassign" mas_user frank 'locked_at IS NOT NULL'
+expect "$(mas_user frank 'deactivated_at IS NULL')" t "frank locked, not deactivated"
 pass
 
 # ---------------------------------------------------------------------------------------
