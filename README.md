@@ -124,8 +124,9 @@ client secret once, when you register the client the first run describes.
    to the new owner.
 8. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
    rest of the chain, then `docker compose up -d`.
-9. In KyIdentity, open the system's deliveries, resume any held one, resync the system and
-   confirm every assigned user shows delivered before members rely on chat. The sweep locks a
+9. In KyIdentity, open the system's deliveries, resume any held one, resync the system (how:
+   "After any KyMessages outage" below) and confirm every assigned user shows delivered
+   before members rely on chat. The sweep locks a
    MAS user KyMessages has no record of; it unlocks when that user's delivery lands.
 
 Upgrading from the Matrix setup before offboarding:
@@ -160,7 +161,10 @@ Offboarding, as measured by `make matrix-acceptance` (cut within 30 s, in practi
   join; it is never routed.
 - **After any KyMessages outage**, open the system in KyIdentity and check its deliveries. A
   disable sent while KyMessages was down is held as an uncertain write ("operator recovery
-  required") and is not retried: resume it (allowed after 60 s), then resync the system.
+  required") and is not retried: resume it (allowed after 60 s), then resync the system. In
+  KyIdentity's Suite sync page: the system's Deliveries, tick the confirmation once the old
+  request has finished, Resume delivery (KyIdentity asks you to confirm it's you), then the
+  system's Resync Directory.
   Until then that user has no sessions and cannot sign in, but stays unlocked in MAS. Other
   failed deliveries KyIdentity retries itself.
 
@@ -235,7 +239,7 @@ Upgrading a stack from before Matrix backups:
   missing secret, bad headers, malformed body), and the last offboarding sweep, with what to
   fix. The
   Overview shows the same as a card. A change made while KyMessages was down waits in
-  KyIdentity as an uncertain write; resume it there.
+  KyIdentity as an uncertain write; resume it there (Suite sync, the system's Deliveries).
 - Ending a session needs a sign-in from the last 10 minutes; the console asks "Confirm it's you"
   and retries after you sign in again. Each ending is audited as `matrix.session_end`.
 - Session IPs and devices are shown to admins only and are never logged or audited.
