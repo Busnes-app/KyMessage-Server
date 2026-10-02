@@ -11,10 +11,11 @@ import (
 
 // auditKinds maps the console's filter to action prefixes.
 var auditKinds = map[string][]string{
-	"auth":   {"auth.", "device."},
-	"backup": {"backup.", "admin.backup_", "restore."},
-	"matrix": {"matrix."},
-	"scim":   {"scim."},
+	"auth":     {"auth.", "device."},
+	"backup":   {"backup.", "admin.backup_", "restore."},
+	"branding": {"admin.brand_"},
+	"matrix":   {"matrix."},
+	"scim":     {"scim."},
 }
 
 type auditView struct {

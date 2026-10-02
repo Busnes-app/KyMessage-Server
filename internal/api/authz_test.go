@@ -139,6 +139,10 @@ func TestPrivilegedEndpointsRequireAdmin(t *testing.T) {
 		{"GET", "/api/backup/status"},
 		{"GET", "/api/admin/network-check"},
 		{"POST", "/api/settings/theme"},
+		{"GET", "/api/admin/branding"},
+		{"PUT", "/api/admin/branding/name"},
+		{"PUT", "/api/admin/branding/logo"},
+		{"DELETE", "/api/admin/branding/logo"},
 		{"GET", "/api/admin/matrix/users"},
 		{"GET", "/api/admin/matrix/users/" + uAlice + "/sessions"},
 		{"POST", "/api/admin/matrix/sessions/oauth2/" + sOAuth + "/finish"},
@@ -149,6 +153,7 @@ func TestPrivilegedEndpointsRequireAdmin(t *testing.T) {
 		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/delete"},
 		{"GET", "/api/admin/health"},
 		{"GET", "/api/admin/audit"},
+		{"GET", "/api/admin/matrix/sync-status"},
 	}
 
 	for _, tc := range cases {

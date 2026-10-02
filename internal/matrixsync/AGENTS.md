@@ -5,7 +5,7 @@ Keeps Matrix Authentication Service (MAS) in step with KyIdentity's directory as
 records it, so offboarding sticks after KyIdentity's back-channel logout cuts sessions.
 
 ## Ownership
-Owns `Plan` and `Syncer` (`matrixsync.go`) and the MAS admin client (`mas.go`).
+Owns `Plan` and `Syncer` (`matrixsync.go`), the sweep record (`record.go`) and the MAS admin client (`mas.go`).
 The client also serves the console through `api.MatrixAdmin` (sessions, finish, user, version,
 `AsConsole`).
 `cmd/server` wires it: one `NewClient` from `cfg.Matrix.Admin*` shared by the sweep and the API, a sweep at start and every
@@ -45,6 +45,7 @@ supplies subject → status.
   `matrix.lock`, `matrix.unlock`, `matrix.deactivate` (`matrix.session_end` is written by
   `internal/api`), written for success and failure, on a
   context detached from the sweep's so a completed action is audited through shutdown.
+- After every sweep that shutdown did not interrupt, `Run` writes `matrix_sweep_last` (`SweepRecordKey`, `SweepRecord`: `finished_at`, `ok`, `error` at most 300 bytes of valid UTF-8, `applied` and `failed` MAS actions, `failing_since`, the start of the current failing streak, null when ok). The streak is carried across restarts from the stored record. `record.go` is the only writer; a failed write is logged and never fails the sweep. MAS client errors hold method, path and status, never a token, so the error text is safe to show admins.
 - `Run` closes `done` only between sweeps so shutdown can wait before the store closes;
   `Wake` never blocks and coalesces.
 

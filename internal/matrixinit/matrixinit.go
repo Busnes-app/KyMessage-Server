@@ -226,15 +226,18 @@ func Run(in Input, dir string) (Result, error) {
 	for _, r := range []struct {
 		tmpl, rel string
 		mode      os.FileMode
+		inPlace   bool
 	}{
-		{"homeserver.yaml.tmpl", "synapse/homeserver.yaml", 0o600},
-		{"mas.yaml.tmpl", "mas/config.yaml", 0o600},
-		{"pg-init.sql.tmpl", "postgres/init.sql", 0o600},
+		{"homeserver.yaml.tmpl", "synapse/homeserver.yaml", 0o600, false},
+		{"mas.yaml.tmpl", "mas/config.yaml", 0o600, false},
+		{"pg-init.sql.tmpl", "postgres/init.sql", 0o600, false},
 		// After init.sql by name: the entrypoint runs both on a new volume; operators run it once
 		// on an existing stack. Idempotent.
-		{"kybackup-role.sql.tmpl", "postgres/kybackup-role.sql", 0o600},
-		// No secrets; the Element container reads it as a different user.
-		{"element.json.tmpl", "element/config.json", 0o644},
+		{"kybackup-role.sql.tmpl", "postgres/kybackup-role.sql", 0o600, false},
+		// No secrets; the Element container reads it as a different user. In place: Compose
+		// binds this single file into Element and the app, and a running container keeps the
+		// inode it was given.
+		{"element.json.tmpl", "element/config.json", 0o644, true},
 	} {
 		if r.rel == "mas/config.yaml" && res.ClientSecretMissing {
 			continue
@@ -243,7 +246,11 @@ func Run(in Input, dir string) (Result, error) {
 		if err := templates.ExecuteTemplate(&b, r.tmpl, data); err != nil {
 			return Result{}, err
 		}
-		if err := replaceFile(filepath.Join(dir, r.rel), b.Bytes(), r.mode); err != nil {
+		write := replaceFile
+		if r.inPlace {
+			write = writeInPlace
+		}
+		if err := write(filepath.Join(dir, r.rel), b.Bytes(), r.mode); err != nil {
 			return Result{}, fmt.Errorf("%s: %w", r.rel, err)
 		}
 		res.Rendered = append(res.Rendered, r.rel)
@@ -357,6 +364,37 @@ func replaceFile(path string, b []byte, mode os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+// writeInPlace rewrites an existing regular file through its own inode (truncate, write, then
+// mode), so a container holding a bind of that one file sees the new content. An absent file
+// is created by replaceFile; anything but a regular file is refused.
+func writeInPlace(path string, b []byte, mode os.FileMode) error {
+	fi, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return replaceFile(path, b, mode)
+	}
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return errors.New("exists and is not a regular file")
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Chmod(mode)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func writeTemp(path string, b []byte, mode os.FileMode) (string, error) {

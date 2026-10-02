@@ -1,23 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Archive, ArrowRight, MessageSquare } from 'lucide-react';
+import { Activity, Archive, ArrowRight, MessageSquare, RefreshCw } from 'lucide-react';
 import { isMatrixDisabled } from '../api';
 import { parseHealth } from './Health';
 import { parseUsersPage } from './Users';
 import { backupAttempt } from './Backup';
+import { parseSyncStatus, syncCard } from '../components/SyncPanel';
 
 interface DashboardProps {
   settings: { app_name?: string } | null;
   user: { display_name?: string; username?: string } | null;
   onNavigate: (tab: string) => void;
 }
-interface Card { text: string; tone: 'success' | 'danger' | 'muted' }
+interface Card { text: string; tone: 'success' | 'warning' | 'danger' | 'muted' }
 const OUTCOME = { success: 'Succeeded', warning: 'Needs attention', failure: 'Failed', unknown: 'Outcome unavailable' } as const;
 const checking: Card = { text: 'Checking…', tone: 'muted' };
+const TONE: Record<Card['tone'], string> = { success: 'dr-ok', warning: 'dr-warn', danger: 'dr-danger', muted: '' };
 
 export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate }) => {
   const [health, setHealth] = useState<Card>(checking);
   const [users, setUsers] = useState<Card>(checking);
   const [backup, setBackup] = useState<Card>(checking);
+  // null until known, and stays null without Matrix: no sync, no card.
+  const [sync, setSync] = useState<Card | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,6 +55,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
         tone: last.outcome === 'success' ? 'success' : last.outcome === 'unknown' ? 'muted' : 'danger',
       };
     }));
+    get('/api/admin/matrix/sync-status')
+      .then(async (res) => {
+        if (await isMatrixDisabled(res)) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setSync(syncCard(parseSyncStatus(await res.json())));
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setSync({ text: `Unavailable: ${err instanceof Error ? err.message : 'request failed'}`, tone: 'danger' });
+      });
     return () => controller.abort();
   }, []);
 
@@ -58,6 +71,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
     { title: 'Chat health', card: health, Icon: Activity, tab: 'health', action: 'Open Health' },
     { title: 'Matrix users', card: users, Icon: MessageSquare, tab: 'users', action: 'Open Users' },
     { title: 'Backups', card: backup, Icon: Archive, tab: 'backup', action: 'Open Backup & recovery' },
+    ...(sync ? [{ title: 'KyIdentity sync', card: sync, Icon: RefreshCw, tab: 'settings', action: 'Open Settings' }] : []),
   ];
   return (
     <div style={{ maxWidth: '1080px', margin: '0 auto', padding: '32px 20px' }}>
@@ -73,7 +87,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
                 <div style={{ padding: '8px', background: 'var(--accent-soft)', borderRadius: '6px', color: 'var(--accent)' }}><Icon size={20} /></div>
                 <h3 style={{ fontSize: '16px' }}>{title}</h3>
               </div>
-              <p role="status" className={card.tone === 'danger' ? 'dr-danger' : card.tone === 'success' ? 'dr-ok' : ''} style={{ fontSize: '14px' }}>{card.text}</p>
+              <p role="status" className={TONE[card.tone]} style={{ fontSize: '14px' }}>{card.text}</p>
             </div>
             <div style={{ marginTop: '20px', borderTop: '1px solid var(--line)', paddingTop: '12px' }}>
               <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'space-between', fontSize: '13px' }} onClick={() => onNavigate(tab)}>

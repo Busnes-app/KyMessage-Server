@@ -121,7 +121,7 @@ export const App: React.FC = () => {
         {isAdmin && activeTab === 'audit' && <Audit />}
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}
         {isAdmin && activeTab === 'backup' && <Backup />}
-        {isAdmin && activeTab === 'settings' && <Settings settings={settings} />}
+        {isAdmin && activeTab === 'settings' && <Settings settings={settings} onBrandingChanged={() => void loadSettings()} />}
       </main>
     </div>
   );

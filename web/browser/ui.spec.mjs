@@ -87,6 +87,46 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   expect(cachedDynamic).toBe(false);
   expect(violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('settings.png'), fullPage: true });
+  // Branding, by keyboard, with a 64-character name that must wrap rather than widen the shell.
+  // Matrix is off here: Settings has no KyIdentity sync panel. The sign-in above is recent, so
+  // there is no step-up prompt. The projects share one server: start from the defaults (a failed
+  // earlier project may have left a name or logo) and undo every change below.
+  const branding = page.getByRole('region', { name: 'Branding' });
+  await expect(branding).toBeVisible();
+  await expect(page.getByRole('region', { name: 'KyIdentity sync' })).toHaveCount(0);
+  await expect(branding.getByLabel('Product name')).toBeVisible();
+  const resetName = branding.getByRole('button', { name: /^Use default/ });
+  if (await resetName.isEnabled()) {
+    await resetName.click();
+    await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
+  }
+  const resetLogo = branding.getByRole('button', { name: 'Reset logo' });
+  if (await resetLogo.isEnabled()) {
+    await resetLogo.click();
+    await expect(branding.getByRole('status')).toContainText('Logo reset');
+  }
+  const brandName = `Browser-${testInfo.project.name}-`.padEnd(64, 'x');
+  await branding.getByLabel('Product name').fill('');
+  await page.keyboard.type(brandName);
+  await page.keyboard.press('Enter');
+  await expect(branding.getByRole('status')).toContainText('Name saved');
+  await expect(page.locator('.app-brand')).toContainText(brandName);
+  await fits(page);
+  const icon = await readFile(new URL('../public/app-icon-192.png', import.meta.url));
+  await branding.getByLabel(/^Logo/).setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: icon });
+  await branding.getByRole('button', { name: 'Upload logo' }).click();
+  await expect(branding.getByRole('status')).toContainText('Logo saved');
+  await expect(branding.getByAltText('Current logo')).toHaveAttribute('src', /^\/app-icon\.png\?v=[0-9a-f]{64}$/);
+  expect(await page.evaluate(async () => (await fetch('/app-icon.png')).headers.get('cache-control'))).toBe('no-cache');
+  await fits(page);
+  await page.screenshot({ path: testInfo.outputPath('branding.png'), fullPage: true });
+  await branding.getByRole('button', { name: 'Reset logo' }).click();
+  await expect(branding.getByAltText('Current logo')).toHaveAttribute('src', '/app-icon.png?v=default');
+  await branding.getByRole('button', { name: /^Use default/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
+  await expect(page.locator('.app-brand')).toHaveText('KyMessages');
+  expect(violations).toEqual([]);
   const fixture = JSON.parse(await readFile(new URL('../../internal/backup/testdata/pairing-v050.json', import.meta.url), 'utf8'));
   const pinned = await page.evaluate(async publicKey => {
     const csrf = document.cookie.split('; ').find(cookie => cookie.startsWith('ky_csrf='))?.slice('ky_csrf='.length);

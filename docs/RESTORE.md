@@ -106,7 +106,13 @@ restoring her keys from key backup; the server name and signing key were unchang
    survived; uploads from before the backup are then missing. It runs as `KY_MATRIX_UID`
    with no capabilities and restores as the database owners, with no superuser.
 6. In the deployment directory, `sudo chown -R root:root ./data ./backups`: the app runs as
-   root and refuses key files it does not own. Then `docker compose up -d`.
+   root and refuses key files it does not own. Then `docker compose up -d`. On start the app
+   sets Element's `brand` back to the restored console name (step 2's `matrix-init` rendered
+   the default); if a custom name was restored, `docker compose restart element` once the app
+   is up, as Element serves the copy it made at start. If Element's
+   `matrix/element/config.json` is ever left truncated or invalid (a crash mid-write), re-run
+   `matrix-init` as in step 2; the app re-applies the name within a minute; then restart
+   Element.
 7. Delete `./matrix/dumps`.
 8. Members sign in on a new device and restore message keys from key backup with their own
    recovery key. KyRecovery cannot do this for them.

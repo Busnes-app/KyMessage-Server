@@ -25,6 +25,8 @@ type KyIdentityClient struct {
 	// syncMu applies directory updates one at a time, so a read and its conditional write
 	// see the same row. Ordering itself is persisted per subject (directory_sync_state).
 	syncMu sync.Mutex
+	// rejects counts refused deliveries since start, in memory only.
+	rejects rejectCounter
 }
 
 func NewKyIdentityClient(cfg config.SSOConfig, st store.Store) *KyIdentityClient {
@@ -95,6 +97,8 @@ var (
 	ErrSyncUnauthorized = errors.New("directory webhook not authenticated")
 	// ErrSyncMalformed is an authenticated body that is not a usable SCIM User.
 	ErrSyncMalformed = errors.New("directory webhook body is not a usable SCIM user")
+	// errNoSecret: the receiver has no key, so nothing can be verified.
+	errNoSecret = errors.New("KY_KYIDENTITY_HMAC_SECRET is not set")
 )
 
 // revisionPattern matches KyIdentity's meta.version, W/"<n>": a per-user counter that rises on
@@ -102,22 +106,37 @@ var (
 var revisionPattern = regexp.MustCompile(`^W/"(-1|0|[1-9][0-9]{0,17})"$`)
 
 // HandleSyncWebhook applies one signed directory event from KyIdentity. Superseded and
-// duplicate events succeed without effect, so the sender's outbox stops retrying them.
+// duplicate events succeed without effect, so the sender's outbox stops retrying them. An
+// acknowledged delivery is recorded under WebhookRecordKey; a refused one is only counted, in
+// memory (Rejections).
 func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncauth.Headers, body []byte) error {
+	kind, err := k.applySyncWebhook(ctx, headers, body)
+	switch {
+	case err == nil:
+		k.recordDelivery(ctx, kind)
+	case errors.Is(err, ErrSyncUnauthorized), errors.Is(err, ErrSyncMalformed):
+		k.reject(err)
+	}
+	return err
+}
+
+// applySyncWebhook verifies and applies one event and returns its signed type. The cause of
+// ErrSyncUnauthorized stays reachable with errors.Is, so refusals can be told apart.
+func (k *KyIdentityClient) applySyncWebhook(ctx context.Context, headers syncauth.Headers, body []byte) (string, error) {
 	if k.config.KyIdentityHMACSecret == "" {
-		return fmt.Errorf("%w: KY_KYIDENTITY_HMAC_SECRET is not set", ErrSyncUnauthorized)
+		return "", fmt.Errorf("%w: %w", ErrSyncUnauthorized, errNoSecret)
 	}
 	event, err := syncauth.Verify([]byte(k.config.KyIdentityHMACSecret), headers, body, syncauth.Options{})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSyncUnauthorized, err)
+		return "", fmt.Errorf("%w: %w", ErrSyncUnauthorized, err)
 	}
 	var user DirectoryUser
 	if err := json.Unmarshal(body, &user); err != nil || user.ID == "" || user.Meta == nil {
-		return ErrSyncMalformed
+		return "", ErrSyncMalformed
 	}
 	match := revisionPattern.FindStringSubmatch(user.Meta.Version)
 	if match == nil {
-		return ErrSyncMalformed
+		return "", ErrSyncMalformed
 	}
 	revision, _ := strconv.ParseInt(match[1], 10, 64)
 	ev := store.DirectoryEvent{ID: event.ID, Revision: revision}
@@ -126,7 +145,7 @@ func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncau
 	defer k.syncMu.Unlock()
 	switch event.Type {
 	case "user.created", "user.updated", "user.mfa_reset":
-		return k.upsertDirectoryUser(ctx, user, ev)
+		return event.Type, k.upsertDirectoryUser(ctx, user, ev)
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -135,12 +154,12 @@ func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncau
 			existing, err = &store.User{SSOProvider: "kyidentity", SSOSubject: user.ID}, nil
 		}
 		if err != nil {
-			return err
+			return event.Type, err
 		}
 		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, ev)
-		return err
+		return event.Type, err
 	}
-	return nil // other event types (groups) are not for this product
+	return event.Type, nil // other event types (groups) are not for this product
 }
 
 func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent) error {

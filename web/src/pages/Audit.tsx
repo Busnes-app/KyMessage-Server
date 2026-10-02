@@ -17,7 +17,7 @@ export function parseAudit(v: unknown): AuditPage {
   };
 }
 
-const KINDS = [['', 'All'], ['auth', 'Sign-in'], ['backup', 'Backup'], ['matrix', 'Matrix'], ['scim', 'SCIM']] as const;
+const KINDS = [['', 'All'], ['auth', 'Sign-in'], ['backup', 'Backup'], ['branding', 'Branding'], ['matrix', 'Matrix'], ['scim', 'SCIM']] as const;
 const PAGE = 50;
 const bad = (outcome: string) => /^(error|failure|refused)/.test(outcome);
 

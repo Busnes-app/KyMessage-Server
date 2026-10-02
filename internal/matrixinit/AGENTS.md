@@ -38,13 +38,21 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   (`TestInitRegeneratesOnlyAMissingSecret`). `secrets/kybackup_db_password` is the read-only `kybackup` backup role's password;
   `kybackup-role.sql` is idempotent, sorts after `init.sql` for the entrypoint, and operators run it once
   on an existing stack (printed on the second pass). `secrets/upstream_provider_id` is the MAS provider ULID, kept because
-  KyIdentity's redirect URI embeds it. Configs are re-rendered on every run.
+  KyIdentity's redirect URI embeds it. Configs are re-rendered on every run: `element/config.json` in place (`O_TRUNC` on the
+  existing inode, then `fchmod 0644`; created by rename only when absent; anything but a
+  regular file is refused), because Compose binds that single file into Element and the app
+  and a running container keeps the inode it was given; every other file by temp file and rename.
 - Every rendered string goes through `q` (JSON quoting, a valid YAML scalar) or `sqlq`; a
   value cannot add keys.
 - Container contract (`docker-compose.matrix.yml`, checked by `scripts/check-compose-matrix.sh`):
   Postgres, Synapse and MAS run as `KY_MATRIX_UID:KY_MATRIX_GID` so the 0600 files stay
   private; each mounts only its own `./matrix/<service>` read-only (Element the single 0644
-  `config.json`, since nginx cannot enter the 0700 dir). Synapse reads `/config` (its dir) and writes media to `/media`;
+  `config.json`, since nginx cannot enter the 0700 dir, at the image's stock `/app/config.json`;
+  the image serves a copy made at start, so a rename shows after `docker compose restart element`). The app's only read-write path under `./matrix` is `./matrix/element/config.json`
+  (`create_host_path: false`), its only mount of `./matrix/element`, so the console can
+  set `brand` (`internal/branding`); the file belongs to `KY_MATRIX_UID`, and the root app
+  writes it through Docker's default `CAP_DAC_OVERRIDE` (a `cap_drop: [ALL]` on the app would
+  make the write fail, which Settings then shows). Synapse reads `/config` (its dir) and writes media to `/media`;
   services reach each other as `postgres` (internal `matrix-db` network only), `synapse:8008`,
   `mas:8080`. MAS has a public `web` listener (no `compat`, so password and legacy login are
   unreachable; no `adminapi`) and an `admin` listener (`adminapi`, `oauth`) bound only to

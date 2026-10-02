@@ -25,6 +25,8 @@ it('lists rows newest first and filters by kind', async () => {
   await waitFor(() => expect(calls).toContain('/api/admin/audit?offset=50&limit=50'));
   fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'backup' } });
   await waitFor(() => expect(calls).toContain('/api/admin/audit?kind=backup&offset=0&limit=50'));
+  fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'branding' } });
+  await waitFor(() => expect(calls).toContain('/api/admin/audit?kind=branding&offset=0&limit=50'));
 });
 
 it('refuses a malformed page', async () => {

@@ -11,6 +11,10 @@
 # shares, proving history, media, accounts, the server name and the signing key come back.
 # On the restored stack the console closes the group room (bob removed, rejoin refused) and
 # permanently deletes a throwaway room, audited.
+# It then renames the product and replaces its logo from the console: /app-icon.png follows at
+# once, Element's /config.json and title after `docker compose restart element`, and a
+# matrix-init re-run is undone by the next maintenance tick. After offboarding, sync status
+# shows an accepted webhook and an ok sweep, and counts a badly signed delivery.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
@@ -545,6 +549,19 @@ expect "$(app_api POST "/api/admin/matrix/sessions/oauth2/$session/finish" | jq 
 expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=20' | jq -r --arg s "$session" --arg m "@alice.q_ky:$KY_MATRIX_SERVER_NAME" \
 	'[.records[] | select(.action == "matrix.session_end" and .target == $m and .actor == "admin" and (.details | contains($s))) | .outcome] | join(",")')" \
 	already_ended,ended "the audit API shows both session-end rows, newest first"
+# KyIdentity sync status after the offboarding steps: their deliveries were accepted and the
+# sweep ran clean (asynchronously, hence the waits). A badly signed delivery is refused and
+# counted in memory only.
+sync_status() { app_api GET /api/admin/matrix/sync-status | jq -r "$1"; }
+eventually 60 true "sync status shows an accepted KyIdentity webhook" sync_status '.webhook.kind // "none" | startswith("user.")'
+eventually 60 "true null" "sync status shows an ok sweep" sync_status '"\(.sweep.ok) \(.sweep.failing_since)"'
+expect "$(sync_status .kyidentity_url)" "$KY_KYIDENTITY_ISSUER" "sync status links KyIdentity"
+rejected=$(sync_status .rejected.count)
+expect "$(status POST "$KY_APP_URL/api/sso/kyidentity/sync" -H 'Content-Type: application/scim+json' \
+	-H 'X-KySignOn-Signature: v1=0000000000000000000000000000000000000000000000000000000000000000' \
+	-H "X-KySignOn-Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" -H 'X-KySignOn-Event-Type: user.updated' \
+	-H 'X-KySignOn-Event-ID: kymatrix-bad-signature' -d '{"id":"nobody"}')" 401 "a badly signed delivery is refused"
+expect "$(sync_status '"\(.rejected.count) \(.rejected.last_reason)"')" "$((rejected + 1)) bad_signature" "sync status counts it as a bad signature"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -755,6 +772,81 @@ expect "$(jq --arg c "@kymessages-console:$KY_MATRIX_SERVER_NAME" '[.records[] |
 	"the sweep never acted on the console account"
 expect "$(mas_user kymessages-console 'locked_at IS NULL AND deactivated_at IS NULL')" t "the console account is unlocked after the start-up sweep"
 expect "$(sql mas "SELECT count(*) FROM personal_sessions WHERE revoked_at IS NULL")" 0 "every console session was revoked"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Console settings on the restored stack. A rename reaches Element's config.json through the
+# app's one writable file under ./matrix (same inode); Element serves the copy its image made at
+# start, so the branding API reports the old brand served until `docker compose restart element`,
+# after which /config.json and the title carry the new one. An uploaded logo is served as its
+# re-encoding, its text chunk gone, with no restart. A matrix-init re-run is undone in the file by
+# the next maintenance tick. Resets return the defaults. Before reproduce and no-username, which
+# change sign-in for everyone.
+step settings
+element_cfg=$scratch/matrix/element/config.json
+chat_brand() { hcurl -fsS https://chat.kymatrix.test/config.json | jq -r .brand; }
+file_brand() { jq -r .brand "$element_cfg"; }
+inode() { stat -c %i "$element_cfg"; }
+# brand_state: "<brand in the file>|<brand Element serves>" as the branding API reports them.
+brand_state() { app_api GET /api/admin/branding | jq -r '"\(.element.brand // "-")|\(.element.served // .element.served_error)"'; }
+# The operator's step after a rename, as the console shows it; then wait for Element healthy.
+restart_element() {
+	dc restart element >/dev/null
+	dc up -d --no-deps --wait --wait-timeout 120 element >/dev/null
+}
+ino=$(inode)
+brand="Kymatrix Chat $$"
+app_login "$admin_pass"
+app_api PUT /api/admin/branding/name "$(jq -n --arg n "$brand" '{name: $n}')" >"$state/branding.json"
+expect "$(jq -r '[.name, .element.brand, (.element.error // "-"), .element.served] | join("|")' "$state/branding.json")" "$brand|$brand|-|KyMessages" \
+	"the console saved the name, patched Element's file and reports the old brand served"
+expect "$(inode)" "$ino" "the app rewrote Element's config in place"
+expect "$(chat_brand)" KyMessages "a running Element serves its start-up copy"
+expect "$(hcurl -fsS "$KY_APP_URL/api/settings" | jq -r .app_name)" "$brand" "the login page shows the name"
+restart_element
+expect "$(chat_brand)" "$brand" "after docker compose restart element, /config.json carries the new brand"
+expect "$(brand_state)" "$brand|$brand" "the branding API reports the new brand served"
+e2e title "$brand"
+ok "Element's tab title shows the brand"
+
+go run -C "$repo" ./scripts/matrix-acceptance/textpng >"$state/logo.png"
+if go run -C "$repo" ./scripts/matrix-acceptance/textpng -check "$state/logo.png" >/dev/null 2>&1; then
+	echo "  FAILED: the fixture's text chunk went unnoticed" >&2
+	false
+fi
+ok "the logo fixture carries a tEXt chunk"
+app_login "$admin_pass"
+csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
+hcurl -fsS -b "$jar" -X PUT -H "Origin: $KY_APP_URL" -H 'Content-Type: image/png' -H "X-CSRF-Token: $csrf" \
+	--data-binary "@$state/logo.png" "$KY_APP_URL/api/admin/branding/logo" >"$state/logo.json"
+hcurl -fsS -D "$state/icon.headers" -o "$state/icon.png" "$KY_APP_URL/app-icon.png"
+expect "$(sha256sum "$state/icon.png" | awk '{print $1}')" "$(jq -r .logo.sha256 "$state/logo.json")" "/app-icon.png serves the stored logo"
+go run -C "$repo" ./scripts/matrix-acceptance/textpng -check "$state/icon.png" >/dev/null
+ok "the served logo decodes and its text chunk is gone"
+grep -qi '^cache-control: no-cache' "$state/icon.headers" || { echo "  FAILED: /app-icon.png is cacheable" >&2; false; }
+ok "/app-icon.png is revalidated on every load"
+
+# matrix-init renders the default brand in place; the next maintenance tick (every minute) puts
+# the console's name back in the file, and a restarted Element serves it.
+matrix_init >"$state/init4.out"
+expect "$(inode)" "$ino" "matrix-init rewrote Element's config in place"
+expect "$(stat -c %a "$element_cfg")" 644 "and left it readable by Element's nginx"
+eventually 75 "$brand" "the maintenance tick restored the console's name after matrix-init" file_brand
+restart_element
+expect "$(chat_brand)" "$brand" "a restarted Element serves the console's name after matrix-init"
+
+app_login "$admin_pass"
+app_api DELETE /api/admin/branding/logo >/dev/null
+app_api PUT /api/admin/branding/name '{"name": ""}' >/dev/null
+expect "$(brand_state)" "KyMessages|$brand" "after the name reset the API reports the old brand served until a restart"
+restart_element
+expect "$(chat_brand)" KyMessages "resetting the name restores Element's default brand after a restart"
+expect "$(brand_state)" "KyMessages|KyMessages" "the branding API reports the default served"
+hcurl -fsS -o "$state/icon-default.png" "$KY_APP_URL/app-icon.png"
+cmp -s "$state/icon-default.png" "$repo/web/dist/app-icon.png" || { echo "  FAILED: the stamp did not come back after the logo reset" >&2; false; }
+ok "resetting the logo serves the embedded stamp again"
+expect "$(app_api GET '/api/admin/audit?kind=branding&limit=20' | jq -r '[.records[] | "\(.action) \(.outcome)"] | join(",")')" \
+	"admin.brand_name saved,admin.brand_logo reset,admin.brand_logo saved,admin.brand_name saved" "the audit shows every branding change, newest first"
 pass
 
 # ---------------------------------------------------------------------------------------

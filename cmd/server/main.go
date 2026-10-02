@@ -123,7 +123,7 @@ func runServer() {
 	backupDone := make(chan struct{})
 	go backupLoop(ctx, cfg, st, backupDone)
 	maintenanceDone := make(chan struct{})
-	go maintenanceLoop(ctx, st, maintenanceDone)
+	go maintenanceLoop(ctx, st, srv.ReconcileBrand, maintenanceDone)
 	matrixDone := make(chan struct{})
 	if cfg.Matrix.Enabled() {
 		mas := matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret)

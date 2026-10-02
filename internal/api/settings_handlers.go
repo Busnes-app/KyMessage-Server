@@ -4,21 +4,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
+	"github.com/Busnes-app/ky_server_base/internal/sso"
 )
 
 type ThemeUpdateRequest struct {
 	Theme string `json:"theme"`
 }
 
+// notExtra are settings extra_settings never carries: the logo is up to 1 MiB and is served at
+// /app-icon.png; the sync records have their own route.
+var notExtra = map[string]bool{brandLogoKey: true, sso.WebhookRecordKey: true, matrixsync.SweepRecordKey: true}
+
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	theme, _ := s.store.Settings().GetSetting(r.Context(), "site_theme")
 	if theme == "" {
 		theme = "patina"
 	}
+	// The login screen must render: a read error shows the default name.
+	name, err := s.effectiveName(r.Context())
+	if err != nil {
+		name = s.config.Server.AppName
+	}
 
 	// Public tier: what the login screen needs before a session exists.
 	out := map[string]any{
-		"app_name":         s.config.Server.AppName,
+		"app_name":         name,
 		"app_url":          s.config.Server.AppURL,
 		"theme":            theme,
 		"captcha_provider": s.config.Captcha.Provider,
@@ -47,7 +59,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		// By prefix, not by literal: the lib owns the token's key name, and a future
 		// spelling must not leak by default.
 		for k := range settings {
-			if strings.HasPrefix(k, "kyrecovery_token") {
+			if strings.HasPrefix(k, "kyrecovery_token") || notExtra[k] {
 				delete(settings, k)
 			}
 		}

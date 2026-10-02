@@ -691,3 +691,59 @@ func TestComposeMountsEverySecretButTheSuperusers(t *testing.T) {
 		t.Errorf("app mounts secrets %v, want %v", got, want)
 	}
 }
+
+// Element's config.json reaches a running Element only through its inode: Compose binds the
+// single file, and a rename is invisible to the container.
+func TestElementConfigIsRewrittenInPlace(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	el := filepath.Join(dir, "element", "config.json")
+	hs := filepath.Join(dir, "synapse", "homeserver.yaml")
+	elBefore, _ := os.Stat(el)
+	hsBefore, _ := os.Stat(hs)
+	// The console set another brand, and someone narrowed the mode.
+	if err := os.WriteFile(el, []byte(`{"brand":"Acme"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(el, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	elAfter, _ := os.Stat(el)
+	hsAfter, _ := os.Stat(hs)
+	if !os.SameFile(elBefore, elAfter) {
+		t.Fatal("element/config.json was replaced; a running Element keeps the old inode")
+	}
+	if elAfter.Mode().Perm() != 0o644 {
+		t.Fatalf("element/config.json mode %04o, want 0644", elAfter.Mode().Perm())
+	}
+	b, _ := os.ReadFile(el)
+	var cfg map[string]any
+	if err := json.Unmarshal(b, &cfg); err != nil || cfg["brand"] != "KyMessages" || cfg["default_server_config"] == nil {
+		t.Fatalf("not fully re-rendered (err %v): %s", err, b)
+	}
+	if os.SameFile(hsBefore, hsAfter) {
+		t.Fatal("other configs must still be published by rename")
+	}
+}
+
+func TestElementConfigThatIsNotAFileIsRefused(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	el := filepath.Join(dir, "element", "config.json")
+	if err := os.Remove(el); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(el, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(goodInput(), dir); err == nil || !strings.Contains(err.Error(), "element/config.json") {
+		t.Fatalf("got %v, want a refusal naming element/config.json", err)
+	}
+}

@@ -138,6 +138,13 @@ When the user requests a durable behavior change, record it here or in the relev
   until `matrix-init`'s second pass has the KyIdentity client secret. Synapse and
   `restore-matrix` mount `matrix-media` with `nocopy`: otherwise Docker re-copies the image's
   root-owned `/media` onto the empty volume at each mount and undoes `synapse-media-owner`.
+  The app's one read-write path under `./matrix` is `./matrix/element/config.json`, its only
+  mount of `./matrix/element`: the console sets Element's `brand` there in place, and the
+  check holds the app to that one file (with the static-IP overlay too) and to no mount nested
+  in another (a nested mountpoint inside a read-only bind breaks `docker cp`). Element stays
+  stock (owner decision 2026-10-02): exactly that file at `/app/config.json:ro`, which its image
+  copies at start, so a rename shows after `docker compose restart element`; the check refuses
+  any `/dev/null`, `/tmp/element-web-config` or `/docker-entrypoint` mount on Element.
   `restore-matrix` (profile `restore`, `docker compose run --rm restore-matrix`) runs the app image as
   `KY_MATRIX_UID:KY_MATRIX_GID` with no capability on `matrix-db` only; it is the only
   read-write media mount besides Synapse, and its `./data`, `./backups` and `./matrix` are
@@ -157,7 +164,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
-- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit and Overview pages; these checks remain release gates.
+- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit, Overview and Settings branding (rename by keyboard, logo upload and resets) pages; these checks remain release gates.
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
@@ -178,7 +185,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   uncertain write; the harness resumes it as the operator would); Synapse cannot reach
   `mas:8081` or `mas-admin`. Console (the bootstrap admin, password sign-in): Health reports every
   component up on its Compose pin, and ending alice's Element session refuses her live token
-  within the same 30s, and the audit API shows the `matrix.session_end` rows. Backup: a throwaway 2-of-3 suite key is pinned, `deposit` and
+  within the same 30s, and the audit API shows the `matrix.session_end` rows. Sync status then shows an accepted webhook and an ok sweep, and counts a badly signed delivery as `bad_signature`. Backup: a throwaway 2-of-3 suite key is pinned, `deposit` and
   `backup-drill` pass and bob's image is mirrored as ciphertext; the app and Matrix containers
   and volumes are then deleted (KyIdentity kept) and the operator sequence is followed:
   host-built `restore` with shares on stdin, `restore-matrix`, `chown` to root in a throwaway
@@ -186,7 +193,12 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   are unchanged. The later steps run on the restored stack: first the console closes the group
   room (bob removed, his rejoin refused as blocked) and permanently deletes a throwaway room
   (no rows left in Synapse's room tables), both audited, and the restored app's start-up sweep
-  leaves `kymessages-console` unlocked.
+  leaves `kymessages-console` unlocked. Settings follows on the restored stack: a console rename
+  reaches Element's file in place (same inode), the branding API reports the old brand served,
+  and after `docker compose restart element` `/config.json`, the title and the API carry it; a PNG carrying a `tEXt` chunk is
+  served at `/app-icon.png` re-encoded without it, `no-cache`; a `matrix-init` re-run is undone
+  in the file within one maintenance tick and served after a restart; resets restore the
+  defaults; every change is audited.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.
@@ -204,6 +216,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, Playwrigh
 - [internal/sso/AGENTS.md](internal/sso/AGENTS.md): Single Sign-On federation (KyIdentity, OIDC, SAML 2.0).
 - [internal/scim/AGENTS.md](internal/scim/AGENTS.md): SCIM 2.0 user and group provisioning engine.
 - [internal/matrixinit/AGENTS.md](internal/matrixinit/AGENTS.md): `kymessages matrix-init` config generation for Synapse, MAS, Element and Postgres; write-once secrets.
+- [internal/branding/AGENTS.md](internal/branding/AGENTS.md): Product name validation, PNG normalisation and the in-place Element `brand` patch behind console settings.
 - [internal/matrixsync/AGENTS.md](internal/matrixsync/AGENTS.md): MAS admin client and sweep that locks, unlocks and deactivates Matrix users from the KyIdentity directory.
 - [internal/synapseadmin/AGENTS.md](internal/synapseadmin/AGENTS.md): Synapse admin API client for the console, used with 5-minute console sessions.
 - [internal/health/AGENTS.md](internal/health/AGENTS.md): Per-request component probes, version pins generated from docker-compose.matrix.yml, upstream source links.
@@ -224,7 +237,7 @@ The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
 the pair, pin-key, unpair, deposit, export and drill handlers, which detach or run long and can outlive
-`Shutdown`. `maintenanceLoop` sweeps expired device pairings every minute with a 30-second
+`Shutdown`. `maintenanceLoop` reconciles Element's `brand` through `api.Server.ReconcileBrand` (10-second deadline; a no-op without Matrix) at its start and every minute, and sweeps expired device pairings every minute with a 30-second
 deadline; its completion and the Matrix offboarding syncer's (`matrixsync.Syncer.Run`, started only when `cfg.Matrix.Enabled()`, woken by directory webhooks) join the backup scheduler's before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (20m: the lib's 15m deposit ceiling, 3m of dumps, sealing) -- a context, not a timer channel,
@@ -245,4 +258,4 @@ operator sequence: restore as `KY_MATRIX_UID`, then after `restore-matrix` chown
 `backups` to root, because the app runs as root and `keyfile` refuses keys it does not own.
 Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
-The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite and Matrix stack restore. The Matrix stack (`matrix-init`, `docker-compose.matrix.yml`, the `.well-known` and Open chat link, the README's Matrix setup and the cloudflared routes in `docs/Reverse_Proxy_Networking.md`) exists; a public cloudflared deployment is untested. Offboarding is shipped (back-channel logout plus lock/deactivate; see `internal/matrixsync/AGENTS.md`). Matrix server backups are shipped (`internal/backup/AGENTS.md`, `docs/RESTORE.md`). The console's users, health and audit pages (5a) are shipped (`internal/api/AGENTS.md`, `web/AGENTS.md`); rooms (5b, with `internal/synapseadmin`) are shipped; settings (5c) are open. The offboarding syncer and the console API share one `matrixsync.Client` (one MAS token). The custom messaging stack is removed.
+The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite and Matrix stack restore. The Matrix stack (`matrix-init`, `docker-compose.matrix.yml`, the `.well-known` and Open chat link, the README's Matrix setup and the cloudflared routes in `docs/Reverse_Proxy_Networking.md`) exists; a public cloudflared deployment is untested. Offboarding is shipped (back-channel logout plus lock/deactivate; see `internal/matrixsync/AGENTS.md`). Matrix server backups are shipped (`internal/backup/AGENTS.md`, `docs/RESTORE.md`). The console's users, health and audit pages (5a) are shipped (`internal/api/AGENTS.md`, `web/AGENTS.md`); rooms (5b, with `internal/synapseadmin`) are shipped; settings (5c: branding and KyIdentity sync status, with `internal/branding`) are shipped. The offboarding syncer and the console API share one `matrixsync.Client` (one MAS token). The custom messaging stack is removed.
