@@ -14,11 +14,13 @@ services:
       KY_CAPTCHA_PROVIDER: none
     # Project volumes, removed by `down -v`; bind mounts would leave root-owned files. After the
     # restore step the harness sets these to ./data and ./backups, the shipped binds, and its
-    # cleanup hands them back. !override replaces the Matrix overlay's mounts too.
+    # cleanup hands them back. !override replaces the Matrix overlay's mounts too, so they are
+    # repeated here as shipped, superuser-password mask included.
     volumes: !override
       - ${KYMATRIX_ACCEPT_APP_DATA:-app-data}:/app/data
       - ${KYMATRIX_ACCEPT_APP_BACKUPS:-app-backups}:/app/backups
       - ./matrix:/matrix:ro
+      - /dev/null:/matrix/secrets/postgres_password:ro
       - matrix-media:/matrix-media:ro
 
   # Its shipped ./data, ./backups and ./matrix binds resolve under the scratch project

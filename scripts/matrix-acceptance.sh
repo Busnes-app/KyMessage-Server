@@ -516,6 +516,9 @@ ok "operator signed in, replaced the bootstrap password and pinned a throwaway 2
 otks=$(sql synapse 'SELECT count(*) FROM e2e_one_time_keys_json')
 ((otks > 0)) || { echo "  FAILED: Synapse holds no one-time keys to exclude" >&2; false; }
 ok "Synapse holds $otks one-time keys before the backup"
+# The app reads ./matrix for the capsule, but the superuser password is masked from it.
+[[ -s $scratch/matrix/secrets/postgres_password ]] || { echo "  FAILED: no superuser password to hide" >&2; false; }
+expect "$(dc exec -T app wc -c /matrix/secrets/postgres_password | awk '{print $1}')" 0 "the app reads an empty Postgres superuser password"
 dc exec -T app /app/kymessages deposit >"$state/deposit.out"
 ok "kymessages deposit sealed a capsule"
 dc exec -T app /app/kymessages backup-drill | tee "$state/drill.out"
@@ -542,8 +545,8 @@ keyid=$(awk '{print $2}' "$state/signing.key")
 pass
 
 # ---------------------------------------------------------------------------------------
-# Lose the KyMessages host (KyIdentity survives), then the operator sequence: kymessages
-# restore from custodian shares, then restore-matrix's usage text, step by step.
+# Lose the KyMessages host (KyIdentity survives), then restore-matrix's usage text, step by
+# step: kymessages restore from custodian shares, matrix-init, then restore-matrix.
 step restore
 dc cp app:/app/backups "$state/backups"
 caps=("$state"/backups/*.kycap)
@@ -558,16 +561,25 @@ mv "$scratch/matrix" "$state/matrix.before"
 "$scratch/kymessages" restore -capsule "${caps[0]}" -to "$scratch/restored" -service KyMessages <"$state/shares" | tee "$state/restore.out"
 mv "$scratch/restored/matrix" "$scratch/matrix"
 mv "$scratch/restored/data" "$scratch/data"
-# Usage step 2: docker cp wrote the copy as this user, so ./backups/media is readable by it.
-mv "$state/backups" "$scratch/backups"
 cmp "$state/signing.key" "$scratch/matrix/synapse/signing.key"
 ok "Synapse signing key restored"
-diff -r "$state/matrix.before/secrets" "$scratch/matrix/secrets"
-ok "matrix-init secrets restored"
+[[ ! -e $scratch/matrix/secrets/postgres_password ]] || { echo "  FAILED: the capsule carried the superuser password" >&2; false; }
+diff -r -x postgres_password "$state/matrix.before/secrets" "$scratch/matrix/secrets"
+ok "matrix-init secrets restored, all but the superuser password"
+# Usage step 2: matrix-init with the setup environment creates only the missing secret.
+matrix_init >"$state/init3.out"
+expect "$(awk '$1 == "created" { print $2 }' "$state/init3.out")" secrets/postgres_password "matrix-init created only the superuser password"
+diff -r -x postgres_password "$state/matrix.before/secrets" "$scratch/matrix/secrets"
+cmp "$state/signing.key" "$scratch/matrix/synapse/signing.key"
+cmp -s "$state/matrix.before/secrets/postgres_password" "$scratch/matrix/secrets/postgres_password" &&
+	{ echo "  FAILED: the new superuser password equals the lost one" >&2; false; }
+ok "matrix-init kept every restored secret and the signing key"
 expect "$(stat -c %a "$scratch/matrix/element/config.json")" 644 "Element config readable by its nginx again"
-# Usage step 3: the volumes are already gone; a fresh stack, database only.
+# Usage step 3: docker cp wrote the copy as this user, so ./backups/media is readable by it.
+mv "$state/backups" "$scratch/backups"
+# Usage step 4: the volumes are already gone; a fresh stack, database only.
 dc up -d --quiet-pull --wait --wait-timeout 300 postgres >/dev/null
-# Usage step 4.
+# Usage step 5.
 dc run --rm -T restore-matrix | tee "$state/restore-matrix.out"
 for want in 'Restored database mas' 'Restored database synapse'; do
 	grep -qF "$want" "$state/restore-matrix.out" || { echo "  FAILED: restore-matrix did not say '$want'" >&2; false; }
@@ -581,7 +593,7 @@ if dc run --rm -T restore-matrix >"$state/again.out" 2>&1; then echo "  FAILED: 
 grep -q 'refused: database mas already holds' "$state/again.out" ||
 	{ echo "  FAILED: second restore-matrix failed for another reason: $(cat "$state/again.out")" >&2; false; }
 expect "$(restored_sum)" "$media_sum" "a second restore-matrix refused and changed nothing"
-# Usage step 5 is `sudo chown -R root:root ./data ./backups`; CI has no sudo, so a throwaway
+# Usage step 6 is `sudo chown -R root:root ./data ./backups`; CI has no sudo, so a throwaway
 # root container with only those two binds does the chown. cleanup hands them back.
 handed_to_root=1
 docker run --rm --network none --user 0:0 -v "$scratch/data:/data" -v "$scratch/backups:/backups" \

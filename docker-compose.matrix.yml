@@ -3,8 +3,8 @@
 # reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
 # internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
 # (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
-# The app also joins matrix-db and reads ./matrix and the media volume read-only, for server
-# backups (docs/RESTORE.md).
+# The app also joins matrix-db and reads ./matrix (minus the Postgres superuser password) and the
+# media volume read-only, for server backups (docs/RESTORE.md).
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -30,8 +30,10 @@ services:
       - KY_MATRIX_ADMIN_CLIENT_ID=${KY_MATRIX_ADMIN_CLIENT_ID:?Set KY_MATRIX_ADMIN_CLIENT_ID (printed by matrix-init)}
       - KY_MATRIX_ADMIN_SECRET_FILE=/run/secrets/mas_admin_client_secret
       # Server backups: pg_dump as the read-only kybackup role on matrix-db, plus matrix-init's
-      # files and the media store, both read-only. Cost, recorded: the app can read the Matrix
-      # databases (metadata and ciphertext) and the Matrix secrets.
+      # files and the media store, both read-only. Cost, recorded: the configs it must back up
+      # hold the synapse and mas owner passwords and the shared secrets, so a compromised app can
+      # write both databases and act as Synapse admin. It cannot decrypt E2EE messages. The
+      # superuser password is masked below and never backed up.
       - KY_MATRIX_DIR=/matrix
       - KY_MATRIX_MEDIA_DIR=/matrix-media
       - KY_MATRIX_DB_HOST=postgres
@@ -44,6 +46,9 @@ services:
       matrix-db: {}
     volumes:
       - ./matrix:/matrix:ro
+      # Masks the superuser password; without CAP_SYS_ADMIN the app cannot unmount it. A missing
+      # file fails the start (read-only mountpoint), never creates one.
+      - /dev/null:/matrix/secrets/postgres_password:ro
       - matrix-media:/matrix-media:ro
 
   postgres:
@@ -144,7 +149,8 @@ services:
       timeout: 5s
       retries: 30
 
-  # One-shot, after `kymessages restore`, against a fresh stack with only postgres up:
+  # One-shot, after `kymessages restore` and `kymessages matrix-init` (which recreates the
+  # superuser password the capsule leaves out), against a fresh stack with only postgres up:
   #   docker compose run --rm restore-matrix
   # Loads the restored dumps as their owners and writes media back. It runs as the owner of
   # ./matrix, which must own the restored data/ and be able to read ./backups/media. The only
@@ -162,6 +168,7 @@ services:
       - ./data:/app/data:ro
       - ./backups:/app/backups:ro
       - ./matrix:/matrix:ro
+      - /dev/null:/matrix/secrets/postgres_password:ro
       # nocopy, as for synapse: keeps synapse-media-owner's chown of the empty volume.
       - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
     depends_on:

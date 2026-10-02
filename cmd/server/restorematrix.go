@@ -26,15 +26,18 @@ const restoreMatrixUsage = `Usage: docker compose run --rm restore-matrix [-skip
 Loads the restored Matrix databases and media into a fresh stack, once:
   1. As KY_MATRIX_UID (the user who ran matrix-init), run kymessages restore -to ./restored
      and move its data/ and matrix/ into the deployment directory, owned by that user.
-  2. Copy the local backup directory to ./backups; ./backups/media must be readable by
+  2. As that user, with the KY_MATRIX_* environment from setup, run kymessages matrix-init.
+     It keeps every restored secret and creates secrets/postgres_password, which the capsule
+     leaves out; Compose needs it to start postgres.
+  3. Copy the local backup directory to ./backups; ./backups/media must be readable by
      KY_MATRIX_UID (the app writes it as root, owner-only).
-  3. Only if this stack is meant to be replaced: docker compose down -v, which deletes its
+  4. Only if this stack is meant to be replaced: docker compose down -v, which deletes its
      Matrix database and media. Then docker compose up -d postgres.
-  4. docker compose run --rm restore-matrix
-  5. In the deployment directory, sudo chown -R root:root ./data ./backups: the app runs as
+  5. docker compose run --rm restore-matrix
+  6. In the deployment directory, sudo chown -R root:root ./data ./backups: the app runs as
      root and refuses key files it does not own. Then docker compose up -d.
-It refuses, changing nothing, unless both databases are empty, the media store is empty and
-every dump and media file checks out.`
+It refuses, changing nothing, if a database is not empty, the media store is not empty, or a
+dump or media file does not check out.`
 
 // parseRestoreMatrix takes the defaults the restore-matrix Compose service mounts.
 func parseRestoreMatrix(args []string, out io.Writer) (backup.MatrixRestore, error) {
