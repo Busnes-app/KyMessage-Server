@@ -8,7 +8,7 @@ It is not deployed or approved for private team use yet. The source-built applic
 currently provides the operator console and, once the Matrix stack below is configured,
 an "Open chat" link for members; without it they see a page saying chat is not available.
 
-- [Product scope and privacy contract](docs/PRODUCT.md)
+- [Product definition](docs/PRODUCT.md)
 - [Protocol and interoperability research](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
 - [Server restore runbook](docs/RESTORE.md)
 - [Repository contracts](AGENTS.md)
