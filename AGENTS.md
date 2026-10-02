@@ -124,7 +124,8 @@ When the user requests a durable behavior change, record it here or in the relev
   `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
   as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network, and
   it hands the app the `KY_MATRIX_*` locations and MAS admin settings: the internal
-  `matrix-admin` network (only app and mas; alias `mas-admin`) and the admin secret as a Compose secret. `scripts/check-compose-matrix.sh` checks it
+  `matrix-admin` network (only app and mas; alias `mas-admin`) and the admin secret as a Compose secret.
+  It requires `KY_KYIDENTITY_HMAC_SECRET`, as config does with Matrix set. `scripts/check-compose-matrix.sh` checks it
   with the proxy and static-IP overlays. MAS's distroless image has no HTTP client, so
   Synapse's healthcheck also probes MAS discovery (`mas:8080/.well-known/openid-configuration`).
   MAS binds only `matrix/mas/config.yaml` with `create_host_path: false`, so `up` refuses MAS
@@ -159,7 +160,8 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   mapped. Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
   system linked to the MAS client's app record): disable refuses a live Element token within
   30s (fixed bound, times in the summary) and MAS locks; re-enable unlocks with history;
-  delete deactivates and parts rooms; with KyMessages stopped the back-channel still cuts,
+  delete deactivates and parts rooms, also for a user already locked; unassign refuses a
+  live token within the same 30s and locks without deactivating; with KyMessages stopped the back-channel still cuts,
   and the lock lands once the missed webhook is redelivered (KyIdentity fences it as an
   uncertain write; the harness resumes it as the operator would); Synapse cannot reach
   `mas:8081` or `mas-admin`.

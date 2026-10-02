@@ -104,21 +104,39 @@ client secret once, when you register the client the first run describes.
    `matrix/mas/config.yaml`. Until it exists, `docker compose up` refuses MAS with "bind
    source path does not exist". Whenever you re-run it on a running stack, apply the configs
    with `docker compose restart synapse mas element`.
-6. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed, plus `KY_MATRIX_SERVER_NAME`,
-   `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
-   from them) and `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`; KyMessages refuses to
-   start with Matrix enabled and no working MAS admin access). Postgres, Synapse and MAS run as that user, the owner of `./matrix`, so its
-   0600 secrets stay unreadable to every other account; Compose refuses to start without these.
-   If the UID or GID ever changes, `chown -R` `./matrix` and the `matrix-postgres` and
-   `matrix-media` volumes (prefixed with the Compose project name) to the new owner.
-7. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
-   rest of the chain, then `docker compose up -d`.
-
-8. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`,
-   secret in `KY_KYIDENTITY_HMAC_SECRET`) and link it to the MAS client's app. With the Matrix
-   stack it is required: its directory events are what lock and deactivate users in MAS.
+6. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`)
+   and link it to the MAS client's app. KyIdentity shows its signing secret once: that is
+   `KY_KYIDENTITY_HMAC_SECRET`. Its directory events are what lock and deactivate users in MAS.
    If MAS and KyMessages resolve only to private addresses (LAN-only), set
    `KYIDENTITY_ALLOW_PRIVATE_CALLBACKS=true` on KyIdentity so it may call them.
+7. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed, plus `KY_MATRIX_SERVER_NAME`,
+   `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
+   from them), `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`) and
+   `KY_KYIDENTITY_HMAC_SECRET`. With Matrix enabled, KyMessages refuses to start with missing
+   admin settings (client ID, readable non-empty secret file) or no webhook secret. A wrong
+   admin secret still starts, but every offboarding sweep then fails; the failure is logged
+   once per failure streak (`[MATRIX] offboarding sweep failing`), so check the logs after
+   start (console health comes later). Postgres, Synapse and MAS run as that user, the owner
+   of `./matrix`, so its 0600 secrets stay unreadable to every other account; Compose
+   refuses to start without these. If the UID or GID ever changes, `chown -R` `./matrix` and
+   the `matrix-postgres` and `matrix-media` volumes (prefixed with the Compose project name)
+   to the new owner.
+8. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
+   rest of the chain, then `docker compose up -d`.
+9. In KyIdentity, open the system's deliveries, resume any held one, resync the system and
+   confirm every assigned user shows delivered before members rely on chat. The sweep locks a
+   MAS user KyMessages has no record of; it unlocks when that user's delivery lands.
+
+Upgrading from the Matrix setup before offboarding:
+
+1. Re-run `./kymessages matrix-init`. It keeps every secret, adds the MAS admin client and
+   its secret file, and prints `KY_MATRIX_ADMIN_CLIENT_ID` and the back-channel logout URI.
+2. Add that back-channel logout URI to the existing KyIdentity client.
+3. Pair and link the `suite_webhook` system (step 6) if you have not, and set
+   `KY_MATRIX_ADMIN_CLIENT_ID` and `KY_KYIDENTITY_HMAC_SECRET` in `.env`.
+4. `docker compose up -d`, then `docker compose restart synapse mas element` so they read
+   the new configs.
+5. Do step 9: confirm every assignee shows delivered before relying on chat.
 
 After start:
 
@@ -135,6 +153,8 @@ Offboarding, as measured by `make matrix-acceptance` (cut within 30 s, in practi
   stays ended.
 - **Delete**: MAS deactivates the user without erasing; they leave their rooms and colleagues
   still read their messages. A deactivated user is never reactivated.
+- Offboard in KyIdentity, not MAS. A lock applied by hand in MAS to someone active in
+  KyIdentity is undone by the next sweep.
 - MAS's admin API listens on `mas-admin:8081` on an internal network only KyMessages and MAS
   join; it is never routed.
 - **After any KyMessages outage**, open the system in KyIdentity and check its deliveries. A
