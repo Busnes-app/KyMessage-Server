@@ -189,7 +189,20 @@ Upgrading a stack from before Matrix backups:
    `KY_BACKUP_MEDIA_FULL_KEEP`.
 4. `docker compose up -d`. The first scheduled run then backs up Matrix.
 
-The admin console for the stack is not built yet. `make matrix-acceptance` proves encrypted
+### Operator console
+
+- **Overview** shows chat health, Matrix users and backups, each failing on its own.
+- **Users** lists Matrix users with their KyIdentity link. It ends one session or all of a
+  person's sessions. There is no lock or unlock here: change access in KyIdentity.
+- **Health** probes Synapse, MAS, Element, Postgres, the database and this app on each load and
+  compares each running version with the Compose pin. It links components to their upstream
+  source and shows the network check.
+- **Audit** is the read-only log, filtered by kind (auth, backup, matrix, scim).
+- Ending a session needs a sign-in from the last 10 minutes; the console asks "Confirm it's you"
+  and retries after you sign in again. Each ending is audited as `matrix.session_end`.
+- Session IPs and devices are shown to admins only and are never logged or audited.
+
+Rooms and settings are not built yet. `make matrix-acceptance` proves encrypted
 storage in Element, a closed server, offboarding, and backup then restore of a lost host (needs
 Docker, node and a KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
 

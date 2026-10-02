@@ -2,6 +2,7 @@ package matrixsync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type fakeServer struct {
@@ -247,5 +249,43 @@ func TestClientNeverLogsSecret(t *testing.T) {
 	_, err := NewClient(srv.URL, "cid", "secret-value").Users(context.Background())
 	if err == nil || strings.Contains(err.Error(), "secret-value") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A caller waiting for the token lock gives up with its own context, not the holder's fetch.
+func TestTokenWaitHonoursContext(t *testing.T) {
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	var unblock sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth2/token" {
+			entered <- struct{}{}
+			<-release
+			fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+			return
+		}
+		fmt.Fprint(w, `{"version":"v1.26.0"}`)
+	}))
+	defer srv.Close()
+	defer unblock.Do(func() { close(release) }) // runs first: Close waits for handlers
+	c := NewClient(srv.URL, "cid", "secret-value")
+	holder := make(chan error, 1)
+	go func() { _, err := c.Version(context.Background()); holder <- err }()
+	<-entered
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := c.Version(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiter: %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("waiter took %v", d)
+	}
+	unblock.Do(func() { close(release) })
+	if err := <-holder; err != nil {
+		t.Fatalf("holder: %v", err)
+	}
+	// The waiter now reuses the cached token.
+	if v, err := c.Version(context.Background()); err != nil || v != "1.26.0" {
+		t.Fatalf("after: %q %v", v, err)
 	}
 }

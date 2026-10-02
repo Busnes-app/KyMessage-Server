@@ -97,6 +97,7 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
 		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
+		{"POST", "/api/admin/matrix/sessions/oauth2/01J9ZK8V6N3W4X5Y6Z7A8B9C1A/finish"},
 	}
 	for name, authTime := range map[string]int64{"old": time.Now().Add(-time.Hour).Unix(), "missing": 0} {
 		session := ssoLogin(authTime)

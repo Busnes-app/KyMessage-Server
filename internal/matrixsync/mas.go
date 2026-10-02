@@ -10,11 +10,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
 const adminPrefix = "/api/admin/v1/"
+
+// StatusError is a non-2xx answer from the admin API. MAS's body is not kept: callers that
+// need more ask MAS again.
+type StatusError struct {
+	Method, Path string
+	Status       int
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("MAS %s %s: HTTP %d", e.Method, e.Path, e.Status)
+}
 
 // Client calls MAS's admin API with a client-credentials token, cached until shortly before
 // it expires and refetched once on a 401.
@@ -22,7 +32,7 @@ type Client struct {
 	base, id, secret string
 	hc               *http.Client
 
-	mu      sync.Mutex
+	tokenMu chan struct{} // one-slot lock, so a waiter can give up with its context
 	token   string
 	expires time.Time
 }
@@ -31,7 +41,7 @@ func NewClient(baseURL, clientID, secret string) *Client {
 	// Never through a proxy from the environment: it would see the admin credentials.
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = nil
-	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, hc: &http.Client{
+	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, tokenMu: make(chan struct{}, 1), hc: &http.Client{
 		Transport:     tr,
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -39,8 +49,12 @@ func NewClient(baseURL, clientID, secret string) *Client {
 }
 
 func (c *Client) accessToken(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	select {
+	case c.tokenMu <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-c.tokenMu }()
 	if c.token != "" && time.Now().Before(c.expires) {
 		return c.token, nil
 	}
@@ -70,7 +84,15 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 	return c.token, nil
 }
 
-func (c *Client) dropToken() { c.mu.Lock(); c.token = ""; c.mu.Unlock() }
+// dropToken forgets the cached token; on a done ctx it skips, as the retry fails anyway.
+func (c *Client) dropToken(ctx context.Context) {
+	select {
+	case c.tokenMu <- struct{}{}:
+		c.token = ""
+		<-c.tokenMu
+	case <-ctx.Done():
+	}
+}
 
 // call sends one admin request; path must start with adminPrefix.
 func (c *Client) call(ctx context.Context, method, path string, body []byte, out any) error {
@@ -96,12 +118,12 @@ func (c *Client) call(ctx context.Context, method, path string, body []byte, out
 		}
 		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
 			resp.Body.Close()
-			c.dropToken()
+			c.dropToken(ctx)
 			continue
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode/100 != 2 {
-			return fmt.Errorf("MAS %s %s: HTTP %d", method, path, resp.StatusCode)
+			return &StatusError{Method: method, Path: path, Status: resp.StatusCode}
 		}
 		if out == nil {
 			return nil
@@ -172,11 +194,7 @@ func (c *Client) Users(ctx context.Context) ([]User, error) {
 	}
 	var users []User
 	err := c.list(ctx, adminPrefix+"users?page[first]=100", func(r resource) error {
-		var a struct {
-			Username      string  `json:"username"`
-			LockedAt      *string `json:"locked_at"`
-			DeactivatedAt *string `json:"deactivated_at"`
-		}
+		var a userAttrs
 		if err := json.Unmarshal(r.Attributes, &a); err != nil {
 			return err
 		}
@@ -201,4 +219,177 @@ func (c *Client) Unlock(ctx context.Context, id string) error { return c.post(ct
 // Deactivate ends the user's sessions and removes them from rooms; their messages stay.
 func (c *Client) Deactivate(ctx context.Context, id string) error {
 	return c.post(ctx, id, "deactivate", []byte(`{"skip_erase":true}`))
+}
+
+type userAttrs struct {
+	Username      string  `json:"username"`
+	LockedAt      *string `json:"locked_at"`
+	DeactivatedAt *string `json:"deactivated_at"`
+}
+
+// one fetches a single resource from path.
+func (c *Client) one(ctx context.Context, path string) (resource, error) {
+	var doc struct {
+		Data resource `json:"data"`
+	}
+	err := c.call(ctx, http.MethodGet, path, nil, &doc)
+	return doc.Data, err
+}
+
+// User fetches one MAS user. Subject is left empty; Users resolves links.
+func (c *Client) User(ctx context.Context, id string) (User, error) {
+	r, err := c.one(ctx, adminPrefix+"users/"+url.PathEscape(id))
+	if err != nil {
+		return User{}, err
+	}
+	var a userAttrs
+	if err := json.Unmarshal(r.Attributes, &a); err != nil {
+		return User{}, err
+	}
+	return User{ID: r.ID, Username: a.Username, Locked: a.LockedAt != nil, Deactivated: a.DeactivatedAt != nil}, nil
+}
+
+// SessionKind names one of MAS's three session lists.
+type SessionKind string
+
+const (
+	OAuth2Session  SessionKind = "oauth2"  // a Matrix client such as Element (native OIDC)
+	CompatSession  SessionKind = "compat"  // a legacy Matrix login
+	BrowserSession SessionKind = "browser" // the person's web session at MAS itself
+)
+
+var sessionPaths = map[SessionKind]string{
+	OAuth2Session:  "oauth2-sessions",
+	CompatSession:  "compat-sessions",
+	BrowserSession: "user-sessions",
+}
+
+// ParseSessionKind accepts exactly the three kinds.
+func ParseSessionKind(s string) (SessionKind, bool) {
+	_, ok := sessionPaths[SessionKind(s)]
+	return SessionKind(s), ok
+}
+
+// Session is one MAS session as the console shows it.
+type Session struct {
+	Kind       SessionKind
+	ID, UserID string
+	Device     string // Matrix device ID; empty for browser sessions
+	Client     string // MAS's human name for the session, else the user agent
+	IP         string
+	CreatedAt  time.Time
+	// LastActiveAt and FinishedAt are nil when MAS has none.
+	LastActiveAt, FinishedAt *time.Time
+}
+
+type sessionAttrs struct {
+	UserID       *string    `json:"user_id"`
+	DeviceID     *string    `json:"device_id"`
+	Scope        string     `json:"scope"`
+	HumanName    *string    `json:"human_name"`
+	UserAgent    *string    `json:"user_agent"`
+	LastActiveIP *string    `json:"last_active_ip"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastActiveAt *time.Time `json:"last_active_at"`
+	FinishedAt   *time.Time `json:"finished_at"`
+}
+
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func (a sessionAttrs) session(kind SessionKind, id string) Session {
+	s := Session{Kind: kind, ID: id, UserID: deref(a.UserID), Client: deref(a.HumanName), IP: deref(a.LastActiveIP),
+		CreatedAt: a.CreatedAt, LastActiveAt: a.LastActiveAt, FinishedAt: a.FinishedAt}
+	if s.Client == "" {
+		s.Client = deref(a.UserAgent)
+	}
+	switch kind {
+	case CompatSession:
+		s.Device = deref(a.DeviceID)
+	case OAuth2Session:
+		s.Device = scopeDevice(a.Scope)
+	}
+	return s
+}
+
+// scopeDevice is the Matrix device an OAuth 2.0 session's scope grants.
+func scopeDevice(scope string) string {
+	for _, tok := range strings.Fields(scope) {
+		for _, p := range []string{"urn:matrix:client:device:", "urn:matrix:org.matrix.msc2967.client:device:"} {
+			if d, ok := strings.CutPrefix(tok, p); ok {
+				return d
+			}
+		}
+	}
+	return ""
+}
+
+// Sessions lists userID's active sessions: browser sessions first, because ending them first
+// stops MAS from silently signing an app back in; then app and legacy sessions.
+func (c *Client) Sessions(ctx context.Context, userID string) ([]Session, error) {
+	var out []Session
+	for _, kind := range []SessionKind{BrowserSession, OAuth2Session, CompatSession} {
+		path := adminPrefix + sessionPaths[kind] + "?filter[user]=" + url.QueryEscape(userID) + "&filter[status]=active&page[first]=100"
+		if err := c.list(ctx, path, func(r resource) error {
+			var a sessionAttrs
+			if err := json.Unmarshal(r.Attributes, &a); err != nil {
+				return err
+			}
+			out = append(out, a.session(kind, r.ID))
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// Session fetches one session.
+func (c *Client) Session(ctx context.Context, kind SessionKind, id string) (Session, error) {
+	p, ok := sessionPaths[kind]
+	if !ok {
+		return Session{}, fmt.Errorf("unknown session kind %q", kind)
+	}
+	r, err := c.one(ctx, adminPrefix+p+"/"+url.PathEscape(id))
+	if err != nil {
+		return Session{}, err
+	}
+	var a sessionAttrs
+	if err := json.Unmarshal(r.Attributes, &a); err != nil {
+		return Session{}, err
+	}
+	return a.session(kind, r.ID), nil
+}
+
+// FinishSession ends one session. MAS answers 400 for one that has already ended; that is
+// confirmed by reading it back and reported as already, not as an error.
+func (c *Client) FinishSession(ctx context.Context, kind SessionKind, id string) (already bool, err error) {
+	p, ok := sessionPaths[kind]
+	if !ok {
+		return false, fmt.Errorf("unknown session kind %q", kind)
+	}
+	err = c.call(ctx, http.MethodPost, adminPrefix+p+"/"+url.PathEscape(id)+"/finish", nil, nil)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Status != http.StatusBadRequest {
+		return false, err
+	}
+	if s, gerr := c.Session(ctx, kind, id); gerr != nil || s.FinishedAt == nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Version is MAS's running version without the leading "v".
+func (c *Client) Version(ctx context.Context) (string, error) {
+	var v struct {
+		Version string `json:"version"`
+	}
+	if err := c.call(ctx, http.MethodGet, adminPrefix+"version", nil, &v); err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(v.Version, "v"), nil
 }

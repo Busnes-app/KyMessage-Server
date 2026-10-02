@@ -26,7 +26,6 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
-	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -847,20 +846,7 @@ func TestDetachedTrackingCoversADepositInFlight(t *testing.T) {
 // own every later capsule.
 func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	srv, st, cfg := setupTestServer(t)
-	ctx := context.Background()
-	createLocalUser(t, st, "usr_old", "old-admin", "admin", "OldAdminPass123!")
-	user, err := st.Users().GetUserByID(ctx, "usr_old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := crypto.RandomHex(32)
-	if err := st.Sessions().CreateSession(ctx, &store.Session{
-		TokenHash: crypto.SHA256Hex([]byte(raw)), UserID: "usr_old",
-		CreatedAt: time.Now().UTC().Add(-11 * time.Minute), ExpiresAt: time.Now().UTC().Add(time.Hour),
-	}, user.PasswordHash); err != nil {
-		t.Fatal(err)
-	}
-	stale := &http.Cookie{Name: auth.SessionCookieName, Value: raw}
+	stale := staleAdmin(t, st)
 	priv, _ := recoverykey.Generate()
 	pub := priv.Public()
 	for _, rt := range []struct{ method, path string }{

@@ -103,6 +103,8 @@ check "anonymous cannot read backup status" "$(status "$BASE/api/backup/status")
 check "anonymous cannot pin a key" "$(status -X POST "$BASE/api/backup/pin-key")" "401"
 check "anonymous cannot set the schedule" "$(status -X PUT "$BASE/api/backup/schedule")" "401"
 check "anonymous cannot unpair" "$(status -X DELETE "$BASE/api/backup/pairing")" "401"
+check "anonymous cannot read the audit log" "$(status "$BASE/api/admin/audit")" "401"
+check "anonymous cannot read health" "$(status "$BASE/api/admin/health")" "401"
 check "anonymous cannot set site theme" "$(status -X POST -H 'Content-Type: application/json' -d '{"theme":"oled"}' "$BASE/api/settings/theme")" "401"
 check "scim rejects wrong bearer" "$(status -H 'Authorization: Bearer wrong' "$BASE/scim/v2/Users")" "401"
 stop_server
@@ -132,6 +134,7 @@ contains "anonymous settings hide db_driver" \
   "$(if echo "$ANON_SETTINGS" | grep -q 'db_driver'; then echo leaked; else echo hidden; fi)" "hidden"
 contains "bootstrap requires password replacement" "$LOGIN_BODY" '"must_change_password":true'
 check "bootstrap session cannot read backup state" "$(status -b "$WORK/cookies" "$BASE/api/backup/status")" "403"
+check "bootstrap session cannot read the audit log" "$(status -b "$WORK/cookies" "$BASE/api/admin/audit")" "403"
 CSRF="$(awk '$6 == "ky_csrf" { print $7 }' "$WORK/cookies")"
 check "password replacement requires CSRF" "$(status -b "$WORK/cookies" -X POST "$BASE/api/auth/change-password")" "403"
 check "bootstrap password replacement succeeds" \

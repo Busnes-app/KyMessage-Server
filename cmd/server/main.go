@@ -126,7 +126,9 @@ func runServer() {
 	go maintenanceLoop(ctx, st, maintenanceDone)
 	matrixDone := make(chan struct{})
 	if cfg.Matrix.Enabled() {
-		syncer := matrixsync.New(matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret), st, cfg.Matrix.ServerName)
+		mas := matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret)
+		srv.SetMatrixAdmin(mas)
+		syncer := matrixsync.New(mas, st, cfg.Matrix.ServerName)
 		srv.OnDirectoryChange(syncer.Wake)
 		go syncer.Run(ctx, 5*time.Minute, matrixDone)
 	} else {

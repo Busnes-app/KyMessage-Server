@@ -7,6 +7,8 @@ Provides the unified Database Abstraction Layer (DAL) supporting pluggable backe
 Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`), dialect translations, and schema migrations.
 
 ## Local Contracts
+- `AuditStore.ListAuditRecords(offset, limit, prefixes...)` pages newest first by `id`; prefixes match the
+  literal action start (`substr`, not LIKE) and the count covers only matching rows.
 - `AuditStore.LatestAuditRecord(action)` reads the latest inserted row for one
   exact action, returning `ErrNotFound` when absent. Migration 13 indexes `(action,
   id)`; insertion order handles timestamp ties/backwards clocks without scanning

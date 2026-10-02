@@ -3,6 +3,7 @@ package api
 import (
 	"time"
 
+	"github.com/Busnes-app/ky_server_base/internal/health"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -40,3 +41,9 @@ func RegisterDetachedForTest(s *Server) func() {
 	s.detached.add()
 	return s.detached.done
 }
+
+// SetHealthTargetsForTest points the Matrix probes at test servers. Test-only.
+func SetHealthTargetsForTest(s *Server, t health.Targets) { s.matrixTargets = t }
+
+// DetailOutcomeForTest exposes the audit view's outcome parser. Test-only.
+func DetailOutcomeForTest(details string) string { return detailOutcome(details) }

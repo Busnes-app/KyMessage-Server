@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive } from 'lucide-react';
+import { Smartphone, LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText } from 'lucide-react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { QRPairingModal } from './QRPairingModal';
 
@@ -13,6 +13,9 @@ interface AppHeaderProps {
 
 const adminItems = [
   { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
+  { id: 'users', label: 'Users', icon: MessageSquare },
+  { id: 'health', label: 'Health', icon: Activity },
+  { id: 'audit', label: 'Audit', icon: ScrollText },
   { id: 'scim', label: 'Directory & SCIM', icon: Users },
   { id: 'backup', label: 'Backup & recovery', icon: Archive },
   { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
