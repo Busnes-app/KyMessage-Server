@@ -300,23 +300,58 @@ func TestInterruptedRunKeepsItsProgress(t *testing.T) {
 	}
 }
 
-func TestUnreadableFileFailsAfterSavingTheRest(t *testing.T) {
+func unreadable(t *testing.T, src string) {
+	t.Helper()
 	if os.Getuid() == 0 {
 		t.Skip("root reads everything")
 	}
-	src, dir := store(t), t.TempDir()
-	bad := filepath.Join(src, "local_thumbnails/ab/cd/t1") // sorts last
+	bad := filepath.Join(src, "local_content/ab/cd/one") // sorts first
 	if err := os.Chmod(bad, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(context.Background(), src, dir, key, 3, jan); err == nil {
-		t.Fatal("unreadable file accepted")
+	t.Cleanup(func() { _ = os.Chmod(bad, 0o600) })
+}
+
+func TestUnreadableFileDoesNotBlockTheRest(t *testing.T) {
+	src, dir := store(t), t.TempDir()
+	unreadable(t, src)
+	res, err := Run(context.Background(), src, dir, key, 3, jan)
+	if err == nil || res.Failed != 1 || res.Copied != 1 || res.Archive != "full-2026-01.tar" {
+		t.Fatalf("%+v %v", res, err)
 	}
-	if err := os.Chmod(bad, 0o600); err != nil {
+	if !strings.Contains(err.Error(), "local_content/ab/cd/one") {
+		t.Errorf("error does not name the file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mirror", "local_thumbnails/ab/cd/t1")); err != nil {
+		t.Error("later file not mirrored")
+	}
+}
+
+func TestUnreadableFileKeepsItsOldCopyAcrossPruning(t *testing.T) {
+	src, dir := store(t), t.TempDir()
+	if _, err := Run(context.Background(), src, dir, key, 3, jan); err != nil {
 		t.Fatal(err)
 	}
-	if res, err := Run(context.Background(), src, dir, key, 3, jan); err != nil || res.Unchanged != 1 || res.Copied != 1 {
-		t.Fatalf("after fixing the file %+v %v", res, err)
+	write(t, src, "local_content/ab/cd/one", "edited upload")
+	later := time.Now().Add(time.Hour)
+	_ = os.Chtimes(filepath.Join(src, "local_content/ab/cd/one"), later, later)
+	unreadable(t, src)
+	if err := os.Remove(filepath.Join(src, "local_thumbnails/ab/cd/t1")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(context.Background(), src, dir, key, 3, feb)
+	if err == nil || res.Failed != 1 || res.Archive != "full-2026-02.tar" || res.Pruned != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if err := os.Chmod(filepath.Join(src, "local_content/ab/cd/one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	if _, err := Restore(context.Background(), dir, key, dst, os.Getuid(), os.Getgid(), true); err != nil {
+		t.Fatal(err)
+	}
+	if got := restored(t, dst)["local_content/ab/cd/one"]; got != "first upload" {
+		t.Fatalf("old copy lost: %q", got)
 	}
 }
 

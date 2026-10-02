@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"maps"
 	"os"
 	"path"
@@ -56,8 +57,8 @@ type Index map[string]Entry
 
 // Result is one run: Archive names the monthly archive it wrote, if any.
 type Result struct {
-	Copied, Unchanged, Pruned int
-	Archive                   string
+	Copied, Unchanged, Pruned, Failed int
+	Archive                           string
 }
 
 // afterScan is a test seam between listing the store and copying from it.
@@ -66,7 +67,9 @@ var afterScan = func() {}
 // Run brings dir (<KY_BACKUP_DIR>/media) up to date with src, Synapse's media store. New or
 // changed files are encrypted into the mirror. Once per UTC calendar month the mirror and its
 // index are archived, mirror files whose media is gone from src are dropped, and only the
-// newest keep archives remain. ctx is honoured between files; an interrupted or failed run keeps its copies and resumes.
+// newest keep archives remain. ctx is honoured between files; an interrupted run keeps its copies
+// and resumes. A file that cannot be copied is counted in Failed and skipped (its older mirrored
+// copy stays); Run still finishes, then returns an error naming the first failure.
 func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Time) (Result, error) {
 	var res Result
 	a, err := newAEAD(key)
@@ -104,6 +107,7 @@ func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Ti
 	afterScan()
 	next := Index{} // media gone from src stays mirrored until the next archive
 	maps.Copy(next, old)
+	var firstErr error
 	loopErr := func() error {
 		for _, rel := range slices.Sorted(maps.Keys(cur)) {
 			if err := ctx.Err(); err != nil {
@@ -120,7 +124,17 @@ func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Ti
 				continue
 			}
 			if err != nil {
-				return fmt.Errorf("media: %s: %w", rel, err)
+				res.Failed++
+				if firstErr == nil {
+					firstErr = fmt.Errorf("%s: %w", rel, err)
+				}
+				if _, had := old[rel]; had && exists(mirrored(dir, rel)) {
+					cur[rel] = old[rel] // keep the older copy listed and unpruned
+				} else {
+					delete(cur, rel)
+					delete(next, rel)
+				}
+				continue
 			}
 			next[rel] = e
 			res.Copied++
@@ -134,32 +148,42 @@ func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Ti
 	if loopErr != nil {
 		return res, loopErr
 	}
-	names, err := archives(dir)
+	err = func() error {
+		names, err := archives(dir)
+		if err != nil {
+			return err
+		}
+		name := now.UTC().Format(archiveFmt)
+		if len(names) > 0 && names[0] >= name {
+			log.Print("media: no monthly archive: the clock is behind the newest one")
+			return nil // this month's archive exists, or the clock went back
+		}
+		if err := writeArchive(dir, name, next); err != nil {
+			return err
+		}
+		res.Archive = name
+		// The archive holds what the mirror held; now the mirror drops media deleted from src.
+		// Index first, so it never lists a file that is gone.
+		if err := writeIndex(a, indexPath, cur); err != nil {
+			return err
+		}
+		for rel := range next {
+			if _, kept := cur[rel]; !kept {
+				if err := os.Remove(mirrored(dir, rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+				res.Pruned++
+			}
+		}
+		return pruneArchives(dir, keep)
+	}()
 	if err != nil {
 		return res, err
 	}
-	name := now.UTC().Format(archiveFmt)
-	if len(names) > 0 && names[0] >= name {
-		return res, nil // this month's archive exists, or the clock went back
+	if res.Failed > 0 {
+		return res, fmt.Errorf("media: %d files not copied, first: %w", res.Failed, firstErr)
 	}
-	if err := writeArchive(dir, name, next); err != nil {
-		return res, err
-	}
-	res.Archive = name
-	// The archive holds what the mirror held; now the mirror drops media deleted from src.
-	// Index first, so it never lists a file that is gone.
-	if err := writeIndex(a, indexPath, cur); err != nil {
-		return res, err
-	}
-	for rel := range next {
-		if _, kept := cur[rel]; !kept {
-			if err := os.Remove(mirrored(dir, rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return res, err
-			}
-			res.Pruned++
-		}
-	}
-	return res, pruneArchives(dir, keep)
+	return res, nil
 }
 
 func mirrored(dir, rel string) string { return filepath.Join(dir, mirrorDir, filepath.FromSlash(rel)) }

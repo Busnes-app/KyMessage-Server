@@ -15,8 +15,11 @@ Owns `media.go`: `Run`, `Restore`, `Sources`, `ErrBusy`, `ErrNoBackup`. The key 
   index first, then `mirror/<path>`) and `.lock` (flock; contention returns `ErrBusy`).
 - Only `local_content` and `local_thumbnails` are kept; symlinks and other subtrees are skipped
   and reads go through `os.Root`.
-- The index is written after every run, including one cut short by cancellation or a failed
-  file (the run then errors, with no archive or pruning), so the next run resumes.
+- The index is written after every run, including one cut short by cancellation (no archive
+  or pruning then), so the next run resumes.
+- A file that cannot be copied is counted in `Result.Failed` and skipped; every other file is
+  still mirrored. Its older mirrored copy, if any, stays listed and is never pruned. The run
+  still archives and prunes, then returns an error naming the count and the first path.
 - The monthly decision: archive only when the UTC month's name is newer than every existing
   archive, so a clock gone backwards never archives, prunes or deletes. Only after a new archive
   does the mirror drop media deleted from the store, index rewritten first, then the newest
