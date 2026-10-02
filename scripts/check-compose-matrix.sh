@@ -87,6 +87,9 @@ dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition 
 [ "$(dep mas postgres)" = service_healthy ] || bad "mas does not wait for a healthy postgres"
 [ "$(dep element synapse)" = service_healthy ] || bad "element does not wait for a healthy synapse"
 [ "$(dep synapse synapse-media-owner)" = service_completed_successfully ] || bad "synapse starts before its media volume is owned"
+# Docker re-copies the image's root-owned /media onto an empty volume at each mount without nocopy.
+[ "$(jq -c '[.services.synapse.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$out")" = '[true]' ] \
+  || bad "synapse mounts matrix-media without nocopy, which resets the media owner"
 [ "$(jq -r '.services.postgres.environment.POSTGRES_PASSWORD_FILE' <<<"$out")" = /run/secrets/postgres_password ] \
   || bad "postgres superuser password is not read from its secret file"
 [ "$(jq -r '.secrets.postgres_password.file' <<<"$out")" = "$root/matrix/secrets/postgres_password" ] \
@@ -150,4 +153,6 @@ r=$(jq -c '.services["restore-matrix"]' <<<"$rs")
 want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	true" "/matrix	$root/matrix	true" "/media	matrix-media	false")
 [ "$(jq -r '.volumes[] | [.target, .source, (.read_only // false)] | @tsv' <<<"$r" | sort)" = "$want" ] \
   || bad "restore-matrix mounts: $(jq -c .volumes <<<"$r")"
+[ "$(jq -c '[.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$r")" = '[true]' ] \
+  || bad "restore-matrix mounts matrix-media without nocopy, which resets the media owner"
 exit $fail

@@ -131,8 +131,10 @@ When the user requests a durable behavior change, record it here or in the relev
   with the proxy and static-IP overlays. MAS's distroless image has no HTTP client, so
   Synapse's healthcheck also probes MAS discovery (`mas:8080/.well-known/openid-configuration`).
   MAS binds only `matrix/mas/config.yaml` with `create_host_path: false`, so `up` refuses MAS
-  until `matrix-init`'s second pass has the KyIdentity client secret. `restore-matrix` (profile
-  `restore`, `docker compose run --rm restore-matrix`) runs the app image as
+  until `matrix-init`'s second pass has the KyIdentity client secret. Synapse and
+  `restore-matrix` mount `matrix-media` with `nocopy`: otherwise Docker re-copies the image's
+  root-owned `/media` onto the empty volume at each mount and undoes `synapse-media-owner`.
+  `restore-matrix` (profile `restore`, `docker compose run --rm restore-matrix`) runs the app image as
   `KY_MATRIX_UID:KY_MATRIX_GID` with no capability on `matrix-db` only; it is the only
   read-write media mount besides Synapse, and its `./data`, `./backups` and `./matrix` are
   read-only. The check script holds it to that.

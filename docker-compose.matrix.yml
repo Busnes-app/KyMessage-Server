@@ -91,7 +91,9 @@ services:
     networks: [default, matrix-db]
     volumes:
       - ./matrix/synapse:/config:ro
-      - matrix-media:/media
+      # nocopy: while the volume is empty, Docker copies the image's root-owned /media onto it
+      # at every mount, undoing synapse-media-owner's chown.
+      - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
     depends_on:
       postgres: {condition: service_healthy}
       synapse-media-owner: {condition: service_completed_successfully}
@@ -160,7 +162,8 @@ services:
       - ./data:/app/data:ro
       - ./backups:/app/backups:ro
       - ./matrix:/matrix:ro
-      - matrix-media:/media
+      # nocopy, as for synapse: keeps synapse-media-owner's chown of the empty volume.
+      - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
     depends_on:
       postgres: {condition: service_healthy}
       synapse-media-owner: {condition: service_completed_successfully}
