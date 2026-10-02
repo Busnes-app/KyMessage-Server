@@ -66,7 +66,7 @@ var afterScan = func() {}
 // Run brings dir (<KY_BACKUP_DIR>/media) up to date with src, Synapse's media store. New or
 // changed files are encrypted into the mirror. Once per UTC calendar month the mirror and its
 // index are archived, mirror files whose media is gone from src are dropped, and only the
-// newest keep archives remain. ctx is honoured between files; an interrupted run resumes.
+// newest keep archives remain. ctx is honoured between files; an interrupted or failed run keeps its copies and resumes.
 func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Time) (Result, error) {
 	var res Result
 	a, err := newAEAD(key)
@@ -104,32 +104,43 @@ func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Ti
 	afterScan()
 	next := Index{} // media gone from src stays mirrored until the next archive
 	maps.Copy(next, old)
-	for _, rel := range slices.Sorted(maps.Keys(cur)) {
-		if err := ctx.Err(); err != nil {
-			return res, err
+	loopErr := func() error {
+		for _, rel := range slices.Sorted(maps.Keys(cur)) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			e := cur[rel]
+			if old[rel] == e && exists(mirrored(dir, rel)) {
+				res.Unchanged++
+				continue
+			}
+			err := copyIn(a, root, dir, rel)
+			if errors.Is(err, fs.ErrNotExist) {
+				delete(cur, rel) // deleted since the scan
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("media: %s: %w", rel, err)
+			}
+			next[rel] = e
+			res.Copied++
 		}
-		e := cur[rel]
-		if old[rel] == e && exists(mirrored(dir, rel)) {
-			res.Unchanged++
-			continue
-		}
-		err := copyIn(a, root, dir, rel)
-		if errors.Is(err, fs.ErrNotExist) {
-			delete(cur, rel) // deleted since the scan
-			continue
-		}
-		if err != nil {
-			return res, fmt.Errorf("media: %s: %w", rel, err)
-		}
-		next[rel] = e
-		res.Copied++
-	}
+		return nil
+	}()
+	// Save progress even when the loop stopped, so the next run resumes where this one did.
 	if err := writeIndex(a, indexPath, next); err != nil {
 		return res, err
 	}
+	if loopErr != nil {
+		return res, loopErr
+	}
+	names, err := archives(dir)
+	if err != nil {
+		return res, err
+	}
 	name := now.UTC().Format(archiveFmt)
-	if exists(filepath.Join(dir, name)) {
-		return res, nil
+	if len(names) > 0 && names[0] >= name {
+		return res, nil // this month's archive exists, or the clock went back
 	}
 	if err := writeArchive(dir, name, next); err != nil {
 		return res, err

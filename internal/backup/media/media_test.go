@@ -275,3 +275,68 @@ func TestRestoreRefusesAnIndexOutsideTheStore(t *testing.T) {
 		t.Errorf("empty backup dir: %v", err)
 	}
 }
+
+// countdown reports cancellation after n Err calls.
+type countdown struct {
+	context.Context
+	n int
+}
+
+func (c *countdown) Err() error {
+	if c.n--; c.n < 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestInterruptedRunKeepsItsProgress(t *testing.T) {
+	src, dir := store(t), t.TempDir()
+	if _, err := Run(&countdown{Context: context.Background(), n: 1}, src, dir, key, 3, jan); !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted run: %v", err)
+	}
+	res, err := Run(context.Background(), src, dir, key, 3, jan)
+	if err != nil || res.Unchanged != 1 || res.Copied != 1 {
+		t.Fatalf("resumed run %+v %v", res, err)
+	}
+}
+
+func TestUnreadableFileFailsAfterSavingTheRest(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	src, dir := store(t), t.TempDir()
+	bad := filepath.Join(src, "local_thumbnails/ab/cd/t1") // sorts last
+	if err := os.Chmod(bad, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), src, dir, key, 3, jan); err == nil {
+		t.Fatal("unreadable file accepted")
+	}
+	if err := os.Chmod(bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Run(context.Background(), src, dir, key, 3, jan); err != nil || res.Unchanged != 1 || res.Copied != 1 {
+		t.Fatalf("after fixing the file %+v %v", res, err)
+	}
+}
+
+// A clock that went back must not archive, prune or delete newer archives.
+func TestBackwardsClockDoesNotPrune(t *testing.T) {
+	src, dir := store(t), t.TempDir()
+	if _, err := Run(context.Background(), src, dir, key, 1, feb); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(src, "local_content/ab/cd/one")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(context.Background(), src, dir, key, 1, jan)
+	if err != nil || res.Archive != "" || res.Pruned != 0 {
+		t.Fatalf("backwards run %+v %v", res, err)
+	}
+	if got, _ := archives(dir); !slices.Equal(got, []string{"full-2026-02.tar"}) {
+		t.Fatalf("archives %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mirror", "local_content/ab/cd/one")); err != nil {
+		t.Error("mirror pruned on a backwards clock")
+	}
+}
