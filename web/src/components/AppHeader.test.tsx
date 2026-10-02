@@ -6,5 +6,5 @@ it('member gets no admin navigation', () => {
   expect(navItemsFor('manager')).toEqual([]);
 });
 it('admin sees the admin pages', () => {
-  expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'scim', 'backup', 'settings']);
+  expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'health', 'audit', 'scim', 'backup', 'settings']);
 });

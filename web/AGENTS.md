@@ -9,8 +9,7 @@ Owns user interface components, service worker caching, PWA installation manifes
 ## Local Contracts
 - `MemberHome.tsx` is the non-admin page: account name, an "Open chat" link (new tab, `rel="noopener noreferrer"`) to `/api/settings` `chat_url` when set, otherwise the "Chat isn't available yet." notice, and sign out. Non-admins get `AppHeader` (theme switcher, sign out) with no navigation; tested by `MemberHome.test.tsx` and `AppHeader.test.tsx`.
 - Product names, document title and manifest use KyMessages. The current embedded
-  shell is the operator console and states that chat (Matrix) is not set up yet;
-  do not imply a successful backup/crypto review from static dashboard text.
+  shell is the operator console; do not imply a successful backup/crypto review from static dashboard text.
   Retain suite icon masters and existing theme choices.
 - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
 - A signed-in user with `must_change_password` sees only password replacement and sign-out. Replacement uses `secureFetch`, returns to login after session revocation, and never exposes the normal navigation before completion.
@@ -27,7 +26,9 @@ Owns user interface components, service worker caching, PWA installation manifes
 - `Users.tsx` lists Matrix users (search, paging) and ends a user's sessions one by one (End all runs the per-session finish route in server order and stops when step-up is refused). It has no lock/unlock: access is controlled in KyIdentity. With Matrix off it says chat is not set up.
 - `Backup.tsx` warns for as long as `database_driver` from `/api/backup/status` is not `sqlite`: only the SQLite path can snapshot a database into a capsule, so a Postgres deployment makes no capsules at all.
 - `Backup.tsx` shows `capsule_size` (highlighting `warning` at 75% of the limit) and, with Matrix, `media_last_run` and its read error, beside the capsule attempt.
-- `NetworkCheck.tsx` renders at the end of the admin-only Settings page: it fetches `/api/admin/network-check`, validates the DTO at the boundary (a malformed or failed response shows `Network check unavailable.`), aborts on unmount and lists five Pass/Warn marks: trusted proxy peer, trusted `X-Forwarded-Proto: https`, https `KY_APP_URL`, host match, and `KY_TRUSTED_PROXIES` naming only single addresses (`trusted_proxies_narrow`). Tested by `NetworkCheck.test.tsx`.
+- `Dashboard.tsx` (Overview) has three cards, Chat health, Matrix users and Backups, each from its own admin route and each failing alone; its button calls `onNavigate('health'|'users'|'backup')`. With Matrix off the users card says chat is not set up.
+- `Health.tsx` lists components from `/api/admin/health` (status, version, Compose pin, error) and embeds `NetworkCheck`. Versions render as text only; a `source` link is kept only when it is https under the upstream `element-hq` or `postgres` GitHub repos. `Audit.tsx` is a read-only, paged (50) view of `/api/admin/audit` filtered by kind (`auth|backup|matrix|scim`); both validate DTOs with `dto.ts`.
+- `NetworkCheck.tsx` renders on the admin-only Health page: it fetches `/api/admin/network-check`, validates the DTO at the boundary (a malformed or failed response shows `Network check unavailable.`), aborts on unmount and lists five Pass/Warn marks: trusted proxy peer, trusted `X-Forwarded-Proto: https`, https `KY_APP_URL`, host match, and `KY_TRUSTED_PROXIES` naming only single addresses (`trusted_proxies_narrow`). Tested by `NetworkCheck.test.tsx`.
 
 ## Verification
 - Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium firefox && npm run test:browser`. CI also installs browser OS dependencies.
