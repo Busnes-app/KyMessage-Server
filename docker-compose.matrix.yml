@@ -4,7 +4,8 @@
 # internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
 # (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
 # The app also joins matrix-db and reads ./matrix (minus the Postgres superuser password) and the
-# media volume read-only, for server backups (docs/RESTORE.md).
+# media volume read-only, for server backups (docs/RESTORE.md). It writes one file there:
+# Element's config.json, whose "brand" the console sets in place.
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -53,6 +54,10 @@ services:
       - {<<: *matrix-ro, source: ./matrix/synapse, target: /matrix/synapse}
       - {<<: *matrix-ro, source: ./matrix/mas, target: /matrix/mas}
       - {<<: *matrix-ro, source: ./matrix/element, target: /matrix/element}
+      # The one writable file under ./matrix: the console sets Element's "brand" in it, in place
+      # (same inode, so Element's own bind sees it). It belongs to KY_MATRIX_UID; the root app
+      # writes it through Docker's default CAP_DAC_OVERRIDE, as this service drops no capability.
+      - {type: bind, source: ./matrix/element/config.json, target: /matrix/element/config.json, read_only: false, bind: {create_host_path: false}}
       - {<<: *matrix-ro, source: ./matrix/postgres, target: /matrix/postgres}
       - {<<: *matrix-ro, source: ./matrix/secrets/synapse_db_password, target: /matrix/secrets/synapse_db_password}
       - {<<: *matrix-ro, source: ./matrix/secrets/mas_db_password, target: /matrix/secrets/mas_db_password}

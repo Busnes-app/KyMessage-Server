@@ -138,6 +138,9 @@ When the user requests a durable behavior change, record it here or in the relev
   until `matrix-init`'s second pass has the KyIdentity client secret. Synapse and
   `restore-matrix` mount `matrix-media` with `nocopy`: otherwise Docker re-copies the image's
   root-owned `/media` onto the empty volume at each mount and undoes `synapse-media-owner`.
+  The app's one read-write path under `./matrix` is `./matrix/element/config.json`, nested over
+  its read-only `./matrix/element`: the console sets Element's `brand` there in place, and the
+  check holds the app to that one file (with the static-IP overlay too).
   `restore-matrix` (profile `restore`, `docker compose run --rm restore-matrix`) runs the app image as
   `KY_MATRIX_UID:KY_MATRIX_GID` with no capability on `matrix-db` only; it is the only
   read-write media mount besides Synapse, and its `./data`, `./backups` and `./matrix` are

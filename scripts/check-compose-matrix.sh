@@ -3,6 +3,7 @@
 # services as the matrix-init owner, mount only each service's own ./matrix path read-only,
 # pass the Postgres superuser password as a secret file and keep it out of the app's view, and
 # keep composing with the proxy and static-IP overlays.
+# The app's one writable ./matrix path is Element's config.json, whose brand the console sets.
 # Uses throwaway values and ignores any local .env; contacts nothing.
 set -u
 root=$(git rev-parse --show-toplevel)
@@ -137,7 +138,9 @@ done
 appvol() { jq -r --arg t "$1" '.services.app.volumes[] | select(.target == $t) | [.type, .source, (.read_only // false)] | @tsv' <<<"$out"; }
 # ./matrix piece by piece: each bind read-only at the same path under /matrix, never created by
 # Docker, and none of them ./matrix, ./matrix/secrets or the Postgres superuser password.
-appmx=$(jq -c --arg r "$root/matrix" '[.services.app.volumes[] | select(.type == "bind" and (.source == $r or (.source | startswith($r + "/"))))]' <<<"$out")
+# Element's config.json is the one exception, checked by rw_check below.
+elementcfg="$root/matrix/element/config.json"
+appmx=$(jq -c --arg r "$root/matrix" --arg e "$elementcfg" '[.services.app.volumes[] | select(.type == "bind" and .source != $e and (.source == $r or (.source | startswith($r + "/"))))]' <<<"$out")
 jq -e --arg r "$root/matrix" --argjson nc "$nocreate" 'length > 0 and all(.[]; .target == "/matrix" + (.source | ltrimstr($r))
     and .read_only == true and .bind == $nc and .source != $r and .source != $r + "/secrets")' <<<"$appmx" >/dev/null \
   || bad "app ./matrix binds are not read-only, same-path, non-creating pieces: $appmx"
@@ -145,6 +148,17 @@ jq -e 'any(.[]; .source | test("postgres_password")) | not' <<<"$appmx" >/dev/nu
 for d in synapse mas element postgres; do
   jq -e --arg t "/matrix/$d" 'any(.[]; .target == $t)' <<<"$appmx" >/dev/null || bad "app does not mount ./matrix/$d"
 done
+# The app's only writable bind under ./matrix: Element's config.json, nested over the read-only
+# ./matrix/element (Docker mounts the deeper target second) and never created by Docker.
+# Element's own mount of it stays read-only (the per-service loop above).
+rw_check() {
+  local rw
+  rw=$(jq -c --arg r "$root/matrix" '[.services.app.volumes[] | select(.type == "bind" and (.source == $r or (.source | startswith($r + "/"))) and (.read_only // false) == false)]' <<<"$1")
+  jq -e --arg e "$elementcfg" --argjson nc "$nocreate" 'length == 1 and .[0].source == $e and .[0].target == "/matrix/element/config.json" and .[0].bind == $nc' <<<"$rw" >/dev/null \
+    || bad "$2: the app's writable ./matrix binds must be exactly ./matrix/element/config.json at /matrix/element/config.json, create_host_path false: $rw"
+}
+rw_check "$out" "matrix overlay"
+rw_check "$both" "matrix + static-ip"
 [ "$(appvol /matrix-media)" = "$(printf 'volume\tmatrix-media\ttrue')" ] || bad "app does not mount matrix-media read-only at /matrix-media"
 # pg_dump must match the server's major version: the image's client package against the postgres tag.
 client=$(grep -E '^RUN apk .*postgresql[0-9]+-client' "$root/Dockerfile" | grep -oE 'postgresql[0-9]+-client' | grep -oE '[0-9]+')
