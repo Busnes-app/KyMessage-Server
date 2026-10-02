@@ -75,7 +75,7 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
         const d = parseRoomDetail(await res.json());
         setDetail(d);
         const run = d.jobs.find((j) => RUNNING.includes(j.status));
-        if (run) setPending({ deleteId: run.delete_id, kind: 'job' });
+        if (run) { setPending({ deleteId: run.delete_id, kind: 'job' }); setError(''); }
       })
       .catch((err: unknown) => { if (!controller.signal.aborted) setError(errorText(err, 'Could not read the room')); });
     return () => controller.abort();

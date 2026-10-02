@@ -256,4 +256,20 @@ describe('Rooms', () => {
     expect(await screen.findByText('The close or delete that was running has finished.')).toBeTruthy();
     expect(reads).toBe(2);
   });
+
+  it('drops the refusal once the running job is followed', async () => {
+    let reads = 0;
+    serve((url, init) => {
+      if (init?.method === 'POST') return json({ error: 'A close or delete of this room is still running' }, 409);
+      if (url === `/api/admin/matrix/rooms/${ENC}`) { reads++; return json(reads === 1 ? DETAIL : { ...DETAIL, jobs: [{ delete_id: 'D8', status: 'active' }] }); }
+      if (url.endsWith('/delete-status')) return json({ jobs: [{ delete_id: 'D8', status: 'active' }] });
+      return list(url);
+    });
+    render(<Rooms pollMs={5} />);
+    const panel = await openRoom();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close room…' }));
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'Confirm close' })).getByRole('button', { name: 'Close room' }));
+    await within(panel).findByText('A close or delete of this room is running…');
+    await waitFor(() => expect(within(panel).queryByRole('alert')).toBeNull());
+  });
 });
