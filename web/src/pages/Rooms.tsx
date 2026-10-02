@@ -42,6 +42,8 @@ export function parseRoomDetail(v: unknown): RoomDetail {
 const PAGE = 50;
 // Synapse lists a job only once it has started; give up waiting after this many polls.
 const MAX_POLLS = 90;
+// A status read can fail in passing (a slow mint, a restart); give up after this many in a row.
+const MAX_POLL_FAILURES = 3;
 const RUNNING: readonly RoomJob['status'][] = ['scheduled', 'active'];
 const errorText = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
 const roomPath = (id: string) => `/api/admin/matrix/rooms/${encodeURIComponent(id)}`;
@@ -63,6 +65,7 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
   const [confirmClose, setConfirmClose] = useState(false);
   const [typed, setTyped] = useState('');
   const [pending, setPending] = useState<{ deleteId: string; kind: Kind } | null>(null);
+  const [reads, setReads] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -76,13 +79,14 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
       })
       .catch((err: unknown) => { if (!controller.signal.aborted) setError(errorText(err, 'Could not read the room')); });
     return () => controller.abort();
-  }, [id]);
+  }, [id, reads]);
 
   // Close and delete are Synapse background jobs: poll until this one ends.
   useEffect(() => {
     if (!pending) return;
     let stopped = false;
     let polls = 0;
+    let failures = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
       try {
@@ -90,6 +94,7 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
         if (!res.ok) throw new Error(await errorMessage(res, 'Could not read the job status'));
         const job = parseJobs(obj(await res.json()).jobs).find((j) => j.delete_id === pending.deleteId);
         if (stopped) return;
+        failures = 0;
         if (job?.status === 'complete') { onDone(DONE[pending.kind]); return; }
         if (job && !RUNNING.includes(job.status)) {
           setPending(null);
@@ -103,7 +108,9 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
         }
         timer = setTimeout(() => void tick(), pollMs);
       } catch (err) {
-        if (!stopped) { setPending(null); setError(errorText(err, 'Could not read the job status')); }
+        if (stopped) return;
+        if (++failures >= MAX_POLL_FAILURES) { setPending(null); setError(errorText(err, 'Could not read the job status')); return; }
+        timer = setTimeout(() => void tick(), pollMs);
       }
     };
     timer = setTimeout(() => void tick(), pollMs);
@@ -118,6 +125,8 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
         ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: typed }) }
         : { method: 'POST' };
       const res = await adminFetch(`${roomPath(id)}/${kind}`, init);
+      // Refused because a job runs: read the room again so that job is shown and followed.
+      if (res.status === 409) setReads((n) => n + 1);
       if (!res.ok) throw new Error(await errorMessage(res, kind === 'close' ? 'Could not close the room' : 'Could not delete the room'));
       const b = obj(await res.json());
       if (oneOf(b.outcome, ['started', 'already_closed'] as const) === 'already_closed') { onDone('The room was already closed.'); return; }
@@ -174,8 +183,8 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
               <input value={typed} maxLength={255} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
             </label>
             <p className="dr-hint">
-              Deletes the room's history from the server for everyone. Attachments in encrypted rooms cannot be found by the
-              server and stay in its media store as encrypted files. This cannot be undone.
+              Purges the room's history from the server for everyone. The room's media (attachments, avatars) stays in the
+              media store. This cannot be undone.
             </p>
             <button type="button" className="btn-danger" disabled={locked || typed !== detail.confirm_text} onClick={() => void act('delete')}>
               <Trash2 size={14} /><span>Delete permanently</span>

@@ -137,7 +137,7 @@ describe('Rooms', () => {
     const panel = await openRoom();
     const button = within(panel).getByRole('button', { name: 'Delete permanently' }) as HTMLButtonElement;
     const input = within(panel).getByLabelText(/to delete this room permanently/);
-    expect(within(panel).getByText(/encrypted rooms cannot be found by the server/)).toBeTruthy();
+    expect(within(panel).getByText(/media \(attachments, avatars\) stays in the media store/)).toBeTruthy();
     expect(button.disabled).toBe(true);
     fireEvent.change(input, { target: { value: 'team chat' } });
     expect(button.disabled).toBe(true);
@@ -204,5 +204,56 @@ describe('Rooms', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(polls).toBe(stopped);
     expect(stopped).toBe(90);
+  });
+
+  it('rides out a few failed status reads', async () => {
+    let polls = 0;
+    serve((url, init) => {
+      if (init?.method === 'POST') return json({ outcome: 'started', delete_id: 'D5' });
+      if (url.endsWith('/delete-status')) {
+        polls++;
+        if (polls <= 2) return json({ error: 'Synapse admin access is not working: timeout' }, 502);
+        return json({ jobs: [{ delete_id: 'D5', status: 'complete' }] });
+      }
+      return detail(url) ?? list(url);
+    });
+    render(<Rooms pollMs={5} />);
+    const panel = await openRoom();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close room…' }));
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'Confirm close' })).getByRole('button', { name: 'Close room' }));
+    expect(await screen.findByText(/Room closed: everyone was removed/)).toBeTruthy();
+    expect(polls).toBe(3);
+  });
+
+  it('gives up after three failed status reads in a row', async () => {
+    let polls = 0;
+    serve((url, init) => {
+      if (init?.method === 'POST') return json({ outcome: 'started', delete_id: 'D6' });
+      if (url.endsWith('/delete-status')) { polls++; return json({ error: 'Synapse admin access is not working: timeout' }, 502); }
+      return detail(url) ?? list(url);
+    });
+    render(<Rooms pollMs={5} />);
+    const panel = await openRoom();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close room…' }));
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'Confirm close' })).getByRole('button', { name: 'Close room' }));
+    expect((await within(panel).findByRole('alert')).textContent).toContain('timeout');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(polls).toBe(3);
+  });
+
+  it('shows and follows the running job after a refused change', async () => {
+    let reads = 0;
+    serve((url, init) => {
+      if (init?.method === 'POST') return json({ error: 'A close or delete of this room is still running' }, 409);
+      if (url === `/api/admin/matrix/rooms/${ENC}`) { reads++; return json(reads === 1 ? DETAIL : { ...DETAIL, jobs: [{ delete_id: 'D7', status: 'active' }] }); }
+      if (url.endsWith('/delete-status')) return json({ jobs: [{ delete_id: 'D7', status: 'complete' }] });
+      return list(url);
+    });
+    render(<Rooms pollMs={5} />);
+    const panel = await openRoom();
+    fireEvent.change(within(panel).getByLabelText(/to delete this room permanently/), { target: { value: 'Team chat' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete permanently' }));
+    expect(await screen.findByText('The close or delete that was running has finished.')).toBeTruthy();
+    expect(reads).toBe(2);
   });
 });
