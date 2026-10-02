@@ -54,7 +54,7 @@ More users are added later with no redeploy.
   excludes that label on both sides (the other seven apps keep exactly today's reach); a
   `kymessages-zone.yaml` allows only: cloudflared → app, Synapse, MAS 8080, Element; app →
   Postgres 5432, MAS 8080 and 8081, Synapse 8008, Element 8080; Synapse → Postgres, MAS 8080;
-  MAS → Postgres.
+  MAS → Postgres, Synapse 8008 (user provisioning).
 - Egress (`kymessages-egress.yaml`): app and MAS get public HTTPS (KyIdentity at
   `auth.urlxl.com`); the app also gets `192.168.1.91:443` (admin02 Nginx, KyRecovery).
   Synapse, Element and Postgres get none (federation off).
@@ -83,7 +83,7 @@ More users are added later with no redeploy.
   and back-channel URIs), an OIDC client for the console, a `suite_webhook` system linked to
   MAS's app record (its secret becomes `KY_KYIDENTITY_HMAC_SECRET`), assign Yoshi; add the
   redirect-rule scope to the Cloudflare token; replace the bootstrap admin password before
-  privileged use; in KyRecovery, generate a pairing code for service `kymessages`; claim it in
+  privileged use; in KyRecovery, generate a pairing code for service `KyMessages` (the claim pins `KY_APP_NAME`); claim it in
   the console (fresh sign-in) with `KY_BACKUP_ALLOW_PRIVATE_RECOVERY=1` (recorded on the
   pairing audit row); compare the pinned key's fingerprint with KyRecovery's ceremony page.
 - **Gate** (all must pass):
@@ -93,8 +93,9 @@ More users are added later with no redeploy.
   - Yoshi signs in to Element at `msg.urlxl.com` through KyIdentity, sets up keys, creates an
     encrypted room and posts; Postgres (as `kybackup`) holds only `m.room.encrypted` there; a
     second device reads history.
-  - Offboarding, reversibly: disabling Yoshi in KyIdentity refuses their live token within 30 s
-    and MAS locks them; re-enabling unlocks with history. (Delete is proven by acceptance.)
+  - Offboarding, reversibly: unassigning Yoshi from the app in KyIdentity refuses their live
+    token within 30 s and MAS locks them; reassigning unlocks with history (KyIdentity refuses to
+    disable its last administrator). Delete is proven by acceptance.
   - Sync status shows a webhook accepted and the sweep ok.
   - A rename appears in Element after `rollout restart deployment/element`.
   - A KyRecovery deposit succeeds with the digest matching; `backup-drill` passes; the local
