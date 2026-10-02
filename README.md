@@ -10,7 +10,7 @@ an "Open chat" link for members; without it they see a page saying chat is not a
 
 - [Product scope and privacy contract](docs/PRODUCT.md)
 - [Protocol and interoperability research](docs/KYMESSAGES-PROTOCOL-RESEARCH.md)
-- [SQLite capsule restore runbook](docs/RESTORE.md)
+- [Server restore runbook](docs/RESTORE.md)
 - [Repository contracts](AGENTS.md)
 
 ## Build and inspect locally
@@ -163,9 +163,29 @@ Offboarding, as measured by `make matrix-acceptance` (cut within 30 s, in practi
   Until then that user has no sessions and cannot sign in, but stays unlocked in MAS. Other
   failed deliveries KyIdentity retries itself.
 
-Not built yet: Matrix backups and the admin console for the stack. `make matrix-acceptance`
-proves encrypted storage in Element, a closed server and offboarding (needs Docker, node and a
-KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
+Backups:
+
+- The scheduled server capsule includes Matrix: configs, secrets, signing key and `pg_dump`s of
+  Synapse and MAS (one-time keys excluded).
+- Media is mirrored, encrypted, to `KY_BACKUP_DIR/media` after each scheduled run or
+  `kymessages deposit`, with a full archive each month. Copy that directory off the host.
+  `deposit` exits non-zero if the media step fails after a good deposit.
+- The backup screen shows the capsule size, a warning from 75% of the 256 MiB limit and the
+  last media run. "Run now" seals the capsule only.
+- Restore: see [docs/RESTORE.md](docs/RESTORE.md).
+
+Upgrading a stack from before Matrix backups:
+
+1. Re-run `./kymessages matrix-init` (adds `kybackup_db_password` and `postgres/kybackup-role.sql`).
+2. Run the role file once:
+   `docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/kybackup-role.sql`.
+3. Rebuild or pull the app image, keep `KY_BACKUP_DIR` set, and optionally set
+   `KY_BACKUP_MEDIA_FULL_KEEP`.
+4. `docker compose up -d`. The first scheduled run then backs up Matrix.
+
+The admin console for the stack is not built yet. `make matrix-acceptance` proves encrypted
+storage in Element, a closed server, offboarding, and backup then restore of a lost host (needs
+Docker, node and a KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
 
 ## Identity and recovery configuration
 
@@ -183,6 +203,7 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
 | `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |
 | `KY_BACKUP_DIR`, `KY_BACKUP_KEEP` | Optional local sealed copies; keep newest N (default 7) |
+| `KY_BACKUP_MEDIA_FULL_KEEP` | Monthly full media archives kept, default 3; below 1 fails startup |
 | `KY_BACKUP_DEPOSIT_INTERVAL` | Initial schedule, default `24h`; `0` disables, otherwise at least `15m`; admin UI overrides without restart |
 | `KY_BACKUP_ALLOW_PRIVATE_RECOVERY` | Explicit LAN KyRecovery opt-in, off by default; HTTPS remains mandatory and loopback is refused |
 
@@ -195,8 +216,8 @@ successful remote receipt stays separate. Unpairing
 keeps the key pin and local copies; separately revoke the product token at KyRecovery.
 Never put custodian shares into the running server.
 
-Only SQLite has a supported capsule backup/restore path. The backup is one people
-capsule (accounts and settings). Restore invalidates stale grants. See the
+Only SQLite has a supported capsule backup/restore path. The backup is one server
+capsule (accounts and settings, plus the Matrix stack when enabled). Restore invalidates stale grants. See the
 [restore runbook](docs/RESTORE.md) before relying on backups. If a prior test pairing
 used the scaffold's `Busnes.app` service name, preserve that explicit `KY_APP_NAME`
 for its existing token/capsules; changing the default does not change KyRecovery's pin.

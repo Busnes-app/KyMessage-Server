@@ -39,8 +39,9 @@ end by the acceptance test, not assumed.
 - **Database access (`matrix-init`).** New write-once secret `kybackup_db_password`.
   `postgres/init.sql` creates role `kybackup` (`LOGIN`, `CONNECT` on `synapse` and `mas`
   only, `pg_read_all_data`). Existing stacks never re-run `init.sql`, so `matrix-init` also
-  renders idempotent `postgres/backup-role.sql` (create if missing, set password, grants), run
-  once by the operator through `docker compose exec postgres psql` (README upgrade step). The
+  renders idempotent `postgres/kybackup-role.sql` (create if missing, set password, grants). It
+  sorts after `init.sql`, so the entrypoint applies it on a fresh volume; operators run it once
+  on an existing stack through `docker compose exec -T postgres psql` (README upgrade step). The
   app image gains `postgresql17-client` (major version equal to the server's).
 - **Compose (`docker-compose.matrix.yml`, app).** Joins `matrix-db`; the `kybackup` password
   as a Compose secret; `./matrix` read-only at `/matrix`; `matrix-media` read-only.
@@ -60,9 +61,12 @@ end by the acceptance test, not assumed.
   media deleted on the server are dropped.
 - **Restore.** `kymessages restore` also extracts `matrix/` into the target. New
   `kymessages restore-matrix`, run once via `docker compose run --rm` against a fresh stack:
-  refuses unless both databases are empty, `pg_restore`s as the `synapse` and `mas` owners,
-  then decrypts the newest monthly archive and then the mirror into the media volume. It
-  refuses and changes nothing on any failed check.
+  refuses unless both databases are empty and, unless `-skip-media`, the media store is empty;
+  `pg_restore`s as the `synapse` and `mas` owners (no superuser; the one extension allowed is
+  MAS's trusted `pg_trgm`, any other is refused), then decrypts the newest monthly archive and
+  then the mirror into the media volume. It refuses and changes nothing on any failed check.
+  It runs as `KY_MATRIX_UID`, so the operator restores as that user and, afterwards, chowns
+  `./data` and `./backups` to root because the root app refuses key files it does not own.
 
 ## Section 2: failure handling and proof
 

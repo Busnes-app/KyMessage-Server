@@ -37,7 +37,7 @@ Each item is a place where the real code makes a spec point impossible, unsafe o
 - Media: AES-256-GCM, a 12-byte random nonce prefix, and associated data `"kymessages-media/v1\x00" + <relative path>`. The index (`mirror/index`, JSON `{path: {size, mtime}}`) uses associated data `"kymessages-media-index/v1"`. The key is `data/media.key`: 32 bytes, hex, write-once, 0600, created by `Collect` and sealed in the capsule.
 - Media writes go to a temporary name (`.<name>.tmp-*`) and are renamed into place. Monthly archives `full-YYYY-MM.tar` (UTC) hold the encrypted index first, then `mirror/<path>`. The newest `KY_BACKUP_MEDIA_FULL_KEEP` (default 3, at least 1) are kept. After a new archive, mirror files for media deleted on the server are pruned, with the index rewritten first.
 - A media failure never fails the capsule run. Media has its own audit action, `admin.backup_media`.
-- `restore-matrix` refuses unless both databases hold no user relations and the media store is empty. It checks every dump and every media file before writing anything.
+- `restore-matrix` refuses unless both databases hold no user relations and, unless `-skip-media`, the media store is empty. It checks every dump and every media file before writing anything.
 - The app image installs `postgresql17-client`, whose major version must equal the `postgres:17.x` service (the compose check enforces this).
 - Never log or audit a password, a key or file contents. Errors may name paths.
 - "People capsule" wording becomes "server capsule" in code and docs.
