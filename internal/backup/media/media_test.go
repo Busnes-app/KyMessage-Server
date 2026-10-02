@@ -375,3 +375,27 @@ func TestBackwardsClockDoesNotPrune(t *testing.T) {
 		t.Error("mirror pruned on a backwards clock")
 	}
 }
+
+func TestWriteArchiveStopsOnCancelWithoutLeavingFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, mirrorDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, mirrorDir, indexName), []byte("i"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, mirrorDir, "a"), []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := writeArchive(ctx, dir, "full-2026-10.tar", Index{"a": {}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if e.Name() != mirrorDir {
+			t.Errorf("left %s", e.Name())
+		}
+	}
+}

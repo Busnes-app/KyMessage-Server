@@ -16,7 +16,8 @@ import (
 var ErrNoMediaDir = errors.New("backup: Matrix media needs KY_BACKUP_DIR")
 
 // RunMedia mirrors Synapse's media into <KY_BACKUP_DIR>/media under the media key, which
-// Collect creates and seals: the mirror opens once a capsule holding the key exists.
+// Collect creates. The caller runs it only after a capsule that carries the key was
+// delivered, or the mirror could be unrecoverable.
 func RunMedia(ctx context.Context, cfg *config.Config, now time.Time) (media.Result, error) {
 	if cfg.Backup.Dir == "" {
 		return media.Result{}, ErrNoMediaDir

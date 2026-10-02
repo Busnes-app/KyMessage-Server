@@ -158,7 +158,7 @@ func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Ti
 			log.Print("media: no monthly archive: the clock is behind the newest one")
 			return nil // this month's archive exists, or the clock went back
 		}
-		if err := writeArchive(dir, name, next); err != nil {
+		if err := writeArchive(ctx, dir, name, next); err != nil {
 			return err
 		}
 		res.Archive = name
@@ -358,14 +358,18 @@ func writeIndex(a cipher.AEAD, p string, idx Index) error {
 }
 
 // writeArchive tars the sealed index, then the sealed mirror files it lists, into dir/name.
-// Nothing is decrypted: the archive is exactly as sealed as the mirror.
-func writeArchive(dir, name string, idx Index) error {
+// Nothing is decrypted: the archive is exactly as sealed as the mirror. ctx is checked per
+// member; a cancelled run leaves no archive and no temp file, and the next run remakes it.
+func writeArchive(ctx context.Context, dir, name string, idx Index) error {
 	return writeAtomic(filepath.Join(dir, name), func(w io.Writer) error {
 		tw := tar.NewWriter(w)
 		if err := addFile(tw, filepath.Join(dir, mirrorDir, indexName), indexName); err != nil {
 			return err
 		}
 		for _, rel := range slices.Sorted(maps.Keys(idx)) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := addFile(tw, mirrored(dir, rel), mirrorDir+"/"+rel); err != nil {
 				return err
 			}

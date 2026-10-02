@@ -263,13 +263,20 @@ func backupTick(ctx context.Context, cfg *config.Config, st store.Store, rc reco
 		return
 	}
 	recordRun(runCtx, st, "system", backupRunAction, res, err)
-	if cfg.Matrix.Enabled() {
-		// Incremental, so unlike the capsule it stops for shutdown and resumes next run.
+	if cfg.Matrix.Enabled() && delivered(res, err) && ctx.Err() == nil {
+		// Incremental, so unlike the capsule it stops for shutdown and resumes next run. Only
+		// after a delivered capsule: that capsule holds the media key. Past shutdown the store
+		// may already be closing.
 		mres, merr := runMedia(ctx, cfg)
 		if !errors.Is(merr, context.Canceled) {
 			recordMedia(runCtx, st, "system", mres, merr)
 		}
 	}
+}
+
+// delivered is a run that put its capsule somewhere: the media key it carries is recoverable.
+func delivered(res recoveryclient.Result, err error) bool {
+	return err == nil || res.LocalPath != "" || res.Receipt != nil
 }
 
 const backupRunAction = "admin.backup_run"
@@ -291,6 +298,10 @@ const mediaRunAction = "admin.backup_media"
 
 // recordMedia audits one media run; the status route reads the latest row.
 func recordMedia(ctx context.Context, st store.Store, actor string, res media.Result, err error) {
+	if errors.Is(err, media.ErrBusy) {
+		log.Printf("[BACKUP] media %s: another media backup is running; skipped", actor)
+		return
+	}
 	details := map[string]any{"outcome": "success", "copied": res.Copied, "unchanged": res.Unchanged, "pruned": res.Pruned}
 	if res.Archive != "" {
 		details["archive"] = res.Archive
@@ -350,7 +361,7 @@ func runDeposit(args []string) {
 	res, err := runBackup(ctx, cfg, rc, backup.Settings(ctx, st.Settings()), client)
 	recordRun(ctx, st, "cli", backupRunAction, res, err)
 	var merr error
-	if cfg.Matrix.Enabled() {
+	if cfg.Matrix.Enabled() && delivered(res, err) {
 		var mres media.Result
 		mres, merr = runMedia(ctx, cfg)
 		recordMedia(ctx, st, "cli", mres, merr)
@@ -361,7 +372,7 @@ func runDeposit(args []string) {
 	if res.Receipt != nil {
 		log.Printf("✓ Capsule %s deposited at %s; digest %s", res.Manifest.CapsuleID, res.Receipt.DepositedAt.Format(time.RFC3339), res.Receipt.Digest)
 	}
-	if merr != nil {
+	if merr != nil && !errors.Is(merr, media.ErrBusy) {
 		log.Fatalf("Media backup: %v", merr)
 	}
 }

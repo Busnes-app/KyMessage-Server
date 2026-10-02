@@ -231,19 +231,54 @@ func latest(t *testing.T, st store.Store, action string) *store.AuditRecord {
 	return rec
 }
 
-// Media runs after the capsule whatever the capsule's outcome, and is audited on its own row.
+// Media runs after a delivered capsule and is audited on its own row.
 func TestBackupTickRunsMediaAfterTheCapsule(t *testing.T) {
 	st, cfg := tickFixture(t, time.Hour)
 	cfg.Matrix.ServerName = "example.com"
-	stubRun(t, func() error { return errors.New("capsule failed") })
+	stubRun(t, func() error { return nil })
 	ran := stubMedia(t, func() error { return nil })
 	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
 	if *ran != 1 {
 		t.Fatalf("media ran %d times", *ran)
 	}
 	if !strings.HasPrefix(latest(t, st, mediaRunAction).Details, `outcome="success"`) ||
-		!strings.HasPrefix(latest(t, st, backupRunAction).Details, `outcome="failure"`) {
+		!strings.HasPrefix(latest(t, st, backupRunAction).Details, `outcome="success"`) {
 		t.Fatal("capsule and media outcomes not recorded separately")
+	}
+}
+
+// A capsule that reached no destination never carried the media key anywhere: no mirror.
+func TestBackupTickSkipsMediaAfterAFailedCapsule(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	cfg.Matrix.ServerName = "example.com"
+	stubRun(t, func() error { return errors.New("capsule failed") })
+	ran := stubMedia(t, func() error { return nil })
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	if *ran != 0 {
+		t.Fatalf("media ran %d times after a failed capsule", *ran)
+	}
+}
+
+func TestBackupTickBusyMediaIsNotAFailureRow(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	cfg.Matrix.ServerName = "example.com"
+	stubRun(t, func() error { return nil })
+	stubMedia(t, func() error { return media.ErrBusy })
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	if _, err := st.Audit().LatestAuditRecord(context.Background(), mediaRunAction); err == nil {
+		t.Fatal("busy mirror audited")
+	}
+}
+
+func TestBackupTickSkipsMediaOnceShutdownBegan(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	cfg.Matrix.ServerName = "example.com"
+	ctx, cancel := context.WithCancel(context.Background())
+	stubRun(t, func() error { cancel(); return nil })
+	ran := stubMedia(t, func() error { return nil })
+	backupTick(ctx, cfg, st, recoveryclient.RunConfig{}, nil)
+	if *ran != 0 {
+		t.Fatal("media started after shutdown")
 	}
 }
 
