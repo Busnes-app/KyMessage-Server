@@ -58,9 +58,10 @@ type Input struct {
 
 // Registration is what the operator enters in KyIdentity for the MAS client.
 type Registration struct {
-	RedirectURI string
-	Scopes      []string
-	ClientType  string
+	RedirectURI          string
+	BackchannelLogoutURI string
+	Scopes               []string
+	ClientType           string
 }
 
 // Result lists paths relative to Dir: Created and Kept are write-once secrets, Rendered are
@@ -73,6 +74,7 @@ type Result struct {
 	Rendered            []string
 	ClientSecretMissing bool
 	Registration        Registration
+	AdminClientID       string
 }
 
 // InputFromEnv reads the KY_* variables and validates them.
@@ -170,6 +172,8 @@ var secretSpecs = []struct {
 	{"mas_signing_rsa", rsaKeyPEM},
 	{"mas_signing_ec", ecKeyPEM},
 	{"upstream_provider_id", newULID},
+	{"mas_admin_client_id", newULID},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
+	{"mas_admin_client_secret", hexSecret}, // mounted into KyMessages, never in env
 }
 
 // Run validates in fully, then writes the configuration under dir.
@@ -241,10 +245,12 @@ func Run(in Input, dir string) (Result, error) {
 		res.Rendered = append(res.Rendered, r.rel)
 	}
 
+	res.AdminClientID = s["mas_admin_client_id"]
 	res.Registration = Registration{
-		RedirectURI: in.AuthHost + "/upstream/callback/" + s["upstream_provider_id"],
-		Scopes:      []string{"openid", "profile", "email"},
-		ClientType:  "confidential",
+		RedirectURI:          in.AuthHost + "/upstream/callback/" + s["upstream_provider_id"],
+		BackchannelLogoutURI: in.AuthHost + "/upstream/backchannel-logout/" + s["upstream_provider_id"],
+		Scopes:               []string{"openid", "profile", "email"},
+		ClientType:           "confidential",
 	}
 	return res, nil
 }

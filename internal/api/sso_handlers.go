@@ -131,6 +131,9 @@ func (s *Server) handleKyIdentitySyncWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if s.directoryChanged != nil {
+		s.directoryChanged()
+	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"synced": true})
 }
 

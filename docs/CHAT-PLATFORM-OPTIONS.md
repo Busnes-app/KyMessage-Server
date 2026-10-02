@@ -159,7 +159,7 @@ A throwaway loopback build tested option (b). It used Synapse v1.162.0, MAS 1.26
 Backup scope: the Synapse and MAS databases, plus MAS `secrets.encryption`, restored from one point in time. Also the Synapse signing key, the `homeserver.yaml` secrets and `media_store/`. KyIdentity must keep each user's `sub` and the MAS client secret.
 
 Open issues, all blocking a product:
-- KyIdentity disable must end live Matrix sessions. That needs back-channel logout into MAS, or a sync job that calls MAS deactivate.
+- Resolved: KyIdentity disable ends live Matrix sessions. Back-channel logout into MAS (`logout_all`) cut an open Element session in 0.3-3.0 s (bound 30 s), with KyMessages running or stopped; KyMessages then locks the MAS user through the admin API. Evidence: `scripts/matrix-acceptance.sh` offboarding steps. A disable missed while KyMessages is down is held by KyIdentity until an operator resumes it.
 - MFA enforcement through KyIdentity's per-app policy is untested.
 - No Teams bridge exists for this stack either (see section 3).
 - A public https deployment through cloudflared is untested. The acceptance harness runs the shipped configs over https with a private CA on loopback, which needs neither of the spike's MAS relaxations (`discovery_mode: insecure`, `allow_insecure_uris`).

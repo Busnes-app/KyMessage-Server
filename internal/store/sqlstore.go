@@ -985,3 +985,25 @@ func errorsIs(err, target error) bool {
 	}
 	return err == target || strings.Contains(err.Error(), target.Error())
 }
+
+func (u *userStore) DirectoryStatuses(ctx context.Context, provider string) (map[string]string, error) {
+	rows, err := u.store.db.QueryContext(ctx, u.store.rebind(`SELECT sso_subject, status FROM users WHERE sso_provider = ? AND sso_subject <> ''
+UNION ALL SELECT s.subject, 'deleted' FROM directory_sync_state s
+WHERE s.provider = ? AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`), provider, provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var sub, status string
+		if err := rows.Scan(&sub, &status); err != nil {
+			return nil, err
+		}
+		// Several rows for one subject: any non-active one wins (fail closed).
+		if prev, seen := out[sub]; !seen || prev == "active" {
+			out[sub] = status
+		}
+	}
+	return out, rows.Err()
+}

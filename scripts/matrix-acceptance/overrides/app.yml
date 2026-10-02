@@ -1,0 +1,17 @@
+# Acceptance harness only (scripts/matrix-acceptance.sh); never part of a deployment. Runs
+# KyMessages itself, built from this checkout, for the offboarding sweep and the directory
+# webhook. It reaches MAS's admin API exactly as shipped (docker-compose.matrix.yml); only
+# the deployment knobs that would leave the project are reset.
+services:
+  app:
+    image: ${KYMATRIX_ACCEPT_APP_IMAGE:?}
+    # A fixed name would collide with a real KyMessages container on this host.
+    container_name: !reset null
+    # Only the harness proxy publishes a port.
+    ports: !reset []
+    # A project volume, removed by `down -v`; bind mounts would leave root-owned files.
+    volumes: !override
+      - app-data:/app/data
+
+volumes:
+  app-data:

@@ -135,10 +135,20 @@ func (h *userResourceHandler) GetAll(r *http.Request, params protocol.ListReques
 	return protocol.Page{TotalResults: total, Resources: resources}, nil
 }
 
-func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol.ResourceAttributes) (protocol.Resource, error) {
+// ownedUser returns a row SCIM created. Other providers' rows (KyIdentity, local) answer as
+// absent: writing them here would override their own directory.
+func (h *userResourceHandler) ownedUser(r *http.Request, id string) (*store.User, error) {
 	user, err := h.store.Users().GetUserByID(r.Context(), id)
+	if err == nil && user.SSOProvider != "scim" {
+		err = store.ErrNotFound
+	}
+	return user, scimStoreError(err, id)
+}
+
+func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol.ResourceAttributes) (protocol.Resource, error) {
+	user, err := h.ownedUser(r, id)
 	if err != nil {
-		return protocol.Resource{}, scimStoreError(err, id)
+		return protocol.Resource{}, err
 	}
 	oldRole, oldStatus := user.Role, user.Status
 	user.Username, _ = attrs["userName"].(string)
@@ -156,13 +166,16 @@ func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol
 }
 
 func (h *userResourceHandler) Delete(r *http.Request, id string) error {
+	if _, err := h.ownedUser(r, id); err != nil {
+		return err
+	}
 	return scimStoreError(h.store.Users().DeleteUser(r.Context(), id), id)
 }
 
 func (h *userResourceHandler) Patch(r *http.Request, id string, operations []protocol.PatchOperation) (protocol.Resource, error) {
-	user, err := h.store.Users().GetUserByID(r.Context(), id)
+	user, err := h.ownedUser(r, id)
 	if err != nil {
-		return protocol.Resource{}, scimStoreError(err, id)
+		return protocol.Resource{}, err
 	}
 	oldRole, oldStatus := user.Role, user.Status
 	for _, op := range operations {

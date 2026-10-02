@@ -7,7 +7,8 @@ set -u
 root=$(git rev-parse --show-toplevel)
 export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only \
   KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 \
-  KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com
+  KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com \
+  KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
 unset KY_NETWORK_SUBNET KY_NETWORK
 render() { docker compose --env-file /dev/null --project-directory "$root" "$@" config --format json; }
 stack=(-f "$root/docker-compose.yml" -f "$root/docker-compose.proxy.yml" -f "$root/docker-compose.matrix.yml")
@@ -65,13 +66,13 @@ owner=$(jq -c '.services["synapse-media-owner"]' <<<"$out")
 # Postgres sits only on an internal network; Synapse and MAS bridge to it.
 [ "$(jq -c '.services.postgres.networks | keys' <<<"$out")" = '["matrix-db"]' ] || bad "postgres is not only on matrix-db"
 [ "$(jq -r '.networks["matrix-db"].internal' <<<"$out")" = true ] || bad "matrix-db is not internal"
-for s in synapse mas; do
-  [ "$(jq -c --arg s "$s" '.services[$s].networks | keys' <<<"$out")" = '["default","matrix-db"]' ] || bad "$s is not on default and matrix-db"
-done
+[ "$(jq -c '.services.synapse.networks | keys' <<<"$out")" = '["default","matrix-db"]' ] || bad "synapse is not on default and matrix-db"
+[ "$(jq -c '.services.mas.networks | keys' <<<"$out")" = '["default","matrix-admin","matrix-db"]' ] || bad "mas is not on default, matrix-admin and matrix-db"
 # MAS is probed through its public discovery resource; it has no internal port to reach.
 jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("http://mas:8080/.well-known/openid-configuration")' <<<"$out" >/dev/null \
   || bad "synapse healthcheck does not probe MAS discovery with --fail-early"
-grep -q 8081 <<<"$out" && bad "the stack still names MAS port 8081"
+# The admin port appears once: the app's URL. No service publishes or exposes it.
+[ "$(grep -o 8081 <<<"$out" | wc -l)" = 1 ] || bad "MAS port 8081 is named more than once"
 # Without the client secret matrix-init renders no MAS config; `up` must then refuse MAS, not
 # let Docker create a directory in its place.
 # Compose versions omit opposite defaults, so compare with this Compose's own rendering of false.
@@ -90,14 +91,31 @@ dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition 
   || bad "postgres superuser password is not read from its secret file"
 [ "$(jq -r '.secrets.postgres_password.file' <<<"$out")" = "$root/matrix/secrets/postgres_password" ] \
   || bad "postgres_password secret is not ./matrix/secrets/postgres_password"
-[ "$(jq -c '[.services[] | .secrets // [] | .[].source]' <<<"$out")" = '["postgres_password"]' ] \
-  || bad "a service other than postgres receives a secret"
+[ "$(jq -c '[.services[] | .secrets // [] | .[].source]' <<<"$out")" = '["mas_admin_client_secret","postgres_password"]' ] \
+  || bad "secrets go to a service other than app (admin) and postgres"
 
 both=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" -f "$root/docker-compose.static-ip.yml") || { echo "matrix + static-ip does not compose"; exit 1; }
 [ "$(jq -r '.services.app.networks.default.ipv4_address' <<<"$both")" = 10.91.0.20 ] || bad "static IP lost with matrix overlay"
 [ "$(jq -c '.services.app.environment | [.KY_MATRIX_SERVER_NAME, .KY_MATRIX_HOST, .KY_MATRIX_CHAT_HOST]' <<<"$out")" = '["example.com","https://matrix.example.com","https://chat.example.com"]' ] \
   || bad "app does not receive the Matrix locations"
-for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MATRIX_CHAT_HOST; do
+# Offboarding: only mas and app reach the admin API, on an internal network, by alias.
+admin_checks() {
+  local j=$1
+  [ "$(jq -r '.networks["matrix-admin"].internal' <<<"$j")" = true ] || bad "matrix-admin is not internal"
+  members=$(jq -r '[.services | to_entries[] | select(.value.networks | has("matrix-admin")) | .key] | sort | join(",")' <<<"$j")
+  [ "$members" = app,mas ] || bad "matrix-admin members are $members, want app,mas"
+  [ "$(jq -c '.services.mas.networks["matrix-admin"].aliases' <<<"$j")" = '["mas-admin"]' ] || bad "mas lacks the mas-admin alias on matrix-admin"
+}
+admin_checks "$out"
+admin_checks "$both"
+for k in default matrix-db; do
+  jq -e --arg k "$k" '.services.mas.networks[$k].aliases // [] | index("mas-admin") | not' <<<"$out" >/dev/null || bad "mas-admin alias leaks onto $k"
+done
+[ "$(jq -r '.services.app.environment.KY_MATRIX_ADMIN_URL' <<<"$out")" = http://mas-admin:8081 ] || bad "app admin URL"
+[ "$(jq -r '.services.app.environment.KY_MATRIX_ADMIN_SECRET_FILE' <<<"$out")" = /run/secrets/mas_admin_client_secret ] || bad "app admin secret path"
+[ "$(jq -r '.secrets.mas_admin_client_secret.file' <<<"$out")" = "$root/matrix/secrets/mas_admin_client_secret" ] || bad "admin secret source"
+jq -e '.services.app.environment | has("KY_MATRIX_ADMIN_CLIENT_SECRET") | not' <<<"$out" >/dev/null || bad "admin secret in env"
+for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MATRIX_CHAT_HOST KY_MATRIX_ADMIN_CLIENT_ID KY_KYIDENTITY_HMAC_SECRET; do
   err=$(env -u "$v" docker compose --env-file /dev/null --project-directory "$root" "${stack[@]}" config 2>&1 >/dev/null) \
     && { bad "matrix overlay accepted a missing $v"; continue; }
   grep -q "$v" <<<"$err" || bad "missing $v failed for another reason: $err"

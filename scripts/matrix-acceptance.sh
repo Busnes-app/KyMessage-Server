@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Matrix stack acceptance: a throwaway KyIdentity, `kymessages matrix-init` and
 # docker-compose.matrix.yml on loopback, Element driven by Playwright. Proves that messages in
-# encrypted rooms are stored encrypted and that the server is closed (no registration,
-# password login or federation; unassigned KyIdentity users refused).
+# encrypted rooms are stored encrypted, that the server is closed (no registration,
+# password login or federation; unassigned KyIdentity users refused), and that a KyIdentity
+# disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
+# making offboarding (including delete) stick in MAS.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
 # Compose project kymatrix-accept-<pid> with its own network and volumes; the exit trap runs
-# `down -v` on that project only, removes its KyIdentity image and deletes the scratch directory.
+# `down -v` on that project only, removes its KyIdentity and KyMessages images and deletes the
+# scratch directory.
 #
 # Env: KYIDENTITY_SRC (KyIdentity-server checkout, default ../KyIdentity-server),
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
@@ -21,6 +24,7 @@ reproduce=${MATRIX_ACCEPT_REPRODUCE:-0}
 artifacts=${MATRIX_ACCEPT_ARTIFACTS:-$here/artifacts}/kymatrix-accept-$$
 project=kymatrix-accept-$$
 kyid_image=$project-kyidentity:local
+app_image=kymatrix-accept-app:$$
 
 for tool in docker go node npm openssl curl jq; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
@@ -38,43 +42,46 @@ mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra"
 cp -r "$here/overrides" "$scratch/overrides"
 chmod -R a+rX "$scratch/overrides" "$scratch/nginx-extra"
 
-# Compose interpolation. The base file's app service is never started; its required values
-# get throwaway placeholders. The network name is project-scoped, never kymessages-net.
+# Compose interpolation. The network name is project-scoped, never kymessages-net.
 export KY_NETWORK=$project-net
 KY_MATRIX_UID=$(id -u) KY_MATRIX_GID=$(id -g)
 export KY_MATRIX_UID KY_MATRIX_GID
-export KY_ADMIN_PASSWORD=unused-by-the-harness
+KY_ADMIN_PASSWORD=$(openssl rand -hex 16) KY_SESSION_SECRET=$(openssl rand -hex 32)
+export KY_ADMIN_PASSWORD KY_SESSION_SECRET
+# Compose requires these on every command; the matrix-init and kyidentity steps set the real
+# values before the app starts.
+export KY_MATRIX_ADMIN_CLIENT_ID=pending-matrix-init KY_KYIDENTITY_HMAC_SECRET=pending-kyidentity
 export KY_MATRIX_SERVER_NAME=kymatrix.test
 export KY_MATRIX_HOST=https://matrix.kymatrix.test
 export KY_MATRIX_AUTH_HOST=https://auth.kymatrix.test
 export KY_MATRIX_CHAT_HOST=https://chat.kymatrix.test
-export KY_ADMIN_HOST=https://admin.kymatrix.test
+export KY_ADMIN_HOST=https://admin.kymatrix.test KY_APP_URL=https://admin.kymatrix.test
 export KY_KYIDENTITY_ISSUER=https://id.kymatrix.test
 export KY_MATRIX_MAS_CLIENT_ID=kymatrix-mas
 KYMATRIX_ACCEPT_ADMIN_PASS=$(openssl rand -hex 16)
 export KYMATRIX_ACCEPT_ADMIN_PASS
-export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image
+export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image KYMATRIX_ACCEPT_APP_IMAGE=$app_image
 
 dc() {
 	docker compose --progress quiet -p "$project" --project-directory "$scratch" \
 		-f "$repo/docker-compose.yml" -f "$repo/docker-compose.matrix.yml" \
-		-f "$scratch/overrides/compose.yml" "$@"
+		-f "$scratch/overrides/compose.yml" -f "$scratch/overrides/app.yml" "$@"
 }
 
 current=setup t0=$SECONDS started=$SECONDS
 step() { current=$1 t0=$SECONDS; echo "== $1"; }
-pass() { printf 'PASS %-14s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$summary"; }
+pass() { printf 'PASS %-19s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$summary"; }
 
 cleanup() {
 	local rc=$?
 	if ((rc != 0)); then
-		printf 'FAIL %-14s %4ss\n' "$current" "$((SECONDS - t0))" >>"$summary"
+		printf 'FAIL %-19s %4ss\n' "$current" "$((SECONDS - t0))" >>"$summary"
 		mkdir -p "$artifacts"
 		dc logs --no-color >"$artifacts/compose.log" 2>&1 || true
 		echo "matrix-acceptance: logs and traces in $artifacts" >&2
 	fi
 	dc down -v --timeout 10 >/dev/null 2>&1 || echo "matrix-acceptance: down -v failed for project $project" >&2
-	docker image rm "$kyid_image" >/dev/null 2>&1 || true
+	docker image rm "$kyid_image" "$app_image" >/dev/null 2>&1 || true
 	echo "== summary (total $((SECONDS - started))s)"
 	[[ -f $summary ]] && cat "$summary"
 	rm -rf "$scratch"
@@ -107,15 +114,27 @@ answer() {
 # Readiness poll with a deadline (30 tries, 1s apart).
 ready() { hcurl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors "$1" 2>/dev/null || { echo "  FAILED: $1 not ready" >&2; return 1; }; }
 kyid() { "$here/kyid-admin.sh" "$@"; }
-e2e() { node "$here/e2e.mjs" "$1"; }
+e2e() { node "$here/e2e.mjs" "$@"; }
+# eventually BOUND WANT WHAT CMD...: runs CMD 1s apart until it prints WANT; fails after BOUND
+# seconds.
+eventually() {
+	local bound=$1 want=$2 what=$3 got start=$SECONDS
+	shift 3
+	until got=$("$@") && [[ $got == "$want" ]]; do
+		((SECONDS - start < bound)) || { echo "  FAILED: $what within ${bound}s (got '$got', want '$want')" >&2; return 1; }
+		sleep 1
+	done
+	ok "$what ($((SECONDS - start))s)"
+}
 matrix_init() { "$scratch/kymessages" matrix-init -dir "$scratch/matrix"; }
 
 # ---------------------------------------------------------------------------------------
 step build
 go build -C "$repo" -o "$scratch/kymessages" ./cmd/server
+docker build -q -t "$app_image" "$repo" >/dev/null
 docker build -q -t "$kyid_image" "$kyid_src" >/dev/null
 npm ci --prefix "$here" --no-audit --no-fund --silent
-ok "kymessages, KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
+ok "kymessages (binary and image), KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -159,6 +178,13 @@ matrix_init >"$state/init1.out"
 redirect_uri=$(awk '$1 == "redirect" && $2 == "URI" { print $3 }' "$state/init1.out")
 expect "$redirect_uri" "$KY_MATRIX_AUTH_HOST/upstream/callback/$(cat "$scratch/matrix/secrets/upstream_provider_id")" \
 	"matrix-init printed the redirect URI"
+backchannel_uri=$(awk '$1 == "back-channel" && $2 == "logout" { print $4 }' "$state/init1.out")
+expect "$backchannel_uri" "$KY_MATRIX_AUTH_HOST/upstream/backchannel-logout/$(cat "$scratch/matrix/secrets/upstream_provider_id")" \
+	"matrix-init printed the back-channel logout URI"
+KY_MATRIX_ADMIN_CLIENT_ID=$(cat "$scratch/matrix/secrets/mas_admin_client_id")
+grep -qxF "  KY_MATRIX_ADMIN_CLIENT_ID=$KY_MATRIX_ADMIN_CLIENT_ID" "$state/init1.out" ||
+	{ echo "  FAILED: matrix-init did not print the admin client ID it wrote" >&2; false; }
+ok "admin client ID $KY_MATRIX_ADMIN_CLIENT_ID from secrets/mas_admin_client_id, as printed"
 grep -qF "save the secret it shows to $client_secret_file (mode 0600), and run matrix-init again." "$state/init1.out" ||
 	{ echo "  FAILED: first pass did not say where to save the client secret" >&2; false; }
 [[ ! -e $scratch/matrix/mas/config.yaml ]] || { echo "  FAILED: first pass rendered a MAS config" >&2; false; }
@@ -196,7 +222,7 @@ export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_SPKI ACCEPT_ARTIFA
 
 # ---------------------------------------------------------------------------------------
 step kyidentity
-users=("Alice.Q@Ky" bob mallory nadia)
+users=("Alice.Q@Ky" bob mallory nadia carol dave erin frank)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
 for u in "${users[@]}"; do
@@ -205,16 +231,39 @@ for u in "${users[@]}"; do
 		'{username: $u, displayName: ($u | split("@")[0]), email: (($u | ascii_downcase | gsub("[^a-z0-9.]"; "-")) + "@kymatrix.test"), password: $p}')" | jq -re .user.id)
 done
 ok "users ${users[*]}"
-kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
-	'{clientId: $c, clientName: "KyMessages chat", clientType: "confidential", redirectUris: [$r], allowedScopes: ["openid", "profile", "email"]}')" >"$state/client.json"
-app=$(kyid GET /api/admin/app-registry | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.records[] | select(.clientId == $c) | .id')
-expect "$(kyid GET /api/admin/app-registry | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.records[] | select(.clientId == $c) | .accessMode')" \
-	assigned_only "the MAS client admits assigned users only"
+kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg b "$backchannel_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
+	'{clientId: $c, clientName: "KyMessages chat", clientType: "confidential", redirectUris: [$r], backchannelLogoutUri: $b, allowedScopes: ["openid", "profile", "email"]}')" >"$state/client.json"
+expect "$(kyid GET /api/admin/clients | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.clients[] | select(.id == $c) | .backchannelLogoutUri')" \
+	"$backchannel_uri" "the MAS client's back-channel logout goes to MAS"
+# The directory webhook: a suite_webhook system linked into the MAS client's app record, so the
+# users assigned to chat are the users KyIdentity delivers to KyMessages.
+kyid POST /api/admin/systems "$(jq -n --arg u "$KY_APP_URL/api/sso/kyidentity/sync" \
+	'{name: "KyMessages", systemType: "suite_webhook", callbackUrl: $u}')" >"$state/system.json"
+system=$(jq -re .system.id "$state/system.json")
+# Shown once; the operator's step is to give it to KyMessages.
+KY_KYIDENTITY_HMAC_SECRET=$(jq -re .bearerToken "$state/system.json")
+export KY_KYIDENTITY_HMAC_SECRET
+link=$(kyid GET /api/admin/app-registry | jq -ce --arg c "$KY_MATRIX_MAS_CLIENT_ID" --arg s "$system" \
+	'(.records[] | select(.clientId == $c)) as $t | (.records[] | select(.systemId == $s)) as $f
+	| {app: $t.id, body: {sourceId: $f.id, targetRevision: $t.revision, sourceRevision: $f.revision}}')
+app=$(jq -r .app <<<"$link")
+kyid POST "/api/admin/app-registry/$app/link" "$(jq -c .body <<<"$link")" >/dev/null
+record=$(kyid GET /api/admin/app-registry | jq -c --arg a "$app" '.records[] | select(.id == $a)')
+expect "$(jq -r .systemId <<<"$record")" "$system" "the webhook system shares the MAS client's app record"
+expect "$(jq -r .accessMode <<<"$record")" assigned_only "the MAS client admits assigned users only"
+# KyMessages first, so it is listening when the assignments below are delivered.
+dc up -d app >/dev/null
+ready "$KY_APP_URL/.well-known/matrix/client"
+ok "KyMessages up behind $KY_APP_URL with the webhook secret and MAS admin access"
 for u in "${users[@]}"; do
 	[[ $u == mallory ]] && continue
 	kyid PUT "/api/admin/app-registry/$app/assignments/users/${kid[$u]}" >/dev/null
 done
 ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallory assigned"
+# Every assigned user is in KyMessages' directory before anyone signs in: the sweep locks a
+# MAS user it has no record for.
+delivered() { kyid GET "/api/admin/systems/$system/provisioning" | jq '[.users[] | select(.desired and .acknowledged)] | length'; }
+eventually 60 "$((${#users[@]} - 1))" "KyMessages acknowledged every assigned user's webhook" delivered
 # The operator's step: KyIdentity showed the secret once; it goes in a 0600 file, never env.
 jq -re .clientSecret "$state/client.json" >"$client_secret_file"
 chmod 600 "$client_secret_file"
@@ -289,6 +338,137 @@ e2e refused
 expect "$(sql mas "SELECT count(*) FROM users WHERE username = 'mallory'")" 0 "no MAS account for mallory"
 expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links WHERE subject = '${kid[mallory]}'")" 0 "no upstream link for mallory"
 expect "$(sql synapse "SELECT count(*) FROM users WHERE name LIKE '@mallory%'")" 0 "no Synapse user for mallory"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Offboarding. The cut is KyIdentity's back-channel logout into MAS, timed against a live
+# Element token; KyMessages' sweep (woken by the directory webhook) then locks, unlocks or
+# deactivates the MAS user.
+now_ms() { local t=${EPOCHREALTIME//[^0-9]/}; echo $((t / 1000)); }
+# token_status USER: Synapse's status for USER's captured Element token.
+token_status() { status GET https://matrix.kymatrix.test/_matrix/client/v3/account/whoami -H "Authorization: Bearer $(cat "$state/$1.token")"; }
+# cut_within BOUND USER START_MS: polls until Synapse refuses USER's token (401) and prints the
+# seconds since START_MS; fails past BOUND or on any other answer.
+cut_within() {
+	local bound=$1 user=$2 start=$3 code elapsed
+	while code=$(token_status "$user") && elapsed=$(($(now_ms) - start)) && [[ $code == 200 ]]; do
+		((elapsed <= bound * 1000)) || { echo "  FAILED: $user's session survived ${bound}s" >&2; return 1; }
+		sleep 0.25
+	done
+	[[ $code == 401 ]] || { echo "  FAILED: whoami for $user answered '$code', not 401" >&2; return 1; }
+	((elapsed <= bound * 1000)) || { echo "  FAILED: $user's session survived ${bound}s" >&2; return 1; }
+	printf '%d.%d\n' $((elapsed / 1000)) $((elapsed % 1000 / 100))
+}
+# cut USER: disables USER in KyIdentity and records how long the captured token survived.
+cut() {
+	local start secs
+	expect "$(token_status "$1")" 200 "$1's captured Element token is live"
+	start=$(now_ms)
+	kyid PUT "/api/admin/users/${kid[$1]}" '{"status": "disabled"}' >/dev/null
+	secs=$(cut_within 30 "$1" "$start")
+	ok "$1's open Element session refused ${secs}s after the disable (bound 30s)" | tee -a "$summary"
+}
+mas_user() { sql mas "SELECT $2 FROM users WHERE username = '$1'"; }
+
+step offboard-cut
+e2e room carol
+e2e token carol
+cut carol
+e2e disabled carol
+eventually 60 t "MAS locked carol" mas_user carol 'locked_at IS NOT NULL'
+pass
+
+# ---------------------------------------------------------------------------------------
+step offboard-reactivate
+kyid PUT "/api/admin/users/${kid[carol]}" '{"status": "active"}' >/dev/null
+eventually 60 t "MAS unlocked carol" mas_user carol 'locked_at IS NULL'
+e2e reread carol
+pass
+
+# ---------------------------------------------------------------------------------------
+step offboard-delete
+e2e room dave
+kyid DELETE "/api/admin/users/${kid[dave]}" >/dev/null
+eventually 60 t "MAS deactivated dave" mas_user dave 'deactivated_at IS NOT NULL'
+expect "$(mas_user dave 'locked_at IS NULL')" t "dave deactivated, not just locked"
+eventually 60 leave "dave left his rooms" sql synapse \
+	"SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '@dave:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1"
+e2e reads dave
+pass
+
+# ---------------------------------------------------------------------------------------
+# Deleting someone already locked still deactivates them.
+step offboard-delete-locked
+kyid PUT "/api/admin/users/${kid[carol]}" '{"status": "disabled"}' >/dev/null
+eventually 60 t "MAS locked carol again" mas_user carol 'locked_at IS NOT NULL'
+kyid DELETE "/api/admin/users/${kid[carol]}" >/dev/null
+eventually 60 t "MAS deactivated the locked carol" mas_user carol 'deactivated_at IS NOT NULL'
+eventually 60 leave "carol left her rooms" sql synapse \
+	"SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '@carol:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Unassigning from the MAS client cuts like a disable and locks, without deactivating.
+step offboard-unassign
+e2e token frank
+expect "$(token_status frank)" 200 "frank's captured Element token is live"
+start=$(now_ms)
+kyid DELETE "/api/admin/app-registry/$app/assignments/users/${kid[frank]}" >/dev/null
+secs=$(cut_within 30 frank "$start")
+ok "frank's open Element session refused ${secs}s after the unassign (bound 30s)" | tee -a "$summary"
+eventually 60 t "MAS locked frank after the unassign" mas_user frank 'locked_at IS NOT NULL'
+expect "$(mas_user frank 'deactivated_at IS NULL')" t "frank locked, not deactivated"
+pass
+
+# ---------------------------------------------------------------------------------------
+step offboard-missed
+e2e token erin
+dc stop --timeout 10 app >/dev/null
+cut erin
+expect "$(mas_user erin 'locked_at IS NULL')" t "MAS has not locked erin while KyMessages is down"
+erin_event() { kyid GET "/api/admin/systems/$system/provisioning" | jq -c '.users[] | select(.username == "erin") | .lastEvent'; }
+# Proof the webhook was missed: KyIdentity tried to deliver erin's disable and failed.
+missed() { erin_event | jq -r '.type == "user.updated" and .status != "delivered" and ((.error // "") != "" or .attempts > 0)'; }
+eventually 30 true "KyIdentity's disable webhook for erin failed while KyMessages was down" missed
+dc start app >/dev/null
+ready "$KY_APP_URL/.well-known/matrix/client"
+# The disable webhook failed while KyMessages was down, so its directory still says active and
+# the start-up sweep rightly leaves erin unlocked; the lock needs that webhook redelivered.
+# KyIdentity (internal/sync/delivery.go) treats a 5xx or transport error after the request left
+# as an uncertain write: it fences erin's deliveries until an operator confirms KyMessages is
+# quiescent and resumes the attempt, allowed once its 60s lease (recoverAfter) has passed; a
+# resync queues behind the fence. Only a clean failure retries itself, 30s * 2^(failures - 1)
+# apart (retryDelay), abandoned after 5, which a resync recovers.
+event=$(erin_event)
+echo "  KyIdentity's disable webhook for erin: $event"
+next=$(jq -r 'select(.status == "pending") | .nextAttemptAt // empty' <<<"$event")
+locked=(mas_user erin 'locked_at IS NOT NULL')
+if [[ $(jq -r .error <<<"$event") == *"operator recovery required"* ]]; then
+	attempt=$(kyid GET "/api/admin/systems/$system/deliveries" | jq -c --arg u "${kid[erin]}" '.[] | select(.userId == $u)')
+	due=$(($(date -d "$(jq -r .recoverAfter <<<"$attempt")" +%s) - $(date +%s) + 1))
+	((due <= 0)) || sleep "$due"
+	kyid POST "/api/admin/systems/$system/deliveries/$(jq -r .token <<<"$attempt")/resume" '{"confirmedQuiescent": true}' >/dev/null
+	eventually 60 t "MAS locked erin after the operator resumed the fenced webhook" "${locked[@]}" | tee -a "$summary"
+elif [[ -n $next ]] && due=$(($(date -d "$next" +%s) - $(date +%s))) && ((due <= 240)); then
+	eventually $((due + 60)) t "MAS locked erin after KyIdentity's retry (due in ${due}s)" "${locked[@]}" | tee -a "$summary"
+elif [[ $(jq -r .status <<<"$event") == failed ]]; then
+	kyid POST "/api/admin/systems/$system/resync" >/dev/null
+	eventually 60 t "MAS locked erin after a resync of the system" "${locked[@]}" | tee -a "$summary"
+else
+	echo "  FAILED: erin's disable webhook is neither fenced, retrying nor abandoned: $event" >&2
+	false
+fi
+pass
+
+# ---------------------------------------------------------------------------------------
+# Synapse is on default and matrix-db, not matrix-admin.
+step admin-isolation
+rc=0
+dc run --rm --no-deps --entrypoint curl synapse -sS -m 5 -o /dev/null http://mas:8081/ 2>/dev/null || rc=$?
+expect "$rc" 7 "synapse cannot connect to mas:8081 (connection refused)"
+rc=0
+dc run --rm --no-deps --entrypoint curl synapse -sS -m 5 -o /dev/null http://mas-admin:8081/ 2>/dev/null || rc=$?
+expect "$rc" 6 "mas-admin does not resolve for synapse"
 pass
 
 # ---------------------------------------------------------------------------------------

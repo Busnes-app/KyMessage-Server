@@ -1,7 +1,8 @@
 # Matrix stack: Postgres, Synapse, MAS and Element, configured by `kymessages matrix-init`
 # (./matrix). Append to COMPOSE_FILE after the proxy overlay; nothing is published, the proxy
 # reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
-# internal matrix-db network, shared with Synapse and MAS.
+# internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
+# (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -20,6 +21,16 @@ services:
       - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}
       - KY_MATRIX_HOST=${KY_MATRIX_HOST:?Set KY_MATRIX_HOST}
       - KY_MATRIX_CHAT_HOST=${KY_MATRIX_CHAT_HOST:?Set KY_MATRIX_CHAT_HOST}
+      # Signs KyIdentity's directory webhook; without it offboarding never reaches MAS.
+      - KY_KYIDENTITY_HMAC_SECRET=${KY_KYIDENTITY_HMAC_SECRET:?Set KY_KYIDENTITY_HMAC_SECRET (the KyIdentity suite_webhook secret)}
+      # Offboarding sync: MAS's admin API, reachable only on matrix-admin.
+      - KY_MATRIX_ADMIN_URL=http://mas-admin:8081
+      - KY_MATRIX_ADMIN_CLIENT_ID=${KY_MATRIX_ADMIN_CLIENT_ID:?Set KY_MATRIX_ADMIN_CLIENT_ID (printed by matrix-init)}
+      - KY_MATRIX_ADMIN_SECRET_FILE=/run/secrets/mas_admin_client_secret
+    secrets: [mas_admin_client_secret]
+    networks:
+      default: {}
+      matrix-admin: {}
 
   postgres:
     <<: *hardening
@@ -85,7 +96,11 @@ services:
     image: ghcr.io/element-hq/matrix-authentication-service:1.26.0@sha256:e089f1048a1d4a9a492ed17b9fe759100f1bd619407b001f5927928d88b780c4
     user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
     command: ["server", "--config", "/config/config.yaml"]
-    networks: [default, matrix-db]
+    networks:
+      default: {}
+      matrix-db: {}
+      # MAS binds its admin listener to this alias, so the admin API exists only here.
+      matrix-admin: {aliases: [mas-admin]}
     volumes:
       # The file, never created by Docker: until the operator saves KyIdentity's client secret
       # and re-runs matrix-init, `up` refuses MAS ("bind source path does not exist").
@@ -116,9 +131,14 @@ services:
 secrets:
   postgres_password:
     file: ./matrix/secrets/postgres_password
+  mas_admin_client_secret:
+    file: ./matrix/secrets/mas_admin_client_secret
 
 networks:
   matrix-db:
+    internal: true
+  # KyMessages to MAS's admin API only.
+  matrix-admin:
     internal: true
 
 volumes:

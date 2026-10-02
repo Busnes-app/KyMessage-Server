@@ -54,10 +54,13 @@ func TestMatrixInitTwoPassesPrintRegistrationButNoSecrets(t *testing.T) {
 		!strings.Contains(s, "docker compose restart synapse mas element") {
 		t.Errorf("second pass output:\n%s", s)
 	}
+	if !strings.Contains(s, "back-channel logout URI") || !strings.Contains(s, "KY_MATRIX_ADMIN_CLIENT_ID=") {
+		t.Errorf("output lacks back-channel URI or admin client ID:\n%s", s)
+	}
 	entries, _ := os.ReadDir(filepath.Join(dir, "secrets"))
 	for _, e := range entries {
 		b, _ := os.ReadFile(filepath.Join(dir, "secrets", e.Name()))
-		if e.Name() != "upstream_provider_id" && strings.Contains(s, strings.TrimSpace(string(b))) {
+		if e.Name() != "upstream_provider_id" && e.Name() != "mas_admin_client_id" && strings.Contains(s, strings.TrimSpace(string(b))) {
 			t.Errorf("printed secret %s", e.Name())
 		}
 	}

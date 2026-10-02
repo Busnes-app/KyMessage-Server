@@ -41,9 +41,13 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   private; each mounts only its own `./matrix/<service>` read-only (Element the single 0644
   `config.json`, since nginx cannot enter the 0700 dir). Synapse reads `/config` (its dir) and writes media to `/media`;
   services reach each other as `postgres` (internal `matrix-db` network only), `synapse:8008`,
-  `mas:8080`. MAS has one listener and no `adminapi` resource; sub-project 3 re-adds the admin
-  API on an internal-only network. The MAS listener has no `compat`
-  resource, so password and legacy login are unreachable.
+  `mas:8080`. MAS has a public `web` listener (no `compat`, so password and legacy login are
+  unreachable; no `adminapi`) and an `admin` listener (`adminapi`, `oauth`) bound only to
+  `mas-admin:8081`, an alias on the internal `matrix-admin` network; never proxied.
+  `secrets/mas_admin_client_id` (ULID, printed as `KY_MATRIX_ADMIN_CLIENT_ID`) and
+  `secrets/mas_admin_client_secret` (`client_secret_basic`) define the one MAS client, which is
+  alone in `policy.data.admin_clients`. The KyIdentity provider sets
+  `on_backchannel_logout: logout_all`; the URL for KyIdentity is `Registration.BackchannelLogoutURI`.
 - Shipped templates never contain `discovery_mode: insecure`, `allow_insecure_uris` or
   anything else named insecure (`TestMASConfigTrustsOnlyKyIdentity`).
 - Localpart: `preferred_username` lowercased, every character outside `[a-z0-9._=-]`

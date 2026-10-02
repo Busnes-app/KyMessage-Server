@@ -2,6 +2,8 @@ package config_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -219,13 +221,24 @@ func TestEmptyLegacyKySignOnEnvironmentIsIgnored(t *testing.T) {
 // Matrix is optional, but a partial or malformed block must stop startup rather than serve a
 // .well-known that points members at the wrong homeserver.
 func TestMatrixConfigFromEnv(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "admin-secret")
+	if err := os.WriteFile(secret, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	set := func(name, host, chat string) {
 		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_MATRIX_ADMIN_URL", "http://mas-admin:8081")
+		t.Setenv("KY_MATRIX_ADMIN_CLIENT_ID", "01J0000000000000000000ADMN")
+		t.Setenv("KY_MATRIX_ADMIN_SECRET_FILE", secret)
 		t.Setenv("KY_MATRIX_SERVER_NAME", name)
 		t.Setenv("KY_MATRIX_HOST", host)
 		t.Setenv("KY_MATRIX_CHAT_HOST", chat)
+		t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "hmac")
 	}
 	set("", "", "")
+	for _, k := range []string{"KY_MATRIX_ADMIN_URL", "KY_MATRIX_ADMIN_CLIENT_ID", "KY_MATRIX_ADMIN_SECRET_FILE"} {
+		t.Setenv(k, "")
+	}
 	cfg, err := config.LoadFromEnv()
 	if err != nil || cfg.Matrix != (config.MatrixConfig{}) {
 		t.Fatalf("unset: %+v, %v", cfg, err)
@@ -235,8 +248,14 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com"}); cfg.Matrix != want {
+	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret"}); cfg.Matrix != want {
 		t.Fatalf("got %+v want %+v", cfg.Matrix, want)
+	}
+	// Without the webhook secret every directory delivery is refused, so a KyIdentity disable
+	// or delete never reaches MAS.
+	t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "")
+	if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_KYIDENTITY_HMAC_SECRET") {
+		t.Errorf("Matrix without HMAC secret: err = %v", err)
 	}
 	for _, tc := range []struct{ name, host, chat, wantVar string }{
 		{"example.com", "https://matrix.example.com", "", "KY_MATRIX_CHAT_HOST"},
