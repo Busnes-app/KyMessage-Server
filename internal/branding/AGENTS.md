@@ -4,7 +4,8 @@
 Pure checks and the one file edit behind the console's product name and logo.
 
 ## Ownership
-Owns `branding.go`: `ValidateName`, `NormalizePNG`, `PatchElementBrand`, `ElementBrand`.
+Owns `branding.go`: `ValidateName`, `NormalizePNG`, `PatchElementBrand`, `ElementBrand`,
+`ParseBrand`.
 `internal/api` owns the routes, storage, `/app-icon.png` and `Server.ReconcileBrand`;
 `cmd/server` decides when the reconcile runs.
 
@@ -21,8 +22,10 @@ Owns `branding.go`: `ValidateName`, `NormalizePNG`, `PatchElementBrand`, `Elemen
   first when absent), writes only when that changes the file, and writes through the existing
   inode (`O_WRONLY|O_TRUNC`; no create, rename or chmod): Compose binds that single file into
   Element and the app, and a bind keeps the inode it was given. A missing, non-regular,
-  invalid or non-object file is refused untouched. A reader can see the file mid-write (one
-  failed Element page load); callers serialise writers.
+  invalid or non-object file is refused untouched. A reader can see the file mid-write (an
+  Element starting then copies a broken file); callers serialise writers.
+- `ElementBrand` (the file) and `ParseBrand` (a body, as Element serves it) return the last
+  top-level `brand`, as `JSON.parse` keeps it, or "" when absent.
 - No logging, store access or network.
 
 ## Verification

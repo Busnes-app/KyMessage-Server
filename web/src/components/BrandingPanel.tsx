@@ -8,8 +8,11 @@ export interface Branding {
   stored_name: string;
   default_name: string;
   logo: { custom: boolean; sha256: string; size: number };
-  /** What Element's config.json says; null without Matrix. */
-  element: { brand: string | null; error: string } | null;
+  /**
+   * What Element's config.json says, and what Element serves (null when unknown): its image
+   * copies the file at start, so a rename shows after Element restarts. null without Matrix.
+   */
+  element: { brand: string | null; error: string; served: string | null; served_error: string } | null;
 }
 
 export const MAX_LOGO_BYTES = 1 << 20;
@@ -20,7 +23,10 @@ export function parseBranding(v: unknown): Branding {
   let element: Branding['element'] = null;
   if (b.element !== undefined) {
     const e = obj(b.element);
-    element = { brand: e.brand === undefined ? null : str(e.brand, 1024), error: e.error === undefined ? '' : str(e.error, 2048) };
+    element = {
+      brand: e.brand === undefined ? null : str(e.brand, 1024), error: e.error === undefined ? '' : str(e.error, 2048),
+      served: e.served === undefined ? null : str(e.served, 1024), served_error: e.served_error === undefined ? '' : str(e.served_error, 2048),
+    };
   }
   return {
     name: str(b.name, 256), stored_name: str(b.stored_name, 256), default_name: str(b.default_name, 256),
@@ -35,6 +41,14 @@ export function elementNotice(b: Branding): string | null {
   if (b.element.brand === null) return `Saved, but Element's config could not be read: ${b.element.error}`;
   return `Saved, but Element shows "${b.element.brand}"${b.element.error ? `: ${b.element.error}` : ''}. It is retried every minute.`;
 }
+
+/** The brand a running Element still serves once its file holds the saved name; null otherwise. */
+export function staleServed(b: Branding): string | null {
+  const e = b.element;
+  return e && e.brand === b.name && e.served !== null && e.served !== b.name ? e.served : null;
+}
+
+export const RESTART_ELEMENT = 'docker compose restart element';
 
 export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const [state, setState] = useState<Branding | null>(null);
@@ -91,17 +105,18 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
   };
 
   const notice = state ? elementNotice(state) : null;
+  const served = state ? staleServed(state) : null;
   return (
     <section className="panel dr-section" aria-label="Branding">
       <div className="panel-header">
         <h3><Type size={16} /> Branding</h3>
       </div>
       <p className="dr-hint">
-        The name and logo of this console, its sign-in page and Element. They show on the next page load. Changes need a sign-in from the last 10 minutes.
+        The name and logo of this console, its sign-in page and Element. They show on the next page load; Element shows a new name after it restarts. Changes need a sign-in from the last 10 minutes.
       </p>
       {state && (
         <>
-          <form className="dr-row" onSubmit={(e) => { e.preventDefault(); saveName(name, 'Name saved. Element shows it on its next page load.'); }}>
+          <form className="dr-row" onSubmit={(e) => { e.preventDefault(); saveName(name, 'Name saved.'); }}>
             <label className="dr-field">
               <span>Product name</span>
               <input value={name} placeholder={state.default_name} autoComplete="off" onChange={(e) => setName(e.target.value)} />
@@ -113,6 +128,11 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
             </button>
           </form>
           {notice && <div className="dr-alert dr-alert-warn" role="alert">{notice}</div>}
+          {served !== null && (
+            <div className="dr-alert dr-alert-warn">
+              Element shows &ldquo;{served}&rdquo; until it restarts: <code>{RESTART_ELEMENT}</code>
+            </div>
+          )}
           <div className="dr-row">
             {/* By digest: the CSP allows no object URLs. */}
             <img src={`/app-icon.png?v=${state.logo.custom ? state.logo.sha256 : 'default'}`} width={56} height={56} alt="Current logo" />

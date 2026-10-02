@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { BrandingPanel, elementNotice, parseBranding } from './BrandingPanel';
+import { BrandingPanel, elementNotice, parseBranding, staleServed } from './BrandingPanel';
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
 const SHA = 'a'.repeat(64);
 const STATE = {
   name: 'KyMessages', stored_name: '', default_name: 'KyMessages',
-  logo: { custom: false, sha256: '', size: 0 }, element: { brand: 'KyMessages' },
+  logo: { custom: false, sha256: '', size: 0 }, element: { brand: 'KyMessages', served: 'KyMessages' },
 };
 
 function serve(route: (url: string, init?: RequestInit) => Response | undefined) {
@@ -25,7 +25,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('parseBranding and elementNotice', () => {
   it('reads Element only when present and refuses a malformed body', () => {
     expect(parseBranding({ ...STATE, element: undefined }).element).toBeNull();
-    expect(parseBranding({ ...STATE, element: { error: 'open: no such file' } }).element).toEqual({ brand: null, error: 'open: no such file' });
+    expect(parseBranding({ ...STATE, element: { error: 'open: no such file' } }).element).toEqual({ brand: null, error: 'open: no such file', served: null, served_error: '' });
     expect(() => parseBranding({ ...STATE, logo: { custom: 'yes', sha256: '', size: 0 } })).toThrow();
   });
   it('names what Element shows and why, and is quiet when it matches', () => {
@@ -38,6 +38,14 @@ describe('parseBranding and elementNotice', () => {
     expect(elementNotice(parseBranding(STATE))).toBeNull();
     expect(elementNotice(parseBranding({ ...STATE, element: undefined }))).toBeNull();
   });
+  it('names the brand a running Element serves until it restarts', () => {
+    expect(staleServed(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'Acme', served: 'KyMessages' } }))).toBe('KyMessages');
+    // The file write failed: elementNotice speaks, not the restart hint.
+    expect(staleServed(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'KyMessages', served: 'KyMessages', error: 'permission denied' } }))).toBeNull();
+    expect(staleServed(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'Acme', served: 'Acme' } }))).toBeNull();
+    expect(staleServed(parseBranding({ ...STATE, name: 'Acme', element: { brand: 'Acme', served_error: 'connection refused' } }))).toBeNull();
+    expect(staleServed(parseBranding({ ...STATE, element: undefined }))).toBeNull();
+  });
 });
 
 describe('BrandingPanel', () => {
@@ -45,16 +53,20 @@ describe('BrandingPanel', () => {
     const onChanged = vi.fn();
     const calls = serve((url, init) => {
       if (url === '/api/admin/branding') return json(STATE);
-      if (url === '/api/admin/branding/name' && init?.method === 'PUT') return json({ ...STATE, name: 'Acme', stored_name: 'Acme', element: { brand: 'Acme' } });
+      if (url === '/api/admin/branding/name' && init?.method === 'PUT') return json({ ...STATE, name: 'Acme', stored_name: 'Acme', element: { brand: 'Acme', served: 'KyMessages' } });
       return undefined;
     });
     render(<BrandingPanel onChanged={onChanged} />);
+    expect(screen.queryByText(/until it restarts/)).toBeNull();
     fireEvent.change(await screen.findByLabelText('Product name'), { target: { value: 'Acme' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
     expect(await screen.findByText(/^Name saved/)).toBeTruthy();
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(calls.find((c) => c.init?.method === 'PUT')?.init?.body).toBe(JSON.stringify({ name: 'Acme' }));
     expect(screen.getByRole('button', { name: 'Use default (KyMessages)' })).toBeTruthy();
+    const hint = screen.getByText(/until it restarts/);
+    expect(hint.textContent).toBe('Element shows \u201cKyMessages\u201d until it restarts: docker compose restart element');
+    expect(hint.querySelector('code')?.textContent).toBe('docker compose restart element');
   });
 
   it('says what Element still shows when its config could not be written', async () => {
@@ -67,6 +79,7 @@ describe('BrandingPanel', () => {
     fireEvent.change(await screen.findByLabelText('Product name'), { target: { value: 'Acme' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
     expect(await screen.findByText('Saved, but Element shows "KyMessages": open /matrix/element/config.json: permission denied. It is retried every minute.')).toBeTruthy();
+    expect(screen.queryByText(/until it restarts/)).toBeNull();
   });
 
   it('resets the name to the default', async () => {

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime"
@@ -94,9 +95,13 @@ type logoView struct {
 }
 
 // elementView is what Element's config.json says now; Error is why it differs or is unreadable.
+// Served is the brand Element serves: its image copies config.json at container start, so a
+// rename reaches it only after `docker compose restart element`. ServedError is why it is unknown.
 type elementView struct {
-	Brand *string `json:"brand,omitempty"`
-	Error string  `json:"error,omitempty"`
+	Brand       *string `json:"brand,omitempty"`
+	Error       string  `json:"error,omitempty"`
+	Served      *string `json:"served,omitempty"`
+	ServedError string  `json:"served_error,omitempty"`
 }
 
 type brandingView struct {
@@ -136,7 +141,40 @@ func (s *Server) brandingState(ctx context.Context) (brandingView, error) {
 			e.Error = s.brandErr
 		}
 		s.brandMu.Unlock()
+		if served, err := s.servedBrand(ctx); err != nil {
+			e.ServedError = err.Error()
+		} else {
+			e.Served = &served
+		}
 		v.Element = e
+	}
+	return v, nil
+}
+
+// servedBrand fetches the brand Element serves, on the internal network with the probes'
+// client (no proxy, no redirects) and timeout.
+func (s *Server) servedBrand(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.matrixTargets.Element+"/config.json", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := s.probeHTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Element answered HTTP %d for /config.json", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return "", err
+	}
+	v, err := branding.ParseBrand(b)
+	if err != nil {
+		return "", fmt.Errorf("Element's /config.json: %w", err)
 	}
 	return v, nil
 }

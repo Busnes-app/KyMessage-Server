@@ -126,9 +126,18 @@ func ElementBrand(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	spans, err := brandSpans(b)
+	v, err := ParseBrand(b)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return v, nil
+}
+
+// ParseBrand returns the top-level "brand" of an Element config.json body, "" when absent.
+func ParseBrand(b []byte) (string, error) {
+	spans, err := brandSpans(b)
+	if err != nil {
+		return "", err
 	}
 	if len(spans) == 0 {
 		return "", nil
@@ -136,7 +145,7 @@ func ElementBrand(path string) (string, error) {
 	last := spans[len(spans)-1] // JSON.parse keeps the last duplicate
 	var v string
 	if err := json.Unmarshal(b[last.start:last.end], &v); err != nil {
-		return "", fmt.Errorf("%s: brand is not a string", path)
+		return "", errors.New("brand is not a string")
 	}
 	return v, nil
 }

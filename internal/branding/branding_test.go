@@ -239,3 +239,16 @@ func TestPatchElementBrandRefusesAndLeavesTheFileAlone(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBrandKeepsTheLastAndRefusesNonObjects(t *testing.T) {
+	for body, want := range map[string]string{`{"brand":"A","x":1,"brand":"B"}`: "B", `{"x":1}`: ""} {
+		if got, err := ParseBrand([]byte(body)); err != nil || got != want {
+			t.Errorf("%s: %q %v", body, got, err)
+		}
+	}
+	for _, body := range []string{"{", "[]", `{"brand":1}`} {
+		if _, err := ParseBrand([]byte(body)); err == nil {
+			t.Errorf("%s accepted", body)
+		}
+	}
+}

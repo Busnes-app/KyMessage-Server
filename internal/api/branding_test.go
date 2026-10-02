@@ -28,14 +28,15 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/branding"
 	"github.com/Busnes-app/ky_server_base/internal/config"
+	"github.com/Busnes-app/ky_server_base/internal/health"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
 const elementJSON = `{"default_server_config":{"m.homeserver":{"base_url":"https://matrix.example.com"}},"brand":"KyMessages","disable_guests":true}`
 
 // withElement turns Matrix on for branding and returns Element's config path, holding body
-// unless body is empty.
-func withElement(t *testing.T, cfg *config.Config, body string) string {
+// unless body is empty, and a running fake Element.
+func withElement(t *testing.T, srv *api.Server, cfg *config.Config, body string) (string, *fakeElement) {
 	t.Helper()
 	cfg.Matrix.ServerName = "example.com"
 	cfg.Matrix.Dir = t.TempDir()
@@ -48,7 +49,38 @@ func withElement(t *testing.T, cfg *config.Config, body string) string {
 			t.Fatal(err)
 		}
 	}
-	return p
+	e := &fakeElement{path: p}
+	e.restart()
+	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if r.URL.Path != "/config.json" || e.body == nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(e.body)
+	}))
+	t.Cleanup(hs.Close)
+	api.SetHealthTargetsForTest(srv, health.Targets{Element: hs.URL})
+	return p, e
+}
+
+// fakeElement serves /config.json as the Element image does: a copy of the file taken when
+// the container starts, so only a restart picks up a change.
+type fakeElement struct {
+	path string
+	mu   sync.Mutex
+	body []byte // nil: 404
+}
+
+func (e *fakeElement) restart() {
+	b, err := os.ReadFile(e.path)
+	if err != nil {
+		b = nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.body = b
 }
 
 // elementWith is elementJSON with brand set to name, as PatchElementBrand writes it.
@@ -100,15 +132,17 @@ type brandingBody struct {
 		Size   int    `json:"size"`
 	} `json:"logo"`
 	Element *struct {
-		Brand *string `json:"brand"`
-		Error string  `json:"error"`
+		Brand       *string `json:"brand"`
+		Error       string  `json:"error"`
+		Served      *string `json:"served"`
+		ServedError string  `json:"served_error"`
 	} `json:"element"`
 }
 
 func TestBrandNameRenamesTheConsoleAndElement(t *testing.T) {
 	ctx := context.Background()
 	srv, st, cfg := setupTestServer(t)
-	p := withElement(t, cfg, elementJSON)
+	p, _ := withElement(t, srv, cfg, elementJSON)
 	before, err := os.Stat(p)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +186,7 @@ func TestBrandNameRenamesTheConsoleAndElement(t *testing.T) {
 func TestBrandNameRefusals(t *testing.T) {
 	ctx := context.Background()
 	srv, st, cfg := setupTestServer(t)
-	withElement(t, cfg, elementJSON)
+	withElement(t, srv, cfg, elementJSON)
 	path := "/api/admin/branding/name"
 	if w := adminDo(t, srv, staleAdmin(t, st), "PUT", path, map[string]string{"name": "Acme"}); w.Code != http.StatusForbidden ||
 		!strings.Contains(w.Body.String(), `"code":"reauthentication_required"`) {
@@ -187,7 +221,7 @@ func TestBrandNameRefusals(t *testing.T) {
 func TestBrandNameSavedWhenElementCannotBeWritten(t *testing.T) {
 	ctx := context.Background()
 	srv, st, cfg := setupTestServer(t)
-	p := withElement(t, cfg, "")
+	p, _ := withElement(t, srv, cfg, "")
 	got := decode[brandingBody](t, adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "PUT", "/api/admin/branding/name", map[string]string{"name": "Acme"}))
 	if got.Name != "Acme" || got.Element == nil || got.Element.Brand != nil || got.Element.Error == "" {
 		t.Fatalf("%+v", got)
@@ -304,7 +338,7 @@ func TestLogoUploadRefusals(t *testing.T) {
 func TestReconcileWritesOnlyOnChangeAndLogsOncePerStreak(t *testing.T) {
 	ctx := context.Background()
 	srv, st, cfg := setupTestServer(t)
-	p := withElement(t, cfg, elementWith(cfg.Server.AppName))
+	p, _ := withElement(t, srv, cfg, elementWith(cfg.Server.AppName))
 	var logs bytes.Buffer
 	log.SetOutput(&logs)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
@@ -364,7 +398,7 @@ func TestReconcileWritesOnlyOnChangeAndLogsOncePerStreak(t *testing.T) {
 func TestConcurrentSavesAndTicksLeaveValidConfig(t *testing.T) {
 	ctx := context.Background()
 	srv, st, cfg := setupTestServer(t)
-	p := withElement(t, cfg, elementJSON)
+	p, _ := withElement(t, srv, cfg, elementJSON)
 	admin := loginAs(t, srv, st, "root", "admin")
 	names := []string{"A", strings.Repeat("Long brand ", 5) + "end", "Mid size"}
 	var wg sync.WaitGroup
@@ -466,5 +500,43 @@ func TestAuditKindBranding(t *testing.T) {
 	page := decode[auditPage](t, adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "GET", "/api/admin/audit?kind=branding", nil))
 	if page.Total != 2 || len(page.Records) != 2 || page.Records[0].Action != "admin.brand_logo" || page.Records[1].Action != "admin.brand_name" {
 		t.Fatalf("branding kind: %+v", page)
+	}
+}
+
+// Element serves a copy of config.json made when it starts: after a rename the view reports
+// the file and what Element serves apart until Element restarts.
+func TestBrandingReportsWhatElementServes(t *testing.T) {
+	srv, st, cfg := setupTestServer(t)
+	p, element := withElement(t, srv, cfg, elementJSON)
+	admin := loginAs(t, srv, st, "root", "admin")
+	got := decode[brandingBody](t, adminDo(t, srv, admin, "PUT", "/api/admin/branding/name", map[string]string{"name": "Acme"}))
+	if e := got.Element; e == nil || e.Brand == nil || *e.Brand != "Acme" || e.Served == nil || *e.Served != "KyMessages" || e.ServedError != "" {
+		t.Fatalf("before the restart: %+v", got.Element)
+	}
+	element.restart()
+	got = decode[brandingBody](t, adminDo(t, srv, admin, "GET", "/api/admin/branding", nil))
+	if e := got.Element; e.Served == nil || *e.Served != "Acme" || e.ServedError != "" {
+		t.Fatalf("after the restart: %+v", e)
+	}
+	// Unknown is reported as such, never as a brand: Element answers 404, a redirect (not
+	// followed) or a body that is not a config.
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	element.restart()
+	for _, h := range []http.Handler{
+		nil, // the fake Element, now 404
+		http.RedirectHandler("http://example.com/config.json", http.StatusFound),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("{")) }),
+	} {
+		if h != nil {
+			hs := httptest.NewServer(h)
+			t.Cleanup(hs.Close)
+			api.SetHealthTargetsForTest(srv, health.Targets{Element: hs.URL})
+		}
+		got = decode[brandingBody](t, adminDo(t, srv, admin, "GET", "/api/admin/branding", nil))
+		if e := got.Element; e.Served != nil || e.ServedError == "" {
+			t.Errorf("unknown served brand reported as %+v", e)
+		}
 	}
 }
