@@ -142,6 +142,11 @@ func TestPrivilegedEndpointsRequireAdmin(t *testing.T) {
 		{"GET", "/api/admin/matrix/users"},
 		{"GET", "/api/admin/matrix/users/" + uAlice + "/sessions"},
 		{"POST", "/api/admin/matrix/sessions/oauth2/" + sOAuth + "/finish"},
+		{"GET", "/api/admin/matrix/rooms"},
+		{"GET", "/api/admin/matrix/rooms/%21grp:example.com"},
+		{"GET", "/api/admin/matrix/rooms/%21grp:example.com/delete-status"},
+		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/close"},
+		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/delete"},
 		{"GET", "/api/admin/health"},
 		{"GET", "/api/admin/audit"},
 	}

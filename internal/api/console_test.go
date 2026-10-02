@@ -172,6 +172,11 @@ func TestMatrixRoutesAre404WithoutMatrix(t *testing.T) {
 		{"GET", "/api/admin/matrix/users"},
 		{"GET", "/api/admin/matrix/users/" + uAlice + "/sessions"},
 		{"POST", "/api/admin/matrix/sessions/oauth2/" + sOAuth + "/finish"},
+		{"GET", "/api/admin/matrix/rooms"},
+		{"GET", "/api/admin/matrix/rooms/%21grp:example.com"},
+		{"GET", "/api/admin/matrix/rooms/%21grp:example.com/delete-status"},
+		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/close"},
+		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/delete"},
 	} {
 		w := adminDo(t, srv, admin, rt.method, rt.path, nil)
 		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"matrix_disabled"`) {

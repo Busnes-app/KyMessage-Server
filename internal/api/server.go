@@ -48,6 +48,14 @@ type MatrixAdmin interface {
 // RoomAdmin is the Synapse admin surface the console uses; *synapseadmin.Client implements it.
 type RoomAdmin interface {
 	Rooms(ctx context.Context, token string, q synapseadmin.RoomQuery) (synapseadmin.RoomPage, error)
+	Room(ctx context.Context, token, id string) (synapseadmin.Room, error)
+	Members(ctx context.Context, token, id string) ([]string, error)
+	Blocked(ctx context.Context, token, id string) (bool, error)
+	Close(ctx context.Context, token, id string) (string, error)
+	Delete(ctx context.Context, token, id string) (string, error)
+	DeleteJobs(ctx context.Context, token, id string) ([]synapseadmin.DeleteJob, error)
+	RoomMedia(ctx context.Context, token, id string) ([]synapseadmin.Media, error)
+	DeleteMedia(ctx context.Context, token string, m synapseadmin.Media) error
 }
 
 type Server struct {
@@ -312,6 +320,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/admin/matrix/sessions/{kind}/{id}/finish", s.tracked(s.requireFreshAdmin(s.handleMatrixSessionFinish)))
 	s.mux.HandleFunc("GET /api/admin/health", s.requireAdmin(s.handleHealth))
 	s.mux.HandleFunc("GET /api/admin/audit", s.requireAdmin(s.handleAudit))
+
+	// Rooms act through a 5-minute console session on Synapse's admin API. Close and delete
+	// need a recent sign-in, run detached and are audited. Close is final: there is no reopen.
+	s.mux.HandleFunc("GET /api/admin/matrix/rooms", s.requireAdmin(s.handleRooms))
+	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}", s.requireAdmin(s.handleRoom))
+	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}/delete-status", s.requireAdmin(s.handleRoomJobs))
+	s.mux.HandleFunc("POST /api/admin/matrix/rooms/{id}/close", s.tracked(s.requireFreshAdmin(s.handleRoomClose)))
+	s.mux.HandleFunc("POST /api/admin/matrix/rooms/{id}/delete", s.tracked(s.requireFreshAdmin(s.handleRoomDelete)))
 
 	// Settings & Theme. The read endpoint tiers its own payload by role.
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)

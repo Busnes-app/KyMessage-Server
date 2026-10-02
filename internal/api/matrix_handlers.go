@@ -43,17 +43,25 @@ func pageParams(r *http.Request) (offset, limit int, ok bool) {
 // auditDetailsMax is AuditSafe's byte cap on details.
 const auditDetailsMax = 200
 
-// sessionEndDetails formats the row, shortening the outcome by whole runes until the quoted
-// details fit the audit cap, so the cut can never take a closing quote.
-func sessionEndDetails(outcome, id string, kind matrixsync.SessionKind) string {
+// auditFields formats outcome first, then key/value pairs, all quoted. It shortens the outcome
+// by whole runes until the details fit the audit cap, so the cut can never take a closing quote.
+func auditFields(outcome string, kv ...string) string {
 	r := []rune(outcome)
 	for {
-		d := fmt.Sprintf("outcome=%q session=%q kind=%q", string(r), id, kind)
-		if len(d) <= auditDetailsMax || len(r) == 0 {
-			return d
+		var b strings.Builder
+		fmt.Fprintf(&b, "outcome=%q", string(r))
+		for i := 0; i+1 < len(kv); i += 2 {
+			fmt.Fprintf(&b, " %s=%q", kv[i], kv[i+1])
+		}
+		if b.Len() <= auditDetailsMax || len(r) == 0 {
+			return b.String()
 		}
 		r = r[:len(r)-1]
 	}
+}
+
+func sessionEndDetails(outcome, id string, kind matrixsync.SessionKind) string {
+	return auditFields(outcome, "session", id, "kind", string(kind))
 }
 
 // matrixOn answers 404 when the Matrix stack is not configured: its routes do not exist then.
