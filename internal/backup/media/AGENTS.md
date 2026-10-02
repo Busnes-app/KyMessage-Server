@@ -29,7 +29,8 @@ Owns `media.go`: `Run`, `Restore`, `Sources`, `ErrBusy`, `ErrNoBackup`. The key 
 - A run under another key refuses (the index does not open) and rewrites nothing.
 - `Restore` applies the newest archive, then the mirror, which wins. `write=false` proves every
   file opens at its own path and changes nothing; `write=true` writes through `os.Root` as
-  `uid:gid`. Index and archive entries outside `Sources` are refused.
+  `uid:gid`. Index and archive entries outside `Sources` are refused. It returns the number of
+  distinct files; one in both the archive and the mirror counts once.
 
 ## Verification
 `go test -race ./internal/backup/media/`

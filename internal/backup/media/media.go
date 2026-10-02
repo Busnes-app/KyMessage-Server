@@ -427,7 +427,8 @@ func pruneArchives(dir string, keep int) error {
 
 // Restore writes the newest monthly archive, then the mirror, into dst, owned by uid:gid
 // (Synapse's user). With write false it only proves that every file opens under key at its own
-// path, so a caller can check everything before changing anything. It returns the file count.
+// path, so a caller can check everything before changing anything. It returns the number of
+// distinct files.
 func Restore(ctx context.Context, dir string, key []byte, dst string, uid, gid int, write bool) (int, error) {
 	a, err := newAEAD(key)
 	if err != nil {
@@ -440,15 +441,19 @@ func Restore(ctx context.Context, dir string, key []byte, dst string, uid, gid i
 		}
 		defer out.Close()
 	}
+	done := map[string]bool{}
 	put := func(rel string, sealed []byte) error {
 		plain, err := unseal(a, sealed, fileAAD+rel)
 		if err != nil {
 			return fmt.Errorf("media: %s does not open at its path", rel)
 		}
-		if !write {
-			return nil
+		if write {
+			if err := place(out, rel, plain, uid, gid); err != nil {
+				return err
+			}
 		}
-		return place(out, rel, plain, uid, gid)
+		done[rel] = true
+		return nil
 	}
 	names, err := archives(dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -458,77 +463,71 @@ func Restore(ctx context.Context, dir string, key []byte, dst string, uid, gid i
 	if len(names) == 0 && !exists(indexPath) {
 		return 0, ErrNoBackup
 	}
-	n := 0
 	if len(names) > 0 {
-		c, err := fromArchive(ctx, filepath.Join(dir, names[0]), a, put)
-		n += c
-		if err != nil {
-			return n, fmt.Errorf("media: %s: %w", names[0], err)
+		if err := fromArchive(ctx, filepath.Join(dir, names[0]), a, put); err != nil {
+			return len(done), fmt.Errorf("media: %s: %w", names[0], err)
 		}
 	}
 	idx, err := readIndex(a, indexPath)
 	if err != nil {
-		return n, err
+		return len(done), err
 	}
 	for _, rel := range slices.Sorted(maps.Keys(idx)) {
 		if err := ctx.Err(); err != nil {
-			return n, err
+			return len(done), err
 		}
 		sealed, err := os.ReadFile(mirrored(dir, rel))
 		if err != nil {
-			return n, fmt.Errorf("media: the mirror lacks %s: %w", rel, err)
+			return len(done), fmt.Errorf("media: the mirror lacks %s: %w", rel, err)
 		}
 		if err := put(rel, sealed); err != nil {
-			return n, err
+			return len(done), err
 		}
-		n++
 	}
-	return n, nil
+	return len(done), nil
 }
 
-func fromArchive(ctx context.Context, p string, a cipher.AEAD, put func(string, []byte) error) (int, error) {
+func fromArchive(ctx context.Context, p string, a cipher.AEAD, put func(string, []byte) error) error {
 	f, err := os.Open(p)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer f.Close()
 	tr := tar.NewReader(f)
 	hdr, err := tr.Next()
 	if err != nil || hdr.Name != indexName {
-		return 0, errors.New("the archive does not start with its index")
+		return errors.New("the archive does not start with its index")
 	}
 	sealed, err := io.ReadAll(tr)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	idx, err := decodeIndex(a, sealed)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	n := 0
 	for {
 		if err := ctx.Err(); err != nil {
-			return n, err
+			return err
 		}
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return n, nil
+			return nil
 		}
 		if err != nil {
-			return n, err
+			return err
 		}
 		rel, ok := strings.CutPrefix(hdr.Name, mirrorDir+"/")
 		if _, listed := idx[rel]; !ok || !listed || hdr.Typeflag != tar.TypeReg {
-			return n, fmt.Errorf("unexpected member %q", hdr.Name)
+			return fmt.Errorf("unexpected member %q", hdr.Name)
 		}
 		sealed, err := io.ReadAll(tr)
 		if err != nil {
-			return n, err
+			return err
 		}
 		if err := put(rel, sealed); err != nil {
-			return n, err
+			return err
 		}
-		n++
 	}
 }
 

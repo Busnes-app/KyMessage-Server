@@ -81,7 +81,8 @@ func TestRunMirrorsEncryptedAndRestores(t *testing.T) {
 		t.Error("mirrored remote media cache")
 	}
 	dst := t.TempDir()
-	if n, err := Restore(context.Background(), dir, key, dst, os.Getuid(), os.Getgid(), false); err != nil || n == 0 || len(restored(t, dst)) != 0 {
+	// A file in both the archive and the mirror counts once.
+	if n, err := Restore(context.Background(), dir, key, dst, os.Getuid(), os.Getgid(), false); err != nil || n != len(files) || len(restored(t, dst)) != 0 {
 		t.Fatalf("check-only restore wrote files or failed: %d %v", n, err)
 	}
 	if _, err := Restore(context.Background(), dir, key, dst, os.Getuid(), os.Getgid(), true); err != nil {
