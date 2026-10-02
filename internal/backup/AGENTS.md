@@ -68,4 +68,4 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   no recovery private key.
 
 ## Child DOX Index
-None.
+- [media/AGENTS.md](media/AGENTS.md): encrypted media mirror and monthly archives.
