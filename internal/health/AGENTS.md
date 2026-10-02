@@ -10,6 +10,8 @@ Owns `Check`, the per-component probes, `ComposeTargets`, the source links and `
 
 ## Local Contracts
 - Probes run in parallel, each under its own timeout; `Check` returns in probe order and by the deadline even if a probe ignores its context (reported down, "timed out"). No history.
+- Every probe must honour its context: one that ignores it keeps its goroutine running until it
+  returns (for the MAS probe, up to the admin client's 15 s timeout).
 - `up` means the component answered its liveness check. A version that cannot be read is "up,
   version unknown". Text that is not a version string is dropped and never linked.
 - Synapse: `/health` then the unauthenticated `/_synapse/admin/v1/server_version`. MAS: discovery

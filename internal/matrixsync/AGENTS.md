@@ -22,9 +22,10 @@ supplies subject → status.
 - MAS must have exactly one upstream provider; any other count is an error.
 - Admin calls go only under `/api/admin/v1/`; `links.next` outside it is refused. Redirects
   are not followed. One token refetch on 401, then fail. The transport ignores proxy
-  environment variables, so credentials go only to `AdminURL`.
+  environment variables, so credentials go only to `AdminURL`. One token fetch at a time;
+  callers waiting for it give up with their own context (`TestTokenWaitHonoursContext`).
 - `FinishSession` treats MAS's 400 for an ended session as `already`, after reading the session
-  back. `Sessions` returns browser sessions first; an oauth2 session's device comes from its scope.
+  back; a 400 whose read-back shows the session live stays an error. `Sessions` returns browser sessions first; an oauth2 session's device comes from its scope.
 - No secret or token appears in errors, logs or audit rows. The sweep's audit actions are exactly
   `matrix.lock`, `matrix.unlock`, `matrix.deactivate` (`matrix.session_end` is written by
   `internal/api`), written for success and failure, on a

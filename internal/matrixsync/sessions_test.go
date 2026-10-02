@@ -18,6 +18,7 @@ import (
 type sessionFake struct {
 	mu       sync.Mutex
 	finished map[string]bool
+	refuse   map[string]bool // finish answers 400 but leaves the session active
 	finishes []string
 	srv      *httptest.Server
 }
@@ -90,7 +91,7 @@ func (f *sessionFake) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(parts) == 3 && parts[2] == "finish" && r.Method == http.MethodPost {
 			f.finishes = append(f.finishes, parts[0]+"/"+parts[1])
-			if f.finished[parts[1]] {
+			if f.finished[parts[1]] || f.refuse[parts[1]] {
 				http.Error(w, `{"errors":[{"title":"session is already finished"}]}`, http.StatusBadRequest)
 				return
 			}
@@ -138,6 +139,17 @@ func TestFinishSessionIsIdempotent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(f.finishes, []string{"oauth2-sessions/O1", "oauth2-sessions/O1"}) {
 		t.Fatalf("finishes %v", f.finishes)
+	}
+}
+
+// A 400 is "already ended" only when the read-back shows the session finished.
+func TestFinishSession400OnLiveSessionIsAnError(t *testing.T) {
+	f := newSessionFake(t)
+	f.refuse = map[string]bool{"O1": true}
+	already, err := f.client().FinishSession(context.Background(), OAuth2Session, "O1")
+	var se *StatusError
+	if already || !errors.As(err, &se) || se.Status != http.StatusBadRequest {
+		t.Fatalf("already=%v err=%v", already, err)
 	}
 }
 

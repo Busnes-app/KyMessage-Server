@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -33,7 +32,7 @@ type Client struct {
 	base, id, secret string
 	hc               *http.Client
 
-	mu      sync.Mutex
+	tokenMu chan struct{} // one-slot lock, so a waiter can give up with its context
 	token   string
 	expires time.Time
 }
@@ -42,7 +41,7 @@ func NewClient(baseURL, clientID, secret string) *Client {
 	// Never through a proxy from the environment: it would see the admin credentials.
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = nil
-	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, hc: &http.Client{
+	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, tokenMu: make(chan struct{}, 1), hc: &http.Client{
 		Transport:     tr,
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -50,8 +49,12 @@ func NewClient(baseURL, clientID, secret string) *Client {
 }
 
 func (c *Client) accessToken(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	select {
+	case c.tokenMu <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-c.tokenMu }()
 	if c.token != "" && time.Now().Before(c.expires) {
 		return c.token, nil
 	}
@@ -81,7 +84,15 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 	return c.token, nil
 }
 
-func (c *Client) dropToken() { c.mu.Lock(); c.token = ""; c.mu.Unlock() }
+// dropToken forgets the cached token; on a done ctx it skips, as the retry fails anyway.
+func (c *Client) dropToken(ctx context.Context) {
+	select {
+	case c.tokenMu <- struct{}{}:
+		c.token = ""
+		<-c.tokenMu
+	case <-ctx.Done():
+	}
+}
 
 // call sends one admin request; path must start with adminPrefix.
 func (c *Client) call(ctx context.Context, method, path string, body []byte, out any) error {
@@ -107,7 +118,7 @@ func (c *Client) call(ctx context.Context, method, path string, body []byte, out
 		}
 		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
 			resp.Body.Close()
-			c.dropToken()
+			c.dropToken(ctx)
 			continue
 		}
 		defer resp.Body.Close()
