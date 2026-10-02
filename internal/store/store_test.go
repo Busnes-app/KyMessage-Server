@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -348,5 +349,42 @@ func TestDirectoryStatusesDuplicateSubjectFailsClosed(t *testing.T) {
 		if got["dup"] != "inactive" {
 			t.Errorf("rows %v: dup = %q, want inactive", order, got["dup"])
 		}
+	}
+}
+
+// Kinds filter by literal action prefix: "admin.backupXrun" would match LIKE 'admin.backup_%'
+// because '_' is a wildcard there. Order is insertion order even when the clock runs back.
+func TestAuditListingFiltersByKindNewestFirst(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i, action := range []string{"auth.login", "admin.backup_run", "matrix.lock", "admin.backupXrun", "admin.backup_media", "scim.user.create"} {
+		if err := st.Audit().LogAudit(ctx, &store.AuditRecord{Action: action, CreatedAt: now.Add(-time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := func(offset, limit int, prefixes ...string) ([]string, int) {
+		t.Helper()
+		recs, n, err := st.Audit().ListAuditRecords(ctx, offset, limit, prefixes...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range recs {
+			out = append(out, r.Action)
+		}
+		return out, n
+	}
+	if got, n := list(0, 10); n != 6 || !reflect.DeepEqual(got, []string{"scim.user.create", "admin.backup_media", "admin.backupXrun", "matrix.lock", "admin.backup_run", "auth.login"}) {
+		t.Errorf("all: %v (%d)", got, n)
+	}
+	if got, n := list(0, 10, "backup.", "admin.backup_"); n != 2 || !reflect.DeepEqual(got, []string{"admin.backup_media", "admin.backup_run"}) {
+		t.Errorf("backup kind: %v (%d)", got, n)
+	}
+	if got, n := list(1, 2); n != 6 || !reflect.DeepEqual(got, []string{"admin.backup_media", "admin.backupXrun"}) {
+		t.Errorf("page: %v (%d)", got, n)
+	}
+	if got, n := list(0, 10, "nothing."); n != 0 || len(got) != 0 {
+		t.Errorf("no match: %v (%d)", got, n)
 	}
 }

@@ -116,7 +116,9 @@ type GroupStore interface {
 // AuditStore logs security events.
 type AuditStore interface {
 	LogAudit(ctx context.Context, r *AuditRecord) error
-	ListAuditRecords(ctx context.Context, offset, limit int) ([]*AuditRecord, int, error)
+	// ListAuditRecords pages rows newest first by insertion order. With prefixes, only rows
+	// whose action starts with one of them; the count is of those rows.
+	ListAuditRecords(ctx context.Context, offset, limit int, prefixes ...string) ([]*AuditRecord, int, error)
 	LatestAuditRecord(ctx context.Context, action string) (*AuditRecord, error)
 }
 

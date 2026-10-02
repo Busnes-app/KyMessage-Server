@@ -889,31 +889,36 @@ VALUES (?, ?, ?, ?, ?, ?)
 	return err
 }
 
-func (a *auditStore) ListAuditRecords(ctx context.Context, offset, limit int) ([]*AuditRecord, int, error) {
+func (a *auditStore) ListAuditRecords(ctx context.Context, offset, limit int, prefixes ...string) ([]*AuditRecord, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-
+	// substr, not LIKE: '_' in "admin.backup_" is a LIKE wildcard, and the engines disagree
+	// on LIKE's case rules.
+	where, args := "", []any{}
+	for i, p := range prefixes {
+		if i == 0 {
+			where = " WHERE "
+		} else {
+			where += " OR "
+		}
+		where += "substr(action, 1, ?) = ?"
+		args = append(args, len(p), p)
+	}
 	var count int
-	err := a.store.db.QueryRowContext(ctx, "SELECT COUNT(1) FROM audit_records").Scan(&count)
-	if err != nil {
+	if err := a.store.db.QueryRowContext(ctx, a.store.rebind("SELECT COUNT(1) FROM audit_records"+where), args...).Scan(&count); err != nil {
 		return nil, 0, err
 	}
-
-	q := a.store.rebind(`
-SELECT id, user_id, action, resource, details, ip_address, created_at
-FROM audit_records
-ORDER BY created_at DESC LIMIT ? OFFSET ?
-`)
-	rows, err := a.store.db.QueryContext(ctx, q, limit, offset)
+	q := a.store.rebind("SELECT id, user_id, action, resource, details, ip_address, created_at FROM audit_records" +
+		where + " ORDER BY id DESC LIMIT ? OFFSET ?")
+	rows, err := a.store.db.QueryContext(ctx, q, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-
 	var records []*AuditRecord
 	for rows.Next() {
 		var r AuditRecord
