@@ -177,7 +177,8 @@ func (s *Server) handleMatrixUserSessions(w http.ResponseWriter, r *http.Request
 	s.writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
 }
 
-// clip200 bounds a MAS-supplied label (device ids are client-chosen) to 200 bytes of valid UTF-8.
+// clip200 bounds an unbounded label (MAS device ids, usernames, audit resources) to 200 bytes
+// of valid UTF-8.
 func clip200(v string) string {
 	if len(v) <= 200 {
 		return v

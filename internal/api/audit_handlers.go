@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -65,8 +66,13 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	names := map[string]string{}
 	out := make([]auditView, 0, len(recs))
 	for _, rec := range recs {
-		out = append(out, auditView{ID: rec.ID, At: rec.CreatedAt, Actor: s.actorName(r.Context(), rec.UserID, names),
-			Action: rec.Action, Target: rec.Resource, Outcome: detailOutcome(rec.Details), Details: rec.Details, IP: rec.IPAddress})
+		actor := "scim" // SCIM rows carry the provisioned user's ID, not the actor's
+		if !strings.HasPrefix(rec.Action, "scim.") {
+			actor = s.actorName(r.Context(), rec.UserID, names)
+		}
+		// Usernames and resources are unbounded; the web refuses a page with one too long.
+		out = append(out, auditView{ID: rec.ID, At: rec.CreatedAt, Actor: clip200(actor),
+			Action: rec.Action, Target: clip200(rec.Resource), Outcome: detailOutcome(rec.Details), Details: rec.Details, IP: rec.IPAddress})
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, map[string]any{"records": out, "total": total, "offset": offset, "limit": limit})

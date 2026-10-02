@@ -403,8 +403,8 @@ func TestAuditListsNewestFirstByKind(t *testing.T) {
 	if len(all.Records) < 4 || all.Records[0].Action != "scim.user.create" || all.Records[1].Action != "matrix.lock" || all.Records[2].Action != "admin.backup_run" {
 		t.Fatalf("order: %+v", all.Records)
 	}
-	if r := all.Records[0]; r.Actor != "usr_gone" || r.Target != "erin" || r.Outcome != "" {
-		t.Errorf("unknown actor: %+v", r)
+	if r := all.Records[0]; r.Actor != "scim" || r.Target != "erin" || r.Outcome != "" {
+		t.Errorf("scim row: %+v", r)
 	}
 	if r := all.Records[1]; r.Actor != "system" || r.Outcome != "ok" {
 		t.Errorf("sweep row: %+v", r)
@@ -468,5 +468,41 @@ func TestSessionFinishMultibyteErrorKeepsQuotes(t *testing.T) {
 	r := auditRows(t, st, "matrix.session_end")[0]
 	if !strings.HasSuffix(r.Details, `kind="oauth2"`) || !strings.HasPrefix(api.DetailOutcomeForTest(r.Details), "error: ") {
 		t.Fatalf("details %q", r.Details)
+	}
+}
+
+// One oversized username or resource must not break the page: the web rejects the whole page
+// when a field exceeds its bound (actor 255, target 1024).
+func TestAuditClipsLongActorAndTarget(t *testing.T) {
+	srv, st, _ := setupTestServer(t)
+	admin := loginAs(t, srv, st, "root", "admin")
+	ctx := context.Background()
+	long := strings.Repeat("\u00e9", 150) // 300 bytes
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_long", Username: long, Role: "user", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []store.AuditRecord{
+		{UserID: "usr_long", Action: "auth.login", Resource: long},
+		{UserID: "usr_long", Action: "scim.user.create", Resource: long},
+	} {
+		if err := st.Audit().LogAudit(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type rec struct{ Action, Actor, Target string }
+	recs := decode[struct{ Records []rec }](t, adminDo(t, srv, admin, "GET", "/api/admin/audit?limit=2", nil)).Records
+	if len(recs) != 2 {
+		t.Fatalf("records %+v", recs)
+	}
+	for _, r := range recs {
+		if len(r.Target) > 200 || !utf8.ValidString(r.Target) || !strings.HasPrefix(long, r.Target) || r.Target == "" {
+			t.Errorf("%s target %d bytes", r.Action, len(r.Target))
+		}
+	}
+	if a := recs[0].Actor; recs[0].Action != "scim.user.create" || a != "scim" {
+		t.Errorf("scim actor %q", a)
+	}
+	if a := recs[1].Actor; len(a) > 200 || !utf8.ValidString(a) || !strings.HasPrefix(long, a) || a == "" {
+		t.Errorf("long actor %d bytes", len(a))
 	}
 }
