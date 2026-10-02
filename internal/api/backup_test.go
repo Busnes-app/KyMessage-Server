@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
+	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -932,5 +934,90 @@ func TestStatusReportsEmptyLocalCopiesAsArray(t *testing.T) {
 	status := statusOf(t, srv, session)
 	if copies, ok := status["local_copies"].([]any); !ok || len(copies) != 0 {
 		t.Errorf("local_copies = %#v, want []", status["local_copies"])
+	}
+}
+
+func TestStatusReportsCapsuleSizeAndMediaRun(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	session := loginAs(t, srv, st, "size-admin", "admin")
+	status := statusOf(t, srv, session)
+	if _, ok := status["capsule_size"]; ok {
+		t.Fatal("size before any run")
+	}
+	if _, ok := status["media_last_run"]; ok {
+		t.Fatal("media result without Matrix")
+	}
+	ctx := context.Background()
+	if err := st.Settings().SetSetting(ctx, backup.LastSizeSetting, strconv.FormatInt(capsule.MaxExpandedBytes*81/100+1, 10)); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Matrix.ServerName = "example.com"
+	if err := st.Audit().LogAudit(ctx, &store.AuditRecord{UserID: "system", Action: "admin.backup_media", Resource: "full-2026-10.tar",
+		Details: api.AuditDetails(map[string]any{"outcome": "failure", "error": "private-test-detail"})}); err != nil {
+		t.Fatal(err)
+	}
+	status = statusOf(t, srv, session)
+	size, _ := status["capsule_size"].(map[string]any)
+	if size["percent"] != float64(81) || size["warning"] != true {
+		t.Errorf("capsule_size %v", size)
+	}
+	m, _ := status["media_last_run"].(map[string]any)
+	if m["outcome"] != "failure" || m["trigger"] != "scheduled" || m["archive"] != "full-2026-10.tar" {
+		t.Errorf("media_last_run %v", m)
+	}
+	if raw, _ := json.Marshal(status); bytes.Contains(raw, []byte("private-test-detail")) {
+		t.Fatal("status exposed raw media error")
+	}
+}
+
+// A payload past the expanded limit is a 413 that names the measured size and the member.
+func TestRunBackupOverTheExpandedLimitIs413WithTheSize(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	ctx := context.Background()
+	priv, err := recoverykey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recoveryclient.StoreRecoveryKey(cfg.Database.DataDir, backup.Settings(ctx, st.Settings()), recoveryclient.RecoveryKey{Public: priv.Public(), Threshold: 2, TotalShares: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storePairing(t, cfg, st, "https://recovery.busnes.app", "kyrec_live_t"); err != nil {
+		t.Fatal(err)
+	}
+	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
+	mdir := t.TempDir()
+	for _, sub := range []string{"secrets", "synapse", "mas", "element", "postgres"} {
+		if err := os.MkdirAll(filepath.Join(mdir, sub), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 5 { // sparse 60 MiB files: past 256 MiB together
+		f, err := os.Create(filepath.Join(mdir, "secrets", fmt.Sprintf("big%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Truncate(60 << 20); err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Close()
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "pg_dump"), []byte("#!/bin/sh\nprintf x\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfg.Matrix.ServerName = "example.com"
+	cfg.Matrix.Dir = mdir
+	cfg.Matrix.MediaDir = t.TempDir()
+	cfg.Matrix.DBHost = "postgres"
+	cfg.Matrix.BackupDBPassword = "pw"
+
+	admin := loginAs(t, srv, st, "alice", "admin")
+	w := adminPost(t, srv, admin, "/api/backup/deposit")
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("got %d, want 413: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "MiB") || !strings.Contains(w.Body.String(), "matrix/secrets/big") {
+		t.Errorf("body does not name size and member: %s", w.Body.String())
 	}
 }

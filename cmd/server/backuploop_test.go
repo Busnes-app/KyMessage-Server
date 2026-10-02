@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
+	"github.com/Busnes-app/ky_server_base/internal/backup/media"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -204,5 +207,71 @@ func TestCLIRefusesUnknownFlags(t *testing.T) {
 		if err := parseNoArgs(name, nil, io.Discard); err != nil {
 			t.Errorf("%s with no args: %v", name, err)
 		}
+	}
+}
+
+func stubMedia(t *testing.T, fn func() error) *int {
+	t.Helper()
+	var ran int
+	old := runMedia
+	t.Cleanup(func() { runMedia = old })
+	runMedia = func(context.Context, *config.Config) (media.Result, error) {
+		ran++
+		return media.Result{Copied: 1}, fn()
+	}
+	return &ran
+}
+
+func latest(t *testing.T, st store.Store, action string) *store.AuditRecord {
+	t.Helper()
+	rec, err := st.Audit().LatestAuditRecord(context.Background(), action)
+	if err != nil {
+		t.Fatalf("no %s row: %v", action, err)
+	}
+	return rec
+}
+
+// Media runs after the capsule whatever the capsule's outcome, and is audited on its own row.
+func TestBackupTickRunsMediaAfterTheCapsule(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	cfg.Matrix.ServerName = "example.com"
+	stubRun(t, func() error { return errors.New("capsule failed") })
+	ran := stubMedia(t, func() error { return nil })
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	if *ran != 1 {
+		t.Fatalf("media ran %d times", *ran)
+	}
+	if !strings.HasPrefix(latest(t, st, mediaRunAction).Details, `outcome="success"`) ||
+		!strings.HasPrefix(latest(t, st, backupRunAction).Details, `outcome="failure"`) {
+		t.Fatal("capsule and media outcomes not recorded separately")
+	}
+}
+
+func TestBackupTickMediaFailureLeavesTheCapsuleSuccess(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	cfg.Matrix.ServerName = "example.com"
+	stubRun(t, func() error { return nil })
+	stubMedia(t, func() error { return errors.New("disk full") })
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	if d := latest(t, st, mediaRunAction).Details; !strings.HasPrefix(d, `outcome="failure"`) || !strings.Contains(d, "disk full") {
+		t.Errorf("media row %q", d)
+	}
+	if !strings.HasPrefix(latest(t, st, backupRunAction).Details, `outcome="success"`) {
+		t.Error("a media failure changed the capsule outcome")
+	}
+}
+
+func TestBackupTickSkipsMediaWithoutMatrixOrWhenBusy(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	stubRun(t, func() error { return nil })
+	ran := stubMedia(t, func() error { return nil })
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	cfg.Matrix.ServerName = "example.com"
+	for _, e := range []error{recoveryclient.ErrInProgress, recoveryclient.ErrNotPaired, recoveryclient.ErrNoDestination} {
+		stubRun(t, func() error { return e })
+		backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	}
+	if *ran != 0 {
+		t.Fatalf("media ran %d times without Matrix or beside an unsealed capsule run", *ran)
 	}
 }

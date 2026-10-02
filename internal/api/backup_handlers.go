@@ -301,7 +301,7 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	settings := backup.Settings(ctx, s.store.Settings())
 	res, err := recoveryclient.Run(ctx, rc, settings, func() (recoveryclient.Payload, error) {
-		return backup.Collect(ctx, s.config, appVersion)
+		return backup.CollectForRun(ctx, s.config, settings, appVersion)
 	}, s.recovery)
 
 	action, outcome, details := recoveryclient.Outcome(res, err)
@@ -339,7 +339,13 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 			// private. Nothing left; the operator needs the switch named, not a 500.
 			s.writeError(w, http.StatusPreconditionFailed, "The recovery host resolves to a private address"+privateRecoveryHint)
 		case errors.Is(err, capsule.ErrCapsuleTooLarge):
-			s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+			// A SizeError names the measured size and the member; nothing secret.
+			var se *backup.SizeError
+			if errors.As(err, &se) {
+				s.writeError(w, http.StatusRequestEntityTooLarge, se.Error())
+			} else {
+				s.writeError(w, http.StatusRequestEntityTooLarge, recoveryclient.TooLargeMessage)
+			}
 		case errors.Is(err, recoveryclient.ErrRemote):
 			// The cause is audited; the browser gets only that the store did not take it.
 			log.Printf("[BACKUP] run failed: %s", recoveryclient.AuditSafe(err.Error()))
@@ -543,15 +549,9 @@ func (s *Server) scheduleStatus(ctx context.Context, out map[string]any) {
 		} else if strings.HasPrefix(last.Details, `outcome="failure" `) {
 			outcome = "failure"
 		}
-		trigger := "admin"
-		if last.UserID == "system" {
-			trigger = "scheduled"
-		} else if last.UserID == "cli" {
-			trigger = "cli"
-		}
 		// Reuse the append-only audit source; no second shared last-result setting.
 		// Expose only classified metadata, never raw remote error text or credentials.
-		out["last_run"] = map[string]any{"outcome": outcome, "trigger": trigger,
+		out["last_run"] = map[string]any{"outcome": outcome, "trigger": auditTrigger(last.UserID),
 			"recorded_at": last.CreatedAt, "capsule_id": last.Resource}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		out["last_run_error"] = "Could not read the latest backup result"
@@ -573,4 +573,37 @@ func (s *Server) scheduleStatus(ctx context.Context, out map[string]any) {
 			out["next_run_at"] = next.Format(time.RFC3339)
 		}
 	}
+	if size, ok, err := backup.LastSize(settings); err == nil && ok {
+		out["capsule_size"] = size
+	}
+	if s.config.Matrix.Enabled() {
+		// Media has its own result: its failure never fails the capsule run.
+		if last, err := s.store.Audit().LatestAuditRecord(ctx, "admin.backup_media"); err == nil {
+			out["media_last_run"] = map[string]any{"outcome": auditOutcome(last.Details), "trigger": auditTrigger(last.UserID),
+				"recorded_at": last.CreatedAt, "archive": last.Resource}
+		} else if !errors.Is(err, store.ErrNotFound) {
+			out["media_last_run_error"] = "Could not read the latest media backup result"
+		}
+	}
+}
+
+// auditOutcome reads the outcome AuditDetails always writes first.
+func auditOutcome(details string) string {
+	switch {
+	case strings.HasPrefix(details, `outcome="success"`):
+		return "success"
+	case strings.HasPrefix(details, `outcome="failure"`):
+		return "failure"
+	}
+	return "unknown"
+}
+
+func auditTrigger(actor string) string {
+	switch actor {
+	case "system":
+		return "scheduled"
+	case "cli":
+		return "cli"
+	}
+	return "admin"
 }

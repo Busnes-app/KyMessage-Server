@@ -191,11 +191,13 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, Playwrigh
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
-`cmd/server` owns the scheduler: `backupLoop` builds the people capsule's `RunConfig` and the client once
+`cmd/server` owns the scheduler: `backupLoop` builds the server capsule's `RunConfig` and the client once
 and returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
 attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
-people capsule if due; a run that returns `ErrInProgress` is logged and left unstamped, so it is
-retried next tick. The `deposit` and `backup-drill` commands and `export-capsule` seal people only.
+server capsule if due, then (Matrix enabled) mirrors media via `runMedia`, audited as `admin.backup_media`
+and never failing the capsule; media is skipped when the capsule run returns `ErrNotPaired`,
+`ErrNoDestination` or `ErrInProgress` (the last is logged and left unstamped, so it is
+retried next tick). The HTTP run route does not mirror media. The `deposit` and `backup-drill` commands and `export-capsule` seal the server capsule; `deposit` also mirrors media and exits non-zero if only media failed.
 The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
@@ -203,9 +205,9 @@ the pair, pin-key, unpair and deposit handlers, which detach from their requests
 `Shutdown`. `maintenanceLoop` sweeps expired device pairings every minute with a 30-second
 deadline; its completion and the Matrix offboarding syncer's (`matrixsync.Syncer.Run`, started only when `cfg.Matrix.Enabled()`, woken by directory webhooks) join the backup scheduler's before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
-context (17m, the lib's 15m deposit ceiling plus sealing) -- a context, not a timer channel,
+context (20m: the lib's 15m deposit ceiling, 3m of dumps, sealing) -- a context, not a timer channel,
 which delivers once and would leave the second wait unbounded; the HTTP drain is `shutdownTimeout`
-(5s). `docker-compose.yml` grants a `stop_grace_period` above their sum, so the guarantee holds
+(5s). `docker-compose.yml` grants a `stop_grace_period` (21m) above their sum, so the guarantee holds
 in the shipped deployment instead of assuming a supervisor grace period;
 `TestComposeGracePeriodCoversTheShutdownBudget` keeps the three in step. Past the deadline the
 work is abandoned with a log line rather than killed silently.
