@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
 )
 
@@ -28,13 +29,22 @@ var (
 
 const maxMembersShown = 1000
 
-// Room change budgets. The steps before the final Close or Delete (account, mint, reads, media)
-// get roomChangeTimeout; that call gets roomStartTimeout of its own, and a recheck of the jobs
+// Room change budgets. The steps before the final Close or Delete (account, reads) get
+// roomChangeTimeout; that call gets roomStartTimeout of its own, and a recheck of the jobs
 // after it fails gets masTimeout. Their sum stays well inside the console session's 5 minutes.
 const (
 	roomChangeTimeout = 2 * time.Minute
 	roomStartTimeout  = 30 * time.Second
+	roomAuditTimeout  = 5 * time.Second
+	// roomAfterBudget is what a change can still wait on once its budget is spent: the detached
+	// mint and revoke, the final call, the jobs recheck and the audit write.
+	roomAfterBudget = 2*matrixsync.ConsoleCallTimeout + roomStartTimeout + masTimeout + roomAuditTimeout
 )
+
+// roomWriteTimeout is the reply's write deadline: the worst case plus slack to write it.
+func roomWriteTimeout(budget time.Duration) time.Duration {
+	return budget + roomAfterBudget + 5*time.Second
+}
 
 var (
 	joinRules   = map[string]bool{"public": true, "invite": true, "knock": true, "restricted": true, "knock_restricted": true, "private": true}
@@ -81,11 +91,11 @@ func jobViews(jobs []synapseadmin.DeleteJob) []jobView {
 }
 
 // confirmText is what the admin types to delete a room: its name as the console shows it, or
-// the room ID when the name is empty or holds characters nobody can type (controls, bidi and
-// other format characters).
+// the room ID when the name is empty, starts or ends with whitespace, or holds characters nobody
+// can type (controls, bidi and other format characters).
 func confirmText(r synapseadmin.Room) string {
 	name := clip200(r.Name)
-	if name == "" || strings.IndexFunc(name, func(c rune) bool { return !unicode.IsPrint(c) || unicode.Is(unicode.Cf, c) }) >= 0 {
+	if name == "" || name != strings.TrimSpace(name) || strings.IndexFunc(name, func(c rune) bool { return !unicode.IsPrint(c) || unicode.Is(unicode.Cf, c) }) >= 0 {
 		return r.ID
 	}
 	return name
@@ -246,7 +256,7 @@ func (s *Server) idle(ctx context.Context, tok, id string) (map[string]bool, err
 // startJob makes the final Close or Delete call on a deadline of its own, so the steps before
 // it cannot use up its time. When the call fails other than by Synapse's refusal, the job may
 // still have started with its reply lost, so the jobs are read again and one not seen before
-// is reported as started.
+// is reported as started. With none seen, a failure without Synapse's answer says so.
 func (s *Server) startJob(ctx context.Context, tok, id string, seen map[string]bool, res *roomResult,
 	call func(ctx context.Context, token, id string) (string, error)) error {
 	jctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), roomStartTimeout)
@@ -264,6 +274,10 @@ func (s *Server) startJob(ctx context.Context, tok, id string, seen map[string]b
 			}
 		}
 	}
+	var se *synapseadmin.Error
+	if err != nil && !errors.As(err, &se) {
+		return fmt.Errorf("no reply, the job may have started: %w", err)
+	}
 	if err != nil {
 		return err
 	}
@@ -271,14 +285,14 @@ func (s *Server) startJob(ctx context.Context, tok, id string, seen map[string]b
 	return nil
 }
 
-type roomResult struct{ outcome, deleteID, media string }
+type roomResult struct{ outcome, deleteID string }
 
 // roomChange runs one audited room change on a context detached from the request, so a dropped
 // connection cannot start a job without its audit row. Every outcome is audited.
 func (s *Server) roomChange(w http.ResponseWriter, r *http.Request, action, id string, change func(ctx context.Context, tok string, res *roomResult) error) {
 	actor := s.actorID(r)
 	// The listener's 15s WriteTimeout is for quick replies; this one may take minutes.
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.roomBudget + roomStartTimeout + masTimeout + 15*time.Second))
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(roomWriteTimeout(s.roomBudget)))
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), s.roomBudget)
 	defer cancel()
 	var res roomResult
@@ -295,10 +309,7 @@ func (s *Server) roomChange(w http.ResponseWriter, r *http.Request, action, id s
 	if res.deleteID != "" {
 		kv = append(kv, "delete_id", res.deleteID)
 	}
-	if res.media != "" {
-		kv = append(kv, "media", res.media)
-	}
-	actx, acancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	actx, acancel := context.WithTimeout(context.WithoutCancel(r.Context()), roomAuditTimeout)
 	s.audit(actx, actor, r, action, id, auditFields(res.outcome, kv...))
 	acancel()
 	switch {
@@ -350,8 +361,9 @@ func decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
 	return dec.Decode(v) == nil && dec.Decode(&struct{}{}) == io.EOF
 }
 
-// handleRoomDelete deletes the media Synapse can attribute to the room, then starts the purge.
-// The confirmation is checked here against confirmText, never trusted from the page.
+// handleRoomDelete starts the purge of the room's history. Its media stays: Synapse attributes to
+// a room any media its plaintext events name, which other rooms may share. The confirmation is
+// checked here against confirmText, never trusted from the page.
 func (s *Server) handleRoomDelete(w http.ResponseWriter, r *http.Request) {
 	if !s.matrixOn(w) {
 		return
@@ -375,17 +387,6 @@ func (s *Server) handleRoomDelete(w http.ResponseWriter, r *http.Request) {
 		seen, err := s.idle(ctx, tok, id)
 		if err != nil {
 			return err
-		}
-		media, err := s.rooms.RoomMedia(ctx, tok, id)
-		if err != nil {
-			return err
-		}
-		res.media = "0"
-		for i, m := range media {
-			if err := s.rooms.DeleteMedia(ctx, tok, m); err != nil {
-				return err
-			}
-			res.media = strconv.Itoa(i + 1)
 		}
 		return s.startJob(ctx, tok, id, seen, res, s.rooms.Delete)
 	})

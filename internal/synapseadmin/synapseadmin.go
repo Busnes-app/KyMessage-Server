@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -181,7 +180,7 @@ func (c *Client) Close(ctx context.Context, token, id string) (string, error) {
 }
 
 // Delete starts a shutdown that also purges the room's events and state; the room stays
-// blocked. Media is not purged (see RoomMedia).
+// blocked. Media is not purged.
 func (c *Client) Delete(ctx context.Context, token, id string) (string, error) {
 	return c.shutdown(ctx, token, id, true)
 }
@@ -225,40 +224,4 @@ func (c *Client) DeleteJobs(ctx context.Context, token, id string) ([]DeleteJob,
 		out = append(out, DeleteJob{ID: j.DeleteID, Status: j.Status})
 	}
 	return out, nil
-}
-
-// Media is one piece of local media.
-type Media struct{ Server, ID string }
-
-var mxcURI = regexp.MustCompile(`^mxc://([A-Za-z0-9.:-]+)/([A-Za-z0-9_-]+)$`)
-
-// RoomMedia is the local media Synapse can attribute to the room: what non-encrypted events
-// reference by URL. Attachments in encrypted rooms are referenced only inside ciphertext and
-// are never listed.
-func (c *Client) RoomMedia(ctx context.Context, token, id string) ([]Media, error) {
-	var r struct {
-		Local []string `json:"local"`
-	}
-	if err := c.do(ctx, token, http.MethodGet, prefix+"v1/room/"+url.PathEscape(id)+"/media", nil, &r); err != nil {
-		return nil, err
-	}
-	out := make([]Media, 0, len(r.Local))
-	for _, u := range r.Local {
-		m := mxcURI.FindStringSubmatch(u)
-		if m == nil {
-			return nil, fmt.Errorf("Synapse listed unusable media %q", clip(u, 100))
-		}
-		out = append(out, Media{Server: m[1], ID: m[2]})
-	}
-	return out, nil
-}
-
-// DeleteMedia removes one piece of local media; already gone counts as done.
-func (c *Client) DeleteMedia(ctx context.Context, token string, m Media) error {
-	err := c.do(ctx, token, http.MethodDelete, prefix+"v1/media/"+url.PathEscape(m.Server)+"/"+url.PathEscape(m.ID), nil, nil)
-	var se *Error
-	if errors.As(err, &se) && se.Status == http.StatusNotFound && se.Errcode == "M_NOT_FOUND" {
-		return nil
-	}
-	return err
 }

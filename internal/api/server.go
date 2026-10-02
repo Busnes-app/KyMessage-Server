@@ -54,8 +54,6 @@ type RoomAdmin interface {
 	Close(ctx context.Context, token, id string) (string, error)
 	Delete(ctx context.Context, token, id string) (string, error)
 	DeleteJobs(ctx context.Context, token, id string) ([]synapseadmin.DeleteJob, error)
-	RoomMedia(ctx context.Context, token, id string) ([]synapseadmin.Media, error)
-	DeleteMedia(ctx context.Context, token string, m synapseadmin.Media) error
 }
 
 type Server struct {

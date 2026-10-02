@@ -28,7 +28,7 @@ const (
 func roomPath(id string) string { return "/api/admin/matrix/rooms/" + url.PathEscape(id) }
 
 // fakeRooms stands in for Synapse's admin API: an encrypted group room "Team chat" and an
-// unnamed DM, both with alice and bob; the group room's avatar is local media.
+// unnamed DM, both with alice and bob.
 type fakeRooms struct {
 	mu        sync.Mutex
 	rooms     map[string]*synapseadmin.Room
@@ -36,14 +36,12 @@ type fakeRooms struct {
 	members   map[string][]string
 	blocked   map[string]bool
 	jobs      map[string][]synapseadmin.DeleteJob
-	media     map[string][]synapseadmin.Media
 	err       error // every call
 	changeErr error // Close and Delete
-	mediaErr  error // DeleteMedia
 	lostReply error // Close and Delete: the job starts, then this is returned
-	mediaWait bool  // DeleteMedia returns only when its context is done
+	slowJobs  bool  // DeleteJobs returns only when its context is done
 	tokens    []string
-	changes   []string // "media <id>", "close <room>", "delete <room>", in order
+	changes   []string // "close <room>", "delete <room>", in order
 }
 
 func newFakeRooms() *fakeRooms {
@@ -58,7 +56,6 @@ func newFakeRooms() *fakeRooms {
 		members: map[string][]string{rGroup: both(), rDM: both()},
 		blocked: map[string]bool{},
 		jobs:    map[string][]synapseadmin.DeleteJob{},
-		media:   map[string][]synapseadmin.Media{rGroup: {{Server: "example.com", ID: "AVATAR1"}}},
 	}
 }
 
@@ -150,35 +147,16 @@ func (f *fakeRooms) Delete(ctx context.Context, tok, id string) (string, error) 
 	return f.change(ctx, tok, "delete", id)
 }
 
-func (f *fakeRooms) DeleteJobs(_ context.Context, tok, id string) ([]synapseadmin.DeleteJob, error) {
+func (f *fakeRooms) DeleteJobs(ctx context.Context, tok, id string) ([]synapseadmin.DeleteJob, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]synapseadmin.DeleteJob{}, f.jobs[id]...), f.use(tok)
-}
-
-func (f *fakeRooms) RoomMedia(_ context.Context, tok, id string) ([]synapseadmin.Media, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.media[id], f.use(tok)
-}
-
-func (f *fakeRooms) DeleteMedia(ctx context.Context, tok string, m synapseadmin.Media) error {
-	f.mu.Lock()
-	wait := f.mediaWait
+	slow := f.slowJobs
 	f.mu.Unlock()
-	if wait {
+	if slow {
 		<-ctx.Done()
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if err := f.use(tok); err != nil {
-		return err
-	}
-	if f.mediaErr != nil {
-		return f.mediaErr
-	}
-	f.changes = append(f.changes, "media "+m.ID)
-	return nil
+	return append([]synapseadmin.DeleteJob{}, f.jobs[id]...), f.use(tok)
 }
 
 // setupRoomsServer is setupMatrixServer with its Synapse admin fake in hand.
@@ -317,6 +295,10 @@ func TestRoomDetailShowsMembersAndConfirmText(t *testing.T) {
 		"Evil\u202egnp.exe": rGroup,
 		"zero\u200bwidth":   rGroup,
 		"tab\tname":         rGroup,
+		" padded":           rGroup,
+		"padded ":           rGroup,
+		"\u00a0nbsp":        rGroup,
+		"inner space":       "inner space",
 	} {
 		rooms.rooms[rGroup].Name = name
 		if got := get(rGroup).ConfirmText; got != want {
@@ -403,7 +385,6 @@ func TestRoomChangeRefusedWhileAJobRuns(t *testing.T) {
 	if len(rooms.changes) != 0 {
 		t.Fatalf("changes %v", rooms.changes)
 	}
-	// Refused before any media is counted, so the row carries the outcome alone.
 	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="refused: a close or delete is running"` {
 		t.Errorf("delete row %q", r.Details)
 	}
@@ -436,13 +417,14 @@ func TestRoomDeleteChecksConfirmationServerSide(t *testing.T) {
 		t.Errorf("%d delete rows; the malformed body must not be audited", n)
 	}
 	w := adminDo(t, srv, admin, "POST", path, map[string]string{"confirm": "Team chat"})
-	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-2","outcome":"started"}` {
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-1","outcome":"started"}` {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
-	if strings.Join(rooms.changes, ",") != "media AVATAR1,delete "+rGroup {
-		t.Fatalf("media first, then the purge: %v", rooms.changes)
+	// The purge alone: room media may be shared with other rooms, so none is deleted.
+	if strings.Join(rooms.changes, ",") != "delete "+rGroup {
+		t.Fatalf("changes %v", rooms.changes)
 	}
-	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-2" media="1"` || r.Resource != rGroup {
+	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-1"` || r.Resource != rGroup {
 		t.Errorf("row %+v", r)
 	}
 	if w := adminDo(t, srv, admin, "POST", roomPath(rDM)+"/delete", map[string]string{"confirm": rDM}); w.Code != http.StatusOK {
@@ -450,19 +432,6 @@ func TestRoomDeleteChecksConfirmationServerSide(t *testing.T) {
 	}
 	if w := adminDo(t, srv, admin, "POST", path, map[string]string{"confirm": "Team chat"}); w.Code != http.StatusNotFound {
 		t.Errorf("deleting a deleted room: %d", w.Code)
-	}
-}
-
-func TestRoomDeleteStopsWhenMediaDeletionFails(t *testing.T) {
-	srv, st, _, rooms := setupRoomsServer(t)
-	rooms.mediaErr = errors.New("Synapse DELETE /_synapse/admin/v1/media/example.com/AVATAR1: " + strings.Repeat("\U0001F4A5", 120))
-	w := adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "POST", roomPath(rGroup)+"/delete", map[string]string{"confirm": "Team chat"})
-	if w.Code != http.StatusBadGateway || len(rooms.changes) != 0 {
-		t.Fatalf("%d %v", w.Code, rooms.changes)
-	}
-	r := auditRows(t, st, "matrix.room_delete")[0]
-	if len(r.Details) > 200 || !strings.HasSuffix(r.Details, `media="0"`) || !strings.HasPrefix(api.DetailOutcomeForTest(r.Details), "error: Synapse DELETE") {
-		t.Fatalf("details %q", r.Details)
 	}
 }
 
@@ -497,17 +466,25 @@ func TestBrokenConsoleAccountReachesRooms(t *testing.T) {
 	}
 }
 
-// The media deletions may use the whole change budget; the purge call still gets its own.
-func TestRoomDeleteSlowMediaDoesNotStarveTheShutdown(t *testing.T) {
+// The steps before the purge may use the whole change budget; the purge call still gets its own.
+func TestRoomDeleteSlowStepsDoNotStarveTheShutdown(t *testing.T) {
 	srv, st, _, rooms := setupRoomsServer(t)
 	api.SetRoomBudgetForTest(srv, 50*time.Millisecond)
-	rooms.mediaWait = true
+	rooms.slowJobs = true
 	w := adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "POST", roomPath(rGroup)+"/delete", map[string]string{"confirm": "Team chat"})
-	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-2","outcome":"started"}` {
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-1","outcome":"started"}` {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
-	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-2" media="1"` {
+	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-1"` {
 		t.Errorf("row %q", r.Details)
+	}
+}
+
+// The reply's write deadline covers every step a room change can wait on.
+func TestRoomWriteDeadlineCoversTheWorstCase(t *testing.T) {
+	budget, steps, total := api.RoomWriteDeadlineForTest()
+	if total <= budget+steps || total > budget+steps+10*time.Second {
+		t.Fatalf("deadline %s for budget %s and steps %s", total, budget, steps)
 	}
 }
 
@@ -519,19 +496,26 @@ func TestRoomChangeLostReplyAuditsTheStartedJob(t *testing.T) {
 	rooms.jobs[rGroup] = []synapseadmin.DeleteJob{{ID: "old", Status: "complete"}}
 	rooms.lostReply = context.DeadlineExceeded
 	w := adminDo(t, srv, admin, "POST", roomPath(rGroup)+"/delete", map[string]string{"confirm": "Team chat"})
-	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-2","outcome":"started"}` {
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-1","outcome":"started"}` {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
-	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-2" media="1"` {
+	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-1"` {
 		t.Errorf("row %q", r.Details)
 	}
-	// No new job listed: the failure stands.
-	rooms.changeErr = context.DeadlineExceeded
+	// No new job listed: the failure stands, and a lost reply says the job may have started.
+	rooms.changeErr = errors.New("Synapse DELETE /_synapse/admin/v2/rooms/x: " + strings.Repeat("\U0001F4A5", 120))
 	if w := adminDo(t, srv, admin, "POST", roomPath(rDM)+"/close", nil); w.Code != http.StatusBadGateway {
 		t.Errorf("close: %d %s", w.Code, w.Body.String())
 	}
-	if r := auditRows(t, st, "matrix.room_close")[0]; r.Details != `outcome="error: context deadline exceeded"` {
+	r := auditRows(t, st, "matrix.room_close")[0]
+	if len(r.Details) > 200 || !strings.HasPrefix(api.DetailOutcomeForTest(r.Details), "error: no reply, the job may have started: Synapse DELETE") {
 		t.Errorf("close row %q", r.Details)
+	}
+	// Synapse answered with an error: no job started, no hedge.
+	rooms.changeErr = &synapseadmin.Error{Method: "DELETE", Path: "/_synapse/admin/v2/rooms/x", Status: 500, Message: "db down"}
+	adminDo(t, srv, admin, "POST", roomPath(rDM)+"/close", nil)
+	if r := auditRows(t, st, "matrix.room_close")[0]; r.Details != `outcome="error: Synapse DELETE /_synapse/admin/v2/rooms/x: HTTP 500: db down"` {
+		t.Errorf("Synapse error row %q", r.Details)
 	}
 }
 

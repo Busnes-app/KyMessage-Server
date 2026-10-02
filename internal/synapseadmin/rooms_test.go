@@ -17,9 +17,8 @@ const grp = "!grp:example.com"
 
 // synapseFake knows one room, !grp:example.com, and records changes.
 type synapseFake struct {
-	mu      sync.Mutex
-	bodies  []string
-	deleted []string
+	mu     sync.Mutex
+	bodies []string
 }
 
 func newSynapseFake(t *testing.T) (*synapseFake, *Client) {
@@ -58,18 +57,6 @@ func (f *synapseFake) handle(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"results":[
 			{"delete_id":"D1","room_id":"!grp:example.com","status":"complete","shutdown_room":{"kicked_users":["@bob:example.com"],"failed_to_kick_users":[],"local_aliases":[],"new_room_id":null}},
 			{"delete_id":"D2","room_id":"!grp:example.com","status":"active","shutdown_room":null}]}`)
-	case r.Method == http.MethodGet && p == "/_synapse/admin/v1/room/"+grp+"/media":
-		fmt.Fprint(w, `{"local":["mxc://example.com/AVATAR1","mxc://example.com/Pic_2-b"],"remote":["mxc://elsewhere.org/X"]}`)
-	case r.Method == http.MethodGet && p == "/_synapse/admin/v1/room/!odd:example.com/media":
-		fmt.Fprint(w, `{"local":["https://evil.example/x"],"remote":[]}`)
-	case r.Method == http.MethodDelete && strings.HasPrefix(p, "/_synapse/admin/v1/media/example.com/"):
-		id := strings.TrimPrefix(p, "/_synapse/admin/v1/media/example.com/")
-		if id == "GONE" {
-			notFound("Unknown media")
-			return
-		}
-		f.deleted = append(f.deleted, id)
-		fmt.Fprintf(w, `{"deleted_media":[%q],"total":1}`, id)
 	case strings.Contains(p, "/delete_status"):
 		notFound("No delete task for room_id found")
 	default:
@@ -135,26 +122,6 @@ func TestDeleteJobs(t *testing.T) {
 	}
 }
 
-func TestRoomMediaListsLocalOnlyAndDeleteIsIdempotent(t *testing.T) {
-	f, c := newSynapseFake(t)
-	ctx := context.Background()
-	media, err := c.RoomMedia(ctx, "tok", grp)
-	if err != nil || !reflect.DeepEqual(media, []Media{{"example.com", "AVATAR1"}, {"example.com", "Pic_2-b"}}) {
-		t.Fatalf("%+v %v", media, err)
-	}
-	for _, m := range []Media{{"example.com", "AVATAR1"}, {"example.com", "GONE"}} {
-		if err := c.DeleteMedia(ctx, "tok", m); err != nil {
-			t.Errorf("%s: %v", m.ID, err)
-		}
-	}
-	if !reflect.DeepEqual(f.deleted, []string{"AVATAR1"}) {
-		t.Errorf("deleted %v", f.deleted)
-	}
-	if _, err := c.RoomMedia(ctx, "tok", "!odd:example.com"); err == nil {
-		t.Error("a non-mxc media URI was accepted")
-	}
-}
-
 // A 404 that is not M_NOT_FOUND is a routing mistake, not "nothing to do".
 func TestOnly404NotFoundErrcodeCountsAsDone(t *testing.T) {
 	for name, body := range map[string]string{
@@ -168,9 +135,6 @@ func TestOnly404NotFoundErrcodeCountsAsDone(t *testing.T) {
 		c := New(srv.URL)
 		if _, err := c.DeleteJobs(context.Background(), "tok", grp); err == nil {
 			t.Errorf("%s: DeleteJobs hid a routing 404", name)
-		}
-		if err := c.DeleteMedia(context.Background(), "tok", Media{"example.com", "X"}); err == nil {
-			t.Errorf("%s: DeleteMedia hid a routing 404", name)
 		}
 		srv.Close()
 	}

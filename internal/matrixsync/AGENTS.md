@@ -28,9 +28,9 @@ supplies subject → status.
   console's Synapse admin access.
 - `AsConsole` mints one MAS personal session per action: scope exactly
   `urn:matrix:client:api:* urn:synapse:admin:*`, `expires_in` 300, `human_name`
-  `KyMessages console`. The mint runs on a detached 10 s context, so a session MAS creates while
-  the request dies is still known and revoked. It revokes the session afterwards on a detached 10 s context, also when
-  the action fails or its context ends; a failed revoke (other than 409, already revoked) is
+  `KyMessages console`. The mint runs on a detached `ConsoleCallTimeout` (10 s) context, so a session MAS creates while
+  the request dies is still known and revoked. Once MAS returns a session ID it revokes the session afterwards on a detached
+  `ConsoleCallTimeout` context, also when the reply has no token, the action fails or its context ends; a failed revoke (other than 409, already revoked) is
   logged with the session ID, never the token, and the session expires on its own.
 - Deactivate always sends `{"skip_erase":true}`; messages are never erased.
 - A deactivated MAS user is never reactivated or otherwise touched.

@@ -407,6 +407,9 @@ const (
 	consoleSessionTTL = 5 * time.Minute
 )
 
+// ConsoleCallTimeout bounds each detached session call AsConsole makes: the mint and the revoke.
+const ConsoleCallTimeout = 10 * time.Second
+
 // EnsureConsoleUser returns the console account's MAS ID, creating it when needed. It refuses
 // an account that is locked, deactivated, linked to an upstream identity (a person's) or MAS
 // admin: personal sessions need no admin flag, and with it an interactive login as the
@@ -476,7 +479,7 @@ func (c *Client) AsConsole(ctx context.Context, fn func(ctx context.Context, tok
 	}
 	// Detached: MAS may create the session even if ctx ends mid-request, and only its ID
 	// lets us revoke it.
-	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ConsoleCallTimeout)
 	defer cancel()
 	if err := c.call(mctx, http.MethodPost, adminPrefix+"personal-sessions", body, &doc); err != nil {
 		return fmt.Errorf("console session: %w", err)
@@ -485,7 +488,7 @@ func (c *Client) AsConsole(ctx context.Context, fn func(ctx context.Context, tok
 		return errors.New("console session: MAS returned no session ID")
 	}
 	defer func() {
-		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ConsoleCallTimeout)
 		defer cancel()
 		err := c.call(rctx, http.MethodPost, adminPrefix+"personal-sessions/"+url.PathEscape(doc.Data.ID)+"/revoke", nil, nil)
 		var se *StatusError

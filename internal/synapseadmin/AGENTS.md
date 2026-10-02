@@ -23,8 +23,8 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
 - `DeleteJobs` lists started jobs only (Synapse omits scheduled ones and gives no failure
   reason); no job is an empty list. Only 404 `M_NOT_FOUND` means "none"; `M_UNRECOGNIZED` or an
   errcode-less 404 is a routing error and stays an error.
-- `RoomMedia` lists only media non-encrypted events reference; `DeleteMedia` treats 404
-  `M_NOT_FOUND` as done. Encrypted rooms' attachments cannot be attributed and are never deleted.
+- No method deletes media. Synapse's room media listing names any local media a plaintext
+  event references, including media other rooms use, so it cannot scope a deletion.
 - Messages are never read: no method fetches events.
 
 ## Verification
