@@ -1,21 +1,23 @@
 // usage: node e2e.mjs prove|refused|compat|noclaim
+//        node e2e.mjs room|token|disabled|reread|reads USER
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback, and the browser trusts only that proxy's key (SPKI pin, which Chromium
 // honours only with a user data dir, hence persistent contexts). Writes its findings to
-// $ACCEPT_DIR/state/<scenario>.json; exits non-zero when a UI-level check fails.
+// $ACCEPT_DIR/state/<scenario>[-<user>].json; exits non-zero when a UI-level check fails.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
 const { ACCEPT_DIR: dir, ACCEPT_PORT: port, ACCEPT_SPKI: spki, ACCEPT_ARTIFACTS: artifacts } = process.env;
-const scenario = process.argv[2];
+const [scenario, user] = process.argv.slice(2);
 const CHAT = 'https://chat.kymatrix.test';
 const MATRIX = 'https://matrix.kymatrix.test';
 const SERVER = 'kymatrix.test';
 const contexts = [];
 
 const pass = (user) => fs.readFileSync(`${dir}/state/${user}.pass`, 'utf8').trim();
-const out = (data) => fs.writeFileSync(`${dir}/state/${scenario}.json`, JSON.stringify(data, null, 2));
+const stateFile = (name) => `${dir}/state/${name}${user ? `-${user}` : ''}.json`;
+const out = (data) => fs.writeFileSync(stateFile(scenario), JSON.stringify(data, null, 2));
 const tag = randomBytes(6).toString('hex');
 const text = (label) => `kymatrix-${scenario}-${label}-${tag}`;
 function check(ok, what) {
@@ -23,8 +25,9 @@ function check(ok, what) {
   console.log(`  ok: ${what}`);
 }
 
-async function launch(name) {
-  const ctx = await chromium.launchPersistentContext(`${dir}/profiles/${scenario}-${name}`, {
+// A profile reused across runs keeps that Element session: alice's from prove is reused.
+async function launch(name, profile = `${scenario}-${name}`) {
+  const ctx = await chromium.launchPersistentContext(`${dir}/profiles/${profile}`, {
     viewport: { width: 1280, height: 900 },
     args: [`--host-resolver-rules=MAP *.kymatrix.test 127.0.0.1:${port}`, `--ignore-certificate-errors-spki-list=${spki}`],
   });
@@ -35,11 +38,23 @@ async function launch(name) {
   return page;
 }
 
+// KyIdentity's login form renders before it settles and can clear a field filled too early:
+// fill once it is idle, and refill until both values held.
+async function fillLogin(page, user) {
+  await page.waitForLoadState('networkidle');
+  for (let i = 0; i < 3; i++) {
+    await page.fill('#username', user);
+    await page.fill('#password', pass(user));
+    if ((await page.inputValue('#username')) === user && (await page.inputValue('#password')) === pass(user)) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`KyIdentity's login form kept losing ${user}'s credentials`);
+}
+
 // KyIdentity's login form, then MAS's account and consent pages, until back in Element.
 async function kyidentityLogin(page, user) {
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
-  await page.fill('#username', user);
-  await page.fill('#password', pass(user));
+  await fillLogin(page, user);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL(/^https:\/\/auth\.kymatrix\.test\//);
   for (let i = 0; i < 4 && !page.url().startsWith(CHAT); i++) {
@@ -49,8 +64,9 @@ async function kyidentityLogin(page, user) {
   await page.waitForURL((u) => u.href.startsWith(CHAT));
 }
 
+// The room list's button: Element's notifications prompt can cover "Start chat".
 async function signedIn(page, expectMxid) {
-  await page.getByRole('button', { name: 'Start chat' }).waitFor();
+  await page.getByRole('button', { name: 'New conversation' }).waitFor();
   const mxid = await page.evaluate(() => localStorage.getItem('mx_user_id'));
   check(mxid === expectMxid, `signed in as ${expectMxid} (got ${mxid})`);
   return mxid;
@@ -80,6 +96,7 @@ async function setUpRecovery(page) {
   await page.keyboard.press('Escape');
   await dlg.waitFor({ state: 'detached' });
   console.log('  ok: recovery key set up');
+  return shown;
 }
 
 const composer = (page) => page.locator('div[role="textbox"][contenteditable="true"]').first();
@@ -108,6 +125,21 @@ async function createRoom(page, name) {
   await page.waitForURL((u) => u.href !== before && u.hash.startsWith('#/room/!'));
   await composer(page).waitFor();
   return roomId(page);
+}
+
+async function invite(page, who) {
+  await page.getByRole('button', { name: 'Invite to this room' }).click();
+  const inv = page.getByRole('dialog');
+  await inv.getByRole('textbox').fill(who);
+  await inv.getByText(who).first().click();
+  await inv.getByRole('button', { name: 'Invite', exact: true }).click();
+  // A contact with no shared room yet needs a second confirmation.
+  await page.waitForFunction(() => {
+    const d = document.querySelector('[role="dialog"]');
+    return !d || d.innerText.includes('Invite new contacts');
+  });
+  if (await inv.count()) await inv.getByRole('button', { name: 'Invite', exact: true }).click();
+  await inv.waitFor({ state: 'detached' });
 }
 
 async function openRoom(page, id, invited) {
@@ -145,12 +177,7 @@ async function prove() {
   const dm = roomId(alice);
 
   const group = await createRoom(alice, `kymatrix-group-${tag}`);
-  await alice.getByRole('button', { name: 'Invite to this room' }).click();
-  const inv = alice.getByRole('dialog');
-  await inv.getByRole('textbox').fill(bobId);
-  await inv.getByText(bobId).first().click();
-  await inv.getByRole('button', { name: 'Invite', exact: true }).click();
-  await inv.waitFor({ state: 'detached' });
+  await invite(alice, bobId);
 
   await openRoom(bob, dm, true);
   await sees(bob, msgs.dm1);
@@ -178,8 +205,7 @@ async function refused() {
   await page.goto(`${CHAT}/#/login`);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
-  await page.fill('#username', 'mallory');
-  await page.fill('#password', pass('mallory'));
+  await fillLogin(page, 'mallory');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL(/^https:\/\/auth\.kymatrix\.test\/upstream\/callback\/.*error=access_denied/);
   await page.waitForLoadState('load');
@@ -228,8 +254,7 @@ async function noclaim() {
   await page.goto(`${CHAT}/#/login`);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
-  await page.fill('#username', 'nadia');
-  await page.fill('#password', pass('nadia'));
+  await fillLogin(page, 'nadia');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL(/^https:\/\/auth\.kymatrix\.test\//);
   await page.waitForLoadState('networkidle');
@@ -239,7 +264,117 @@ async function noclaim() {
   out({ url: page.url().replace(/[?#].*/, ''), page: body.slice(0, 500) });
 }
 
-const scenarios = { prove, refused, compat, noclaim };
+// Offboarding scenarios, one KyIdentity user each (USER).
+const mxid = () => `@${user}:${SERVER}`;
+const aliceSession = async () => {
+  const page = await launch('alice', 'prove-alice');
+  // Element would otherwise reopen the room prove left open.
+  await page.goto(`${CHAT}/#/home`);
+  // Element's session lock outlives the closed browser: "open in another window".
+  const start = page.getByRole('button', { name: 'New conversation' });
+  const takeOver = page.getByRole('button', { name: 'Continue', exact: true });
+  await start.or(takeOver).first().waitFor();
+  if (await takeOver.isVisible()) await takeOver.click();
+  await start.waitFor();
+  return page;
+};
+const roomState = () => JSON.parse(fs.readFileSync(stateFile('room'), 'utf8'));
+
+// Element uploads room keys to the key backup in the background; wait until USER's backup
+// holds both senders' sessions for the room, so a later device can restore them.
+async function backedUp(page, id) {
+  const count = () => page.evaluate(async ({ hs, id }) => {
+    const auth = { headers: { Authorization: `Bearer ${window.mxMatrixClientPeg.get().getAccessToken()}` } };
+    const { version } = await (await fetch(`${hs}/_matrix/client/v3/room_keys/version`, auth)).json();
+    const keys = await (await fetch(`${hs}/_matrix/client/v3/room_keys/keys/${encodeURIComponent(id)}?version=${version}`, auth)).json();
+    return Object.keys(keys.sessions ?? {}).length;
+  }, { hs: MATRIX, id });
+  let n = 0;
+  for (let i = 0; i < 60 && (n = await count()) < 2; i++) await page.waitForTimeout(1000);
+  check(n >= 2, `${user}'s backup holds both room keys (${n})`);
+}
+
+// USER signs in and sets up recovery; alice (her session from prove) invites USER to a new
+// room; each reads the other's message.
+async function room() {
+  const peer = await launch(user);
+  await nativeSignIn(peer, user, mxid());
+  const recoveryKey = await setUpRecovery(peer);
+  fs.writeFileSync(`${dir}/state/${user}.recovery`, recoveryKey, { mode: 0o600 });
+  const alice = await aliceSession();
+  const id = await createRoom(alice, `kymatrix-${user}-${tag}`);
+  await invite(alice, mxid());
+  await openRoom(peer, id, true);
+  const messages = { alice: text('alice'), peer: text(user) };
+  await send(alice, messages.alice);
+  await sees(peer, messages.alice);
+  await send(peer, messages.peer);
+  await sees(alice, messages.peer);
+  await backedUp(peer, id);
+  out({ room: id, messages });
+}
+
+// A second Element session for USER: the access token of its first client-server request,
+// written 0600 for the harness to probe. The browser closes once it has it.
+async function token() {
+  const page = await launch(user);
+  const authorized = page.waitForRequest(
+    async (r) => r.url().startsWith(`${MATRIX}/_matrix/client/`) && /^Bearer /.test((await r.headerValue('authorization')) ?? ''),
+    { timeout: 60000 },
+  );
+  await page.goto(`${CHAT}/#/login`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await kyidentityLogin(page, user);
+  const bearer = (await (await authorized).headerValue('authorization')).slice('Bearer '.length);
+  fs.writeFileSync(`${dir}/state/${user}.token`, bearer, { mode: 0o600 });
+  console.log(`  ok: captured a live Element token for ${mxid()}`);
+}
+
+// A disabled account: KyIdentity refuses the password sign-in, so Element never opens.
+async function disabled() {
+  const page = await launch(user);
+  await page.goto(`${CHAT}/#/login`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
+  await fillLogin(page, user);
+  const login = page.waitForResponse((r) => r.url() === 'https://id.kymatrix.test/api/auth/login' && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  const status = (await login).status();
+  check(status === 401, `KyIdentity refused ${user}'s fresh sign-in (${status})`);
+  check(!page.url().startsWith(CHAT), `${user} never reached Element`);
+  out({ status, url: page.url().replace(/[?#].*/, '') });
+}
+
+// After reactivation: a new device signs in, confirms its identity with the recovery key
+// from room, and reads alice's earlier message from key backup.
+async function reread() {
+  const { room: id, messages } = roomState();
+  const page = await launch(user);
+  await page.goto(`${CHAT}/#/login`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await kyidentityLogin(page, user);
+  // A new device of an account with cross-signing lands on "Confirm your identity".
+  await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.locator('input, textarea').first().fill(fs.readFileSync(`${dir}/state/${user}.recovery`, 'utf8'));
+  await dlg.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await signedIn(page, mxid());
+  await openRoom(page, id, false);
+  await sees(page, messages.alice);
+  out({ room: id });
+}
+
+// alice still reads USER's message after USER is gone.
+async function reads() {
+  const { room: id, messages } = roomState();
+  const alice = await aliceSession();
+  await openRoom(alice, id, false);
+  await sees(alice, messages.peer);
+  out({ room: id });
+}
+
+const scenarios = { prove, refused, compat, noclaim, room, token, disabled, reread, reads };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

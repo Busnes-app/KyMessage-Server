@@ -156,7 +156,14 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   group messages read by the other user. It asserts no `m.room.message` in encrypted rooms
   and no plaintext in a Synapse `pg_dump`; registration, password login and federation
   refused; unassigned and username-less KyIdentity users refused; mixed-case usernames
-  mapped. `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
+  mapped. Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
+  system linked to the MAS client's app record): disable refuses a live Element token within
+  30s (fixed bound, times in the summary) and MAS locks; re-enable unlocks with history;
+  delete deactivates and parts rooms; with KyMessages stopped the back-channel still cuts,
+  and the lock lands once the missed webhook is redelivered (KyIdentity fences it as an
+  uncertain write; the harness resumes it as the operator would); Synapse cannot reach
+  `mas:8081` or `mas-admin`.
+  `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.
 

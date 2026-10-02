@@ -2,8 +2,8 @@
 # on top of docker-compose.yml + docker-compose.matrix.yml with the scratch directory as the
 # project directory, so ./matrix is the harness's own matrix-init output.
 # Loopback without weakening the shipped configs: a TLS proxy with a throwaway CA answers for
-# the four https hosts (network aliases inside, 127.0.0.1:<ephemeral> outside). MAS trusts
-# only that CA; the harness browser trusts only the proxy's key (SPKI pin).
+# the five https hosts (network aliases inside, 127.0.0.1:<ephemeral> outside). MAS and
+# KyIdentity trust only that CA; the harness browser trusts only the proxy's key (SPKI pin).
 services:
   kyidentity:
     image: ${KYMATRIX_ACCEPT_KYID_IMAGE:?}
@@ -13,8 +13,12 @@ services:
       KYIDENTITY_DATA_DIR: /data
       BOOTSTRAP_ADMIN_USER: admin
       BOOTSTRAP_ADMIN_PASS: ${KYMATRIX_ACCEPT_ADMIN_PASS:?}
+      # Back-channel logout to MAS and the directory webhook to KyMessages both resolve to
+      # the harness proxy's address on the project network.
+      KYIDENTITY_ALLOW_PRIVATE_CALLBACKS: "true"
     volumes:
       - kyidentity-data:/data
+      - ./tls/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro
 
   tls:
     image: nginx:1.29.1-alpine@sha256:42a516af16b852e33b7682d5ef8acbd5d13fe08fecadc7ed98605ba5e3b26ab8
@@ -27,7 +31,7 @@ services:
       - ./nginx-extra:/etc/nginx/kymatrix-extra:ro
     networks:
       default:
-        aliases: [id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test]
+        aliases: [id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test, admin.kymatrix.test]
     # Only KyIdentity: the client is registered there before MAS has a config.
     depends_on: [kyidentity]
 
