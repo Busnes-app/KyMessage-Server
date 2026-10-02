@@ -402,8 +402,13 @@ async function reads() {
 // A 1x1 PNG: Element uploads it encrypted, so Synapse's local_content holds ciphertext.
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+// Element renders only its timeline window: with the live end below it ("Scroll to most recent
+// messages" shown), a new image has no tile until the view jumps there.
 async function decryptedImage(page) {
   const img = timeline(page).locator('.mx_ImageBody img').last();
+  const jump = page.getByRole('button', { name: 'Scroll to most recent messages' });
+  await img.or(jump).first().waitFor({ timeout: 60000 });
+  if (await jump.isVisible()) await jump.click();
   await img.waitFor({ timeout: 60000 });
   await page.waitForFunction((el) => el.complete && el.naturalWidth > 0, await img.elementHandle(), { timeout: 60000 });
   console.log('  ok: image decrypted and shown');
@@ -415,9 +420,17 @@ async function media() {
   const bob = await resume('bob', 'prove-bob');
   await openRoom(bob, dm, false);
   await closeDialogs(bob);
-  await bob.locator('input[type="file"]').first().setInputFiles({ name: `kymatrix-${tag}.png`, mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') });
+  const name = `kymatrix-${tag}.png`;
+  await bob.locator('input[type="file"]').first().setInputFiles({ name, mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') });
   await bob.getByRole('dialog').getByRole('button', { name: 'Upload' }).click();
-  await bob.locator('.mx_EventTile[data-event-id^="$"] .mx_ImageBody').last().waitFor();
+  // Sent, not a local echo ('$' event ID); read from the client, as the tile may be outside
+  // Element's timeline window.
+  await bob.waitForFunction(({ dm, name }) => {
+    const client = window.mxMatrixClientPeg.get();
+    return client.getRoom(dm).getLiveTimeline().getEvents().some((e) =>
+      e.getSender() === client.getUserId() && e.getId()?.startsWith('$') && e.getContent().msgtype === 'm.image' && e.getContent().body === name);
+  }, { dm, name }, { timeout: 30000 });
+  console.log('  ok: bob sent the image');
   const alice = await aliceSession();
   await openRoom(alice, dm, false);
   await decryptedImage(alice);
