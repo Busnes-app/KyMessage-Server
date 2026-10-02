@@ -10,9 +10,10 @@ export interface Branding {
   logo: { custom: boolean; sha256: string; size: number };
   /**
    * What Element's config.json says, and what Element serves (null when unknown): its image
-   * copies the file at start, so a rename shows after Element restarts. null without Matrix.
+   * copies the file at start, so a rename shows after Element restarts with restart_hint, the
+   * deployment's command. null without Matrix.
    */
-  element: { brand: string | null; error: string; served: string | null; served_error: string } | null;
+  element: { brand: string | null; error: string; served: string | null; served_error: string; restart_hint: string } | null;
 }
 
 export const MAX_LOGO_BYTES = 1 << 20;
@@ -32,6 +33,7 @@ export function parseBranding(v: unknown): Branding {
     element = {
       brand: e.brand === undefined ? null : clip(e.brand, 256), error: e.error === undefined ? '' : clip(e.error, 1024),
       served: e.served === undefined ? null : clip(e.served, 256), served_error: e.served_error === undefined ? '' : clip(e.served_error, 1024),
+      restart_hint: e.restart_hint === undefined ? '' : str(e.restart_hint, 256),
     };
   }
   return {
@@ -58,8 +60,6 @@ export function staleServed(b: Branding): string | null {
   const e = b.element;
   return e && e.brand === b.name && e.served !== null && e.served !== b.name ? e.served : null;
 }
-
-export const RESTART_ELEMENT = 'docker compose restart element';
 
 export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const [state, setState] = useState<Branding | null>(null);
@@ -143,7 +143,7 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
           {notice && <div className="dr-alert dr-alert-warn" role="alert">{notice}</div>}
           {served !== null && (
             <div className="dr-alert dr-alert-warn">
-              Element shows &ldquo;{served}&rdquo; until it restarts: <code>{RESTART_ELEMENT}</code>
+              Element shows &ldquo;{served}&rdquo; until it restarts{state.element?.restart_hint && <>: <code>{state.element.restart_hint}</code></>}
             </div>
           )}
           <div className="dr-row">

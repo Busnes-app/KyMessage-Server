@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Busnes-app/ky-primitives/keyfile"
 	"github.com/Busnes-app/ky_server_base/internal/matrixinit"
@@ -45,6 +46,9 @@ type MatrixConfig struct {
 	MediaDir         string `json:"media_dir"`
 	DBHost           string `json:"db_host"`
 	BackupDBPassword string `json:"-"`
+	// ElementRestartHint is the command Settings shows for restarting Element, whose image
+	// serves a copy of its config made at start. Displayed only, never run.
+	ElementRestartHint string `json:"element_restart_hint"`
 }
 
 // Enabled reports whether the Matrix stack is configured.
@@ -132,6 +136,9 @@ const MinDepositInterval = 15 * time.Minute
 // DefaultAppName is the service name an unconfigured instance runs under. Capsules are sealed
 // under it, so the restore CLI has to agree with it without loading a whole Config.
 const DefaultAppName = "KyMessages"
+
+// DefaultElementRestartHint is the Compose command; a cluster sets KY_MATRIX_ELEMENT_RESTART_HINT.
+const DefaultElementRestartHint = "docker compose restart element"
 
 // AppVersion is shared by the CLI and every capsule-producing path.
 const AppVersion = "0.1.0-dev"
@@ -343,6 +350,10 @@ func matrixFromEnv() (MatrixConfig, error) {
 	m.BackupDBPassword = strings.TrimSpace(string(pw))
 	if err != nil || m.BackupDBPassword == "" {
 		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_BACKUP_DB_PASSWORD_FILE %q must name a readable, non-empty file: %v", backupPWFile, err)
+	}
+	m.ElementRestartHint = getEnv("KY_MATRIX_ELEMENT_RESTART_HINT", DefaultElementRestartHint)
+	if len(m.ElementRestartHint) > 256 || strings.ContainsFunc(m.ElementRestartHint, unicode.IsControl) {
+		return MatrixConfig{}, errors.New("KY_MATRIX_ELEMENT_RESTART_HINT must be one line of at most 256 bytes")
 	}
 	return m, nil
 }

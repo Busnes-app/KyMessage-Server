@@ -27,6 +27,7 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 - Server backups add `KY_MATRIX_DIR` and `KY_MATRIX_MEDIA_DIR` (absolute paths of the read-only `./matrix` and media mounts), `KY_MATRIX_DB_HOST` (default `postgres`, plain host name because it becomes `--host=`) and `KY_MATRIX_BACKUP_DB_PASSWORD_FILE` (the read-only `kybackup` role's password; trimmed, non-empty, `json:"-"`, a bad file fails startup) to `Config.Matrix`. `KY_BACKUP_MEDIA_FULL_KEEP` (default 3, below 1 fails startup) is `Backup.MediaFullKeep`, the monthly media archives kept.
 
 - `KY_CAPTCHA_PROVIDER` is `pow` (default) or `none`; anything else fails startup, because login verifies nothing else. `KY_CAPTCHA_POW_DIFFICULTY` defaults to 50000.
+- `KY_MATRIX_ELEMENT_RESTART_HINT` (default `DefaultElementRestartHint`, `docker compose restart element`) is `Config.Matrix.ElementRestartHint`, read only with Matrix enabled: the command Settings shows for restarting Element. One line, at most 256 bytes, else startup fails. Displayed, never run.
 
 ## Verification
 - `go test -v ./internal/config/...`

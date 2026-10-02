@@ -136,6 +136,7 @@ type brandingBody struct {
 		Error       string  `json:"error"`
 		Served      *string `json:"served"`
 		ServedError string  `json:"served_error"`
+		RestartHint string  `json:"restart_hint"`
 	} `json:"element"`
 }
 
@@ -548,5 +549,17 @@ func TestBrandingReportsWhatElementServes(t *testing.T) {
 		if e := got.Element; e.Served != nil || e.ServedError == "" {
 			t.Errorf("unknown served brand reported as %+v", e)
 		}
+	}
+}
+
+// The restart hint is the deployment's own command, so a cluster operator is not told to run
+// Compose.
+func TestBrandingNamesTheRestartCommand(t *testing.T) {
+	srv, st, cfg := setupTestServer(t)
+	withElement(t, srv, cfg, elementJSON)
+	cfg.Matrix.ElementRestartHint = "kubectl -n ky-stack rollout restart deployment/element"
+	got := decode[brandingBody](t, adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "GET", "/api/admin/branding", nil))
+	if got.Element == nil || got.Element.RestartHint != cfg.Matrix.ElementRestartHint {
+		t.Fatalf("restart hint: %+v", got.Element)
 	}
 }

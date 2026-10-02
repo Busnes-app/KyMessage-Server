@@ -96,12 +96,14 @@ type logoView struct {
 
 // elementView is what Element's config.json says now; Error is why it differs or is unreadable.
 // Served is the brand Element serves: its image copies config.json at container start, so a
-// rename reaches it only after `docker compose restart element`. ServedError is why it is unknown.
+// rename reaches it only after a restart, whose command is RestartHint
+// (KY_MATRIX_ELEMENT_RESTART_HINT). ServedError is why Served is unknown.
 type elementView struct {
 	Brand       *string `json:"brand,omitempty"`
 	Error       string  `json:"error,omitempty"`
 	Served      *string `json:"served,omitempty"`
 	ServedError string  `json:"served_error,omitempty"`
+	RestartHint string  `json:"restart_hint"`
 }
 
 type brandingView struct {
@@ -130,7 +132,7 @@ func (s *Server) brandingState(ctx context.Context) (brandingView, error) {
 		v.Logo = logoView{Custom: true, SHA256: hex.EncodeToString(sum[:]), Size: len(png)}
 	}
 	if s.config.Matrix.Enabled() {
-		e := &elementView{}
+		e := &elementView{RestartHint: s.config.Matrix.ElementRestartHint}
 		if brand, err := branding.ElementBrand(s.elementConfig()); err != nil {
 			e.Error = err.Error()
 		} else {

@@ -221,9 +221,10 @@ Upgrading a stack from before Matrix backups:
 - **Settings → Branding** sets the product name (1–64 characters; blank returns to
   `KY_APP_NAME`) and the logo (PNG only, at most 1 MiB and 1024×1024 pixels, re-encoded so
   no embedded text or metadata survives). Both show on the next page load of the console and
-  its sign-in page, and the logo in Element too. Element shows a new name after
-  `docker compose restart element`: it serves a copy of its config made when it starts, and
-  Settings shows the command while Element serves the old name. The app changes only the
+  its sign-in page, and the logo in Element too. Element shows a new name after it restarts
+  (`docker compose restart element`, or the command in `KY_MATRIX_ELEMENT_RESTART_HINT`): it
+  serves a copy of its config made when it starts, and Settings shows that command while
+  Element serves the old name. The app changes only the
   `brand` key of `matrix/element/config.json`, in place, through the one read-write file it
   mounts under `./matrix`, and puts it back within a minute if `matrix-init` re-renders it. If it cannot
   write that file, the name is still saved and Settings shows what Element says and why.
@@ -248,6 +249,15 @@ Upgrading a stack from before Matrix backups:
 storage in Element, a closed server, offboarding and its sync status, room close and delete, branding reaching Element, and backup then restore of a lost host (needs
 Docker, node and a KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
 
+### Kubernetes (Ky cluster)
+
+The K80/K81 deployment lives in `busnes.app/ky-kubernetes` (manifests, `setup-kymessages.sh`
+wizard and runbook; not versioned). Design record:
+`docs/superpowers/specs/2026-10-02-k8s-deploy-design.md`. It runs the same images and
+`matrix-init` output; there the app runs as `KY_MATRIX_UID` instead of root, and Element is
+restarted with `kubectl -n ky-stack rollout restart deployment/element`
+(`KY_MATRIX_ELEMENT_RESTART_HINT`).
+
 ## Identity and recovery configuration
 
 Deployment is still unverified. Prepare these settings for the eventual HTTPS
@@ -267,6 +277,7 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_BACKUP_MEDIA_FULL_KEEP` | Monthly full media archives kept, default 3; below 1 fails startup |
 | `KY_BACKUP_DEPOSIT_INTERVAL` | Initial schedule, default `24h`; `0` disables, otherwise at least `15m`; admin UI overrides without restart |
 | `KY_BACKUP_ALLOW_PRIVATE_RECOVERY` | Explicit LAN KyRecovery opt-in, off by default; HTTPS remains mandatory and loopback is refused |
+| `KY_MATRIX_ELEMENT_RESTART_HINT` | Command Settings shows for restarting Element, default `docker compose restart element`; one line, at most 256 bytes |
 
 Pin the suite public key manually or pair with KyRecovery, and compare its fingerprint
 with the ceremony record. A pinned key needs at least one destination: local directory

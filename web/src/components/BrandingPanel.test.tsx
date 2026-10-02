@@ -25,7 +25,8 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('parseBranding and elementNotice', () => {
   it('reads Element only when present and refuses a malformed body', () => {
     expect(parseBranding({ ...STATE, element: undefined }).element).toBeNull();
-    expect(parseBranding({ ...STATE, element: { error: 'open: no such file' } }).element).toEqual({ brand: null, error: 'open: no such file', served: null, served_error: '' });
+    expect(parseBranding({ ...STATE, element: { error: 'open: no such file' } }).element).toEqual({ brand: null, error: 'open: no such file', served: null, served_error: '', restart_hint: '' });
+    expect(() => parseBranding({ ...STATE, element: { restart_hint: 7 } })).toThrow();
     expect(() => parseBranding({ ...STATE, logo: { custom: 'yes', sha256: '', size: 0 } })).toThrow();
     expect(() => parseBranding({ ...STATE, element: { brand: 7 } })).toThrow();
   });
@@ -66,7 +67,7 @@ describe('BrandingPanel', () => {
     const onChanged = vi.fn();
     const calls = serve((url, init) => {
       if (url === '/api/admin/branding') return json(STATE);
-      if (url === '/api/admin/branding/name' && init?.method === 'PUT') return json({ ...STATE, name: 'Acme', stored_name: 'Acme', element: { brand: 'Acme', served: 'KyMessages' } });
+      if (url === '/api/admin/branding/name' && init?.method === 'PUT') return json({ ...STATE, name: 'Acme', stored_name: 'Acme', element: { brand: 'Acme', served: 'KyMessages', restart_hint: 'kubectl -n ky-stack rollout restart deployment/element' } });
       return undefined;
     });
     render(<BrandingPanel onChanged={onChanged} />);
@@ -78,8 +79,8 @@ describe('BrandingPanel', () => {
     expect(calls.find((c) => c.init?.method === 'PUT')?.init?.body).toBe(JSON.stringify({ name: 'Acme' }));
     expect(screen.getByRole('button', { name: 'Use default (KyMessages)' })).toBeTruthy();
     const hint = screen.getByText(/until it restarts/);
-    expect(hint.textContent).toBe('Element shows \u201cKyMessages\u201d until it restarts: docker compose restart element');
-    expect(hint.querySelector('code')?.textContent).toBe('docker compose restart element');
+    expect(hint.textContent).toBe('Element shows \u201cKyMessages\u201d until it restarts: kubectl -n ky-stack rollout restart deployment/element');
+    expect(hint.querySelector('code')?.textContent).toBe('kubectl -n ky-stack rollout restart deployment/element');
   });
 
   it('says what Element still shows when its config could not be written', async () => {
