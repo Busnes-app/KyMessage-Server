@@ -1,12 +1,16 @@
 import React from 'react';
 import { Settings as SettingsIcon, Database, Palette } from 'lucide-react';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
+import { BrandingPanel } from '../components/BrandingPanel';
+import { SyncPanel } from '../components/SyncPanel';
 
 interface SettingsProps {
   settings: any;
+  /** Re-reads /api/settings so the shell shows a new name. */
+  onBrandingChanged: () => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ settings }) => {
+export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged }) => {
   return (
     <div style={{ maxWidth: '1080px', margin: '0 auto', padding: '32px 20px' }}>
       <div style={{ marginBottom: '24px' }}>
@@ -57,6 +61,11 @@ export const Settings: React.FC<SettingsProps> = ({ settings }) => {
             <ThemeSwitcher />
           </div>
         </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
+        <BrandingPanel onChanged={onBrandingChanged} />
+        <SyncPanel />
       </div>
     </div>
   );
