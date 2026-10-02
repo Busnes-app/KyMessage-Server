@@ -82,6 +82,11 @@ type Server struct {
 	// connection. http.Server.Shutdown does not know about them, so runServer waits on this
 	// before the store closes.
 	detached detachedCounter
+	// brandMu serialises Element brand writes: the name handler and the maintenance tick both
+	// patch one file. brandFailing and brandErr describe the current failure streak.
+	brandMu      sync.Mutex
+	brandFailing bool
+	brandErr     string
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -333,6 +338,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("/api/settings/theme", s.requireAdmin(s.handleSetTheme))
 
+	// Branding. Any admin reads it; changes need a recent sign-in, run detached and are audited.
+	s.mux.HandleFunc("GET /api/admin/branding", s.requireAdmin(s.handleBranding))
+	s.mux.HandleFunc("PUT /api/admin/branding/name", s.tracked(s.requireFreshAdmin(s.handleBrandName)))
+	s.mux.HandleFunc("PUT /api/admin/branding/logo", s.tracked(s.requireFreshAdmin(s.handleBrandLogo)))
+	s.mux.HandleFunc("DELETE /api/admin/branding/logo", s.tracked(s.requireFreshAdmin(s.handleBrandLogoReset)))
+
 	// SCIM 2.0 routes
 	s.scim.RegisterRoutes(s.mux)
 
@@ -345,8 +356,10 @@ func (s *Server) routes() {
 	// Matrix client discovery lives outside /api/, so it must precede the SPA catch-all.
 	s.mux.HandleFunc("GET "+wellKnownMatrixClient, s.handleMatrixClientWellKnown)
 
-	// Embedded React PWA Frontend
-	s.mux.Handle("/", web.Handler())
+	// Embedded React PWA Frontend. /app-icon.png is the admin's logo when one is set; public.
+	static := web.Handler()
+	s.mux.HandleFunc("GET /app-icon.png", s.appIcon(static))
+	s.mux.Handle("/", static)
 }
 
 // stepUpWindow is how recent a sign-in must be for requireFreshAdmin. Signing in again is the

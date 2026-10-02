@@ -228,7 +228,7 @@ The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
 the pair, pin-key, unpair, deposit, export and drill handlers, which detach or run long and can outlive
-`Shutdown`. `maintenanceLoop` sweeps expired device pairings every minute with a 30-second
+`Shutdown`. `maintenanceLoop` reconciles Element's `brand` through `api.Server.ReconcileBrand` (10-second deadline; a no-op without Matrix) at its start and every minute, and sweeps expired device pairings every minute with a 30-second
 deadline; its completion and the Matrix offboarding syncer's (`matrixsync.Syncer.Run`, started only when `cfg.Matrix.Enabled()`, woken by directory webhooks) join the backup scheduler's before the same shutdown drain finishes. Nothing writes
 into a closed store. Both waits run under one `backupWaitTimeout`
 context (20m: the lib's 15m deposit ceiling, 3m of dumps, sealing) -- a context, not a timer channel,
