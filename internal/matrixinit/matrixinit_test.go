@@ -92,7 +92,7 @@ func TestInitIsWriteOnceForSecrets(t *testing.T) {
 	}
 	after := readAll(t, filepath.Join(dir, "secrets"))
 	key2, _ := os.ReadFile(filepath.Join(dir, "synapse", "signing.key"))
-	for _, n := range []string{"mas_admin_client_id", "mas_admin_client_secret"} {
+	for _, n := range []string{"mas_admin_client_id", "mas_admin_client_secret", "kybackup_db_password"} {
 		if before[n] == "" {
 			t.Errorf("secret %s not created", n)
 		}
@@ -117,7 +117,7 @@ func TestInitIsWriteOnceForSecrets(t *testing.T) {
 		t.Error("non-secret settings not reconciled")
 	}
 	for _, p := range []string{"secrets", "synapse", "mas", "postgres", "element",
-		"synapse/signing.key", "mas/config.yaml", "synapse/homeserver.yaml", "postgres/init.sql"} {
+		"synapse/signing.key", "mas/config.yaml", "synapse/homeserver.yaml", "postgres/init.sql", "postgres/kybackup-role.sql"} {
 		fi, err := os.Stat(filepath.Join(dir, p))
 		if err != nil {
 			t.Fatal(err)
@@ -555,4 +555,57 @@ func readAll(t *testing.T, dir string) map[string]string {
 		out[e.Name()] = string(b)
 	}
 	return out
+}
+
+// The backup role is created by its own idempotent file, which must sort after init.sql: the
+// Postgres entrypoint runs /docker-entrypoint-initdb.d/*.sql in name order and stops at the
+// first error, and the role's grants name databases init.sql creates.
+func TestBackupRoleSQL(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	res, err := Run(goodInput(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Rendered, "postgres/kybackup-role.sql") {
+		t.Fatalf("rendered %v", res.Rendered)
+	}
+	if !slices.Contains(res.Created, "secrets/kybackup_db_password") {
+		t.Fatalf("created %v", res.Created)
+	}
+	var names []string
+	for _, r := range res.Rendered {
+		if strings.HasPrefix(r, "postgres/") && strings.HasSuffix(r, ".sql") {
+			names = append(names, filepath.Base(r))
+		}
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"init.sql", "kybackup-role.sql"}) {
+		t.Fatalf("entrypoint order %v: init.sql must run first", names)
+	}
+	pw, _ := os.ReadFile(filepath.Join(dir, "secrets", "kybackup_db_password"))
+	b, err := os.ReadFile(filepath.Join(dir, "postgres", "kybackup-role.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(b)
+	for _, want := range []string{
+		"CREATE ROLE kybackup;",
+		"EXCEPTION WHEN duplicate_object THEN NULL;",
+		"ALTER ROLE kybackup WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '" + string(pw) + "';",
+		"GRANT pg_read_all_data TO kybackup;",
+		"GRANT CONNECT ON DATABASE synapse, mas TO kybackup;",
+		"REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC;",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("kybackup-role.sql lacks %q:\n%s", want, sql)
+		}
+	}
+	for _, bad := range []string{"pg_write_all_data", "GRANT ALL"} {
+		if strings.Contains(sql, bad) {
+			t.Errorf("kybackup-role.sql grants %q", bad)
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, "postgres", "kybackup-role.sql")); fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, want 0600: it holds the password", fi.Mode().Perm())
+	}
 }

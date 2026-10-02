@@ -65,5 +65,7 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 		return nil
 	}
 	fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element")
+	fmt.Fprintln(w, "and, once per existing stack, the backup role:")
+	fmt.Fprintln(w, "  docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/kybackup-role.sql")
 	return nil
 }

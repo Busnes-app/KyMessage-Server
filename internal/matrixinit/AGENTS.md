@@ -24,7 +24,7 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   kept byte for byte. Never add an http escape hatch: loopback overrides belong to the
   acceptance harness's scratch copy. Everything is validated before `dir` is created.
 - Layout: `secrets/<name>` (write-once), `synapse/{homeserver.yaml,signing.key}`,
-  `mas/config.yaml`, `element/config.json`, `postgres/init.sql`. Directories 0700; files
+  `mas/config.yaml`, `element/config.json`, `postgres/init.sql`, `postgres/kybackup-role.sql`. Directories 0700; files
   0600 except `element/config.json` (0644, no secrets). Only directories it creates are
   chmodded; an existing one with group or other bits is refused (never lock down `-dir .`).
   A kept secret or signing key looser than 0600 is refused, not tightened: the operator
@@ -32,7 +32,9 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 - Secrets come from `crypto/rand` and are published with a hard link from a temp file, so
   they are never overwritten or half-written. An empty secret file is an error, never
   regenerated. `secrets/postgres_password` (Postgres superuser) is never rendered; Compose
-  passes it as a secret file. `secrets/upstream_provider_id` is the MAS provider ULID, kept because
+  passes it as a secret file. `secrets/kybackup_db_password` is the read-only `kybackup` backup role's password;
+  `kybackup-role.sql` is idempotent, sorts after `init.sql` for the entrypoint, and operators run it once
+  on an existing stack (printed on the second pass). `secrets/upstream_provider_id` is the MAS provider ULID, kept because
   KyIdentity's redirect URI embeds it. Configs are re-rendered on every run.
 - Every rendered string goes through `q` (JSON quoting, a valid YAML scalar) or `sqlq`; a
   value cannot add keys.
