@@ -123,7 +123,9 @@ When the user requests a durable behavior change, record it here or in the relev
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
   as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network (the app joins it
-  for `pg_dump` as the read-only `kybackup` role, and mounts `./matrix` and `matrix-media` read-only;
+  for `pg_dump` as the read-only `kybackup` role, and mounts `./matrix` and `matrix-media` read-only,
+  with `/dev/null` masking `secrets/postgres_password`. The role does not bound the app: the
+  configs it backs up hold the owner passwords and shared secrets;
   the image's `postgresql17-client` major must equal the Postgres tag, which the check enforces), and
   it hands the app the `KY_MATRIX_*` locations and MAS admin settings: the internal
   `matrix-admin` network (only app and mas; alias `mas-admin`) and the admin secret as a Compose secret.
@@ -234,4 +236,4 @@ operator sequence: restore as `KY_MATRIX_UID`, then after `restore-matrix` chown
 `backups` to root, because the app runs as root and `keyfile` refuses keys it does not own.
 Users sign in again with fresh suite authentication. Root owns this policy and `docs/RESTORE.md`.
 
-The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite restore policy. The Matrix stack (`matrix-init`, `docker-compose.matrix.yml`, the `.well-known` and Open chat link, the README's Matrix setup and the cloudflared routes in `docs/Reverse_Proxy_Networking.md`) exists; a public cloudflared deployment is untested. Offboarding is shipped (back-channel logout plus lock/deactivate; see `internal/matrixsync/AGENTS.md`). Matrix server backups are shipped (`internal/backup/AGENTS.md`, `docs/RESTORE.md`). Open: the console and removal of the custom messaging stack.
+The KyRecovery wire contract is `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2.0.0, sealed-capsule deposit); the product half is `ky-primitives/recoveryclient`, wired through `internal/backup` and `internal/api` so every server built on this base inherits it. Operator documents: `README.md` covers the source-built local preview and configuration; `docs/RESTORE.md` covers the tested SQLite and Matrix stack restore. The Matrix stack (`matrix-init`, `docker-compose.matrix.yml`, the `.well-known` and Open chat link, the README's Matrix setup and the cloudflared routes in `docs/Reverse_Proxy_Networking.md`) exists; a public cloudflared deployment is untested. Offboarding is shipped (back-channel logout plus lock/deactivate; see `internal/matrixsync/AGENTS.md`). Matrix server backups are shipped (`internal/backup/AGENTS.md`, `docs/RESTORE.md`). Open: the console and removal of the custom messaging stack.

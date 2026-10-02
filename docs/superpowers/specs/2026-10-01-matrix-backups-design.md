@@ -19,7 +19,9 @@ end by the acceptance test, not assumed.
    Raising the limits or envelope backups is later work if a deployment approaches them.
 2. Dumps are taken by the KyMessages app with `pg_dump` and a read-only `kybackup` role on
    `matrix-db`. Cost, recorded: a compromised app can read the Matrix databases (metadata and
-   ciphertext) and the Matrix secrets. No Docker socket.
+   ciphertext) and the Matrix secrets, and, holding the owner passwords in the configs it backs
+   up, write both databases and act as Synapse admin. It cannot decrypt E2EE messages. The
+   Postgres superuser password is hidden from it and never backed up. No Docker socket.
 3. Media: an encrypted incremental mirror on every run plus an encrypted monthly full archive;
    newest 3 archives kept.
 4. Restore covers the whole stack (`restore` plus a new `restore-matrix`) and is proven by the
@@ -37,21 +39,22 @@ end by the acceptance test, not assumed.
 ## Section 1: components
 
 - **Database access (`matrix-init`).** New write-once secret `kybackup_db_password`.
-  `postgres/init.sql` creates role `kybackup` (`LOGIN`, `CONNECT` on `synapse` and `mas`
-  only, `pg_read_all_data`). Existing stacks never re-run `init.sql`, so `matrix-init` also
-  renders idempotent `postgres/kybackup-role.sql` (create if missing, set password, grants). It
-  sorts after `init.sql`, so the entrypoint applies it on a fresh volume; operators run it once
-  on an existing stack through `docker compose exec -T postgres psql` (README upgrade step). The
+  `postgres/kybackup-role.sql`, rendered by `matrix-init` and idempotent (create if missing, set
+  password, grants), creates role `kybackup` (`LOGIN`, `CONNECT` on `synapse` and `mas` only,
+  `pg_read_all_data`). It sorts after `init.sql`, so the entrypoint applies it on a fresh
+  volume; operators run it once on an existing stack through `docker compose exec -T postgres psql` (README upgrade step). The
   app image gains `postgresql17-client` (major version equal to the server's).
 - **Compose (`docker-compose.matrix.yml`, app).** Joins `matrix-db`; the `kybackup` password
-  as a Compose secret; `./matrix` read-only at `/matrix`; `matrix-media` read-only.
+  as a Compose secret; `./matrix` read-only at `/matrix` with `/dev/null` masking
+  `secrets/postgres_password`; `matrix-media` read-only.
 - **Capsule (`internal/backup`).** With Matrix enabled, `Collect` adds `matrix/` config and
-  secrets (`secrets/*`, `synapse/signing.key`, Synapse/MAS/Element configs, Postgres init SQL)
+  secrets (`secrets/*` except `postgres_password`, `synapse/signing.key`, Synapse/MAS/Element configs, Postgres init SQL)
   and `matrix/dumps/mas.dump.NNN` then `matrix/dumps/synapse.dump.NNN` (`pg_dump -Fc`, split
   into 64 MiB parts). The media data key is `data/media.key` (write-once 0600), so it travels
   with `data/`. Over 256 MiB expanded fails the run with the measured size and the offending
   member; status reports the last capsule size and its share of the limit, warning at 75%. The
-  drill also checks the dumps exist and pass `pg_restore --list` and the Matrix files exist.
+  drill also checks the dumps exist and read in full (`pg_restore --file=/dev/null`) and the
+  Matrix files exist.
   "People capsule" wording becomes "server capsule".
 - **Media (`internal/backup/media`).** Each run copies new or changed files from the media
   volume into `KY_BACKUP_DIR/media/mirror/`, each AES-256-GCM encrypted under the media key
@@ -59,7 +62,8 @@ end by the acceptance test, not assumed.
   Monthly: `media/full-YYYY-MM.tar` of the encrypted mirror and index (no further crypto);
   newest `KY_BACKUP_MEDIA_FULL_KEEP` (default 3) kept; after a new archive, mirror files for
   media deleted on the server are dropped.
-- **Restore.** `kymessages restore` also extracts `matrix/` into the target. New
+- **Restore.** `kymessages restore` also extracts `matrix/` into the target; `kymessages
+  matrix-init` then creates the missing superuser password and keeps every restored secret. New
   `kymessages restore-matrix`, run once via `docker compose run --rm` against a fresh stack:
   refuses unless both databases are empty and, unless `-skip-media`, the media store is empty;
   `pg_restore`s as the `synapse` and `mas` owners (no superuser; the one extension allowed is
@@ -102,4 +106,9 @@ pages (sub-project 5); point-in-time recovery; backing up Element (stateless).
 - Sealing holds the whole capsule in memory (up to ~384 MiB plus dumps).
 - The MAS and Synapse dumps are seconds apart; a user created in that window is re-provisioned
   at sign-in, untested beyond the acceptance run.
-- The app gains read access to the Matrix databases and secrets (decision 2).
+- The app reads the Matrix databases and secrets (decision 2). The rendered configs it must
+  back up hold the `synapse` and `mas` owner passwords and the MAS-Synapse shared secret, so a
+  compromised app can write both databases and act as Synapse admin; the read-only `kybackup`
+  role does not bound it. It cannot decrypt E2EE messages. It cannot see the Postgres superuser
+  password: Compose masks it, the capsule leaves it out, and after a restore `matrix-init`
+  creates a new one before Postgres starts.

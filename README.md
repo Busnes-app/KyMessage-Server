@@ -166,7 +166,12 @@ Offboarding, as measured by `make matrix-acceptance` (cut within 30 s, in practi
 Backups:
 
 - The scheduled server capsule includes Matrix: configs, secrets, signing key and `pg_dump`s of
-  Synapse and MAS (one-time keys excluded).
+  Synapse and MAS (one-time keys excluded). It leaves out the Postgres superuser password;
+  restore recreates it with `matrix-init`.
+- What this costs: the app joins `matrix-db` and reads `./matrix` to back it up. The configs
+  there hold the `synapse` and `mas` database owner passwords and the MAS-Synapse shared
+  secret, so a compromised app can write both databases and act as Synapse admin. It cannot
+  decrypt end-to-end encrypted messages. Compose hides the superuser password from it.
 - Media is mirrored, encrypted, to `KY_BACKUP_DIR/media` after each scheduled run or
   `kymessages deposit`, with a full archive each month. Copy that directory off the host.
   `deposit` exits non-zero if the media step fails after a good deposit.
@@ -179,7 +184,7 @@ Upgrading a stack from before Matrix backups:
 1. Re-run `./kymessages matrix-init` (adds `kybackup_db_password` and `postgres/kybackup-role.sql`).
 2. Run the role file once:
    `docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/kybackup-role.sql`.
-3. Rebuild or pull the app image, keep `KY_BACKUP_DIR` set, and optionally set
+3. Rebuild the app image (no image is published), keep `KY_BACKUP_DIR` set, and optionally set
    `KY_BACKUP_MEDIA_FULL_KEEP`.
 4. `docker compose up -d`. The first scheduled run then backs up Matrix.
 
