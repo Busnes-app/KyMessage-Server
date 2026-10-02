@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -143,4 +145,120 @@ func (c *Client) Rooms(ctx context.Context, token string, q RoomQuery) (RoomPage
 		return RoomPage{}, err
 	}
 	return RoomPage{Rooms: page.Rooms, Total: page.Total}, nil
+}
+
+func roomPath(version, id string) string { return prefix + version + "/rooms/" + url.PathEscape(id) }
+
+// Room reads one room; *Error with Status 404 when Synapse does not know it.
+func (c *Client) Room(ctx context.Context, token, id string) (Room, error) {
+	var r Room
+	err := c.do(ctx, token, http.MethodGet, roomPath("v1", id), nil, &r)
+	return r, err
+}
+
+// Members are the room's joined members (user IDs).
+func (c *Client) Members(ctx context.Context, token, id string) ([]string, error) {
+	var m struct {
+		Members []string `json:"members"`
+	}
+	err := c.do(ctx, token, http.MethodGet, roomPath("v1", id)+"/members", nil, &m)
+	return m.Members, err
+}
+
+// Blocked reports whether joining the room is refused.
+func (c *Client) Blocked(ctx context.Context, token, id string) (bool, error) {
+	var b struct {
+		Block bool `json:"block"`
+	}
+	err := c.do(ctx, token, http.MethodGet, roomPath("v1", id)+"/block", nil, &b)
+	return b.Block, err
+}
+
+// Close starts Synapse's shutdown without a purge: the room is blocked, every local member
+// leaves, history stays. It returns the background job's delete_id.
+func (c *Client) Close(ctx context.Context, token, id string) (string, error) {
+	return c.shutdown(ctx, token, id, false)
+}
+
+// Delete starts a shutdown that also purges the room's events and state; the room stays
+// blocked. Media is not purged (see RoomMedia).
+func (c *Client) Delete(ctx context.Context, token, id string) (string, error) {
+	return c.shutdown(ctx, token, id, true)
+}
+
+func (c *Client) shutdown(ctx context.Context, token, id string, purge bool) (string, error) {
+	var r struct {
+		DeleteID string `json:"delete_id"`
+	}
+	// Synapse's purge defaults to true: always send it.
+	if err := c.do(ctx, token, http.MethodDelete, roomPath("v2", id), map[string]bool{"block": true, "purge": purge}, &r); err != nil {
+		return "", err
+	}
+	if r.DeleteID == "" {
+		return "", errors.New("Synapse started no delete job")
+	}
+	return r.DeleteID, nil
+}
+
+// DeleteJob is one close or delete job. Synapse gives no reason when one fails.
+type DeleteJob struct{ ID, Status string }
+
+// DeleteJobs lists the room's jobs that have started (active, complete, failed); Synapse does
+// not list one still waiting to start. None is an empty list.
+func (c *Client) DeleteJobs(ctx context.Context, token, id string) ([]DeleteJob, error) {
+	var r struct {
+		Results []struct {
+			DeleteID string `json:"delete_id"`
+			Status   string `json:"status"`
+		} `json:"results"`
+	}
+	err := c.do(ctx, token, http.MethodGet, roomPath("v2", id)+"/delete_status", nil, &r)
+	var se *Error
+	if errors.As(err, &se) && se.Status == http.StatusNotFound {
+		return []DeleteJob{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DeleteJob, 0, len(r.Results))
+	for _, j := range r.Results {
+		out = append(out, DeleteJob{ID: j.DeleteID, Status: j.Status})
+	}
+	return out, nil
+}
+
+// Media is one piece of local media.
+type Media struct{ Server, ID string }
+
+var mxcURI = regexp.MustCompile(`^mxc://([A-Za-z0-9.:-]+)/([A-Za-z0-9_-]+)$`)
+
+// RoomMedia is the local media Synapse can attribute to the room: what non-encrypted events
+// reference by URL. Attachments in encrypted rooms are referenced only inside ciphertext and
+// are never listed.
+func (c *Client) RoomMedia(ctx context.Context, token, id string) ([]Media, error) {
+	var r struct {
+		Local []string `json:"local"`
+	}
+	if err := c.do(ctx, token, http.MethodGet, prefix+"v1/room/"+url.PathEscape(id)+"/media", nil, &r); err != nil {
+		return nil, err
+	}
+	out := make([]Media, 0, len(r.Local))
+	for _, u := range r.Local {
+		m := mxcURI.FindStringSubmatch(u)
+		if m == nil {
+			return nil, fmt.Errorf("Synapse listed unusable media %q", clip(u, 100))
+		}
+		out = append(out, Media{Server: m[1], ID: m[2]})
+	}
+	return out, nil
+}
+
+// DeleteMedia removes one piece of local media; already gone counts as done.
+func (c *Client) DeleteMedia(ctx context.Context, token string, m Media) error {
+	err := c.do(ctx, token, http.MethodDelete, prefix+"v1/media/"+url.PathEscape(m.Server)+"/"+url.PathEscape(m.ID), nil, nil)
+	var se *Error
+	if errors.As(err, &se) && se.Status == http.StatusNotFound {
+		return nil
+	}
+	return err
 }

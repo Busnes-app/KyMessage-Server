@@ -16,6 +16,15 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   never the token.
 - `Rooms` orders by name and omits an empty search (Synapse refuses an empty `search_term`).
   `StateEvents` is the only size-like count Synapse reports; there is no byte size.
+- `Close` and `Delete` are `DELETE /_synapse/admin/v2/rooms/{id}` with `block` true and
+  `purge` sent explicitly (false, true): Synapse's purge defaults to true. Both start a
+  background job and return its `delete_id`. Close makes every local member leave; with
+  federation off the server is then out of the room and nobody can rejoin, so Close is final.
+- `DeleteJobs` lists started jobs only (Synapse omits scheduled ones and gives no failure
+  reason); no job is an empty list.
+- `RoomMedia` lists only media non-encrypted events reference; `DeleteMedia` treats 404 as
+  done. Encrypted rooms' attachments cannot be attributed and are never deleted.
+- Messages are never read: no method fetches events.
 
 ## Verification
 - `go test -race ./internal/synapseadmin/`
