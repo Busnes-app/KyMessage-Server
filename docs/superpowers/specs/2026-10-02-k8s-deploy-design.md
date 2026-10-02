@@ -57,7 +57,8 @@ More users are added later with no redeploy.
   MAS → Postgres, Synapse 8008 (user provisioning).
 - Egress (`kymessages-egress.yaml`): app and MAS get public HTTPS (KyIdentity at
   `auth.urlxl.com`); the app also gets `192.168.1.91:443` (admin02 Nginx, KyRecovery).
-  Synapse, Element and Postgres get none (federation off).
+  Synapse gets public HTTPS for push gateways (Element mobile), as in Compose; federation
+  and URL previews are off. Element and Postgres get none.
 - `verify-network.sh` adds denials: another Ky app refused by Postgres and `mas-admin`;
   Synapse refused by MAS 8081.
 - Tunnel `HLUSWCK8` routes, in order: `urlxl.com` path `^/\.well-known/matrix/client$` →
