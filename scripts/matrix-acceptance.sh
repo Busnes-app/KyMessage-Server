@@ -512,6 +512,10 @@ app_api PUT /api/backup/schedule '{"interval_sec": 0}' >/dev/null
 pub=$(go run -C "$repo" ./scripts/matrix-acceptance/suitekey "$state/shares")
 app_api POST /api/backup/pin-key "$(jq -n --arg k "$pub" '{public_key: $k, threshold: 2, total_shares: 3}')" >/dev/null
 ok "operator signed in, replaced the bootstrap password and pinned a throwaway 2-of-3 suite key"
+# The restore step's one-time-key check is vacuous unless the source holds some.
+otks=$(sql synapse 'SELECT count(*) FROM e2e_one_time_keys_json')
+((otks > 0)) || { echo "  FAILED: Synapse holds no one-time keys to exclude" >&2; false; }
+ok "Synapse holds $otks one-time keys before the backup"
 dc exec -T app /app/kymessages deposit >"$state/deposit.out"
 ok "kymessages deposit sealed a capsule"
 dc exec -T app /app/kymessages backup-drill | tee "$state/drill.out"
@@ -543,6 +547,8 @@ pass
 step restore
 dc cp app:/app/backups "$state/backups"
 caps=("$state"/backups/*.kycap)
+# Unmatched, the glob stays literal and still counts one.
+[[ -f ${caps[0]} ]] || { echo "  FAILED: no sealed capsule in the backup copy" >&2; false; }
 expect "${#caps[@]}" 1 "one sealed capsule"
 dc rm -sfv app element synapse mas postgres synapse-media-owner >/dev/null
 for v in matrix-postgres matrix-media app-data app-backups; do docker volume rm "${project}_$v" >/dev/null; done
