@@ -101,9 +101,10 @@ client secret once, when you register the client the first run describes.
    then paste it in with an editor). It lives only in that file, never in env or `.env`;
    `matrix-init` refuses it if group or others can read it.
 5. Run `./kymessages matrix-init` again. It keeps every secret and now writes
-   `matrix/mas/config.yaml`. Until it exists, `docker compose up` refuses MAS with "bind
-   source path does not exist". Whenever you re-run it on a running stack, apply the configs
-   with `docker compose restart synapse mas element`.
+   `matrix/mas/config.yaml`. Until then, `docker compose up` refuses MAS and the app with
+   "bind source path does not exist". Whenever you re-run it on a running stack, apply the configs
+   with `docker compose restart synapse mas element app` (the app mounts each secret file, so
+   it sees a replaced `kyidentity_client_secret` only after a restart).
 6. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`)
    and link it to the MAS client's app. KyIdentity shows its signing secret once: that is
    `KY_KYIDENTITY_HMAC_SECRET`. Its directory events are what lock and deactivate users in MAS.

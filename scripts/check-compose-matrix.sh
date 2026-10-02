@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The Matrix overlay must publish nothing, pin every image by tag and digest, run the stateful
 # services as the matrix-init owner, mount only each service's own ./matrix path read-only,
-# pass the Postgres superuser password as a secret file and hide it from the app image, and keep
-# composing with the proxy and static-IP overlays.
+# pass the Postgres superuser password as a secret file and keep it out of the app's view, and
+# keep composing with the proxy and static-IP overlays.
 # Uses throwaway values and ignores any local .env; contacts nothing.
 set -u
 root=$(git rev-parse --show-toplevel)
@@ -135,11 +135,16 @@ for kv in KY_MATRIX_DIR=/matrix KY_MATRIX_MEDIA_DIR=/matrix-media KY_MATRIX_DB_H
 done
 [ "$(jq -r '.secrets.kybackup_db_password.file' <<<"$out")" = "$root/matrix/secrets/kybackup_db_password" ] || bad "kybackup secret source"
 appvol() { jq -r --arg t "$1" '.services.app.volumes[] | select(.target == $t) | [.type, .source, (.read_only // false)] | @tsv' <<<"$out"; }
-[ "$(appvol /matrix)" = "$(printf 'bind\t%s\ttrue' "$root/matrix")" ] || bad "app does not mount ./matrix read-only at /matrix"
-# The app must not see the Postgres superuser password: /dev/null masks it inside the ./matrix bind.
-[ "$(appvol /matrix/secrets/postgres_password)" = "$(printf 'bind\t/dev/null\ttrue')" ] || bad "app can read the Postgres superuser password"
-[ "$(jq -c '[.services.app.volumes[] | .target | select(. == "/matrix" or startswith("/matrix/"))] | sort' <<<"$out")" = '["/matrix","/matrix/secrets/postgres_password"]' ] \
-  || bad "app mounts other ./matrix paths: $(jq -c .services.app.volumes <<<"$out")"
+# ./matrix piece by piece: each bind read-only at the same path under /matrix, never created by
+# Docker, and none of them ./matrix, ./matrix/secrets or the Postgres superuser password.
+appmx=$(jq -c --arg r "$root/matrix" '[.services.app.volumes[] | select(.type == "bind" and (.source == $r or (.source | startswith($r + "/"))))]' <<<"$out")
+jq -e --arg r "$root/matrix" --argjson nc "$nocreate" 'length > 0 and all(.[]; .target == "/matrix" + (.source | ltrimstr($r))
+    and .read_only == true and .bind == $nc and .source != $r and .source != $r + "/secrets")' <<<"$appmx" >/dev/null \
+  || bad "app ./matrix binds are not read-only, same-path, non-creating pieces: $appmx"
+jq -e 'any(.[]; .source | test("postgres_password")) | not' <<<"$appmx" >/dev/null || bad "app can read the Postgres superuser password"
+for d in synapse mas element postgres; do
+  jq -e --arg t "/matrix/$d" 'any(.[]; .target == $t)' <<<"$appmx" >/dev/null || bad "app does not mount ./matrix/$d"
+done
 [ "$(appvol /matrix-media)" = "$(printf 'volume\tmatrix-media\ttrue')" ] || bad "app does not mount matrix-media read-only at /matrix-media"
 # pg_dump must match the server's major version: the image's client package against the postgres tag.
 client=$(grep -E '^RUN apk .*postgresql[0-9]+-client' "$root/Dockerfile" | grep -oE 'postgresql[0-9]+-client' | grep -oE '[0-9]+')
@@ -155,8 +160,7 @@ r=$(jq -c '.services["restore-matrix"]' <<<"$rs")
   = '[["/app/kymessages","restore-matrix"],["matrix-db"],"1234:5678",["ALL"],null,["no-new-privileges:true"],["restore"],"never",null,"service_healthy","service_completed_successfully"]' ] \
   || bad "restore-matrix is not locked down: $r"
 [ "$(jq -r .image <<<"$r")" = "$(jq -r .services.app.image <<<"$out")" ] || bad "restore-matrix does not run the app image"
-want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	true" "/matrix	$root/matrix	true" \
-  "/matrix/secrets/postgres_password	/dev/null	true" "/media	matrix-media	false")
+want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	true" "/matrix	$root/matrix	true" "/media	matrix-media	false")
 [ "$(jq -r '.volumes[] | [.target, .source, (.read_only // false)] | @tsv' <<<"$r" | sort)" = "$want" ] \
   || bad "restore-matrix mounts: $(jq -c .volumes <<<"$r")"
 [ "$(jq -c '[.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$r")" = '[true]' ] \

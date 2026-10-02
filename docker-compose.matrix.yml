@@ -15,6 +15,8 @@ x-hardening: &hardening
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
   cap_drop: [ALL]
+# A read-only bind of a path matrix-init made; a missing one refuses the start, never creates it.
+x-matrix-ro: &matrix-ro {type: bind, read_only: true, bind: {create_host_path: false}}
 
 services:
   # Serves /.well-known/matrix/client and the members' Open chat link.
@@ -33,7 +35,7 @@ services:
       # files and the media store, both read-only. Cost, recorded: the configs it must back up
       # hold the synapse and mas owner passwords and the shared secrets, so a compromised app can
       # write both databases and act as Synapse admin. It cannot decrypt E2EE messages. The
-      # superuser password is masked below and never backed up.
+      # superuser password is never mounted here and never backed up.
       - KY_MATRIX_DIR=/matrix
       - KY_MATRIX_MEDIA_DIR=/matrix-media
       - KY_MATRIX_DB_HOST=postgres
@@ -44,11 +46,27 @@ services:
       default: {}
       matrix-admin: {}
       matrix-db: {}
+    # ./matrix piece by piece, so secrets/postgres_password (the superuser's) is not in view:
+    # every secret matrix-init writes but that one, plus the operator's KyIdentity client
+    # secret (TestComposeMountsEverySecretButTheSuperusers keeps the list in step).
     volumes:
-      - ./matrix:/matrix:ro
-      # Masks the superuser password; without CAP_SYS_ADMIN the app cannot unmount it. A missing
-      # file fails the start (read-only mountpoint), never creates one.
-      - /dev/null:/matrix/secrets/postgres_password:ro
+      - {<<: *matrix-ro, source: ./matrix/synapse, target: /matrix/synapse}
+      - {<<: *matrix-ro, source: ./matrix/mas, target: /matrix/mas}
+      - {<<: *matrix-ro, source: ./matrix/element, target: /matrix/element}
+      - {<<: *matrix-ro, source: ./matrix/postgres, target: /matrix/postgres}
+      - {<<: *matrix-ro, source: ./matrix/secrets/synapse_db_password, target: /matrix/secrets/synapse_db_password}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_db_password, target: /matrix/secrets/mas_db_password}
+      - {<<: *matrix-ro, source: ./matrix/secrets/synapse_macaroon_secret_key, target: /matrix/secrets/synapse_macaroon_secret_key}
+      - {<<: *matrix-ro, source: ./matrix/secrets/synapse_form_secret, target: /matrix/secrets/synapse_form_secret}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_synapse_shared_secret, target: /matrix/secrets/mas_synapse_shared_secret}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_encryption, target: /matrix/secrets/mas_encryption}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_signing_rsa, target: /matrix/secrets/mas_signing_rsa}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_signing_ec, target: /matrix/secrets/mas_signing_ec}
+      - {<<: *matrix-ro, source: ./matrix/secrets/upstream_provider_id, target: /matrix/secrets/upstream_provider_id}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_admin_client_id, target: /matrix/secrets/mas_admin_client_id}
+      - {<<: *matrix-ro, source: ./matrix/secrets/mas_admin_client_secret, target: /matrix/secrets/mas_admin_client_secret}
+      - {<<: *matrix-ro, source: ./matrix/secrets/kybackup_db_password, target: /matrix/secrets/kybackup_db_password}
+      - {<<: *matrix-ro, source: ./matrix/secrets/kyidentity_client_secret, target: /matrix/secrets/kyidentity_client_secret}
       - matrix-media:/matrix-media:ro
 
   postgres:
@@ -168,7 +186,6 @@ services:
       - ./data:/app/data:ro
       - ./backups:/app/backups:ro
       - ./matrix:/matrix:ro
-      - /dev/null:/matrix/secrets/postgres_password:ro
       # nocopy, as for synapse: keeps synapse-media-owner's chown of the empty volume.
       - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
     depends_on:

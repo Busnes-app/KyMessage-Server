@@ -653,3 +653,41 @@ func TestInitRegeneratesOnlyAMissingSecret(t *testing.T) {
 		}
 	}
 }
+
+// The app mounts ./matrix piece by piece so the superuser password stays out of its view. Every
+// other secret must be mounted, or the capsule silently lacks it and a restore regenerates it.
+func TestComposeMountsEverySecretButTheSuperusers(t *testing.T) {
+	raw, err := os.ReadFile("../../docker-compose.matrix.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compose struct {
+		Services map[string]struct {
+			Volumes []any `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(raw, &compose); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, v := range compose.Services["app"].Volumes {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if target, _ := m["target"].(string); strings.HasPrefix(target, "/matrix/secrets/") {
+			got = append(got, strings.TrimPrefix(target, "/matrix/secrets/"))
+		}
+	}
+	want := []string{filepath.Base(ClientSecretFile)}
+	for _, spec := range secretSpecs {
+		if spec.name != "postgres_password" {
+			want = append(want, spec.name)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("app mounts secrets %v, want %v", got, want)
+	}
+}

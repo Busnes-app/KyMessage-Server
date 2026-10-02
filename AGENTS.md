@@ -123,9 +123,11 @@ When the user requests a durable behavior change, record it here or in the relev
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
   as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network (the app joins it
-  for `pg_dump` as the read-only `kybackup` role, and mounts `./matrix` and `matrix-media` read-only,
-  with `/dev/null` masking `secrets/postgres_password`. The role does not bound the app: the
-  configs it backs up hold the owner passwords and shared secrets;
+  for `pg_dump` as the read-only `kybackup` role, and mounts `matrix-media` and `./matrix`
+  read-only, the latter piece by piece: the config directories and each secret but
+  `postgres_password`, never created by Docker (a `/dev/null` mask inside a read-only bind
+  breaks `docker cp`). The role does not bound the app: the configs it backs up hold the owner
+  passwords and shared secrets;
   the image's `postgresql17-client` major must equal the Postgres tag, which the check enforces), and
   it hands the app the `KY_MATRIX_*` locations and MAS admin settings: the internal
   `matrix-admin` network (only app and mas; alias `mas-admin`) and the admin secret as a Compose secret.

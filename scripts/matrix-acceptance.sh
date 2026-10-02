@@ -259,6 +259,16 @@ kyid POST "/api/admin/app-registry/$app/link" "$(jq -c .body <<<"$link")" >/dev/
 record=$(kyid GET /api/admin/app-registry | jq -c --arg a "$app" '.records[] | select(.id == $a)')
 expect "$(jq -r .systemId <<<"$record")" "$system" "the webhook system shares the MAS client's app record"
 expect "$(jq -r .accessMode <<<"$record")" assigned_only "the MAS client admits assigned users only"
+# The operator's step: KyIdentity showed the secret once; it goes in a 0600 file, never env.
+# Before the app starts: Compose refuses the app until that file exists (it is in the capsule).
+jq -re .clientSecret "$state/client.json" >"$client_secret_file"
+chmod 600 "$client_secret_file"
+matrix_init >"$state/init2.out"
+grep -q 'kept      secrets/upstream_provider_id' "$state/init2.out"
+grep -q 'rendered  mas/config.yaml' "$state/init2.out"
+expect "$(grep -cF "client_secret: \"$(cat "$client_secret_file")\"" "$scratch/matrix/mas/config.yaml")" 1 \
+	"matrix-init re-run: secrets kept, the saved client secret rendered into MAS"
+no_insecure "re-rendered configs" "${rendered[@]}"
 # KyMessages first, so it is listening when the assignments below are delivered.
 dc up -d app >/dev/null
 ready "$KY_APP_URL/.well-known/matrix/client"
@@ -272,15 +282,6 @@ ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallor
 # MAS user it has no record for.
 delivered() { kyid GET "/api/admin/systems/$system/provisioning" | jq '[.users[] | select(.desired and .acknowledged)] | length'; }
 eventually 60 "$((${#users[@]} - 1))" "KyMessages acknowledged every assigned user's webhook" delivered
-# The operator's step: KyIdentity showed the secret once; it goes in a 0600 file, never env.
-jq -re .clientSecret "$state/client.json" >"$client_secret_file"
-chmod 600 "$client_secret_file"
-matrix_init >"$state/init2.out"
-grep -q 'kept      secrets/upstream_provider_id' "$state/init2.out"
-grep -q 'rendered  mas/config.yaml' "$state/init2.out"
-expect "$(grep -cF "client_secret: \"$(cat "$client_secret_file")\"" "$scratch/matrix/mas/config.yaml")" 1 \
-	"matrix-init re-run: secrets kept, the saved client secret rendered into MAS"
-no_insecure "re-rendered configs" "${rendered[@]}"
 # Element pulls in Synapse, MAS and Postgres; the base file's app service never starts.
 dc up -d --quiet-pull --wait --wait-timeout 300 element >/dev/null
 ready https://auth.kymatrix.test/.well-known/openid-configuration
@@ -516,9 +517,11 @@ ok "operator signed in, replaced the bootstrap password and pinned a throwaway 2
 otks=$(sql synapse 'SELECT count(*) FROM e2e_one_time_keys_json')
 ((otks > 0)) || { echo "  FAILED: Synapse holds no one-time keys to exclude" >&2; false; }
 ok "Synapse holds $otks one-time keys before the backup"
-# The app reads ./matrix for the capsule, but the superuser password is masked from it.
+# The app reads ./matrix for the capsule, but not the superuser password.
 [[ -s $scratch/matrix/secrets/postgres_password ]] || { echo "  FAILED: no superuser password to hide" >&2; false; }
-expect "$(dc exec -T app wc -c /matrix/secrets/postgres_password | awk '{print $1}')" 0 "the app reads an empty Postgres superuser password"
+dc exec -T app test -s /matrix/secrets/kybackup_db_password
+if dc exec -T app test -e /matrix/secrets/postgres_password; then echo "  FAILED: the app sees the Postgres superuser password" >&2; false; fi
+ok "the app sees the Matrix secrets but not the Postgres superuser password"
 dc exec -T app /app/kymessages deposit >"$state/deposit.out"
 ok "kymessages deposit sealed a capsule"
 dc exec -T app /app/kymessages backup-drill | tee "$state/drill.out"

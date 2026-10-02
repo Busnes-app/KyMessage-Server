@@ -32,7 +32,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 - Secrets come from `crypto/rand` and are published with a hard link from a temp file, so
   they are never overwritten or half-written. An empty secret file is an error, never
   regenerated. `secrets/postgres_password` (Postgres superuser) is never rendered; Compose
-  passes it as a secret file and masks it from the app. The capsule leaves it out, so after a
+  passes it as a secret file to postgres only. The app mounts `./matrix` piece by piece, every
+  other secret included (`TestComposeMountsEverySecretButTheSuperusers`; add a new secret there). The capsule leaves it out, so after a
   restore `matrix-init` creates it and keeps every restored secret
   (`TestInitRegeneratesOnlyAMissingSecret`). `secrets/kybackup_db_password` is the read-only `kybackup` backup role's password;
   `kybackup-role.sql` is idempotent, sorts after `init.sql` for the entrypoint, and operators run it once

@@ -45,8 +45,8 @@ end by the acceptance test, not assumed.
   volume; operators run it once on an existing stack through `docker compose exec -T postgres psql` (README upgrade step). The
   app image gains `postgresql17-client` (major version equal to the server's).
 - **Compose (`docker-compose.matrix.yml`, app).** Joins `matrix-db`; the `kybackup` password
-  as a Compose secret; `./matrix` read-only at `/matrix` with `/dev/null` masking
-  `secrets/postgres_password`; `matrix-media` read-only.
+  as a Compose secret; `./matrix` read-only at `/matrix` piece by piece (the
+  config directories and every secret but `postgres_password`); `matrix-media` read-only.
 - **Capsule (`internal/backup`).** With Matrix enabled, `Collect` adds `matrix/` config and
   secrets (`secrets/*` except `postgres_password`, `synapse/signing.key`, Synapse/MAS/Element configs, Postgres init SQL)
   and `matrix/dumps/mas.dump.NNN` then `matrix/dumps/synapse.dump.NNN` (`pg_dump -Fc`, split
@@ -110,5 +110,5 @@ pages (sub-project 5); point-in-time recovery; backing up Element (stateless).
   back up hold the `synapse` and `mas` owner passwords and the MAS-Synapse shared secret, so a
   compromised app can write both databases and act as Synapse admin; the read-only `kybackup`
   role does not bound it. It cannot decrypt E2EE messages. It cannot see the Postgres superuser
-  password: Compose masks it, the capsule leaves it out, and after a restore `matrix-init`
+  password: Compose does not mount it, the capsule leaves it out, and after a restore `matrix-init`
   creates a new one before Postgres starts.
