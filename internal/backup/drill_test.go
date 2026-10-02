@@ -297,3 +297,79 @@ func TestChecksSQLiteFilenameIsNotADSN(t *testing.T) {
 		t.Fatalf("escaped filename failed: %+v", result)
 	}
 }
+
+// fakePgRestore accepts --list on a stream starting with PGDMP and echoes the rest as the TOC.
+func fakePgRestore(t *testing.T) {
+	fakeTool(t, "pg_restore", `[ "$1" = --list ] || exit 3
+IFS= read -r first || [ -n "$first" ] || exit 1
+case $first in PGDMP*) ;; *) echo 'pg_restore: error: input file does not appear to be a valid archive' >&2; exit 1 ;; esac
+while IFS= read -r line; do echo "$line"; done
+`)
+}
+
+func matrixScratch(t *testing.T, p recoveryclient.Payload, skip string, corrupt string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, f := range p.Files {
+		if f.Path == skip {
+			continue
+		}
+		data := f.Data
+		if f.Path == corrupt {
+			data = []byte("not a dump\n")
+		}
+		full := filepath.Join(dir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestDrillChecksDumps(t *testing.T) {
+	t.Setenv("KY_PORT", "8080")
+	t.Setenv("KY_DB_DRIVER", "sqlite")
+	backup.SetLimitsForTest(t, 1000, 1<<20)
+	fakePgRestore(t)
+	cfg, _ := matrixInstance(t, append(dumpOf(1500), []byte("\n; TABLE public users\n")...), dumpOf(10))
+	p, err := backup.Collect(context.Background(), cfg, "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := func(checks []recoveryclient.Check) bool {
+		for _, c := range checks {
+			if !c.Passed {
+				return false
+			}
+		}
+		return len(checks) > 0
+	}
+	byName := func(checks []recoveryclient.Check, name string) *recoveryclient.Check {
+		for i := range checks {
+			if checks[i].Name == name {
+				return &checks[i]
+			}
+		}
+		return nil
+	}
+	ok := backup.Checks(matrixScratch(t, p, "", ""), manifestFor(p))
+	if !passed(ok) || byName(ok, "Postgres Dump: matrix/dumps/mas.dump") == nil || byName(ok, "Postgres Dump: matrix/dumps/synapse.dump") == nil {
+		t.Fatalf("complete dumps: %+v", ok)
+	}
+	if c := byName(backup.Checks(matrixScratch(t, p, "", "matrix/dumps/synapse.dump.000"), manifestFor(p)), "Postgres Dump: matrix/dumps/synapse.dump"); c == nil || c.Passed {
+		t.Errorf("corrupt dump passed: %+v", c)
+	}
+	if passed(backup.Checks(matrixScratch(t, p, "matrix/dumps/mas.dump.001", ""), manifestFor(p))) {
+		t.Error("missing dump part passed")
+	}
+	// The recipe must account for every dump member.
+	bad := p
+	bad.VerificationRecipe = maps.Clone(p.VerificationRecipe)
+	delete(bad.VerificationRecipe, "pg_dumps")
+	if c := backup.Checks(matrixScratch(t, p, "", ""), manifestFor(bad)); len(c) != 1 || c[0].Name != "Verification Recipe" {
+		t.Errorf("recipe without pg_dumps: %+v", c)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/keyfile"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	_ "modernc.org/sqlite"
@@ -32,7 +33,9 @@ var ErrNoDatabaseSnapshot = errors.New("backup: no consistent database snapshot 
 // Collect assembles the payload every sealing caller uses: the local application files
 // (SQLite database, configuration) plus the members that may only ever travel inside a
 // sealed capsule (the encryption key, the pinned recovery public key). Nothing that returns
-// from here may leave the process except through a Sealer.
+// from here may leave the process except through a Sealer. With Matrix enabled the payload also
+// carries matrix-init's files, the MAS then Synapse dumps and data/media.key; a payload past the
+// expanded limit returns *SizeError.
 func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recoveryclient.Payload, error) {
 	if strings.ToLower(cfg.Database.Driver) != "sqlite" {
 		return recoveryclient.Payload{}, fmt.Errorf("%w: %s", ErrNoDatabaseSnapshot, cfg.Database.Driver)
@@ -63,8 +66,36 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 	if pub, err := os.ReadFile(recoveryclient.RecoveryKeyPath(cfg.Database.DataDir)); err == nil {
 		files = append(files, recoveryclient.File{Path: recoveryPubPath, Data: pub, Mode: 0600})
 	}
-
-	payload := recoveryclient.Payload{
+	var b budget
+	for _, f := range files {
+		b.add(f.Path, int64(len(f.Data)))
+	}
+	recipe := map[string]any{
+		"check_sqlite_integrity": true,
+		"sqlite_paths":           sqlitePaths,
+		"expected_env":           []string{"KY_PORT", "KY_DB_DRIVER"},
+		"expected_ports":         []int{cfg.Server.Port},
+	}
+	if cfg.Matrix.Enabled() {
+		key, err := keyfile.LoadOrCreate(MediaKeyPath(cfg.Database.DataDir), 32)
+		if err != nil {
+			return recoveryclient.Payload{}, fmt.Errorf("backup: media key: %w", err)
+		}
+		mk := recoveryclient.File{Path: mediaKeyPath, Data: []byte(hex.EncodeToString(key) + "\n"), Mode: 0600}
+		clear(key)
+		b.add(mk.Path, int64(len(mk.Data)))
+		mx, err := collectMatrix(ctx, cfg.Matrix, &b)
+		if err != nil {
+			return recoveryclient.Payload{}, err
+		}
+		files = append(append(files, mk), mx...)
+		recipe["pg_dumps"] = dumpBases()
+	}
+	if err := b.err(); err != nil {
+		return recoveryclient.Payload{}, err
+	}
+	recipe["required_files"] = requiredFiles(files)
+	return recoveryclient.Payload{
 		ServiceName: cfg.Server.AppName,
 		AppVersion:  appVersion,
 		Files:       files,
@@ -72,15 +103,8 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 			"ports": []int{cfg.Server.Port},
 			"env":   []string{"KY_PORT", "KY_DB_DRIVER"},
 		},
-		VerificationRecipe: map[string]any{
-			"check_sqlite_integrity": true,
-			"sqlite_paths":           sqlitePaths,
-			"required_files":         requiredFiles(files),
-			"expected_env":           []string{"KY_PORT", "KY_DB_DRIVER"},
-			"expected_ports":         []int{cfg.Server.Port},
-		},
-	}
-	return payload, nil
+		VerificationRecipe: recipe,
+	}, nil
 }
 
 // snapshotSQLite returns a consistent single-file copy of the live database. The store runs
@@ -100,7 +124,7 @@ func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
 		return nil, err
 	}
 	defer snapshot.Close()
-	// The people capsule is the whole application database.
+	// The server capsule is the whole application database.
 	if _, err := snapshot.ExecContext(ctx, "VACUUM"); err != nil {
 		return nil, fmt.Errorf("prepare recovery snapshot: %w", err)
 	}
@@ -143,6 +167,10 @@ func Members(cfg *config.Config) []string {
 	m := []string{"data/ky_server.db", "config/settings.json", encryptionKeyPath}
 	if _, err := os.Stat(recoveryclient.RecoveryKeyPath(cfg.Database.DataDir)); err == nil {
 		m = append(m, recoveryPubPath)
+	}
+	if cfg.Matrix.Enabled() {
+		m = append(m, mediaKeyPath, "matrix/secrets/", "matrix/synapse/", "matrix/mas/", "matrix/element/", "matrix/postgres/",
+			"matrix/dumps/mas.dump.NNN", "matrix/dumps/synapse.dump.NNN")
 	}
 	return m
 }

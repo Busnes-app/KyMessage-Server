@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -8,12 +9,17 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	_ "modernc.org/sqlite"
 )
+
+// matrixRequired are the Matrix members a rebuilt stack cannot start without.
+var matrixRequired = []string{mediaKeyPath, "matrix/synapse/signing.key", "matrix/synapse/homeserver.yaml",
+	"matrix/mas/config.yaml", "matrix/postgres/init.sql"}
 
 // Checks validates the recipe from the capsule that was actually opened. A malformed
 // recipe is a failed drill, never permission to omit a required product check.
@@ -53,6 +59,20 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 	if message := memberFailure(dir, opened, required, sqlitePaths); message != "" {
 		return recipeFailure(message)
 	}
+	var bases []string
+	if raw, present := recipe["pg_dumps"]; present {
+		if bases, err = recipeStrings(raw); err != nil {
+			return recipeFailure("pg_dumps: " + err.Error())
+		}
+		for _, name := range matrixRequired {
+			if !slices.Contains(required, name) {
+				return recipeFailure("required_files omits " + name)
+			}
+		}
+	}
+	if message := dumpMembersFailure(opened, bases); message != "" {
+		return recipeFailure(message)
+	}
 	checks := fileChecks(dir, required, sqlitePaths)
 	for _, name := range env {
 		_, found := os.LookupEnv(name)
@@ -62,6 +82,7 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 		}
 		checks = append(checks, recoveryclient.Check{Name: "Environment: " + name, Passed: found, Message: message})
 	}
+	checks = append(checks, dumpChecks(dir, bases)...)
 	return checks
 }
 
@@ -176,3 +197,54 @@ func drillPath(root, name string) (string, bool) {
 
 // DrillRoot keeps opened instance data beneath the deployment's data directory.
 func DrillRoot(cfg *config.Config) string { return filepath.Join(cfg.Database.DataDir, "drill") }
+
+// dumpMembersFailure requires every matrix/dumps/ member to be a part of a listed base, numbered
+// from .000 without a gap; it returns the recipe failure, or "".
+func dumpMembersFailure(opened capsule.Manifest, bases []string) string {
+	members := map[string]bool{}
+	dumpMembers := 0
+	for _, f := range opened.Files {
+		members[f.Path] = true
+		if strings.HasPrefix(f.Path, "matrix/dumps/") {
+			dumpMembers++
+		}
+	}
+	counted := 0
+	for _, base := range bases {
+		for i := 0; members[fmt.Sprintf("%s.%03d", base, i)]; i++ {
+			counted++
+		}
+	}
+	if counted != dumpMembers {
+		return "pg_dumps does not account for every dump part from .000"
+	}
+	return ""
+}
+
+// dumpChecks reports each base's parts, joined in order, passing pg_restore --list.
+func dumpChecks(dir string, bases []string) []recoveryclient.Check {
+	var checks []recoveryclient.Check
+	for _, base := range bases {
+		name := "Postgres Dump: " + base
+		paths := dumpPartPaths(dir, base)
+		if len(paths) == 0 {
+			checks = append(checks, recoveryclient.Check{Name: name, Message: "No parts"})
+			continue
+		}
+		r, closeAll, err := openFiles(paths)
+		if err != nil {
+			checks = append(checks, recoveryclient.Check{Name: name, Message: "Part unreadable"})
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		_, err = restoreTOC(ctx, r)
+		cancel()
+		closeAll()
+		if err != nil {
+			checks = append(checks, recoveryclient.Check{Name: name, Message: "pg_restore --list failed: " + recoveryclient.AuditSafe(err.Error())})
+			continue
+		}
+		checks = append(checks, recoveryclient.Check{Name: name, Passed: true, Message: fmt.Sprintf("pg_restore --list read %d parts", len(paths))})
+	}
+	return checks
+}
