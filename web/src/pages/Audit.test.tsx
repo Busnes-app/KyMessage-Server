@@ -19,9 +19,10 @@ it('lists rows newest first and filters by kind', async () => {
   const cells = await screen.findAllByRole('cell', { name: /^(matrix\.session_end|admin\.backup_run|auth\.login)$/ });
   expect(cells.map((c) => c.textContent)).toEqual(['matrix.session_end', 'admin.backup_run', 'auth.login']);
   expect(screen.getByRole('cell', { name: 'failure' }).className).toContain('dr-danger');
-  expect(calls[0]).toBe('/api/admin/audit?kind=&offset=0&limit=50');
+  expect(calls[0]).toBe('/api/admin/audit?offset=0&limit=50');
+  expect(calls[0]).not.toContain('kind');
   fireEvent.click(screen.getByRole('button', { name: 'Older' }));
-  await waitFor(() => expect(calls).toContain('/api/admin/audit?kind=&offset=50&limit=50'));
+  await waitFor(() => expect(calls).toContain('/api/admin/audit?offset=50&limit=50'));
   fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'backup' } });
   await waitFor(() => expect(calls).toContain('/api/admin/audit?kind=backup&offset=0&limit=50'));
 });

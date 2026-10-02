@@ -29,7 +29,10 @@ export const Audit: React.FC = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    const params = new URLSearchParams({ kind, offset: String(offset), limit: String(PAGE) });
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    params.set('offset', String(offset));
+    params.set('limit', String(PAGE));
     fetch(`/api/admin/audit?${params}`, { signal: controller.signal, cache: 'no-store' })
       .then(async (res) => {
         if (!res.ok) throw new Error(await errorMessage(res, 'Could not read the audit log'));
