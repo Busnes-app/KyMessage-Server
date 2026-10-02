@@ -46,13 +46,14 @@ const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ use
   const gone = useRef(false);
   useEffect(() => { gone.current = false; return () => { gone.current = true; }; }, []);
 
-  const load = useCallback(async () => {
+  // prior is an earlier failure to keep beside a failed reload.
+  const load = useCallback(async (prior = '') => {
     try {
       const res = await fetch(`/api/admin/matrix/users/${encodeURIComponent(user.id)}/sessions`, { cache: 'no-store' });
       if (!res.ok) throw new Error(await errorMessage(res, 'Could not list sessions'));
       setSessions(parseSessions(await res.json()));
     } catch (err) {
-      setError(errorText(err, 'Could not list sessions'));
+      setError([prior, errorText(err, 'Could not list sessions')].filter(Boolean).join(' '));
     }
   }, [user.id]);
   useEffect(() => { void load(); }, [load]);
@@ -79,7 +80,7 @@ const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ use
     if (ended) setMessage(`Ended ${ended} session${ended === 1 ? '' : 's'}.`);
     if (failures.length) setError(failures.join(' '));
     setBusy(false);
-    await load();
+    await load(failures.join(' '));
   };
 
   return (

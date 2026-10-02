@@ -137,6 +137,22 @@ describe('Users', () => {
     expect(posts).toHaveLength(1);
   });
 
+  it('keeps the End failure when the reload after it fails too', async () => {
+    let lists = 0;
+    serve((url, init) => {
+      if (url.endsWith('/sessions')) return ++lists === 1 ? json(SESSIONS) : json({ error: 'MAS unreachable' }, 502);
+      if (init?.method === 'POST') return json({ error: 'Could not end: MAS said no' }, 502);
+      return users(url);
+    });
+    render(<Users />);
+    const panel = await openSessions();
+    fireEvent.click(within(panel).getByRole('button', { name: 'End Matrix app session DEVA' }));
+    await waitFor(() => expect(lists).toBe(2));
+    const alert = await within(panel).findByRole('alert');
+    await waitFor(() => expect(alert.textContent).toContain('MAS unreachable'));
+    expect(alert.textContent).toContain('Could not end: MAS said no');
+  });
+
   it('lists a session whose device id is as long as the server allows', async () => {
     const device = 'D'.repeat(200);
     serve((url) => (url.endsWith('/sessions') ? json({ sessions: [{ ...SESSIONS.sessions[1], device }] }) : users(url)));
