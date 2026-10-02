@@ -401,6 +401,10 @@ e2e token erin
 dc stop --timeout 10 app >/dev/null
 cut erin
 expect "$(mas_user erin 'locked_at IS NULL')" t "MAS has not locked erin while KyMessages is down"
+erin_event() { kyid GET "/api/admin/systems/$system/provisioning" | jq -c '.users[] | select(.username == "erin") | .lastEvent'; }
+# Proof the webhook was missed: KyIdentity tried to deliver erin's disable and failed.
+missed() { erin_event | jq -r '.type == "user.updated" and .status != "delivered" and ((.error // "") != "" or .attempts > 0)'; }
+eventually 30 true "KyIdentity's disable webhook for erin failed while KyMessages was down" missed
 dc start app >/dev/null
 ready "$KY_APP_URL/.well-known/matrix/client"
 # The disable webhook failed while KyMessages was down, so its directory still says active and
@@ -410,7 +414,7 @@ ready "$KY_APP_URL/.well-known/matrix/client"
 # quiescent and resumes the attempt, allowed once its 60s lease (recoverAfter) has passed; a
 # resync queues behind the fence. Only a clean failure retries itself, 30s * 2^(failures - 1)
 # apart (retryDelay), abandoned after 5, which a resync recovers.
-event=$(kyid GET "/api/admin/systems/$system/provisioning" | jq -c '.users[] | select(.username == "erin") | .lastEvent')
+event=$(erin_event)
 echo "  KyIdentity's disable webhook for erin: $event"
 next=$(jq -r 'select(.status == "pending") | .nextAttemptAt // empty' <<<"$event")
 locked=(mas_user erin 'locked_at IS NOT NULL')
@@ -422,9 +426,12 @@ if [[ $(jq -r .error <<<"$event") == *"operator recovery required"* ]]; then
 	eventually 60 t "MAS locked erin after the operator resumed the fenced webhook" "${locked[@]}" | tee -a "$summary"
 elif [[ -n $next ]] && due=$(($(date -d "$next" +%s) - $(date +%s))) && ((due <= 240)); then
 	eventually $((due + 60)) t "MAS locked erin after KyIdentity's retry (due in ${due}s)" "${locked[@]}" | tee -a "$summary"
-else
+elif [[ $(jq -r .status <<<"$event") == failed ]]; then
 	kyid POST "/api/admin/systems/$system/resync" >/dev/null
 	eventually 60 t "MAS locked erin after a resync of the system" "${locked[@]}" | tee -a "$summary"
+else
+	echo "  FAILED: erin's disable webhook is neither fenced, retrying nor abandoned: $event" >&2
+	false
 fi
 pass
 
