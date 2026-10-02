@@ -102,6 +102,31 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(page.getByText(/Last recorded backup attempt: Succeeded/)).toBeVisible();
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
+  // Console pages. Matrix is off here: Users says so, Health checks the app and its database
+  // (with the network check moved from Settings), Audit lists the backup that just ran.
+  await nav.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(page.getByText('Chat (Matrix) is not set up on this server.')).toBeVisible();
+  await fits(page);
+  await nav.getByRole('button', { name: 'Health', exact: true }).click();
+  const components = page.getByRole('region', { name: 'Components' });
+  await expect(components.getByText('Up', { exact: true })).toHaveCount(2);
+  await expect(page.getByRole('heading', { name: 'Network path' })).toBeVisible();
+  await fits(page);
+  await page.screenshot({ path: testInfo.outputPath('health.png'), fullPage: true });
+  await nav.getByRole('button', { name: 'Health', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(nav.getByRole('button', { name: 'Audit', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(nav.getByRole('button', { name: 'Audit', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByLabel('Kind').selectOption('backup');
+  await expect(page.getByRole('cell', { name: 'admin.backup_run', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'auth.login', exact: true })).toHaveCount(0);
+  await fits(page);
+  await page.screenshot({ path: testInfo.outputPath('audit.png'), fullPage: true });
+  await nav.getByRole('button', { name: 'Overview', exact: true }).click();
+  await expect(page.getByText(/^Last backup: Succeeded/)).toBeVisible();
+  await expect(page.getByText(/not set up yet/)).toHaveCount(0);
+  await fits(page);
   expect(violations).toEqual([]);
   await context.setOffline(true);
   const offline = await page.reload();

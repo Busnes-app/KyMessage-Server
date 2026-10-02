@@ -4,9 +4,11 @@
 # encrypted rooms are stored encrypted, that the server is closed (no registration,
 # password login or federation; unassigned KyIdentity users refused), and that a KyIdentity
 # disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
-# making offboarding (including delete) stick in MAS. It also takes a server backup, loses the
-# host and restores the whole stack from custodian shares, proving history, media, accounts,
-# the server name and the signing key come back.
+# making offboarding (including delete) stick in MAS. The operator console reports every
+# component up on its pinned version and ends a live Element session within 30 seconds,
+# audited. It also takes a server backup, loses the host and restores the whole stack from
+# custodian shares, proving history, media, accounts, the server name and the signing key
+# come back.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
@@ -481,8 +483,6 @@ expect "$rc" 6 "mas-admin does not resolve for synapse"
 pass
 
 # ---------------------------------------------------------------------------------------
-# Server backup: the operator's admin API and `kymessages deposit`, sealed to a throwaway
-# suite key whose 2-of-3 shares only this harness holds.
 jar=$state/app.cookies
 # app_api METHOD PATH [JSON]: the KyMessages admin API as the browser calls it (CSRF header from the cookie).
 app_api() {
@@ -491,6 +491,51 @@ app_api() {
 	[[ $# -ge 3 ]] && body=(-d "$3")
 	hcurl -fsS -b "$jar" -c "$jar" -X "$1" -H "Origin: $KY_APP_URL" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" "${body[@]}" "$KY_APP_URL$2"
 }
+# app_login PASSWORD: a fresh password sign-in as the bootstrap admin.
+app_login() { app_api POST /api/auth/login "$(jq -n --arg p "$1" '{username: "admin", password: $p}')" >/dev/null; }
+
+# ---------------------------------------------------------------------------------------
+# The operator console: Health reports every component on its pinned version, and ending a
+# session there cuts a live Element token like offboarding does, audited.
+step console
+app_login "$KY_ADMIN_PASSWORD"
+admin_pass=$(openssl rand -hex 16)
+app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
+app_login "$admin_pass"
+ok "operator signed in to the console and replaced the bootstrap password"
+app_api GET /api/admin/health >"$state/health.json"
+expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres "health checks every component"
+expect "$(jq -r '[.components[] | select(.status != "up") | .name] | join(",")' "$state/health.json")" "" "every component up"
+dc config --format json >"$state/compose.json"
+for svc in synapse mas element postgres; do
+	# The pin, read here from the resolved Compose file, independently of the Go generator.
+	pin=$(jq -r --arg s "$svc" '.services[$s].image | split("@")[0] | split(":") | last | ltrimstr("v") | split("-")[0]' "$state/compose.json")
+	expect "$(jq -r --arg s "$svc" '.components[] | select(.name == $s) | "\(.version) \(.pinned) \(.mismatch)"' "$state/health.json")" \
+		"$pin $pin false" "$svc runs the pinned $pin"
+done
+alice='Alice.Q@Ky'
+e2e token "$alice"
+expect "$(token_status "$alice")" 200 "alice's captured Element token is live"
+device=$(hcurl -fsS -H "Authorization: Bearer $(cat "$state/$alice.token")" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami | jq -re .device_id)
+alice_id=$(app_api GET '/api/admin/matrix/users?search=alice.q_ky' |
+	jq -re --arg m "@alice.q_ky:$KY_MATRIX_SERVER_NAME" '.users[] | select(.mxid == $m and .status == "active") | .id')
+session=$(app_api GET "/api/admin/matrix/users/$alice_id/sessions" | jq -re --arg d "$device" \
+	'[.sessions[] | select(.kind == "oauth2" and .device == $d)] | if length == 1 then .[0].id else error("want one session for \($d), got \(length)") end')
+# Ending a session needs a sign-in from the last 10 minutes.
+app_login "$admin_pass"
+start=$(now_ms)
+expect "$(app_api POST "/api/admin/matrix/sessions/oauth2/$session/finish" | jq -r .outcome)" ended "the console ended alice's Element session $session"
+secs=$(cut_within 30 "$alice" "$start")
+ok "alice's open Element session refused ${secs}s after the console ended it (bound 30s)" | tee -a "$summary"
+expect "$(app_api POST "/api/admin/matrix/sessions/oauth2/$session/finish" | jq -r .outcome)" already_ended "ending it again succeeds"
+expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=20' | jq -r --arg s "$session" --arg m "@alice.q_ky:$KY_MATRIX_SERVER_NAME" \
+	'[.records[] | select(.action == "matrix.session_end" and .target == $m and .actor == "admin" and (.details | contains($s))) | .outcome] | join(",")')" \
+	already_ended,ended "the audit API shows both session-end rows, newest first"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Server backup: the operator's admin API and `kymessages deposit`, sealed to a throwaway
+# suite key whose 2-of-3 shares only this harness holds.
 kyb() { dc exec -T -e PGPASSWORD="$(cat "$scratch/matrix/secrets/kybackup_db_password")" postgres psql -h 127.0.0.1 -U kybackup -v ON_ERROR_STOP=1 "$@"; }
 
 step backup
@@ -504,15 +549,12 @@ if kyb -d synapse -c 'CREATE TABLE kyb_probe ()' >/dev/null 2>&1; then echo "  F
 ok "kybackup cannot create a table in synapse"
 if kyb -d mas -c 'UPDATE users SET locked_at = now()' >/dev/null 2>&1; then echo "  FAILED: kybackup updated MAS users" >&2; false; fi
 ok "kybackup cannot write MAS users"
-app_api POST /api/auth/login "$(jq -n --arg p "$KY_ADMIN_PASSWORD" '{username: "admin", password: $p}')" >/dev/null
-admin_pass=$(openssl rand -hex 16)
-app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
-app_api POST /api/auth/login "$(jq -n --arg p "$admin_pass" '{username: "admin", password: $p}')" >/dev/null
+app_login "$admin_pass"
 # Off, so the scheduler cannot race the CLI.
 app_api PUT /api/backup/schedule '{"interval_sec": 0}' >/dev/null
 pub=$(go run -C "$repo" ./scripts/matrix-acceptance/suitekey "$state/shares")
 app_api POST /api/backup/pin-key "$(jq -n --arg k "$pub" '{public_key: $k, threshold: 2, total_shares: 3}')" >/dev/null
-ok "operator signed in, replaced the bootstrap password and pinned a throwaway 2-of-3 suite key"
+ok "operator signed in and pinned a throwaway 2-of-3 suite key"
 # The restore step's one-time-key check is vacuous unless the source holds some.
 otks=$(sql synapse 'SELECT count(*) FROM e2e_one_time_keys_json')
 ((otks > 0)) || { echo "  FAILED: Synapse holds no one-time keys to exclude" >&2; false; }

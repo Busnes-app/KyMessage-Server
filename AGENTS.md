@@ -157,7 +157,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
-- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs; these checks remain release gates.
+- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, and the Users (Matrix off), Health, Audit and Overview pages; these checks remain release gates.
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
@@ -176,7 +176,9 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   live token within the same 30s and locks without deactivating; with KyMessages stopped the back-channel still cuts,
   and the lock lands once the missed webhook is redelivered (KyIdentity fences it as an
   uncertain write; the harness resumes it as the operator would); Synapse cannot reach
-  `mas:8081` or `mas-admin`. Backup: a throwaway 2-of-3 suite key is pinned, `deposit` and
+  `mas:8081` or `mas-admin`. Console (the bootstrap admin, password sign-in): Health reports every
+  component up on its Compose pin, and ending alice's Element session refuses her live token
+  within the same 30s, audited as `matrix.session_end`. Backup: a throwaway 2-of-3 suite key is pinned, `deposit` and
   `backup-drill` pass and bob's image is mirrored as ciphertext; the app and Matrix containers
   and volumes are then deleted (KyIdentity kept) and the operator sequence is followed:
   host-built `restore` with shares on stdin, `restore-matrix`, `chown` to root in a throwaway
