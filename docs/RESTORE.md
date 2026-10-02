@@ -94,7 +94,9 @@ restoring her keys from key backup; the server name and signing key were unchang
    `./matrix`. Copy the backup directory (with `media/`) to `./backups`; `./backups/media`
    must be readable by `KY_MATRIX_UID`, because the app writes it as root, owner-only.
 2. As the same user, export the `matrix-init` environment from setup (README, Matrix step 1)
-   and run `./kymessages matrix-init`. It keeps every restored secret and the signing key, and
+   with the exact values used there, and run `./kymessages matrix-init`. It re-renders every
+   config from that environment, so a changed server name, host, issuer or client ID changes the
+   restored configs too. It keeps every restored secret and the signing key, and
    creates `secrets/postgres_password`: the capsule never carries the Postgres superuser
    password, and a fresh volume does not need the old one. Compose refuses to start
    `postgres` without it.

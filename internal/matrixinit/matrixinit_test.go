@@ -264,7 +264,7 @@ func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 	clients := mas["clients"].([]any)
 	admins := mas["policy"].(map[string]any)["data"].(map[string]any)["admin_clients"].([]any)
 	c := clients[0].(map[string]any)
-	if len(clients) != 1 || len(admins) != 1 || admins[0] != c["client_id"] || c["client_id"] != res.AdminClientID ||
+	if len(clients) != 1 || len(admins) != 1 || admins[0] != c["client_id"] || c["client_id"] != res.AdminClientID || len(res.AdminClientID) != 26 ||
 		c["client_auth_method"] != "client_secret_basic" || len(c["client_secret"].(string)) != 64 {
 		t.Errorf("admin client %v, admin_clients %v", clients, admins)
 	}
@@ -651,6 +651,46 @@ func TestInitRegeneratesOnlyAMissingSecret(t *testing.T) {
 		if b, _ := os.ReadFile(filepath.Join(dir, rel)); string(b) != configs[rel] || len(b) == 0 {
 			t.Errorf("%s changed: the superuser password must not be rendered", rel)
 		}
+	}
+}
+
+// The README's upgrade from the setup before offboarding: a re-run adds the MAS admin client
+// and keeps every older secret.
+func TestInitUpgradeAddsTheAdminClient(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	added := []string{"mas_admin_client_id", "mas_admin_client_secret"}
+	for _, n := range added {
+		if err := os.Remove(filepath.Join(dir, "secrets", n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := readAll(t, filepath.Join(dir, "secrets"))
+	res, err := Run(goodInput(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(slices.Values(res.Created)); !slices.Equal(got, []string{"secrets/mas_admin_client_id", "secrets/mas_admin_client_secret"}) {
+		t.Errorf("created %v", res.Created)
+	}
+	after := readAll(t, filepath.Join(dir, "secrets"))
+	for name, v := range before {
+		if after[name] != v {
+			t.Errorf("secret %s changed on upgrade", name)
+		}
+	}
+	if after["mas_admin_client_id"] != res.AdminClientID || len(res.AdminClientID) != 26 || len(after["mas_admin_client_secret"]) == 0 {
+		t.Errorf("admin client id %q, secret %d bytes", res.AdminClientID, len(after["mas_admin_client_secret"]))
+	}
+	var mas map[string]any
+	b, _ := os.ReadFile(filepath.Join(dir, "mas", "config.yaml"))
+	if err := yaml.Unmarshal(b, &mas); err != nil {
+		t.Fatal(err)
+	}
+	if c := mas["clients"].([]any)[0].(map[string]any); c["client_id"] != res.AdminClientID || c["client_secret"] != after["mas_admin_client_secret"] {
+		t.Errorf("MAS config does not carry the new admin client: %v", c["client_id"])
 	}
 }
 

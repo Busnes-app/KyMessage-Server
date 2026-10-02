@@ -55,10 +55,23 @@ interface CapsuleSize {
 }
 
 interface MediaRun {
-  outcome: 'success' | 'warning' | 'failure' | 'unknown';
-  trigger: string;
+  outcome: BackupAttempt['outcome'];
+  trigger: BackupAttempt['trigger'];
   recorded_at: string;
   archive: string;
+}
+
+export function mediaRun(value: unknown): MediaRun | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || !('archive' in value) || typeof value.archive !== 'string') {
+    throw new Error('Invalid media backup status');
+  }
+  try {
+    const { outcome, trigger, recorded_at } = backupAttempt({ ...value, capsule_id: '' })!;
+    return { outcome, trigger, recorded_at, archive: value.archive };
+  } catch {
+    throw new Error('Invalid media backup status');
+  }
 }
 
 function mib(n: number): string {
@@ -199,7 +212,7 @@ export const Backup: React.FC = () => {
     try {
       const data = await call<BackupStatus>('/api/backup/status', { method: 'GET' }, 'Could not load backup status');
       if (data.last_run_error !== undefined && typeof data.last_run_error !== 'string') throw new Error('Invalid backup result error');
-      setStatus({ ...data, last_run: backupAttempt(data.last_run) });
+      setStatus({ ...data, last_run: backupAttempt(data.last_run), media_last_run: mediaRun(data.media_last_run) });
       if (data.recovery_url) setRemoteUrl(data.recovery_url);
       if (typeof data.interval_sec === 'number') setScheduleSec(data.interval_sec);
     } catch (err) {

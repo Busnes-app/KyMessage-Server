@@ -272,12 +272,19 @@ async function resume(name, profile) {
   const page = await launch(name, profile);
   // Element would otherwise reopen the room prove left open.
   await page.goto(`${CHAT}/#/home`);
-  // Element's session lock outlives the closed browser: "open in another window". Its Continue
-  // is the only one on that page; the "Back up your chats" toast's Continue opens settings.
+  // Element's session lock outlives the closed browser: "open in another window", whose Continue
+  // takes the session over. The lock can also clear on its own between looking and clicking,
+  // and then the only Continue left is the "Back up your chats" toast's, which opens settings:
+  // click the Continue beside the lock text only, and close any dialog that opened anyway.
   const start = page.getByRole('button', { name: 'New conversation' });
   const locked = page.getByText(/is open in another window/);
-  await start.or(locked).first().waitFor();
-  if (await locked.isVisible()) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  const continueBtn = page.getByRole('button', { name: 'Continue', exact: true });
+  const takeOver = page.locator('div').filter({ has: locked }).filter({ has: continueBtn }).last().getByRole('button', { name: 'Continue', exact: true });
+  for (let i = 0; i < 3 && !(await start.isVisible()); i++) {
+    await start.or(locked).or(page.getByRole('dialog')).first().waitFor();
+    if (await locked.isVisible()) await takeOver.click({ timeout: 5000 }).catch(() => {});
+    await closeDialogs(page);
+  }
   await start.waitFor();
   return page;
 }
@@ -295,18 +302,21 @@ async function closeDialogs(page) {
 const aliceSession = () => resume('alice', 'prove-alice');
 const roomState = () => JSON.parse(fs.readFileSync(stateFile('room'), 'utf8'));
 
-// Element uploads room keys to the key backup in the background; wait until WHO's backup
-// holds both senders' sessions for the room, so a later device can restore them.
+// Element uploads room keys to the key backup in the background; wait until WHO's backup holds
+// the session of every encrypted event in WHO's timeline of the room (at least two: both
+// senders'), so a later device can decrypt all of them, the latest included.
 async function backedUp(page, id, who = user) {
-  const count = () => page.evaluate(async ({ hs, id }) => {
-    const auth = { headers: { Authorization: `Bearer ${window.mxMatrixClientPeg.get().getAccessToken()}` } };
+  const state = () => page.evaluate(async ({ hs, id }) => {
+    const client = window.mxMatrixClientPeg.get();
+    const auth = { headers: { Authorization: `Bearer ${client.getAccessToken()}` } };
     const { version } = await (await fetch(`${hs}/_matrix/client/v3/room_keys/version`, auth)).json();
     const keys = await (await fetch(`${hs}/_matrix/client/v3/room_keys/keys/${encodeURIComponent(id)}?version=${version}`, auth)).json();
-    return Object.keys(keys.sessions ?? {}).length;
+    const used = new Set(client.getRoom(id).getLiveTimeline().getEvents().filter((e) => e.isEncrypted()).map((e) => e.getWireContent().session_id));
+    return { used: used.size, missing: [...used].filter((s) => !(s in (keys.sessions ?? {}))).length };
   }, { hs: MATRIX, id });
-  let n = 0;
-  for (let i = 0; i < 60 && (n = await count()) < 2; i++) await page.waitForTimeout(1000);
-  check(n >= 2, `${who}'s backup holds both room keys (${n})`);
+  let s;
+  for (let i = 0; i < 60 && ((s = await state()).used < 2 || s.missing > 0); i++) await page.waitForTimeout(1000);
+  check(s.used >= 2 && s.missing === 0, `${who}'s backup holds every room key its timeline uses (${s.used} sessions, ${s.missing} missing)`);
 }
 
 // USER signs in and sets up recovery; alice (her session from prove) invites USER to a new
@@ -392,8 +402,13 @@ async function reads() {
 // A 1x1 PNG: Element uploads it encrypted, so Synapse's local_content holds ciphertext.
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+// Element renders only its timeline window: with the live end below it ("Scroll to most recent
+// messages" shown), a new image has no tile until the view jumps there.
 async function decryptedImage(page) {
   const img = timeline(page).locator('.mx_ImageBody img').last();
+  const jump = page.getByRole('button', { name: 'Scroll to most recent messages' });
+  await img.or(jump).first().waitFor({ timeout: 60000 });
+  if (await jump.isVisible()) await jump.click();
   await img.waitFor({ timeout: 60000 });
   await page.waitForFunction((el) => el.complete && el.naturalWidth > 0, await img.elementHandle(), { timeout: 60000 });
   console.log('  ok: image decrypted and shown');
@@ -405,9 +420,17 @@ async function media() {
   const bob = await resume('bob', 'prove-bob');
   await openRoom(bob, dm, false);
   await closeDialogs(bob);
-  await bob.locator('input[type="file"]').first().setInputFiles({ name: `kymatrix-${tag}.png`, mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') });
+  const name = `kymatrix-${tag}.png`;
+  await bob.locator('input[type="file"]').first().setInputFiles({ name, mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') });
   await bob.getByRole('dialog').getByRole('button', { name: 'Upload' }).click();
-  await bob.locator('.mx_EventTile[data-event-id^="$"] .mx_ImageBody').last().waitFor();
+  // Sent, not a local echo ('$' event ID); read from the client, as the tile may be outside
+  // Element's timeline window.
+  await bob.waitForFunction(({ dm, name }) => {
+    const client = window.mxMatrixClientPeg.get();
+    return client.getRoom(dm).getLiveTimeline().getEvents().some((e) =>
+      e.getSender() === client.getUserId() && e.getId()?.startsWith('$') && e.getContent().msgtype === 'm.image' && e.getContent().body === name);
+  }, { dm, name }, { timeout: 30000 });
+  console.log('  ok: bob sent the image');
   const alice = await aliceSession();
   await openRoom(alice, dm, false);
   await decryptedImage(alice);

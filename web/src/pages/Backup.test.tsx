@@ -52,6 +52,13 @@ describe('Backup', () => {
     expect(screen.queryByText(/Last recorded backup attempt: Succeeded/)).toBeNull();
   });
 
+  it('rejects a malformed media run instead of showing it', async () => {
+    mockStatus({ ...PAIRED, media_last_run: { outcome: 'success', trigger: '<script>', recorded_at: '2026-10-01T12:00:00Z', archive: '' } });
+    render(<Backup />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Invalid media backup status');
+    expect(screen.queryByText(/Last media backup/)).toBeNull();
+  });
+
   it('warns when a key is pinned but there is no destination', async () => {
     mockStatus({ key_pinned: true, paired: false, interval_sec: 0, recovery_key_id: 'k1', threshold: 2, total_shares: 3, database_driver: 'sqlite', members: [] });
     render(<Backup />);

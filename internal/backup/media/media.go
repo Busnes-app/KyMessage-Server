@@ -161,6 +161,10 @@ func Run(ctx context.Context, src, dir string, key []byte, keep int, now time.Ti
 		if err := writeArchive(ctx, dir, name, next); err != nil {
 			return err
 		}
+		// The archive's rename must be on disk before pruning deletes what it replaces.
+		if err := syncDir(dir); err != nil {
+			return err
+		}
 		res.Archive = name
 		// The archive holds what the mirror held; now the mirror drops media deleted from src.
 		// Index first, so it never lists a file that is gone.
@@ -250,6 +254,18 @@ func writeAtomic(p string, fill func(io.Writer) error) error {
 	}
 	if err != nil {
 		os.Remove(f.Name())
+	}
+	return err
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	err = d.Sync()
+	if cerr := d.Close(); err == nil {
+		err = cerr
 	}
 	return err
 }

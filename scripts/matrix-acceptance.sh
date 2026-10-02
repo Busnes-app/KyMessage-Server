@@ -362,24 +362,34 @@ pass
 # Element token; KyMessages' sweep (woken by the directory webhook) then locks, unlocks or
 # deactivates the MAS user.
 now_ms() { local t=${EPOCHREALTIME//[^0-9]/}; echo $((t / 1000)); }
-# token_status USER: Synapse's status for USER's captured Element token.
-token_status() { status GET https://matrix.kymatrix.test/_matrix/client/v3/account/whoami -H "Authorization: Bearer $(cat "$state/$1.token")"; }
-# cut_within BOUND USER START_MS: polls until Synapse refuses USER's token (401) and prints the
-# seconds since START_MS; fails past BOUND or on any other answer.
+# mxid USER: USER's Matrix ID as MAS maps it (lowercased, anything outside [a-z0-9._=-] to _).
+mxid() { local l=${1,,}; echo "@${l//[^a-z0-9._=-]/_}:$KY_MATRIX_SERVER_NAME"; }
+# token_status USER: Synapse's whoami for USER's captured Element token: "200 <user_id>" while
+# live, else "<status> <errcode>".
+token_status() {
+	local code
+	code=$(hcurl -o "$state/whoami.json" -w '%{http_code}' -H "Authorization: Bearer $(cat "$state/$1.token")" \
+		https://matrix.kymatrix.test/_matrix/client/v3/account/whoami)
+	echo "$code $(jq -r '.user_id // .errcode // "-"' "$state/whoami.json" 2>/dev/null || echo unparsable)"
+}
+# cut_within BOUND USER START_MS: polls while USER's token is live as USER until Synapse refuses
+# it as an unknown token, and prints the seconds since START_MS; fails past BOUND or on any
+# other answer (another user, a 401 for another reason, an outage).
 cut_within() {
-	local bound=$1 user=$2 start=$3 code elapsed
-	while code=$(token_status "$user") && elapsed=$(($(now_ms) - start)) && [[ $code == 200 ]]; do
+	local bound=$1 user=$2 start=$3 live code elapsed
+	live="200 $(mxid "$user")"
+	while code=$(token_status "$user") && elapsed=$(($(now_ms) - start)) && [[ $code == "$live" ]]; do
 		((elapsed <= bound * 1000)) || { echo "  FAILED: $user's session survived ${bound}s" >&2; return 1; }
 		sleep 0.25
 	done
-	[[ $code == 401 ]] || { echo "  FAILED: whoami for $user answered '$code', not 401" >&2; return 1; }
+	[[ $code == '401 M_UNKNOWN_TOKEN' ]] || { echo "  FAILED: whoami for $user answered '$code', not '401 M_UNKNOWN_TOKEN'" >&2; return 1; }
 	((elapsed <= bound * 1000)) || { echo "  FAILED: $user's session survived ${bound}s" >&2; return 1; }
 	printf '%d.%d\n' $((elapsed / 1000)) $((elapsed % 1000 / 100))
 }
 # cut USER: disables USER in KyIdentity and records how long the captured token survived.
 cut() {
 	local start secs
-	expect "$(token_status "$1")" 200 "$1's captured Element token is live"
+	expect "$(token_status "$1")" "200 $(mxid "$1")" "$1's captured Element token is live"
 	start=$(now_ms)
 	kyid PUT "/api/admin/users/${kid[$1]}" '{"status": "disabled"}' >/dev/null
 	secs=$(cut_within 30 "$1" "$start")
@@ -428,7 +438,7 @@ pass
 # Unassigning from the MAS client cuts like a disable and locks, without deactivating.
 step offboard-unassign
 e2e token frank
-expect "$(token_status frank)" 200 "frank's captured Element token is live"
+expect "$(token_status frank)" "200 $(mxid frank)" "frank's captured Element token is live"
 start=$(now_ms)
 kyid DELETE "/api/admin/app-registry/$app/assignments/users/${kid[frank]}" >/dev/null
 secs=$(cut_within 30 frank "$start")
@@ -533,7 +543,7 @@ for svc in synapse mas element postgres; do
 done
 alice='Alice.Q@Ky'
 e2e token "$alice"
-expect "$(token_status "$alice")" 200 "alice's captured Element token is live"
+expect "$(token_status "$alice")" "200 $(mxid "$alice")" "alice's captured Element token is live"
 device=$(hcurl -fsS -H "Authorization: Bearer $(cat "$state/$alice.token")" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami | jq -re .device_id)
 alice_id=$(app_api GET '/api/admin/matrix/users?search=alice.q_ky' |
 	jq -re --arg m "@alice.q_ky:$KY_MATRIX_SERVER_NAME" '.users[] | select(.mxid == $m and .status == "active") | .id')
@@ -716,7 +726,7 @@ expect "$(jq -r --arg r "$group" '.rooms[] | select(.id == $r) | "\(.encrypted) 
 expect "$(app_api GET "/api/admin/matrix/rooms/$(uri "$group")" | jq -r '.members | sort | join(",")')" \
 	"@alice.q_ky:$KY_MATRIX_SERVER_NAME,$bob_id" "its members are alice and bob"
 e2e token bob
-expect "$(token_status bob)" 200 "bob's captured Element token is live"
+expect "$(token_status bob)" "200 $bob_id" "bob's captured Element token is live"
 
 # Close and Delete need a sign-in from the last 10 minutes: one right before each.
 app_login "$admin_pass"
@@ -739,9 +749,13 @@ throwaway=$(hcurl -fsS -X POST -H "Authorization: Bearer $(cat "$state/bob.token
 	https://matrix.kymatrix.test/_matrix/client/v3/createRoom | jq -re .room_id)
 hcurl -fsS -X PUT -H "Authorization: Bearer $(cat "$state/bob.token")" -H 'Content-Type: application/json' -d '{"probe": true}' \
 	"https://matrix.kymatrix.test/_matrix/client/v3/rooms/$(uri "$throwaway")/send/org.kymatrix.probe/1" >/dev/null
-events=$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$throwaway'")
-((events > 0)) || { echo "  FAILED: the throwaway room holds no events" >&2; false; }
-ok "throwaway room $throwaway holds $events events"
+# Every table the delete must empty holds rows first, so the zero counts below mean something.
+purged_tables=(events event_json state_events current_state_events room_memberships rooms)
+for table in "${purged_tables[@]}"; do
+	n=$(sql synapse "SELECT count(*) FROM $table WHERE room_id = '$throwaway'")
+	((n > 0)) || { echo "  FAILED: the throwaway room has no $table rows before the delete" >&2; false; }
+done
+ok "throwaway room $throwaway has rows in ${purged_tables[*]}"
 app_login "$admin_pass"
 csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
 expect "$(status POST "$KY_APP_URL/api/admin/matrix/rooms/$(uri "$throwaway")/delete" -b "$jar" -H "Origin: $KY_APP_URL" \
@@ -751,7 +765,7 @@ read -r outcome job < <(app_api POST "/api/admin/matrix/rooms/$(uri "$throwaway"
 	jq -r '"\(.outcome) \(.delete_id)"')
 expect "$outcome" started "the console started deleting the throwaway room"
 eventually 180 complete "Synapse finished deleting the throwaway room" job_status "$throwaway" "$job"
-for table in events event_json state_events current_state_events room_memberships rooms; do
+for table in "${purged_tables[@]}"; do
 	expect "$(sql synapse "SELECT count(*) FROM $table WHERE room_id = '$throwaway'")" 0 "no $table rows left for the throwaway room"
 done
 expect "$(status GET "$KY_APP_URL/api/admin/matrix/rooms/$(uri "$throwaway")" -b "$jar")" 404 "the deleted room is gone from the console"

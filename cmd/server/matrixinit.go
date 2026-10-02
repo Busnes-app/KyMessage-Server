@@ -58,7 +58,7 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 	fmt.Fprintf(w, "  back-channel logout URI  %s\n  scopes        %s\n\n", r.BackchannelLogoutURI, strings.Join(r.Scopes, " "))
 	fmt.Fprintf(w, "Postgres, Synapse and MAS run as the owner of %s. Set:\n", res.Dir)
 	fmt.Fprintf(w, "  KY_MATRIX_UID=%d\n  KY_MATRIX_GID=%d\n", uid, os.Getgid())
-	fmt.Fprintf(w, "  KY_MATRIX_ADMIN_CLIENT_ID=%s\n\n", res.AdminClientID)
+	fmt.Fprintf(w, "KyMessages' MAS admin client (offboarding and the console). Set:\n  KY_MATRIX_ADMIN_CLIENT_ID=%s\n\n", res.AdminClientID)
 	if res.ClientSecretMissing {
 		fmt.Fprintf(w, "Register this client in KyIdentity, save the secret it shows to %s (mode 0600), and run matrix-init again.\n",
 			filepath.Join(res.Dir, matrixinit.ClientSecretFile))

@@ -180,7 +180,8 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   refused; unassigned and username-less KyIdentity users refused; mixed-case usernames
   mapped. Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
   system linked to the MAS client's app record): disable refuses a live Element token within
-  30s (fixed bound, times in the summary) and MAS locks; re-enable unlocks with history;
+  30s (fixed bound, times in the summary; live means `whoami` names that user, refused means
+  `401 M_UNKNOWN_TOKEN`) and MAS locks; re-enable unlocks with history;
   delete deactivates and parts rooms, also for a user already locked; unassign refuses a
   live token within the same 30s and locks without deactivating; with KyMessages stopped the back-channel still cuts,
   and the lock lands once the missed webhook is redelivered (KyIdentity fences it as an
@@ -194,7 +195,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   container. Alice on a new device reads history and the image; server name and signing key
   are unchanged. The later steps run on the restored stack: first the console closes the group
   room (bob removed, his rejoin refused as blocked) and permanently deletes a throwaway room
-  (no rows left in Synapse's room tables), both audited, and the restored app's start-up sweep
+  (rows in each of Synapse's room tables before, none after), both audited, and the restored app's start-up sweep
   leaves `kymessages-console` unlocked. Settings follows on the restored stack: a console rename
   reaches Element's file in place (same inode), the branding API reports the old brand served,
   and after `docker compose restart element` `/config.json`, the title and the API carry it; a PNG carrying a `tEXt` chunk is

@@ -54,8 +54,9 @@ func TestMatrixInitTwoPassesPrintRegistrationButNoSecrets(t *testing.T) {
 		!strings.Contains(s, "docker compose restart synapse mas element") {
 		t.Errorf("second pass output:\n%s", s)
 	}
-	if !strings.Contains(s, "back-channel logout URI") || !strings.Contains(s, "KY_MATRIX_ADMIN_CLIENT_ID=") {
-		t.Errorf("output lacks back-channel URI or admin client ID:\n%s", s)
+	if !strings.Contains(s, "back-channel logout URI") ||
+		!strings.Contains(s, "KyMessages' MAS admin client (offboarding and the console). Set:\n  KY_MATRIX_ADMIN_CLIENT_ID=") {
+		t.Errorf("output lacks back-channel URI or the labelled admin client ID:\n%s", s)
 	}
 	if !strings.Contains(s, "-f /docker-entrypoint-initdb.d/kybackup-role.sql") {
 		t.Errorf("second pass does not say how to apply the backup role to a running stack:\n%s", s)

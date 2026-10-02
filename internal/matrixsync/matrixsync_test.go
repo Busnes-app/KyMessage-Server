@@ -140,15 +140,31 @@ func TestSweepAppliesPlanAndAudits(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("audit rows = %d", len(rows))
 	}
-	byAction := map[string]int{}
+	got := map[string][2]string{}
 	for _, r := range rows {
-		byAction[r.Action]++
-		if !strings.HasPrefix(r.Resource, "@") || !strings.HasSuffix(r.Resource, ":example.com") || !strings.Contains(r.Details, `outcome="ok"`) || !strings.Contains(r.Details, "subject=") || !strings.Contains(r.Details, "reason=") {
-			t.Fatalf("row %+v", r)
-		}
+		got[r.Resource] = [2]string{r.Action, r.Details}
 	}
-	if !reflect.DeepEqual(byAction, map[string]int{"matrix.unlock": 1, "matrix.lock": 2, "matrix.deactivate": 1}) {
-		t.Fatalf("actions %v", byAction)
+	want := map[string][2]string{
+		"@alice:example.com": {"matrix.unlock", `subject="sub-a" reason="active in KyIdentity" outcome="ok"`},
+		"@bob:example.com":   {"matrix.lock", `subject="sub-i" reason="inactive in KyIdentity" outcome="ok"`},
+		"@carol:example.com": {"matrix.deactivate", `subject="sub-d" reason="deleted in KyIdentity" outcome="ok"`},
+		"@dave:example.com":  {"matrix.lock", `subject="" reason="no KyIdentity link" outcome="ok"`},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("audit rows\n got %v\nwant %v", got, want)
+	}
+}
+
+// Shutdown stops the sweep: no MAS action starts after its context ends.
+func TestSweepStopsActingAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &fakeMAS{after: cancel}
+	s, st := newSyncer(t, f)
+	if err := s.Sweep(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v, want context.Canceled", err)
+	}
+	if len(f.calls) != 1 || len(auditRows(t, st)) != 1 {
+		t.Fatalf("calls %v, audit rows %d after cancel", f.calls, len(auditRows(t, st)))
 	}
 }
 
