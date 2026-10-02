@@ -32,7 +32,7 @@ Owns user interface components, service worker caching, PWA installation manifes
 
 ## Verification
 - Browser setup: build the frontend, run `go build -o .browser/server ./cmd/server` at the repo root, then `cd web && npx playwright install chromium firefox && npm run test:browser`. CI also installs browser OS dependencies.
-- `make test-web` or `cd web && npm ci && npm test`, then `npm run build` (vitest with jsdom; `src/pages/Backup.test.tsx` renders the recovery screen against a stubbed status route). Commit `web/dist` after a build; CI diffs it.
+- `make test-web` or `cd web && npm ci && npm test`, then `npm run build` (vitest with jsdom; `src/test-setup.ts` stubs the jsdom `<dialog>` methods; `src/pages/Backup.test.tsx` renders the recovery screen against a stubbed status route). Commit `web/dist` after a build; CI diffs it.
 
 ## Shared browser UI
 

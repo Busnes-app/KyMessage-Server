@@ -72,6 +72,8 @@ it is a separate later project (a self-built Teams bot), not part of this design
     server health (Synapse, MAS, Element, PostgreSQL up, versions, network self-check);
     backups (server capsule, KyRecovery, schedule, drill); settings (branding pushed to
     Element config, KyIdentity status). Admin mutations need a fresh sign-in and are audited.
+    Split into 5a (users, health, audit), 5b (rooms) and 5c (settings); 5a is specified in
+    `2026-10-02-matrix-console-5a-design.md`, and its console has no lock/unlock (access is KyIdentity's).
 12. **Review process** stays the suite's: security-audit run, PR security reviewer, task and
     branch reviews. Labels never claim an independent audit.
 

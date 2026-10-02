@@ -6,7 +6,8 @@ records it, so offboarding sticks after KyIdentity's back-channel logout cuts se
 
 ## Ownership
 Owns `Plan` and `Syncer` (`matrixsync.go`) and the MAS admin client (`mas.go`).
-`cmd/server` wires it: `NewClient` from `cfg.Matrix.Admin*`, a sweep at start and every
+The client also serves the console through `api.MatrixAdmin` (sessions, finish, user, version).
+`cmd/server` wires it: one `NewClient` from `cfg.Matrix.Admin*` shared by the sweep and the API, a sweep at start and every
 5 minutes, and `Wake` from the directory webhook. `store.UserStore.DirectoryStatuses`
 supplies subject → status.
 
@@ -22,8 +23,11 @@ supplies subject → status.
 - Admin calls go only under `/api/admin/v1/`; `links.next` outside it is refused. Redirects
   are not followed. One token refetch on 401, then fail. The transport ignores proxy
   environment variables, so credentials go only to `AdminURL`.
-- No secret or token appears in errors, logs or audit rows. Audit actions are exactly
-  `matrix.lock`, `matrix.unlock`, `matrix.deactivate`, written for success and failure, on a
+- `FinishSession` treats MAS's 400 for an ended session as `already`, after reading the session
+  back. `Sessions` returns browser sessions first; an oauth2 session's device comes from its scope.
+- No secret or token appears in errors, logs or audit rows. The sweep's audit actions are exactly
+  `matrix.lock`, `matrix.unlock`, `matrix.deactivate` (`matrix.session_end` is written by
+  `internal/api`), written for success and failure, on a
   context detached from the sweep's so a completed action is audited through shutdown.
 - `Run` closes `done` only between sweeps so shutdown can wait before the store closes;
   `Wake` never blocks and coalesces.
