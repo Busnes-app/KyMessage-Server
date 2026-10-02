@@ -7,6 +7,7 @@ import { Backup } from './pages/Backup';
 import { SCIMAdmin } from './pages/SCIMAdmin';
 import { Settings } from './pages/Settings';
 import { Users } from './pages/Users';
+import { Rooms } from './pages/Rooms';
 import { Health } from './pages/Health';
 import { Audit } from './pages/Audit';
 import { ConfirmItsYou } from './components/ConfirmItsYou';
@@ -115,6 +116,7 @@ export const App: React.FC = () => {
         {!isAdmin && <MemberHome user={user} chatUrl={typeof settings?.chat_url === 'string' ? settings.chat_url : ''} onLogout={handleLogout} />}
         {isAdmin && activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
         {isAdmin && activeTab === 'users' && <Users />}
+        {isAdmin && activeTab === 'rooms' && <Rooms />}
         {isAdmin && activeTab === 'health' && <Health />}
         {isAdmin && activeTab === 'audit' && <Audit />}
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}

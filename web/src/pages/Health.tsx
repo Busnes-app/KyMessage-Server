@@ -26,9 +26,11 @@ export function parseHealth(v: unknown): HealthReport {
 }
 
 const LABEL: Record<string, string> = {
+  'synapse-admin': 'Synapse admin access (console)',
   kymessages: 'KyMessages', database: 'KyMessages database', synapse: 'Synapse',
   mas: 'Matrix Authentication Service', element: 'Element Web', postgres: 'PostgreSQL (Matrix)',
 };
+const VERSIONLESS = new Set(['database', 'synapse-admin']);
 
 export const Health: React.FC = () => {
   const [report, setReport] = useState<HealthReport | null>(null);
@@ -72,7 +74,7 @@ export const Health: React.FC = () => {
                 <span>{LABEL[c.name] ?? c.name}</span>
                 <span className={c.status === 'up' ? 'badge badge-success' : 'badge badge-danger'}>{c.status === 'up' ? 'Up' : 'Down'}</span>
               </div>
-              <div className="dr-fact-value dr-mono">{c.version || (c.name === 'database' ? '' : 'Version unknown')}</div>
+              <div className="dr-fact-value dr-mono">{c.version || (VERSIONLESS.has(c.name) ? '' : 'Version unknown')}</div>
               {c.mismatch && <div className="dr-fact-note dr-danger">Compose pins {c.pinned}; this is not the pinned version.</div>}
               {!c.mismatch && c.pinned && c.version && <div className="dr-fact-note">Pinned in Compose</div>}
               {c.source && (

@@ -48,3 +48,12 @@ it('drops an https source outside the upstream repos and shows odd versions as t
   expect(await screen.findByText('<b>x</b>')).toBeTruthy();
   expect(screen.queryByRole('link')).toBeNull();
 });
+
+it('names Synapse admin access and shows why it is down, without a version', async () => {
+  serve(json({ matrix: true, components: [c('synapse-admin', { status: 'down', error: 'console account is locked in MAS' })] }));
+  render(<Health />);
+  const list = await screen.findByRole('region', { name: 'Components' });
+  expect(within(list).getByText('Synapse admin access (console)')).toBeTruthy();
+  expect(within(list).getByText('console account is locked in MAS')).toBeTruthy();
+  expect(within(list).queryByText('Version unknown')).toBeNull();
+});
