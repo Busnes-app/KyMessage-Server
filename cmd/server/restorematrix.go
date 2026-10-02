@@ -28,10 +28,11 @@ Loads the restored Matrix databases and media into a fresh stack, once:
      and move its data/ and matrix/ into the deployment directory, owned by that user.
   2. Copy the local backup directory to ./backups; ./backups/media must be readable by
      KY_MATRIX_UID (the app writes it as root, owner-only).
-  3. docker compose down -v, then docker compose up -d postgres.
+  3. Only if this stack is meant to be replaced: docker compose down -v, which deletes its
+     Matrix database and media. Then docker compose up -d postgres.
   4. docker compose run --rm restore-matrix
-  5. sudo chown -R root:root data backups: the app runs as root and refuses key files it
-     does not own. Then docker compose up -d.
+  5. In the deployment directory, sudo chown -R root:root ./data ./backups: the app runs as
+     root and refuses key files it does not own. Then docker compose up -d.
 It refuses, changing nothing, unless both databases are empty, the media store is empty and
 every dump and media file checks out.`
 

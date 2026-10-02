@@ -57,6 +57,9 @@ func (r MatrixRestore) Run(ctx context.Context, out io.Writer) error {
 			return fmt.Errorf("refused: %w", err)
 		}
 		toc, err := listFiles(ctx, parts)
+		if err == nil {
+			err = readFiles(ctx, parts)
+		}
 		if err != nil {
 			return fmt.Errorf("refused: the %s dump: %w", d.db, err)
 		}
@@ -69,7 +72,7 @@ func (r MatrixRestore) Run(ctx context.Context, out io.Writer) error {
 			return fmt.Errorf("refused: database %s: %w", d.db, err)
 		}
 		if n != 0 {
-			return fmt.Errorf("refused: database %s already holds %d relations; restore into a fresh stack (down -v, then up -d postgres only)", d.db, n)
+			return fmt.Errorf("refused: database %s already holds %d relations; restore-matrix loads only into a newly created stack. If this stack is meant to be replaced, `docker compose down -v` deletes its Matrix database and media", d.db, n)
 		}
 		plans = append(plans, plan{d.db, password, parts})
 	}
@@ -125,7 +128,7 @@ func (r MatrixRestore) checkMediaStore() error {
 		return err
 	}
 	if len(entries) != 0 {
-		return fmt.Errorf("media store %s is not empty; restore into a fresh stack", r.MediaDir)
+		return fmt.Errorf("media store %s is not empty; restore-matrix loads only into a newly created stack", r.MediaDir)
 	}
 	return nil
 }
@@ -150,6 +153,25 @@ func listFiles(ctx context.Context, parts []string) (string, error) {
 	}
 	defer closeAll()
 	return restoreTOC(ctx, rd)
+}
+
+// readFiles reads the whole dump, decompressing every data block, without a database:
+// --list reads only the TOC, so a truncated or missing last part would pass it.
+func readFiles(ctx context.Context, parts []string) error {
+	rd, closeAll, err := openFiles(parts)
+	if err != nil {
+		return err
+	}
+	defer closeAll()
+	cmd := exec.CommandContext(ctx, "pg_restore", "--file=/dev/null")
+	cmd.Stdin = rd
+	cmd.Env = []string{}
+	var stderr tail
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pg_restore: %w: %s", err, stderr.String())
+	}
+	return nil
 }
 
 // pgRestore restores one database as its owner in one transaction. The parts are joined into a

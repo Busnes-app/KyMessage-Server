@@ -191,18 +191,35 @@ func dumpParts(ctx context.Context, m config.MatrixConfig, db, base string, extr
 	return files, nil
 }
 
-// tail keeps the last 2 KiB written to it: enough for a tool's error, never its data.
-type tail struct{ b []byte }
+// tail keeps the last 2 KiB of a tool's stderr. String drops CONTEXT and DETAIL lines, which
+// can quote row data, and a line cut by the limit.
+type tail struct {
+	b   []byte
+	cut bool
+}
 
 func (t *tail) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
 	if len(t.b) > 2048 {
-		t.b = t.b[len(t.b)-2048:]
+		t.b, t.cut = t.b[len(t.b)-2048:], true
 	}
 	return len(p), nil
 }
 
-func (t *tail) String() string { return strings.TrimSpace(string(t.b)) }
+func (t *tail) String() string {
+	s := string(t.b)
+	if t.cut {
+		_, s, _ = strings.Cut(s, "\n")
+	}
+	var keep []string
+	for _, line := range strings.Split(s, "\n") {
+		l := strings.ToLower(line)
+		if !strings.Contains(l, "context:") && !strings.Contains(l, "detail:") {
+			keep = append(keep, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
+}
 
 // openFiles reads paths in order as one stream; close releases them all.
 func openFiles(paths []string) (io.Reader, func(), error) {

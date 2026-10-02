@@ -19,14 +19,15 @@ import (
 )
 
 // restoreFixture is a restored tree with dumps for both databases, a media backup of one file,
-// an empty media store, and a fake pg_restore that answers --list and logs every restore.
+// an empty media store, and a fake pg_restore that answers --list, reads a whole dump for
+// --file=/dev/null (a complete one ends in PGEND) and logs every restore.
 func restoreFixture(t *testing.T, toc string) (backup.MatrixRestore, string) {
 	t.Helper()
 	mdir, data, backups, mediaDir := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 	for rel, body := range map[string]string{
 		"secrets/mas_db_password": "maspw\n", "secrets/synapse_db_password": "synpw\n",
-		"dumps/mas.dump.000": "PGDMP mas\n" + toc, "dumps/synapse.dump.000": "PGDMP syn part 0\n",
-		"dumps/synapse.dump.001": "; TABLE public events synapse\n",
+		"dumps/mas.dump.000": "PGDMP mas\n" + toc + "PGEND\n", "dumps/synapse.dump.000": "PGDMP syn part 0\n",
+		"dumps/synapse.dump.001": "; TABLE public events synapse\n", "dumps/synapse.dump.002": "PGEND\n",
 	} {
 		p := filepath.Join(mdir, rel)
 		_ = os.MkdirAll(filepath.Dir(p), 0o700)
@@ -50,6 +51,13 @@ func restoreFixture(t *testing.T, toc string) (backup.MatrixRestore, string) {
   case $first in PGDMP*) ;; *) echo 'pg_restore: error: not an archive' >&2; exit 1 ;; esac
   while IFS= read -r line; do echo "$line"; done
   exit 0
+fi
+if [ "$1" = --file=/dev/null ]; then
+  last=
+  while IFS= read -r line; do last=$line; done
+  [ "$last" = PGEND ] && exit 0
+  echo 'pg_restore: error: could not read from input file: end of file' >&2
+  exit 1
 fi
 echo "$* env=$PGPASSWORD" >> %s
 `, log))
@@ -112,7 +120,8 @@ func TestMatrixRestoreRefusesANonEmptyStack(t *testing.T) {
 		return 0, nil
 	}
 	err := r.Run(context.Background(), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "already holds 7 relations") {
+	// The refusal fires on a live stack too: it must name what down -v destroys.
+	if err == nil || !strings.Contains(err.Error(), "already holds 7 relations") || !strings.Contains(err.Error(), "deletes its Matrix database and media") {
 		t.Fatalf("err = %v", err)
 	}
 	assertUntouched(t, r, log, 0)
@@ -137,6 +146,15 @@ func TestMatrixRestoreRefusesBeforeWriting(t *testing.T) {
 		},
 		"missing dump": func(r backup.MatrixRestore) int {
 			_ = os.Remove(filepath.Join(r.MatrixDir, "dumps", "mas.dump.000"))
+			return 0
+		},
+		// --list reads only the TOC at the front of .000; the data blocks need a full read.
+		"missing final part": func(r backup.MatrixRestore) int {
+			_ = os.Remove(filepath.Join(r.MatrixDir, "dumps", "synapse.dump.002"))
+			return 0
+		},
+		"truncated final part": func(r backup.MatrixRestore) int {
+			_ = os.WriteFile(filepath.Join(r.MatrixDir, "dumps", "synapse.dump.002"), []byte("PGE"), 0o600)
 			return 0
 		},
 		"corrupt dump": func(r backup.MatrixRestore) int {
@@ -215,7 +233,7 @@ func TestMatrixRestoreErrorsNeverCarryThePassword(t *testing.T) {
 		t.Fatalf("Run with an unreachable database: %v", err)
 	}
 	r.Relations = func(context.Context, string, string, string, string) (int, error) { return 0, nil }
-	fakeTool(t, "pg_restore", `[ "$1" = --list ] && exec /bin/cat
+	fakeTool(t, "pg_restore", `case $1 in --list) exec /bin/cat ;; --file=/dev/null) exit 0 ;; esac
 echo 'pg_restore: error: connection failed: password authentication failed for user "mas"' >&2
 exit 1
 `)
@@ -258,5 +276,21 @@ func TestCountRelationsSeesUserTables(t *testing.T) {
 	t.Cleanup(func() { _, _ = conn.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE") })
 	if after, err := backup.CountRelations(ctx, u.Host, db, u.User.Username(), pw); err != nil || after != before+1 {
 		t.Fatalf("before %d, after %d (%v)", before, after, err)
+	}
+}
+
+// pg_restore's CONTEXT and DETAIL lines can quote row data; they never reach the error.
+func TestMatrixRestoreErrorsDropRowData(t *testing.T) {
+	r, _ := restoreFixture(t, "")
+	fakeTool(t, "pg_restore", `case $1 in --list) exec /bin/cat ;; --file=/dev/null) exit 0 ;; esac
+echo 'pg_restore: error: COPY failed for table "users": ERROR:  invalid input syntax' >&2
+echo 'CONTEXT:  COPY users, line 1: "row-secret-1"' >&2
+echo 'DETAIL:  Key (name)=(row-secret-2) already exists.' >&2
+echo 'pg_restore: detail: Command was: INSERT row-secret-3' >&2
+exit 1
+`)
+	err := r.Run(context.Background(), io.Discard)
+	if err == nil || strings.Contains(err.Error(), "row-secret") || !strings.Contains(err.Error(), "COPY failed") {
+		t.Fatalf("err = %v", err)
 	}
 }

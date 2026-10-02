@@ -40,12 +40,15 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
 - `MatrixRestore.Run` (`kymessages restore-matrix`) checks everything before writing: both
   owner passwords from `matrix/secrets`, gapless parts with no stray, `pg_restore --list` per
   dump with any `EXTENSION` refused (unproven for MAS/Synapse schemas until the acceptance run),
+  a full read of each dump (`pg_restore --file=/dev/null`; `--list` misses a truncated or
+  missing last part),
   zero user relations in `mas` and `synapse` (`CountRelations`, host or host:port), and unless
   `SkipMedia` an empty media store owned by the process's uid:gid, the media key
   (`keyfile.Load`, so the process must own it) and every media file (`media.Restore` with
   write false). Then `pg_restore` as each owner, MAS first, `--no-owner --no-privileges
   --single-transaction --exit-on-error`, child env only `PGPASSWORD` and `PGCONNECT_TIMEOUT`;
-  then media. No owner password reaches argv or an error.
+  then media. No owner password reaches argv or an error, and tool stderr in errors drops
+  CONTEXT/DETAIL lines (row data). A refusal on a populated stack names what `down -v` deletes.
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment
