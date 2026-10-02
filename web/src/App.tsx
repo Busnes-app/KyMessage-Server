@@ -6,6 +6,8 @@ import { ChangePassword } from './pages/ChangePassword';
 import { Backup } from './pages/Backup';
 import { SCIMAdmin } from './pages/SCIMAdmin';
 import { Settings } from './pages/Settings';
+import { Users } from './pages/Users';
+import { ConfirmItsYou } from './components/ConfirmItsYou';
 import { MemberHome } from './pages/MemberHome';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
@@ -105,9 +107,12 @@ export const App: React.FC = () => {
         onLogout={handleLogout}
       />
 
+      {isAdmin && <ConfirmItsYou />}
+
       <main className="app-main">
         {!isAdmin && <MemberHome user={user} chatUrl={typeof settings?.chat_url === 'string' ? settings.chat_url : ''} onLogout={handleLogout} />}
         {isAdmin && activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
+        {isAdmin && activeTab === 'users' && <Users />}
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}
         {isAdmin && activeTab === 'backup' && <Backup />}
         {isAdmin && activeTab === 'settings' && <Settings settings={settings} />}

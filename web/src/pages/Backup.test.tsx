@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Backup } from './Backup';
+import { ConfirmItsYou } from '../components/ConfirmItsYou';
 
 function mockStatus(body: Record<string, unknown>) {
   vi.stubGlobal(
@@ -91,24 +92,25 @@ describe('Backup', () => {
     expect(screen.queryByText(/Backups do not include the PostgreSQL database/)).toBeNull();
   });
 
-  it('offers a fresh suite sign-in when a backup change needs step-up', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.endsWith('/api/backup/status')) return new Response(JSON.stringify(PAIRED), { status: 200 });
-        return new Response(JSON.stringify({
-          error: 'Sign in to KyIdentity again to confirm this change', code: 'reauthentication_required',
-          reauth_url: '/api/sso/kyidentity/login?fresh=1',
-        }), { status: 403 });
-      }),
-    );
-    render(<Backup />);
+  it('asks the admin to confirm it is them, then retries the change', async () => {
+    let saves = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/api/backup/status')) return new Response(JSON.stringify(PAIRED), { status: 200 });
+      if (++saves === 1) {
+        return new Response(JSON.stringify({ error: "Confirm it's you: this change needs a sign-in from the last 10 minutes",
+          code: 'reauthentication_required', reauth_url: '/api/sso/kyidentity/login?fresh=1' }), { status: 403 });
+      }
+      return new Response(JSON.stringify({ interval_sec: 0 }), { status: 200 });
+    }));
+    render(<><ConfirmItsYou /><Backup /></>);
     await screen.findByText('https://recovery.example');
     fireEvent.change(screen.getByLabelText('Back up automatically'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    const link = await screen.findByRole('link', { name: 'Sign in to KyIdentity again' });
-    expect(link.getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
+    const dialog = await screen.findByRole('dialog', { name: "Confirm it's you" });
+    expect(within(dialog).getByRole('link', { name: 'Sign in to KyIdentity again' }).getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(saves).toBe(2));
+    expect(await screen.findByText('Automatic backups are off.')).toBeTruthy();
   });
 
   it('shows the capsule size and highlights the 75% warning', async () => {

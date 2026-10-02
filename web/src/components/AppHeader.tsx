@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive } from 'lucide-react';
+import { Smartphone, LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare } from 'lucide-react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { QRPairingModal } from './QRPairingModal';
 
@@ -13,8 +13,9 @@ interface AppHeaderProps {
 
 const adminItems = [
   { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
+  { id: 'users', label: 'Users', icon: MessageSquare },
   { id: 'scim', label: 'Directory & SCIM', icon: Users },
-  { id: 'backup', label: 'Backup & recovery', icon: Archive },
+  { id: 'backup', label: 'Backup & recovery', icon: Archive, MessageSquare },
   { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
 ];
 // Admin pages are refused server-side for non-admins; navigation only mirrors that.

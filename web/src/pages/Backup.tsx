@@ -15,7 +15,7 @@ import {
   Unlink,
   XCircle,
 } from 'lucide-react';
-import { secureFetch } from '../api';
+import { adminFetch, errorMessage } from '../api';
 
 export interface DepositReceipt {
   capsule_id: string;
@@ -37,7 +37,7 @@ interface BackupAttempt {
   capsule_id: string;
 }
 
-function backupAttempt(value: unknown): BackupAttempt | undefined {
+export function backupAttempt(value: unknown): BackupAttempt | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'object' || value === null ||
     !('outcome' in value) || (value.outcome !== 'success' && value.outcome !== 'warning' && value.outcome !== 'failure' && value.outcome !== 'unknown') ||
@@ -144,30 +144,9 @@ function bytes(n: number): string {
   return `${n} B`;
 }
 
-/** A step-up refusal; `url` forces a fresh suite sign-in when the account uses KyIdentity. */
-class ReauthRequired extends Error {
-  constructor(message: string, readonly url: string) {
-    super(message);
-  }
-}
-
-/** Reads the server's JSON error, or a status-only message when the body is not JSON. */
-async function apiError(res: Response, fallback: string): Promise<Error> {
-  const body: unknown = await res.json().catch(() => ({}));
-  const message =
-    typeof body === 'object' && body !== null && 'error' in body
-      ? String((body as { error: unknown }).error)
-      : `${fallback} (HTTP ${res.status})`;
-  if (typeof body === 'object' && body !== null && 'reauth_url' in body) {
-    const url = String((body as { reauth_url: unknown }).reauth_url);
-    if (url.startsWith('/api/sso/')) return new ReauthRequired(message, url);
-  }
-  return new Error(message);
-}
-
 async function call<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
-  const res = await secureFetch(path, { credentials: 'same-origin', ...init });
-  if (!res.ok) throw await apiError(res, fallback);
+  const res = await adminFetch(path, init);
+  if (!res.ok) throw new Error(await errorMessage(res, fallback));
   return (await res.json()) as T;
 }
 
@@ -192,12 +171,6 @@ export const Backup: React.FC = () => {
   const [running, setRunning] = useState<boolean>(false);
   const [runMessage, setRunMessage] = useState<string>('');
   const [runError, setRunError] = useState<string>('');
-  const [reauthUrl, setReauthUrl] = useState<string>('');
-  /** errorText for backup changes, which may need a fresh sign-in first. */
-  const changeError = (err: unknown, fallback: string): string => {
-    if (err instanceof ReauthRequired) setReauthUrl(err.url);
-    return errorText(err, fallback);
-  };
 
   const [runningDrill, setRunningDrill] = useState<boolean>(false);
   const [drillResult, setDrillResult] = useState<DrillResult | null>(null);
@@ -253,7 +226,7 @@ export const Backup: React.FC = () => {
       if (res.local_error) setRunError(`The local copy failed: ${res.local_error}`);
       if (res.receipt_unrecorded) setRunError('KyRecovery holds the capsule but the receipt could not be recorded here; check the audit log.');
     } catch (err) {
-      setRunError(changeError(err, 'Backup failed'));
+      setRunError(errorText(err, 'Backup failed'));
     } finally {
       setRunning(false);
       await fetchStatus();
@@ -265,8 +238,8 @@ export const Backup: React.FC = () => {
     setRunError('');
     setRunMessage('');
     try {
-      const res = await secureFetch('/api/backup/export-capsule', { method: 'POST', credentials: 'same-origin' });
-      if (!res.ok) throw await apiError(res, 'Download failed');
+      const res = await adminFetch('/api/backup/export-capsule', { method: 'POST' });
+      if (!res.ok) throw new Error(await errorMessage(res, 'Download failed'));
       const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '');
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');
@@ -275,7 +248,7 @@ export const Backup: React.FC = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setRunError(changeError(err, 'Could not download the capsule'));
+      setRunError(errorText(err, 'Could not download the capsule'));
     }
   };
 
@@ -306,7 +279,7 @@ export const Backup: React.FC = () => {
       setScheduleMessage(saved.interval_sec === 0 ? 'Automatic backups are off.' : `Backing up ${every(saved.interval_sec).toLowerCase()}.`);
       await fetchStatus();
     } catch (err) {
-      setScheduleError(changeError(err, 'Could not save the schedule'));
+      setScheduleError(errorText(err, 'Could not save the schedule'));
     } finally {
       setScheduleSaving(false);
     }
@@ -331,7 +304,7 @@ export const Backup: React.FC = () => {
       setPairCode('');
       await fetchStatus();
     } catch (err) {
-      setPairError(changeError(err, 'Pairing failed'));
+      setPairError(errorText(err, 'Pairing failed'));
     } finally {
       setPairing(false);
     }
@@ -352,7 +325,7 @@ export const Backup: React.FC = () => {
       setPairMessage('Unpaired. Off-site backups have stopped; ask the KyRecovery admin to revoke this service there.');
       await fetchStatus();
     } catch (err) {
-      setPairError(changeError(err, 'Could not unpair'));
+      setPairError(errorText(err, 'Could not unpair'));
     } finally {
       setUnpairing(false);
     }
@@ -375,7 +348,7 @@ export const Backup: React.FC = () => {
       setPinKey('');
       await fetchStatus();
     } catch (err) {
-      setPinError(changeError(err, 'Could not pin the key'));
+      setPinError(errorText(err, 'Could not pin the key'));
     } finally {
       setPinning(false);
     }
@@ -399,11 +372,6 @@ export const Backup: React.FC = () => {
         </button>
       </div>
 
-      {reauthUrl && (
-        <Alert kind="warn">
-          Backup changes need a recent sign-in. <a href={reauthUrl}>Sign in to KyIdentity again</a>, then return here.
-        </Alert>
-      )}
       {statusError && <Alert kind="error">{statusError}</Alert>}
       {status?.last_run_error && <Alert kind="error">{status.last_run_error}</Alert>}
       {status?.recovery_key_error && <Alert kind="error">{status.recovery_key_error}</Alert>}
