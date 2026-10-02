@@ -47,6 +47,24 @@ function backupAttempt(value: unknown): BackupAttempt | undefined {
   return { outcome: value.outcome, trigger: value.trigger, recorded_at: value.recorded_at, capsule_id: value.capsule_id };
 }
 
+interface CapsuleSize {
+  bytes: number;
+  limit: number;
+  percent: number;
+  warning: boolean;
+}
+
+interface MediaRun {
+  outcome: 'success' | 'warning' | 'failure' | 'unknown';
+  trigger: string;
+  recorded_at: string;
+  archive: string;
+}
+
+function mib(n: number): string {
+  return `${(n / 1048576).toFixed(1)} MiB`;
+}
+
 export interface BackupStatus {
   paired: boolean;
   key_pinned: boolean;
@@ -63,6 +81,9 @@ export interface BackupStatus {
   last_deposit?: DepositReceipt;
   last_run?: BackupAttempt;
   last_run_error?: string;
+  capsule_size?: CapsuleSize;
+  media_last_run?: MediaRun;
+  media_last_run_error?: string;
   local_dir?: string;
   local_keep?: number;
   local_copies?: LocalCopy[];
@@ -445,6 +466,22 @@ export const Backup: React.FC = () => {
           {status.last_run.capsule_id && <> Capsule: <code>{status.last_run.capsule_id}</code>.</>}
         </Alert>
       ) : status && !status.last_run_error && <p className="text-muted">No recorded backup attempts.</p>}
+
+      {status?.capsule_size && (
+        <Alert kind={status.capsule_size.warning ? 'warn' : 'success'}>
+          Last capsule: {mib(status.capsule_size.bytes)} of {mib(status.capsule_size.limit)} ({status.capsule_size.percent}%).
+          {status.capsule_size.warning && ' Warning: at 75% or more of the limit; a larger capsule will fail to seal.'}
+        </Alert>
+      )}
+      {status?.media_last_run_error && <Alert kind="error">{status.media_last_run_error}</Alert>}
+      {status?.media_last_run && (
+        <Alert kind={status.media_last_run.outcome === 'success' ? 'success' : status.media_last_run.outcome === 'failure' ? 'error' : 'warn'}>
+          Last media backup: {{ success: 'Succeeded', warning: 'Needs attention', failure: 'Failed', unknown: 'Outcome unavailable' }[status.media_last_run.outcome] ?? 'Outcome unavailable'}
+          {' — '}{status.media_last_run.trigger}, {when(status.media_last_run.recorded_at)}.
+          {status.media_last_run.archive && <> Archive: <code>{status.media_last_run.archive}</code>.</>}
+          {status.media_last_run.outcome !== 'success' && ' Check the service logs for details.'}
+        </Alert>
+      )}
 
       <div className="panel dr-section">
         <div className="panel-header">
