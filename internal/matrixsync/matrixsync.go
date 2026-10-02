@@ -23,9 +23,10 @@ const (
 )
 
 // User is a MAS user with the KyIdentity subject of its upstream link ("" when none).
+// Ambiguous: linked to more than one subject.
 type User struct {
-	ID, Username, Subject string
-	Locked, Deactivated   bool
+	ID, Username, Subject          string
+	Locked, Deactivated, Ambiguous bool
 }
 
 // Action is one change Plan wants in MAS.
@@ -45,6 +46,10 @@ func Plan(users []User, dir map[string]string) []Action {
 		}
 		status, known := dir[u.Subject]
 		switch {
+		case u.Ambiguous:
+			if !u.Locked {
+				out = append(out, Action{Lock, u, "linked to several KyIdentity subjects"})
+			}
 		case u.Subject == "":
 			if !u.Locked {
 				out = append(out, Action{Lock, u, "no KyIdentity link"})
@@ -149,11 +154,15 @@ func (s *Syncer) Sweep(ctx context.Context) error {
 			outcome = "error: " + err.Error()
 			errs = append(errs, fmt.Errorf("%s %s: %w", a.Kind, a.User.Username, err))
 		}
-		if aerr := s.st.Audit().LogAudit(ctx, &store.AuditRecord{
+		// The MAS action happened; record it even if shutdown cancelled the sweep.
+		actx, acancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		aerr := s.st.Audit().LogAudit(actx, &store.AuditRecord{
 			Action:   "matrix." + string(a.Kind),
 			Resource: "@" + a.User.Username + ":" + s.serverName,
 			Details:  fmt.Sprintf("subject=%q reason=%q outcome=%q", a.User.Subject, a.Reason, outcome),
-		}); aerr != nil {
+		})
+		acancel()
+		if aerr != nil {
 			errs = append(errs, aerr)
 		}
 	}

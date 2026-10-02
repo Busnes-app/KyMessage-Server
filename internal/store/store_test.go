@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"strconv"
 	"testing"
 	"time"
 
@@ -325,5 +326,27 @@ func TestDirectoryStatuses(t *testing.T) {
 	want := map[string]string{"on": "active", "off": "inactive", "gone": "deleted", "oidc": "active"}
 	if !maps.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// Nothing makes a subject unique, so two rows for one subject must fail closed whichever
+// order the database returns them in.
+func TestDirectoryStatusesDuplicateSubjectFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	for _, order := range [][2]string{{"active", "inactive"}, {"inactive", "active"}} {
+		st := newTestStore(t)
+		for i, status := range order {
+			id := "usr_dup" + strconv.Itoa(i)
+			if err := st.Users().CreateUser(ctx, &store.User{ID: id, Username: id, Role: "user", Status: status, SSOProvider: "kyidentity", SSOSubject: "dup"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got["dup"] != "inactive" {
+			t.Errorf("rows %v: dup = %q, want inactive", order, got["dup"])
+		}
 	}
 }

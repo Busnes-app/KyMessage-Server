@@ -252,6 +252,11 @@ func LoadFromEnv() (*Config, error) {
 		},
 		Matrix: matrix,
 	}
+	// Unsigned directory webhooks are refused, so without the secret a KyIdentity disable or
+	// delete would never reach MAS.
+	if cfg.Matrix.Enabled() && cfg.SSO.KyIdentityHMACSecret == "" {
+		return nil, errors.New("KY_KYIDENTITY_HMAC_SECRET is required with the Matrix stack (KyIdentity's suite_webhook secret)")
+	}
 	// Login verifies only proof-of-work. Accepting another name would silently disable it.
 	if p := cfg.Captcha.Provider; p != "pow" && p != "none" {
 		return nil, fmt.Errorf("KY_CAPTCHA_PROVIDER: %q is not supported (use pow or none)", p)
@@ -291,7 +296,8 @@ func matrixFromEnv() (MatrixConfig, error) {
 	u, err := url.Parse(m.AdminURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_ADMIN_URL %q must be an http(s) origin with no path", m.AdminURL)
+		// The value is not echoed: it may carry credentials.
+		return MatrixConfig{}, errors.New("KY_MATRIX_ADMIN_URL must be an http(s) origin with no userinfo, path, query or fragment")
 	}
 	m.AdminURL = u.Scheme + "://" + u.Host
 	if m.AdminClientID == "" {

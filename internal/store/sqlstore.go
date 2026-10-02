@@ -1000,7 +1000,10 @@ WHERE s.provider = ? AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider 
 		if err := rows.Scan(&sub, &status); err != nil {
 			return nil, err
 		}
-		out[sub] = status
+		// Several rows for one subject: any non-active one wins (fail closed).
+		if prev, seen := out[sub]; !seen || prev == "active" {
+			out[sub] = status
+		}
 	}
 	return out, rows.Err()
 }

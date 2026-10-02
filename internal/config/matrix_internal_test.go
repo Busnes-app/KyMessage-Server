@@ -45,6 +45,10 @@ func TestMatrixConfigRequiresAdminAccess(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
+	set(map[string]string{"KY_MATRIX_ADMIN_URL": "http://u:hunter2@mas-admin:8081/?token=tok3n"})
+	if _, err := matrixFromEnv(); err == nil || strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "tok3n") {
+		t.Errorf("admin URL credentials leak into the error: %v", err)
+	}
 	empty := filepath.Join(t.TempDir(), "e")
 	if err := os.WriteFile(empty, []byte("\n"), 0o600); err != nil {
 		t.Fatal(err)

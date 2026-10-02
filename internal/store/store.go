@@ -67,7 +67,8 @@ type UserStore interface {
 	CreateDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	DeleteDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	// DirectoryStatuses maps each subject of provider to its user's status, or to "deleted"
-	// when the directory deleted it (an order row with no user).
+	// when the directory deleted it (an order row with no user). Of several rows for one
+	// subject, a non-active status wins.
 	DirectoryStatuses(ctx context.Context, provider string) (map[string]string, error)
 	ResetAdminPassword(ctx context.Context, userID, newHash string) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error

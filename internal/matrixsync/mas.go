@@ -28,7 +28,11 @@ type Client struct {
 }
 
 func NewClient(baseURL, clientID, secret string) *Client {
+	// Never through a proxy from the environment: it would see the admin credentials.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
 	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, hc: &http.Client{
+		Transport:     tr,
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
@@ -147,6 +151,7 @@ func (c *Client) Users(ctx context.Context) ([]User, error) {
 		return nil, fmt.Errorf("MAS has %d upstream providers, want exactly KyIdentity", len(providers))
 	}
 	subjects := map[string]string{}
+	ambiguous := map[string]bool{}
 	if err := c.list(ctx, adminPrefix+"upstream-oauth-links?filter[provider]="+url.QueryEscape(providers[0])+"&page[first]=100", func(r resource) error {
 		var a struct {
 			Subject string  `json:"subject"`
@@ -156,6 +161,9 @@ func (c *Client) Users(ctx context.Context) ([]User, error) {
 			return err
 		}
 		if a.UserID != nil {
+			if prev, ok := subjects[*a.UserID]; ok && prev != a.Subject {
+				ambiguous[*a.UserID] = true
+			}
 			subjects[*a.UserID] = a.Subject
 		}
 		return nil
@@ -172,8 +180,12 @@ func (c *Client) Users(ctx context.Context) ([]User, error) {
 		if err := json.Unmarshal(r.Attributes, &a); err != nil {
 			return err
 		}
-		users = append(users, User{ID: r.ID, Username: a.Username, Subject: subjects[r.ID],
-			Locked: a.LockedAt != nil, Deactivated: a.DeactivatedAt != nil})
+		u := User{ID: r.ID, Username: a.Username, Subject: subjects[r.ID], Ambiguous: ambiguous[r.ID],
+			Locked: a.LockedAt != nil, Deactivated: a.DeactivatedAt != nil}
+		if u.Ambiguous {
+			u.Subject = ""
+		}
+		users = append(users, u)
 		return nil
 	})
 	return users, err

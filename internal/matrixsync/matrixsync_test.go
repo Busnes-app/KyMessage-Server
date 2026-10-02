@@ -20,17 +20,19 @@ func TestPlan(t *testing.T) {
 	}
 	dir := map[string]string{"a": "active", "i": "inactive", "d": "deleted"}
 	got := Plan([]User{
-		u("active-open", "a", false, false),    // nothing
-		u("active-locked", "a", true, false),   // unlock
-		u("inactive-open", "i", false, false),  // lock
-		u("inactive-locked", "i", true, false), // nothing
-		u("deleted-open", "d", false, false),   // deactivate
-		u("deleted-locked", "d", true, false),  // deactivate
-		u("unknown-open", "x", false, false),   // lock
-		u("nolink-open", "", false, false),     // lock
-		u("nolink-locked", "", true, false),    // nothing
-		u("gone", "d", true, true),             // never touched again
-		u("revived", "a", true, true),          // deactivated stays deactivated
+		u("active-open", "a", false, false),                                                         // nothing
+		u("active-locked", "a", true, false),                                                        // unlock
+		u("inactive-open", "i", false, false),                                                       // lock
+		u("inactive-locked", "i", true, false),                                                      // nothing
+		u("deleted-open", "d", false, false),                                                        // deactivate
+		u("deleted-locked", "d", true, false),                                                       // deactivate
+		u("unknown-open", "x", false, false),                                                        // lock
+		u("nolink-open", "", false, false),                                                          // lock
+		u("nolink-locked", "", true, false),                                                         // nothing
+		u("gone", "d", true, true),                                                                  // never touched again
+		u("revived", "a", true, true),                                                               // deactivated stays deactivated
+		{ID: "multi-open", Username: "multi-open", Subject: "a", Ambiguous: true},                   // lock, though "a" is active
+		{ID: "multi-locked", Username: "multi-locked", Subject: "a", Ambiguous: true, Locked: true}, // nothing
 	}, dir)
 	want := []Action{
 		{Unlock, u("active-locked", "a", true, false), "active in KyIdentity"},
@@ -39,6 +41,7 @@ func TestPlan(t *testing.T) {
 		{Deactivate, u("deleted-locked", "d", true, false), "deleted in KyIdentity"},
 		{Lock, u("unknown-open", "x", false, false), "not known to KyMessages"},
 		{Lock, u("nolink-open", "", false, false), "no KyIdentity link"},
+		{Lock, User{ID: "multi-open", Username: "multi-open", Subject: "a", Ambiguous: true}, "linked to several KyIdentity subjects"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
@@ -51,6 +54,7 @@ type fakeMAS struct {
 	calls  []string
 	failOn string // "kind id" that errors
 	listed chan struct{}
+	after  func() // runs after each action
 }
 
 func (f *fakeMAS) Users(context.Context) ([]User, error) {
@@ -65,6 +69,9 @@ func (f *fakeMAS) do(kind Kind, id string) error {
 	defer f.mu.Unlock()
 	c := string(kind) + " " + id
 	f.calls = append(f.calls, c)
+	if f.after != nil {
+		f.after()
+	}
 	if c == f.failOn {
 		return errors.New("boom")
 	}
@@ -165,6 +172,17 @@ func TestSweepAuditsFailuresAndContinues(t *testing.T) {
 	}
 	if failed != 1 {
 		t.Fatalf("failed rows = %d", failed)
+	}
+}
+
+// A MAS action that completed is audited even when shutdown cancels the sweep under it.
+func TestSweepAuditsActionsAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &fakeMAS{after: cancel}
+	s, st := newSyncer(t, f)
+	_ = s.Sweep(ctx)
+	if got := len(auditRows(t, st)); got != len(f.calls) || got == 0 {
+		t.Fatalf("audit rows = %d for %d MAS calls", got, len(f.calls))
 	}
 }
 

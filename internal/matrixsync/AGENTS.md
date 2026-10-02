@@ -13,14 +13,18 @@ supplies subject → status.
 ## Local Contracts
 - Decision table, per non-deactivated MAS user, by the subject of its KyIdentity link:
   active → unlock if locked; deleted → deactivate; inactive or unknown to KyMessages →
-  lock if unlocked; no link → lock if unlocked (fail closed).
+  lock if unlocked; no link, or links to more than one subject (`Ambiguous`) → lock if
+  unlocked (fail closed). A lock applied by hand in MAS to a user active in KyIdentity is
+  undone by the next sweep; operators offboard in KyIdentity.
 - Deactivate always sends `{"skip_erase":true}`; messages are never erased.
 - A deactivated MAS user is never reactivated or otherwise touched.
 - MAS must have exactly one upstream provider; any other count is an error.
 - Admin calls go only under `/api/admin/v1/`; `links.next` outside it is refused. Redirects
-  are not followed. One token refetch on 401, then fail.
+  are not followed. One token refetch on 401, then fail. The transport ignores proxy
+  environment variables, so credentials go only to `AdminURL`.
 - No secret or token appears in errors, logs or audit rows. Audit actions are exactly
-  `matrix.lock`, `matrix.unlock`, `matrix.deactivate`, written for success and failure.
+  `matrix.lock`, `matrix.unlock`, `matrix.deactivate`, written for success and failure, on a
+  context detached from the sweep's so a completed action is audited through shutdown.
 - `Run` closes `done` only between sweeps so shutdown can wait before the store closes;
   `Wake` never blocks and coalesces.
 

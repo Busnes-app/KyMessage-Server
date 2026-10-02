@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"sync"
@@ -18,6 +20,7 @@ type fakeServer struct {
 	reject    int // 401 this many Bearer-authenticated calls
 	providers int
 	nextLink  string // replaces page 1's links.next of the links list
+	dupLink   bool   // page 2 also links U1 to a second subject
 	posts     []string
 	bodies    []string
 	requested []string
@@ -82,7 +85,11 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, `{"data":[{"type":"upstream-oauth-link","id":"L1","attributes":{"provider_id":"PROV","subject":"sub-a","user_id":"U1"}}],"links":{"next":%q}}`, next)
 			return
 		}
-		fmt.Fprint(w, `{"data":[{"type":"upstream-oauth-link","id":"L2","attributes":{"provider_id":"PROV","subject":"sub-x","user_id":null}}],"links":{}}`)
+		dup := ""
+		if f.dupLink {
+			dup = `,{"type":"upstream-oauth-link","id":"L3","attributes":{"provider_id":"PROV","subject":"sub-b","user_id":"U1"}}`
+		}
+		fmt.Fprintf(w, `{"data":[{"type":"upstream-oauth-link","id":"L2","attributes":{"provider_id":"PROV","subject":"sub-x","user_id":null}}%s],"links":{}}`, dup)
 	case r.URL.Path == "/api/admin/v1/users":
 		if q.Get("page[first]") != "100" {
 			http.Error(w, "bad query", 400)
@@ -113,6 +120,54 @@ func TestClientListsUsersWithSubjects(t *testing.T) {
 	}
 	if f.tokens != 1 {
 		t.Fatalf("token fetches = %d, want 1", f.tokens)
+	}
+}
+
+// A user linked to two subjects has no single directory record to follow: Plan locks it.
+func TestClientFlagsUserWithSeveralSubjects(t *testing.T) {
+	f := newFake(t)
+	f.dupLink = true
+	got, err := f.client().Users(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[0].Ambiguous || got[0].ID != "U1" || got[1].Ambiguous {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// Docker can inject HTTP_PROXY; the admin credentials and token must never go to a proxy.
+// Proxy settings are read once per process, so the check runs in a fresh child.
+func TestClientIgnoresProxyEnvironment(t *testing.T) {
+	if os.Getenv("MATRIXSYNC_PROXY_CHILD") == "1" {
+		_, err := NewClient("http://mas-admin.invalid:8081", "cid", "secret-value").Users(context.Background())
+		if err == nil {
+			t.Fatal("unresolvable admin host answered")
+		}
+		// Control: the default client does use the proxy here.
+		if resp, err := http.Get("http://control.invalid/"); err == nil {
+			resp.Body.Close()
+		}
+		return
+	}
+	var mu sync.Mutex
+	var hosts []string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hosts = append(hosts, r.Host)
+		mu.Unlock()
+		http.Error(w, "proxy", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestClientIgnoresProxyEnvironment$")
+	cmd.Env = append(os.Environ(), "MATRIXSYNC_PROXY_CHILD=1", "HTTP_PROXY="+proxy.URL, "http_proxy="+proxy.URL, "NO_PROXY=", "no_proxy=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("child: %v\n%s", err, out)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(hosts, []string{"control.invalid"}) {
+		t.Fatalf("proxy saw %v, want only the control request", hosts)
 	}
 }
 
