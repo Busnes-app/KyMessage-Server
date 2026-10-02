@@ -214,7 +214,7 @@ func (c *Client) DeleteJobs(ctx context.Context, token, id string) ([]DeleteJob,
 	}
 	err := c.do(ctx, token, http.MethodGet, roomPath("v2", id)+"/delete_status", nil, &r)
 	var se *Error
-	if errors.As(err, &se) && se.Status == http.StatusNotFound {
+	if errors.As(err, &se) && se.Status == http.StatusNotFound && se.Errcode == "M_NOT_FOUND" {
 		return []DeleteJob{}, nil
 	}
 	if err != nil {
@@ -257,7 +257,7 @@ func (c *Client) RoomMedia(ctx context.Context, token, id string) ([]Media, erro
 func (c *Client) DeleteMedia(ctx context.Context, token string, m Media) error {
 	err := c.do(ctx, token, http.MethodDelete, prefix+"v1/media/"+url.PathEscape(m.Server)+"/"+url.PathEscape(m.ID), nil, nil)
 	var se *Error
-	if errors.As(err, &se) && se.Status == http.StatusNotFound {
+	if errors.As(err, &se) && se.Status == http.StatusNotFound && se.Errcode == "M_NOT_FOUND" {
 		return nil
 	}
 	return err

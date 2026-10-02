@@ -154,3 +154,24 @@ func TestRoomMediaListsLocalOnlyAndDeleteIsIdempotent(t *testing.T) {
 		t.Error("a non-mxc media URI was accepted")
 	}
 }
+
+// A 404 that is not M_NOT_FOUND is a routing mistake, not "nothing to do".
+func TestOnly404NotFoundErrcodeCountsAsDone(t *testing.T) {
+	for name, body := range map[string]string{
+		"unrecognized": `{"errcode":"M_UNRECOGNIZED","error":"Unrecognized request"}`,
+		"no errcode":   `<html>404</html>`,
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, body)
+		}))
+		c := New(srv.URL)
+		if _, err := c.DeleteJobs(context.Background(), "tok", grp); err == nil {
+			t.Errorf("%s: DeleteJobs hid a routing 404", name)
+		}
+		if err := c.DeleteMedia(context.Background(), "tok", Media{"example.com", "X"}); err == nil {
+			t.Errorf("%s: DeleteMedia hid a routing 404", name)
+		}
+		srv.Close()
+	}
+}

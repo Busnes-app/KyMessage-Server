@@ -21,9 +21,10 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   background job and return its `delete_id`. Close makes every local member leave; with
   federation off the server is then out of the room and nobody can rejoin, so Close is final.
 - `DeleteJobs` lists started jobs only (Synapse omits scheduled ones and gives no failure
-  reason); no job is an empty list.
-- `RoomMedia` lists only media non-encrypted events reference; `DeleteMedia` treats 404 as
-  done. Encrypted rooms' attachments cannot be attributed and are never deleted.
+  reason); no job is an empty list. Only 404 `M_NOT_FOUND` means "none"; `M_UNRECOGNIZED` or an
+  errcode-less 404 is a routing error and stays an error.
+- `RoomMedia` lists only media non-encrypted events reference; `DeleteMedia` treats 404
+  `M_NOT_FOUND` as done. Encrypted rooms' attachments cannot be attributed and are never deleted.
 - Messages are never read: no method fetches events.
 
 ## Verification
