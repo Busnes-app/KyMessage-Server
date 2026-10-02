@@ -71,6 +71,7 @@ type Server struct {
 	recovery         recoveryClient
 	mas              MatrixAdmin // nil when Matrix is off
 	rooms            RoomAdmin
+	roomBudget       time.Duration // a room change's steps before its final Close or Delete
 	matrixTargets    health.Targets
 	probeHTTP        *http.Client
 	mux              *http.ServeMux
@@ -210,6 +211,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
 	}
 	s.rooms = synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
+	s.roomBudget = roomChangeTimeout
 
 	s.routes()
 	return s

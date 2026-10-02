@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -26,6 +27,14 @@ var (
 )
 
 const maxMembersShown = 1000
+
+// Room change budgets. The steps before the final Close or Delete (account, mint, reads, media)
+// get roomChangeTimeout; that call gets roomStartTimeout of its own, and a recheck of the jobs
+// after it fails gets masTimeout. Their sum stays well inside the console session's 5 minutes.
+const (
+	roomChangeTimeout = 2 * time.Minute
+	roomStartTimeout  = 30 * time.Second
+)
 
 var (
 	joinRules   = map[string]bool{"public": true, "invite": true, "knock": true, "restricted": true, "knock_restricted": true, "private": true}
@@ -216,18 +225,49 @@ func (s *Server) handleRoomJobs(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"jobs": jobViews(jobs)})
 }
 
-// idle refuses a change while one of the room's jobs is listed as running. Synapse does not
-// list a job still waiting to start; a duplicate queued shutdown is harmless.
-func (s *Server) idle(ctx context.Context, tok, id string) error {
+// idle refuses a change while one of the room's jobs is listed as running, and returns the
+// IDs it saw. Synapse v1.162.0 lists only active, complete and failed tasks
+// (synapse/handlers/pagination.py:409-412), so a task still scheduled is not seen here.
+func (s *Server) idle(ctx context.Context, tok, id string) (map[string]bool, error) {
 	jobs, err := s.rooms.DeleteJobs(ctx, tok, id)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(jobs))
+	for _, j := range jobs {
+		if j.Status == "scheduled" || j.Status == "active" {
+			return nil, errRoomBusy
+		}
+		seen[j.ID] = true
+	}
+	return seen, nil
+}
+
+// startJob makes the final Close or Delete call on a deadline of its own, so the steps before
+// it cannot use up its time. When the call fails other than by Synapse's refusal, the job may
+// still have started with its reply lost, so the jobs are read again and one not seen before
+// is reported as started.
+func (s *Server) startJob(ctx context.Context, tok, id string, seen map[string]bool, res *roomResult,
+	call func(ctx context.Context, token, id string) (string, error)) error {
+	jctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), roomStartTimeout)
+	defer cancel()
+	jobID, err := call(jctx, tok, id)
+	if err != nil && !roomBusy(err) {
+		rctx, rcancel := context.WithTimeout(context.WithoutCancel(ctx), masTimeout)
+		defer rcancel()
+		if jobs, lerr := s.rooms.DeleteJobs(rctx, tok, id); lerr == nil {
+			for _, j := range jobs {
+				if !seen[j.ID] {
+					jobID, err = j.ID, nil
+					break
+				}
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}
-	for _, j := range jobs {
-		if j.Status == "scheduled" || j.Status == "active" {
-			return errRoomBusy
-		}
-	}
+	res.deleteID, res.outcome = jobID, "started"
 	return nil
 }
 
@@ -237,7 +277,9 @@ type roomResult struct{ outcome, deleteID, media string }
 // connection cannot start a job without its audit row. Every outcome is audited.
 func (s *Server) roomChange(w http.ResponseWriter, r *http.Request, action, id string, change func(ctx context.Context, tok string, res *roomResult) error) {
 	actor := s.actorID(r)
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), masTimeout)
+	// The listener's 15s WriteTimeout is for quick replies; this one may take minutes.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.roomBudget + roomStartTimeout + masTimeout + 15*time.Second))
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), s.roomBudget)
 	defer cancel()
 	var res roomResult
 	err := s.mas.AsConsole(ctx, func(ctx context.Context, tok string) error { return change(ctx, tok, &res) })
@@ -285,7 +327,8 @@ func (s *Server) handleRoomClose(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if err := s.idle(ctx, tok, id); err != nil {
+		seen, err := s.idle(ctx, tok, id)
+		if err != nil {
 			return err
 		}
 		blocked, err := s.rooms.Blocked(ctx, tok, id)
@@ -296,12 +339,15 @@ func (s *Server) handleRoomClose(w http.ResponseWriter, r *http.Request) {
 			res.outcome = "already_closed"
 			return nil
 		}
-		if res.deleteID, err = s.rooms.Close(ctx, tok, id); err != nil {
-			return err
-		}
-		res.outcome = "started"
-		return nil
+		return s.startJob(ctx, tok, id, seen, res, s.rooms.Close)
 	})
+}
+
+// decodeStrict decodes exactly one JSON object with only known fields.
+func decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v) == nil && dec.Decode(&struct{}{}) == io.EOF
 }
 
 // handleRoomDelete deletes the media Synapse can attribute to the room, then starts the purge.
@@ -314,7 +360,7 @@ func (s *Server) handleRoomDelete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Confirm string `json:"confirm"`
 	}
-	if !validRoomID(id) || json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req) != nil {
+	if !validRoomID(id) || !decodeStrict(w, r, &req) {
 		s.writeError(w, http.StatusBadRequest, "Invalid room ID or request")
 		return
 	}
@@ -326,7 +372,8 @@ func (s *Server) handleRoomDelete(w http.ResponseWriter, r *http.Request) {
 		if req.Confirm != confirmText(room) {
 			return errConfirm
 		}
-		if err := s.idle(ctx, tok, id); err != nil {
+		seen, err := s.idle(ctx, tok, id)
+		if err != nil {
 			return err
 		}
 		media, err := s.rooms.RoomMedia(ctx, tok, id)
@@ -340,10 +387,6 @@ func (s *Server) handleRoomDelete(w http.ResponseWriter, r *http.Request) {
 			}
 			res.media = strconv.Itoa(i + 1)
 		}
-		if res.deleteID, err = s.rooms.Delete(ctx, tok, id); err != nil {
-			return err
-		}
-		res.outcome = "started"
-		return nil
+		return s.startJob(ctx, tok, id, seen, res, s.rooms.Delete)
 	})
 }

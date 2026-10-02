@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
+	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/health"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
@@ -38,6 +40,8 @@ type fakeRooms struct {
 	err       error // every call
 	changeErr error // Close and Delete
 	mediaErr  error // DeleteMedia
+	lostReply error // Close and Delete: the job starts, then this is returned
+	mediaWait bool  // DeleteMedia returns only when its context is done
 	tokens    []string
 	changes   []string // "media <id>", "close <room>", "delete <room>", in order
 }
@@ -113,10 +117,13 @@ func (f *fakeRooms) Blocked(_ context.Context, tok, id string) (bool, error) {
 	return f.blocked[id], f.use(tok)
 }
 
-func (f *fakeRooms) change(tok, kind, id string) (string, error) {
+func (f *fakeRooms) change(ctx context.Context, tok, kind, id string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.use(tok); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if f.changeErr != nil {
@@ -132,14 +139,15 @@ func (f *fakeRooms) change(tok, kind, id string) (string, error) {
 		f.members[id] = nil
 		f.rooms[id].Members, f.rooms[id].LocalMembers = 0, 0
 	}
-	return job, nil
+	return job, f.lostReply
 }
 
-func (f *fakeRooms) Close(_ context.Context, tok, id string) (string, error) {
-	return f.change(tok, "close", id)
+func (f *fakeRooms) Close(ctx context.Context, tok, id string) (string, error) {
+	return f.change(ctx, tok, "close", id)
 }
-func (f *fakeRooms) Delete(_ context.Context, tok, id string) (string, error) {
-	return f.change(tok, "delete", id)
+
+func (f *fakeRooms) Delete(ctx context.Context, tok, id string) (string, error) {
+	return f.change(ctx, tok, "delete", id)
 }
 
 func (f *fakeRooms) DeleteJobs(_ context.Context, tok, id string) ([]synapseadmin.DeleteJob, error) {
@@ -154,7 +162,13 @@ func (f *fakeRooms) RoomMedia(_ context.Context, tok, id string) ([]synapseadmin
 	return f.media[id], f.use(tok)
 }
 
-func (f *fakeRooms) DeleteMedia(_ context.Context, tok string, m synapseadmin.Media) error {
+func (f *fakeRooms) DeleteMedia(ctx context.Context, tok string, m synapseadmin.Media) error {
+	f.mu.Lock()
+	wait := f.mediaWait
+	f.mu.Unlock()
+	if wait {
+		<-ctx.Done()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.use(tok); err != nil {
@@ -480,5 +494,63 @@ func TestBrokenConsoleAccountReachesRooms(t *testing.T) {
 	}
 	if r := auditRows(t, st, "matrix.room_close"); len(r) != 1 || r[0].Details != `outcome="error: console account is locked in MAS"` {
 		t.Errorf("rows %+v", r)
+	}
+}
+
+// The media deletions may use the whole change budget; the purge call still gets its own.
+func TestRoomDeleteSlowMediaDoesNotStarveTheShutdown(t *testing.T) {
+	srv, st, _, rooms := setupRoomsServer(t)
+	api.SetRoomBudgetForTest(srv, 50*time.Millisecond)
+	rooms.mediaWait = true
+	w := adminDo(t, srv, loginAs(t, srv, st, "root", "admin"), "POST", roomPath(rGroup)+"/delete", map[string]string{"confirm": "Team chat"})
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-2","outcome":"started"}` {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-2" media="1"` {
+		t.Errorf("row %q", r.Details)
+	}
+}
+
+// Synapse may start the job and the reply still fail (a deadline): the jobs are read again and
+// a new one is audited as started, never as an error with no delete_id.
+func TestRoomChangeLostReplyAuditsTheStartedJob(t *testing.T) {
+	srv, st, _, rooms := setupRoomsServer(t)
+	admin := loginAs(t, srv, st, "root", "admin")
+	rooms.jobs[rGroup] = []synapseadmin.DeleteJob{{ID: "old", Status: "complete"}}
+	rooms.lostReply = context.DeadlineExceeded
+	w := adminDo(t, srv, admin, "POST", roomPath(rGroup)+"/delete", map[string]string{"confirm": "Team chat"})
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"delete_id":"delete-2","outcome":"started"}` {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if r := auditRows(t, st, "matrix.room_delete")[0]; r.Details != `outcome="started" delete_id="delete-2" media="1"` {
+		t.Errorf("row %q", r.Details)
+	}
+	// No new job listed: the failure stands.
+	rooms.changeErr = context.DeadlineExceeded
+	if w := adminDo(t, srv, admin, "POST", roomPath(rDM)+"/close", nil); w.Code != http.StatusBadGateway {
+		t.Errorf("close: %d %s", w.Code, w.Body.String())
+	}
+	if r := auditRows(t, st, "matrix.room_close")[0]; r.Details != `outcome="error: context deadline exceeded"` {
+		t.Errorf("close row %q", r.Details)
+	}
+}
+
+func TestRoomDeleteBodyIsStrict(t *testing.T) {
+	srv, st, _, rooms := setupRoomsServer(t)
+	admin := loginAs(t, srv, st, "root", "admin")
+	for _, body := range []string{`{"confirm":"Team chat","force":true}`, `{"confirm":"Team chat"}{}`, `{"confirm":"Team chat"} x`} {
+		req := httptest.NewRequest("POST", roomPath(rGroup)+"/delete", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(admin)
+		req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
+		req.Header.Set(auth.HeaderCSRF, "test-csrf")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", body, w.Code, w.Body.String())
+		}
+	}
+	if len(rooms.changes) != 0 || len(auditRows(t, st, "matrix.room_delete")) != 0 {
+		t.Fatalf("a malformed body reached Synapse or the audit: %v", rooms.changes)
 	}
 }
