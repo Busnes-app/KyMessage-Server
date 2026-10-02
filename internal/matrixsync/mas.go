@@ -407,9 +407,10 @@ const (
 	consoleSessionTTL = 5 * time.Minute
 )
 
-// EnsureConsoleUser returns the console account's MAS ID, creating it and granting MAS admin
-// when needed. It refuses an account that is locked, deactivated or linked to an upstream
-// identity: a linked one belongs to a person.
+// EnsureConsoleUser returns the console account's MAS ID, creating it when needed. It refuses
+// an account that is locked, deactivated, linked to an upstream identity (a person's) or MAS
+// admin: personal sessions need no admin flag, and with it an interactive login as the
+// account could request urn:mas:admin.
 func (c *Client) EnsureConsoleUser(ctx context.Context) (string, error) {
 	path := adminPrefix + "users/by-username/" + ConsoleUsername
 	r, err := c.one(ctx, path)
@@ -438,6 +439,8 @@ func (c *Client) EnsureConsoleUser(ctx context.Context) (string, error) {
 		return "", errors.New("console account is deactivated in MAS")
 	case a.LockedAt != nil:
 		return "", errors.New("console account is locked in MAS")
+	case a.Admin:
+		return "", errors.New("console account has MAS admin; remove it (it needs none)")
 	}
 	var links struct {
 		Data []resource `json:"data"`
@@ -447,11 +450,6 @@ func (c *Client) EnsureConsoleUser(ctx context.Context) (string, error) {
 	}
 	if len(links.Data) > 0 {
 		return "", errors.New("console account is linked to an upstream identity; refusing to act as a person")
-	}
-	if !a.Admin {
-		if err := c.post(ctx, r.ID, "set-admin", []byte(`{"admin":true}`)); err != nil {
-			return "", fmt.Errorf("console account: %w", err)
-		}
 	}
 	return r.ID, nil
 }
@@ -476,7 +474,11 @@ func (c *Client) AsConsole(ctx context.Context, fn func(ctx context.Context, tok
 			} `json:"attributes"`
 		} `json:"data"`
 	}
-	if err := c.call(ctx, http.MethodPost, adminPrefix+"personal-sessions", body, &doc); err != nil {
+	// Detached: MAS may create the session even if ctx ends mid-request, and only its ID
+	// lets us revoke it.
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := c.call(mctx, http.MethodPost, adminPrefix+"personal-sessions", body, &doc); err != nil {
 		return fmt.Errorf("console session: %w", err)
 	}
 	if doc.Data.ID == "" || doc.Data.Attributes.AccessToken == "" {

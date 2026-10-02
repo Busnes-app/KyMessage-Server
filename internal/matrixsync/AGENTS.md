@@ -19,14 +19,17 @@ supplies subject → status.
   unlocked (fail closed). A lock applied by hand in MAS to a user active in KyIdentity is
   undone by the next sweep; operators offboard in KyIdentity.
 - The console account is MAS user `kymessages-console` (`ConsoleUsername`): no password, no
-  upstream link, MAS admin. `EnsureConsoleUser` creates it on first use (never at start-up) and
-  refuses it locked, deactivated or linked to any upstream identity (a linked one is a person).
+  upstream link, never MAS admin (`can_request_admin`): personal sessions do not need it, and it
+  would let an interactive login as the account request `urn:mas:admin`. `EnsureConsoleUser`
+  creates it on first use (never at start-up) and refuses it locked, deactivated, MAS admin or
+  linked to any upstream identity (a linked one is a person), before any session is minted.
   `Plan` skips exactly that username while it has no link and is not `Ambiguous`, so the sweep
   never locks or unlocks it; linked, it is judged as a person. Locking it in MAS cuts the
   console's Synapse admin access.
 - `AsConsole` mints one MAS personal session per action: scope exactly
   `urn:matrix:client:api:* urn:synapse:admin:*`, `expires_in` 300, `human_name`
-  `KyMessages console`. It revokes the session afterwards on a detached 10 s context, also when
+  `KyMessages console`. The mint runs on a detached 10 s context, so a session MAS creates while
+  the request dies is still known and revoked. It revokes the session afterwards on a detached 10 s context, also when
   the action fails or its context ends; a failed revoke (other than 409, already revoked) is
   logged with the session ID, never the token, and the session expires on its own.
 - Deactivate always sends `{"skip_erase":true}`; messages are never erased.

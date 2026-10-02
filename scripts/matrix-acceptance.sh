@@ -508,10 +508,10 @@ app_api GET /api/admin/health >"$state/health-warmup.json"
 app_api GET /api/admin/health >"$state/health.json"
 expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres,synapse-admin "health checks every component"
 expect "$(jq -r '[.components[] | select(.status != "up") | "\(.name): \(.error)"] | join("; ")' "$state/health.json")" "" "every component up"
-# Synapse admin access, proven by the probe above: the console account exists, is MAS admin,
-# unlocked and unlinked, and every session it used carried exactly the two scopes, expired
-# within 5 minutes and was revoked.
-expect "$(mas_user kymessages-console 'can_request_admin AND locked_at IS NULL AND deactivated_at IS NULL')" t "the console account exists, admin and unlocked"
+# Synapse admin access, proven by the probe above: the console account exists without MAS admin
+# (Synapse decides by the session's scope alone), unlocked and unlinked, and every session it
+# used carried exactly the two scopes, expired within 5 minutes and was revoked.
+expect "$(mas_user kymessages-console 'NOT can_request_admin AND locked_at IS NULL AND deactivated_at IS NULL')" t "the console account exists, not MAS admin, unlocked"
 expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links l JOIN users u USING (user_id) WHERE u.username = 'kymessages-console'")" 0 "the console account has no KyIdentity link"
 expect "$(sql mas "SELECT string_agg(DISTINCT array_to_string(s.scope_list, ' '), '|') FROM personal_sessions s JOIN users u ON u.user_id = s.actor_user_id WHERE u.username = 'kymessages-console'")" \
 	'urn:matrix:client:api:* urn:synapse:admin:*' "console sessions carry exactly the client API and Synapse admin scopes"

@@ -198,7 +198,7 @@ Upgrading a stack from before Matrix backups:
   compares each running version with the Compose pin. It links components to their upstream
   source and shows the network check. Each load also proves Synapse admin access: it mints a
   5-minute MAS session for the console's service account `kymessages-console` (created on the
-  first load; no password, never linked to KyIdentity), reads one room and revokes it.
+  first load; no password, no MAS admin, never linked to KyIdentity), reads one room and revokes it.
 - **Audit** is the read-only log, filtered by kind (auth, backup, matrix, scim).
 - Ending a session needs a sign-in from the last 10 minutes; the console asks "Confirm it's you"
   and retries after you sign in again. Each ending is audited as `matrix.session_end`.

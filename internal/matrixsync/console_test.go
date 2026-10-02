@@ -29,7 +29,8 @@ type consoleFake struct {
 	setAdmin     []string
 	minted       []map[string]any
 	revoked      []string
-	revokeStatus int // non-zero: revoke answers this
+	revokeStatus int    // non-zero: revoke answers this
+	onMint       func() // runs while MAS handles the mint, before it answers
 	srv          *httptest.Server
 }
 
@@ -98,6 +99,9 @@ func (f *consoleFake) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.minted = append(f.minted, m)
+		if f.onMint != nil {
+			f.onMint()
+		}
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprintf(w, `{"data":{"type":"personal-session","id":"PS%d","attributes":{"access_token":"mpt_secret%d"}}}`, len(f.minted), len(f.minted))
 	case r.Method == http.MethodPost && strings.HasPrefix(p, "/api/admin/v1/personal-sessions/") && strings.HasSuffix(p, "/revoke"):
@@ -112,7 +116,9 @@ func (f *consoleFake) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func TestEnsureConsoleUserCreatesOnceAndGrantsAdmin(t *testing.T) {
+// The console account never gets MAS admin: personal sessions do not need it, and it would let
+// an interactive login as the account request urn:mas:admin.
+func TestEnsureConsoleUserCreatesOnceWithoutAdmin(t *testing.T) {
 	f := newConsoleFake(t)
 	c := f.client()
 	for range 2 {
@@ -124,14 +130,14 @@ func TestEnsureConsoleUserCreatesOnceAndGrantsAdmin(t *testing.T) {
 	if !reflect.DeepEqual(f.created, []string{`{"username":"kymessages-console"}`}) {
 		t.Errorf("created %v", f.created)
 	}
-	if !reflect.DeepEqual(f.setAdmin, []string{`{"admin":true}`}) {
+	if len(f.setAdmin) != 0 {
 		t.Errorf("set-admin %v", f.setAdmin)
 	}
 }
 
 func TestEnsureConsoleUserSurvivesACreateRace(t *testing.T) {
 	f := newConsoleFake(t)
-	f.user = map[string]any{"username": "kymessages-console", "admin": true, "locked_at": nil, "deactivated_at": nil}
+	f.user = map[string]any{"username": "kymessages-console", "admin": false, "locked_at": nil, "deactivated_at": nil}
 	f.hideOnce = true
 	id, err := f.client().EnsureConsoleUser(context.Background())
 	if err != nil || id != consoleID || len(f.created) != 1 || len(f.setAdmin) != 0 {
@@ -139,8 +145,8 @@ func TestEnsureConsoleUserSurvivesACreateRace(t *testing.T) {
 	}
 }
 
-// A locked, deactivated or linked account is refused, and no session is minted for it: a
-// linked one is a person, never the console.
+// A locked, deactivated, linked or MAS-admin account is refused, and no session is minted for
+// it: a linked one is a person, never the console; admin is a privilege it must not hold.
 func TestEnsureConsoleUserRefusesBrokenAccounts(t *testing.T) {
 	for name, tc := range map[string]struct {
 		edit func(*consoleFake)
@@ -149,6 +155,7 @@ func TestEnsureConsoleUserRefusesBrokenAccounts(t *testing.T) {
 		"locked":      {func(f *consoleFake) { f.user["locked_at"] = "2026-10-02T10:00:00Z" }, "console account is locked in MAS"},
 		"deactivated": {func(f *consoleFake) { f.user["deactivated_at"] = "2026-10-02T10:00:00Z" }, "console account is deactivated in MAS"},
 		"linked":      {func(f *consoleFake) { f.linked = true }, "console account is linked to an upstream identity"},
+		"admin":       {func(f *consoleFake) { f.user["admin"] = true }, "console account has MAS admin"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newConsoleFake(t)
@@ -196,6 +203,19 @@ func TestAsConsoleRevokesWhenTheCallFailsOrIsCancelled(t *testing.T) {
 	}
 }
 
+// A mint whose request is cancelled while MAS creates the session is still revoked: MAS may
+// commit it, and only its ID lets us end it early.
+func TestAsConsoleRevokesASessionMintedAsTheRequestDies(t *testing.T) {
+	f := newConsoleFake(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	f.onMint = cancel
+	called := false
+	err := f.client().AsConsole(ctx, func(ctx context.Context, _ string) error { called = true; return ctx.Err() })
+	if !errors.Is(err, context.Canceled) || !called || !reflect.DeepEqual(f.revoked, []string{"PS1"}) {
+		t.Fatalf("err %v called %v revoked %v", err, called, f.revoked)
+	}
+}
+
 // A refused revoke does not turn a done action into a failure; the session expires on its
 // own. 409 means it was already revoked. Neither the token nor the secret reaches the log.
 func TestAsConsoleRevokeFailureIsLoggedNotReturned(t *testing.T) {
@@ -222,6 +242,9 @@ func TestPlanExemptsOnlyTheUnlinkedConsoleAccount(t *testing.T) {
 		{ID: "x2", Username: "kymessages"},                     // lock
 		{ID: "x3", Username: ConsoleUsername, Subject: "i"},    // lock: linked, so a person
 		{ID: "x4", Username: ConsoleUsername, Ambiguous: true}, // lock: linked twice
+		{ID: "x5", Username: "Kymessages-console"},             // lock: case differs
+		{ID: "x6", Username: "kym\u0435ssages-console"},        // lock: Cyrillic e
+		{ID: "x7", Username: "kymessages\u2010console"},        // lock: Unicode hyphen
 	}, map[string]string{"i": "inactive"})
 	var locked []string
 	for _, a := range got {
@@ -230,7 +253,7 @@ func TestPlanExemptsOnlyTheUnlinkedConsoleAccount(t *testing.T) {
 		}
 		locked = append(locked, a.User.ID)
 	}
-	if strings.Join(locked, ",") != "x1,x2,x3,x4" {
+	if strings.Join(locked, ",") != "x1,x2,x3,x4,x5,x6,x7" {
 		t.Fatalf("locked %v", locked)
 	}
 }
