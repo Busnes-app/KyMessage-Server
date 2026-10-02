@@ -749,7 +749,7 @@ app_api GET '/api/admin/audit?kind=matrix&limit=100' >"$state/audit.json"
 expect "$(jq '.total <= .limit' "$state/audit.json")" true "the audit page holds every matrix row ($(jq .total "$state/audit.json"))"
 expect "$(jq -r --arg r "$group" '[.records[] | select(.action == "matrix.room_close" and .target == $r and .actor == "admin") | .outcome] | join(",")' "$state/audit.json")" \
 	already_closed,started "the audit shows both closes, newest first"
-expect "$(jq -r --arg r "$throwaway" '[.records[] | select(.action == "matrix.room_delete" and .target == $r) | .outcome] | join(",")' "$state/audit.json")" \
+expect "$(jq -r --arg r "$throwaway" '[.records[] | select(.action == "matrix.room_delete" and .target == $r and .actor == "admin") | .outcome] | join(",")' "$state/audit.json")" \
 	"started,refused: confirmation does not match" "the audit shows the delete and the refused one"
 expect "$(jq --arg c "@kymessages-console:$KY_MATRIX_SERVER_NAME" '[.records[] | select(.target == $c)] | length' "$state/audit.json")" 0 \
 	"the sweep never acted on the console account"

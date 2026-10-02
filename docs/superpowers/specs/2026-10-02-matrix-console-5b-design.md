@@ -22,7 +22,7 @@ Every change needs a fresh sign-in and is audited.
    Reopen is dropped — Close makes every local member leave, and with federation off nobody can
    rejoin or be invited afterwards (Synapse source, `handlers/room.py`, `room_member.py`).
 
-## Evidence (source, MAS v1.26.0 and Synapse v1.162.0; unproven live until the plan's first task)
+## Evidence (source, MAS v1.26.0 and Synapse v1.162.0; proven live by `make matrix-acceptance`)
 
 - MAS policy grants `urn:synapse:admin:*` only to interactive grants with a user that may
   request admin (`policies/authorization_grant/authorization_grant.rego`); client credentials
@@ -32,6 +32,10 @@ Every change needs a fresh sign-in and is audited.
 - MAS admin API `POST /api/admin/v1/personal-sessions` creates a session acting as a user with
   a given scope and `expires_in`; `.../revoke` ends it; `POST /api/admin/v1/users` and
   `/users/{id}/set-admin` exist (unused: the console account does not get the admin flag).
+- Synapse's purge deletes no media, and `GET /_synapse/admin/v1/room/{id}/media` lists any
+  local media a plaintext event in the room references (`synapse/storage/databases/main/room.py`):
+  forwarded images, an upgraded room's avatar, or a reference planted by a member, since
+  Synapse does not enforce encryption. That list cannot scope a deletion to the room.
 
 ## Section 1: components
 
@@ -45,9 +49,9 @@ Every change needs a fresh sign-in and is audited.
   blocked. Detail: members. Actions (fresh admin, audited):
   - **Close:** remove all members, block rejoin, keep history. A background job, polled like
     Delete.
-  - **Delete permanently:** purge history; the admin types the room name. Removes only the
-    media Synapse can attribute to the room (usually the avatar); attachments in encrypted
-    rooms stay as encrypted files.
+  - **Delete permanently:** purge history; the admin types the room name. The room's media
+    (attachments, avatars) stays in the media store: media other rooms use cannot be told
+    apart (Evidence).
   Audit actions `matrix.room_close`, `matrix.room_delete` (room id,
   admin, outcome). Both are Synapse background jobs: the row records one started; the page
   polls status for each.
@@ -65,7 +69,7 @@ Every change needs a fresh sign-in and is audited.
 - Delete in progress: "Deleting…" until complete or failed; a second close or delete of the same room is
   refused while one runs.
 - Closing a closed room is success. Delete re-checks the confirmation against the room name
-  server side.
+  server side, and makes no media call.
 - Member lists and room names are admin-only; messages are never shown.
 - **Tests.** Service-account ensure (idempotent, not MAS admin); sweep exemption limited to that exact
   username; session mint (exact scopes, 5-minute lifetime) and revoke on success and failure;
@@ -84,6 +88,5 @@ moderation; federation.
 
 ## Risks
 
-- The whole approach is source-proven only; the plan proves it live first.
 - A service account with Synapse admin scope is a standing high-value identity; it has no password
   or upstream link, sessions are minutes long, and every use is audited.

@@ -198,18 +198,20 @@ Upgrading a stack from before Matrix backups:
   events, open or closed) with search and paging, and a room's members. It never shows
   messages. **Close** is final: members are removed, rejoin is blocked, history stays.
   **Delete permanently** purges the room's history after you type its name (or its ID when it
-  has none); attachments in encrypted rooms stay in the media store as encrypted files. Both
+  has none); the room's media (attachments, avatars) stays in the media store. Both
   run as background jobs, need a sign-in from the last 10 minutes and are audited as
   `matrix.room_close` and `matrix.room_delete`.
-- The console reaches Synapse's admin API as the service account `@kymessages-console`: no
-  password, no KyIdentity link, not MAS admin. The offboarding sweep exempts exactly that
-  name, so never create a KyIdentity user with that username. Locking the account in MAS cuts
+- The console reaches Synapse's admin API as the service account `@kymessages-console`, which
+  it creates in MAS on first use (a Rooms or Health load): no password, no KyIdentity link, not
+  MAS admin. For each action it mints a 5-minute MAS session and revokes it afterwards. The
+  offboarding sweep exempts exactly that unlinked account. A KyIdentity-linked account named
+  `kymessages-console` is not exempt: the sweep judges it as a person and the console refuses
+  it, so never create a KyIdentity user with that username. Locking the account in MAS cuts
   the console's room access.
 - **Health** probes Synapse, MAS, Element, Postgres, the database and this app on each load and
   compares each running version with the Compose pin. It links components to their upstream
-  source and shows the network check. Each load also proves Synapse admin access: it mints a
-  5-minute MAS session for the console's service account `kymessages-console` (created on the
-  first load; no password, no MAS admin, never linked to KyIdentity), reads one room and revokes it.
+  source and shows the network check. Each load also proves Synapse admin access as the console
+  account: it reads one room.
 - **Audit** is the read-only log, filtered by kind (auth, backup, matrix, scim).
 - Ending a session needs a sign-in from the last 10 minutes; the console asks "Confirm it's you"
   and retries after you sign in again. Each ending is audited as `matrix.session_end`.
