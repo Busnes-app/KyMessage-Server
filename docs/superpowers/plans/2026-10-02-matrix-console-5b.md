@@ -2742,7 +2742,7 @@ Notes:
 ### Task 5: Acceptance rooms step and browser regressions
 
 **Files:**
-- Modify: `scripts/matrix-acceptance.sh` (header comment; a new last step after `step no-username`, line 718-724)
+- Modify: `scripts/matrix-acceptance.sh` (header comment; a new step right after `step restore`'s `pass`, before `step reproduce`)
 - Modify: `web/browser/ui.spec.mjs` (after the Users check, around line 107)
 - Modify: `.github/workflows/ci.yml` (`matrix-acceptance` `timeout-minutes` comment, only if the measured duration requires it)
 
@@ -2753,9 +2753,9 @@ Notes:
   - The Rooms tab (Task 4).
 - Produces: acceptance step `rooms`, and browser coverage of the Rooms tab.
 
-The step runs last, on the restored stack (question 10). By then two things are true. `step restore` has already asserted that bob is still in the group room. And the app's start-up sweep after the restore ran with `kymessages-console` present, created by Task 1's Health probe before the backup, which proves the exemption.
+The step runs on the restored stack (question 10), right after `step restore` and before `reproduce` and `no-username`, which must stay last (they change MAS routing and narrow the KyIdentity client's scopes for everyone). By then two things are true. `step restore` has already asserted that bob is still in the group room. And the app's start-up sweep after the restore ran with `kymessages-console` present, created by Task 1's Health probe before the backup, which proves the exemption.
 
-- [ ] **Step 1: The rooms step.** Append at the end of `scripts/matrix-acceptance.sh`:
+- [ ] **Step 1: The rooms step.** Insert after `step restore`'s `pass` in `scripts/matrix-acceptance.sh`:
 
 ```bash
 # ---------------------------------------------------------------------------------------

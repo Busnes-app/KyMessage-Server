@@ -157,7 +157,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
-- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, and the Users (Matrix off), Health, Audit and Overview pages; these checks remain release gates.
+- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit and Overview pages; these checks remain release gates.
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
@@ -183,7 +183,10 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   and volumes are then deleted (KyIdentity kept) and the operator sequence is followed:
   host-built `restore` with shares on stdin, `restore-matrix`, `chown` to root in a throwaway
   container. Alice on a new device reads history and the image; server name and signing key
-  are unchanged. The later steps run on the restored stack.
+  are unchanged. The later steps run on the restored stack: first the console closes the group
+  room (bob removed, his rejoin refused as blocked) and permanently deletes a throwaway room
+  (no rows left in Synapse's room tables), both audited, and the restored app's start-up sweep
+  leaves `kymessages-console` unlocked.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.

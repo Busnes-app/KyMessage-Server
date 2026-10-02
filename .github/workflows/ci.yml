@@ -157,7 +157,7 @@ jobs:
   matrix-acceptance:
     name: Matrix acceptance (encrypted storage, closed server)
     runs-on: ubuntu-latest
-    # Measured locally: 314s (backup and restore included); headroom for slower runners and image pulls.
+    # Measured locally: 434s (backup, restore and console rooms included); headroom for slower runners and image pulls.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

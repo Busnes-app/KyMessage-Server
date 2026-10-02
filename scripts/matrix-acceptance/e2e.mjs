@@ -271,14 +271,26 @@ async function resume(name, profile) {
   const page = await launch(name, profile);
   // Element would otherwise reopen the room prove left open.
   await page.goto(`${CHAT}/#/home`);
-  // Element's session lock outlives the closed browser: "open in another window".
+  // Element's session lock outlives the closed browser: "open in another window". Its Continue
+  // is the only one on that page; the "Back up your chats" toast's Continue opens settings.
   const start = page.getByRole('button', { name: 'New conversation' });
-  const takeOver = page.getByRole('button', { name: 'Continue', exact: true });
-  await start.or(takeOver).first().waitFor();
-  if (await takeOver.isVisible()) await takeOver.click();
+  const locked = page.getByText(/is open in another window/);
+  await start.or(locked).first().waitFor();
+  if (await locked.isVisible()) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await start.waitFor();
   return page;
 }
+
+// Closes any dialog left open (a settings dialog would take a file upload's place).
+async function closeDialogs(page) {
+  const dialog = page.getByRole('dialog');
+  for (let i = 0; i < 3 && (await dialog.count()); i++) {
+    await page.keyboard.press('Escape');
+    await dialog.first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+  }
+  check((await dialog.count()) === 0, 'no dialog open');
+}
+
 const aliceSession = () => resume('alice', 'prove-alice');
 const roomState = () => JSON.parse(fs.readFileSync(stateFile('room'), 'utf8'));
 
@@ -391,6 +403,7 @@ async function media() {
   const { rooms: { dm } } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
   const bob = await resume('bob', 'prove-bob');
   await openRoom(bob, dm, false);
+  await closeDialogs(bob);
   await bob.locator('input[type="file"]').first().setInputFiles({ name: `kymatrix-${tag}.png`, mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') });
   await bob.getByRole('dialog').getByRole('button', { name: 'Upload' }).click();
   await bob.locator('.mx_EventTile[data-event-id^="$"] .mx_ImageBody').last().waitFor();
