@@ -255,7 +255,7 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret", Dir: "/matrix", MediaDir: "/matrix-media", DBHost: "postgres", BackupDBPassword: "kybpw"}); cfg.Matrix != want {
+	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret", Dir: "/matrix", MediaDir: "/matrix-media", DBHost: "postgres", BackupDBPassword: "kybpw", ElementRestartHint: config.DefaultElementRestartHint}); cfg.Matrix != want {
 		t.Fatalf("got %+v want %+v", cfg.Matrix, want)
 	}
 	// Without the webhook secret every directory delivery is refused, so a KyIdentity disable
@@ -289,5 +289,47 @@ func TestMediaFullKeepFromEnv(t *testing.T) {
 	t.Setenv("KY_BACKUP_MEDIA_FULL_KEEP", "0")
 	if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_BACKUP_MEDIA_FULL_KEEP") {
 		t.Errorf("keep 0: %v", err)
+	}
+}
+
+// Settings names the command that restarts Element on this deployment: Compose by default, the
+// cluster's kubectl when set. One line only; it is displayed, never run.
+func TestElementRestartHintFromEnv(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"admin": "s3cret\n", "kybackup": "kybpw\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for k, v := range map[string]string{
+		"KY_DATA_DIR": t.TempDir(), "KY_MATRIX_SERVER_NAME": "example.com",
+		"KY_MATRIX_HOST": "https://matrix.example.com", "KY_MATRIX_CHAT_HOST": "https://chat.example.com",
+		"KY_MATRIX_ADMIN_URL": "http://mas-admin:8081", "KY_MATRIX_ADMIN_CLIENT_ID": "01J0000000000000000000ADMN",
+		"KY_MATRIX_ADMIN_SECRET_FILE": filepath.Join(dir, "admin"), "KY_MATRIX_DIR": "/matrix",
+		"KY_MATRIX_MEDIA_DIR": "/matrix-media", "KY_MATRIX_BACKUP_DB_PASSWORD_FILE": filepath.Join(dir, "kybackup"),
+		"KY_KYIDENTITY_HMAC_SECRET": "hmac", "KY_MATRIX_ELEMENT_RESTART_HINT": "",
+	} {
+		t.Setenv(k, v)
+	}
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Matrix.ElementRestartHint; got != "docker compose restart element" {
+		t.Fatalf("default hint %q", got)
+	}
+	const k8s = "kubectl -n ky-stack rollout restart deployment/element"
+	t.Setenv("KY_MATRIX_ELEMENT_RESTART_HINT", "  "+k8s+" ")
+	if cfg, err = config.LoadFromEnv(); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Matrix.ElementRestartHint; got != k8s {
+		t.Fatalf("set hint %q", got)
+	}
+	for _, bad := range []string{"kubectl rollout\nrestart", strings.Repeat("x", 257)} {
+		t.Setenv("KY_MATRIX_ELEMENT_RESTART_HINT", bad)
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_MATRIX_ELEMENT_RESTART_HINT") {
+			t.Errorf("%q: err = %v, want one naming KY_MATRIX_ELEMENT_RESTART_HINT", bad, err)
+		}
 	}
 }
