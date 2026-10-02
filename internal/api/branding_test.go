@@ -401,19 +401,29 @@ func TestConcurrentSavesAndTicksLeaveValidConfig(t *testing.T) {
 	p, _ := withElement(t, srv, cfg, elementJSON)
 	admin := loginAs(t, srv, st, "root", "admin")
 	names := []string{"A", strings.Repeat("Long brand ", 5) + "end", "Mid size"}
+	// Goroutines only collect; the test goroutine reports.
+	errs := make(chan error, 24)
 	var wg sync.WaitGroup
 	for i := range 12 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			adminDo(t, srv, admin, "PUT", "/api/admin/branding/name", map[string]string{"name": names[i%len(names)]})
+			if w := adminDo(t, srv, admin, "PUT", "/api/admin/branding/name", map[string]string{"name": names[i%len(names)]}); w.Code != http.StatusOK {
+				errs <- fmt.Errorf("save: HTTP %d: %s", w.Code, w.Body)
+			}
 		}()
 		go func() {
 			defer wg.Done()
-			_ = srv.ReconcileBrand(ctx)
+			if err := srv.ReconcileBrand(ctx); err != nil {
+				errs <- fmt.Errorf("reconcile: %w", err)
+			}
 		}()
 	}
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
 	b, _ := os.ReadFile(p)
 	var got map[string]any
 	if err := json.Unmarshal(b, &got); err != nil {

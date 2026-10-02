@@ -36,12 +36,12 @@ func TestValidateName(t *testing.T) {
 		"NUL":              "Acme\x00",
 		"DEL":              "Acme\x7f",
 		"C1 control (NEL)": "Ac\u0085me",
-		"bidi override":    "‮Acme",
-		"bidi isolate":     "Acme⁦x",
-		"zero-width space": "Ac​me",
-		"ZWJ":              "Ac‍me",
+		"bidi override":    "\u202eAcme",
+		"bidi isolate":     "Acme\u2066x",
+		"zero-width space": "Ac\u200bme",
+		"ZWJ":              "Ac\u200dme",
 		"BOM":              "\ufeffAcme",
-		"line separator":   "Acme Chat",
+		"line separator":   "Acme\u2028Chat",
 		"invalid UTF-8":    "Acme\xff",
 	} {
 		if _, err := ValidateName(in); err == nil {
