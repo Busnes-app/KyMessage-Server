@@ -7,6 +7,7 @@ import (
 
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/health"
+	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
 )
 
 const (
@@ -31,11 +32,21 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			health.Probe{Name: "mas", Run: health.MAS(s.probeHTTP, t.MAS, s.mas.Version)},
 			health.Probe{Name: "element", Run: health.Element(s.probeHTTP, t.Element)},
 			health.Probe{Name: "postgres", Run: health.Postgres(m.DBHost, m.BackupDBPassword)},
+			health.Probe{Name: "synapse-admin", Run: s.synapseAdminProbe},
 		)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"matrix":     s.mas != nil,
 		"components": health.Check(ctx, probeTimeout, probes, m.BackupDBPassword, m.AdminSecret),
+	})
+}
+
+// synapseAdminProbe proves the console can use Synapse's admin API: a console session, one
+// admin read, revoked. It has no version.
+func (s *Server) synapseAdminProbe(ctx context.Context) (string, error) {
+	return "", s.mas.AsConsole(ctx, func(ctx context.Context, tok string) error {
+		_, err := s.rooms.Rooms(ctx, tok, synapseadmin.RoomQuery{Limit: 1})
+		return err
 	})
 }

@@ -202,6 +202,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, Playwrigh
 - [internal/scim/AGENTS.md](internal/scim/AGENTS.md): SCIM 2.0 user and group provisioning engine.
 - [internal/matrixinit/AGENTS.md](internal/matrixinit/AGENTS.md): `kymessages matrix-init` config generation for Synapse, MAS, Element and Postgres; write-once secrets.
 - [internal/matrixsync/AGENTS.md](internal/matrixsync/AGENTS.md): MAS admin client and sweep that locks, unlocks and deactivates Matrix users from the KyIdentity directory.
+- [internal/synapseadmin/AGENTS.md](internal/synapseadmin/AGENTS.md): Synapse admin API client for the console, used with 5-minute console sessions.
 - [internal/health/AGENTS.md](internal/health/AGENTS.md): Per-request component probes, version pins generated from docker-compose.matrix.yml, upstream source links.
 - [internal/backup/AGENTS.md](internal/backup/AGENTS.md): Product-side adapters over `ky-primitives/recoveryclient`: payload collection, drill checks, settings and sealer glue.
 - [internal/devices/AGENTS.md](internal/devices/AGENTS.md): 90-second ephemeral QR device pairing and push registration.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -223,6 +224,7 @@ func (c *Client) Deactivate(ctx context.Context, id string) error {
 
 type userAttrs struct {
 	Username      string  `json:"username"`
+	Admin         bool    `json:"admin"`
 	LockedAt      *string `json:"locked_at"`
 	DeactivatedAt *string `json:"deactivated_at"`
 }
@@ -392,4 +394,102 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return strings.TrimPrefix(v.Version, "v"), nil
+}
+
+// ConsoleUsername is the MAS account the console acts as on Synapse's admin API. It has no
+// password and no upstream link; the sweep leaves it alone (Plan).
+const ConsoleUsername = "kymessages-console"
+
+const (
+	// consoleScope: Synapse requires the client API scope of every token; the admin scope is
+	// what makes it an admin. No device scope: Synapse does not need one.
+	consoleScope      = "urn:matrix:client:api:* urn:synapse:admin:*"
+	consoleSessionTTL = 5 * time.Minute
+)
+
+// EnsureConsoleUser returns the console account's MAS ID, creating it and granting MAS admin
+// when needed. It refuses an account that is locked, deactivated or linked to an upstream
+// identity: a linked one belongs to a person.
+func (c *Client) EnsureConsoleUser(ctx context.Context) (string, error) {
+	path := adminPrefix + "users/by-username/" + ConsoleUsername
+	r, err := c.one(ctx, path)
+	var se *StatusError
+	if errors.As(err, &se) && se.Status == http.StatusNotFound {
+		var doc struct {
+			Data resource `json:"data"`
+		}
+		err = c.call(ctx, http.MethodPost, adminPrefix+"users", []byte(`{"username":"`+ConsoleUsername+`"}`), &doc)
+		r = doc.Data
+		if errors.As(err, &se) && se.Status == http.StatusConflict {
+			r, err = c.one(ctx, path) // created meanwhile
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("console account: %w", err)
+	}
+	var a userAttrs
+	if err := json.Unmarshal(r.Attributes, &a); err != nil {
+		return "", fmt.Errorf("console account: %w", err)
+	}
+	switch {
+	case a.Username != ConsoleUsername:
+		return "", errors.New("console account: MAS answered with another user")
+	case a.DeactivatedAt != nil:
+		return "", errors.New("console account is deactivated in MAS")
+	case a.LockedAt != nil:
+		return "", errors.New("console account is locked in MAS")
+	}
+	var links struct {
+		Data []resource `json:"data"`
+	}
+	if err := c.call(ctx, http.MethodGet, adminPrefix+"upstream-oauth-links?filter[user]="+url.QueryEscape(r.ID)+"&page[first]=1", nil, &links); err != nil {
+		return "", fmt.Errorf("console account: %w", err)
+	}
+	if len(links.Data) > 0 {
+		return "", errors.New("console account is linked to an upstream identity; refusing to act as a person")
+	}
+	if !a.Admin {
+		if err := c.post(ctx, r.ID, "set-admin", []byte(`{"admin":true}`)); err != nil {
+			return "", fmt.Errorf("console account: %w", err)
+		}
+	}
+	return r.ID, nil
+}
+
+// AsConsole runs fn with a fresh 5-minute console session and revokes the session afterwards,
+// also when fn fails or ctx ends. A failed revoke is logged; the session then expires itself.
+func (c *Client) AsConsole(ctx context.Context, fn func(ctx context.Context, token string) error) error {
+	userID, err := c.EnsureConsoleUser(ctx)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(map[string]any{"actor_user_id": userID, "human_name": "KyMessages console",
+		"scope": consoleScope, "expires_in": int(consoleSessionTTL / time.Second)})
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				AccessToken string `json:"access_token"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	if err := c.call(ctx, http.MethodPost, adminPrefix+"personal-sessions", body, &doc); err != nil {
+		return fmt.Errorf("console session: %w", err)
+	}
+	if doc.Data.ID == "" || doc.Data.Attributes.AccessToken == "" {
+		return errors.New("console session: MAS returned no token")
+	}
+	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		err := c.call(rctx, http.MethodPost, adminPrefix+"personal-sessions/"+url.PathEscape(doc.Data.ID)+"/revoke", nil, nil)
+		var se *StatusError
+		if err != nil && !(errors.As(err, &se) && se.Status == http.StatusConflict) {
+			log.Printf("[MATRIX] console session %s not revoked; it expires within %s: %v", doc.Data.ID, consoleSessionTTL, err)
+		}
+	}()
+	return fn(ctx, doc.Data.Attributes.AccessToken)
 }

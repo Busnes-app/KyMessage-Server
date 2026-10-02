@@ -41,6 +41,26 @@ type fakeMAS struct {
 	finished  map[string]bool
 	finishErr error
 	finishes  []string
+
+	consoleErr  error
+	consoleHang chan struct{}
+	consoleRuns int
+}
+
+// AsConsole stands in for the console session: fn gets a fixed token unless consoleErr is set.
+// consoleHang blocks it, ignoring ctx, as a stuck MAS would.
+func (f *fakeMAS) AsConsole(ctx context.Context, fn func(context.Context, string) error) error {
+	f.mu.Lock()
+	f.consoleRuns++
+	err, hang := f.consoleErr, f.consoleHang
+	f.mu.Unlock()
+	if hang != nil {
+		<-hang
+	}
+	if err != nil {
+		return err
+	}
+	return fn(ctx, "console-token")
 }
 
 func notFound(path string) error {
@@ -116,6 +136,7 @@ func setupMatrixServer(t *testing.T) (*api.Server, store.Store, *config.Config, 
 		finished: map[string]bool{},
 	}
 	srv.SetMatrixAdmin(f)
+	api.SetRoomAdminForTest(srv, newFakeRooms())
 	for _, u := range []store.User{
 		{ID: "usr_dir_a", Username: "alice-ky", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-a"},
 		{ID: "usr_dir_b", Username: "bob-ky", Role: "user", Status: "disabled", SSOProvider: "kyidentity", SSOSubject: "sub-b"},
@@ -363,7 +384,7 @@ func TestHealthWithMatrixReportsEveryComponent(t *testing.T) {
 		by[c.Name] = c
 		names = append(names, c.Name)
 	}
-	if !h.Matrix || strings.Join(names, ",") != "kymessages,database,synapse,mas,element,postgres" {
+	if !h.Matrix || strings.Join(names, ",") != "kymessages,database,synapse,mas,element,postgres,synapse-admin" {
 		t.Fatalf("components %v", names)
 	}
 	if c := by["synapse"]; c.Status != "up" || c.Version != health.Pins["synapse"] || c.Mismatch || c.Source == "" {
@@ -371,6 +392,9 @@ func TestHealthWithMatrixReportsEveryComponent(t *testing.T) {
 	}
 	if c := by["mas"]; c.Status != "up" || c.Version != health.Pins["mas"] || c.Mismatch {
 		t.Errorf("mas %+v", c)
+	}
+	if c := by["synapse-admin"]; c.Status != "up" || c.Version != "" || c.Pinned != "" || c.Error != "" {
+		t.Errorf("synapse-admin %+v", c)
 	}
 	if c := by["element"]; c.Status != "up" || !c.Mismatch || c.Pinned != health.Pins["element"] {
 		t.Errorf("element %+v", c)

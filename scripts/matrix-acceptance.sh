@@ -6,9 +6,9 @@
 # disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
 # making offboarding (including delete) stick in MAS. The operator console reports every
 # component up on its pinned version and ends a live Element session within 30 seconds,
-# audited. It also takes a server backup, loses the host and restores the whole stack from
-# custodian shares, proving history, media, accounts, the server name and the signing key
-# come back.
+# audited. Health proves Synapse admin access through the console's service account. It
+# also takes a server backup, loses the host and restores the whole stack from custodian
+# shares, proving history, media, accounts, the server name and the signing key come back.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
@@ -503,9 +503,20 @@ admin_pass=$(openssl rand -hex 16)
 app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
 app_login "$admin_pass"
 ok "operator signed in to the console and replaced the bootstrap password"
+# Warm-up: the first load creates the console account inside the probe's 3s, which may time out.
+app_api GET /api/admin/health >"$state/health-warmup.json"
 app_api GET /api/admin/health >"$state/health.json"
-expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres "health checks every component"
-expect "$(jq -r '[.components[] | select(.status != "up") | .name] | join(",")' "$state/health.json")" "" "every component up"
+expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres,synapse-admin "health checks every component"
+expect "$(jq -r '[.components[] | select(.status != "up") | "\(.name): \(.error)"] | join("; ")' "$state/health.json")" "" "every component up"
+# Synapse admin access, proven by the probe above: the console account exists, is MAS admin,
+# unlocked and unlinked, and every session it used carried exactly the two scopes, expired
+# within 5 minutes and was revoked.
+expect "$(mas_user kymessages-console 'can_request_admin AND locked_at IS NULL AND deactivated_at IS NULL')" t "the console account exists, admin and unlocked"
+expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links l JOIN users u USING (user_id) WHERE u.username = 'kymessages-console'")" 0 "the console account has no KyIdentity link"
+expect "$(sql mas "SELECT string_agg(DISTINCT array_to_string(s.scope_list, ' '), '|') FROM personal_sessions s JOIN users u ON u.user_id = s.actor_user_id WHERE u.username = 'kymessages-console'")" \
+	'urn:matrix:client:api:* urn:synapse:admin:*' "console sessions carry exactly the client API and Synapse admin scopes"
+expect "$(sql mas "SELECT count(*) FROM personal_sessions WHERE revoked_at IS NULL")" 0 "every console session was revoked"
+expect "$(sql mas "SELECT bool_and(expires_at <= created_at + interval '5 minutes') FROM personal_access_tokens")" t "console tokens expire within 5 minutes"
 # Only the image map: the resolved config holds secrets.
 dc config --format json | jq '.services | map_values(.image)' >"$state/images.json"
 for svc in synapse mas element postgres; do

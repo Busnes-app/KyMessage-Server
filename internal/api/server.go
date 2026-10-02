@@ -22,6 +22,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/scim"
 	"github.com/Busnes-app/ky_server_base/internal/sso"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
 	"github.com/Busnes-app/ky_server_base/web"
 )
 
@@ -40,6 +41,13 @@ type MatrixAdmin interface {
 	Session(ctx context.Context, kind matrixsync.SessionKind, id string) (matrixsync.Session, error)
 	FinishSession(ctx context.Context, kind matrixsync.SessionKind, id string) (bool, error)
 	Version(ctx context.Context) (string, error)
+	// AsConsole runs fn with a 5-minute console session token for Synapse's admin API.
+	AsConsole(ctx context.Context, fn func(ctx context.Context, token string) error) error
+}
+
+// RoomAdmin is the Synapse admin surface the console uses; *synapseadmin.Client implements it.
+type RoomAdmin interface {
+	Rooms(ctx context.Context, token string, q synapseadmin.RoomQuery) (synapseadmin.RoomPage, error)
 }
 
 type Server struct {
@@ -54,6 +62,7 @@ type Server struct {
 	scim             *scim.Server
 	recovery         recoveryClient
 	mas              MatrixAdmin // nil when Matrix is off
+	rooms            RoomAdmin
 	matrixTargets    health.Targets
 	probeHTTP        *http.Client
 	mux              *http.ServeMux
@@ -192,6 +201,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		clientAttempts:  attemptLimiter{m: make(map[string]attemptWindow), cap: attemptsCap},
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
 	}
+	s.rooms = synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
 
 	s.routes()
 	return s

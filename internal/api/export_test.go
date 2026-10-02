@@ -47,3 +47,6 @@ func SetHealthTargetsForTest(s *Server, t health.Targets) { s.matrixTargets = t 
 
 // DetailOutcomeForTest exposes the audit view's outcome parser. Test-only.
 func DetailOutcomeForTest(details string) string { return detailOutcome(details) }
+
+// SetRoomAdminForTest replaces the Synapse admin client. Test-only.
+func SetRoomAdminForTest(s *Server, r RoomAdmin) { s.rooms = r }
