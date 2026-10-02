@@ -154,6 +154,10 @@ func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 	}
 	var errs []error
 	for _, a := range Plan(users, dir) {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
 		var err error
 		switch a.Kind {
 		case Lock:

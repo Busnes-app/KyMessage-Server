@@ -537,3 +537,29 @@ func TestAuditClipsLongActorAndTarget(t *testing.T) {
 		t.Errorf("long actor %d bytes", len(a))
 	}
 }
+
+// Details, outcome and IP are bounded too (web: details 4096, outcome 1024, ip 64).
+func TestAuditClipsLongDetailsOutcomeAndIP(t *testing.T) {
+	srv, st, _ := setupTestServer(t)
+	admin := loginAs(t, srv, st, "root", "admin")
+	// 64 characters fit Postgres's varchar(64) but are 256 bytes.
+	ip := strings.Repeat("\U0001F600", 64)
+	outcome := strings.Repeat("\U0001F600", 1500)
+	details := `outcome="` + outcome + `"`
+	if err := st.Audit().LogAudit(context.Background(), &store.AuditRecord{Action: "matrix.lock", Details: details, IPAddress: ip}); err != nil {
+		t.Fatal(err)
+	}
+	type rec struct{ Details, Outcome, IP string }
+	recs := decode[struct{ Records []rec }](t, adminDo(t, srv, admin, "GET", "/api/admin/audit?limit=1", nil)).Records
+	if len(recs) != 1 {
+		t.Fatalf("records %+v", recs)
+	}
+	for _, f := range []struct {
+		name, got, full string
+		max             int
+	}{{"details", recs[0].Details, details, 4096}, {"outcome", recs[0].Outcome, outcome, 1024}, {"ip", recs[0].IP, ip, 64}} {
+		if len(f.got) > f.max || f.got == "" || !utf8.ValidString(f.got) || !strings.HasPrefix(f.full, f.got) {
+			t.Errorf("%s %d bytes", f.name, len(f.got))
+		}
+	}
+}

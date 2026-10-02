@@ -44,7 +44,8 @@ supplies subject → status.
 - No secret or token appears in errors, logs or audit rows. The sweep's audit actions are exactly
   `matrix.lock`, `matrix.unlock`, `matrix.deactivate` (`matrix.session_end` is written by
   `internal/api`), written for success and failure, on a
-  context detached from the sweep's so a completed action is audited through shutdown.
+  context detached from the sweep's so a completed action is audited through shutdown. No action
+  starts after the sweep's context ends (`TestSweepStopsActingAfterCancel`).
 - After every sweep that shutdown did not interrupt, `Run` writes `matrix_sweep_last` (`SweepRecordKey`, `SweepRecord`: `finished_at`, `ok`, `error` at most 300 bytes of valid UTF-8, `applied` and `failed` MAS actions, `failing_since`, the start of the current failing streak, null when ok). The streak is carried across restarts from the stored record. `record.go` is the only writer; a failed write is logged and never fails the sweep. MAS client errors hold method, path and status, never a token, so the error text is safe to show admins.
 - `Run` closes `done` only between sweeps so shutdown can wait before the store closes;
   `Wake` never blocks and coalesces.

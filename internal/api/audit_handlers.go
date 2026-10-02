@@ -71,9 +71,10 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(rec.Action, "scim.") {
 			actor = s.actorName(r.Context(), rec.UserID, names)
 		}
-		// Usernames and resources are unbounded; the web refuses a page with one too long.
+		// Stored fields are unbounded; the web refuses a page with one past its bound.
 		out = append(out, auditView{ID: rec.ID, At: rec.CreatedAt, Actor: clip200(actor),
-			Action: rec.Action, Target: clip200(rec.Resource), Outcome: detailOutcome(rec.Details), Details: rec.Details, IP: rec.IPAddress})
+			Action: rec.Action, Target: clip200(rec.Resource), Outcome: clipTo(detailOutcome(rec.Details), 1024),
+			Details: clipTo(rec.Details, 4096), IP: clipTo(rec.IPAddress, 64)})
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, map[string]any{"records": out, "total": total, "offset": offset, "limit": limit})

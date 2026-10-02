@@ -27,6 +27,7 @@ Owns `media.go`: `Run`, `Restore`, `Sources`, `ErrBusy`, `ErrNoBackup`. The key 
   defers the mirror cleanup and pruning to the next month. A crash after the index rewrite
   leaves orphaned mirror files that no later run removes: disk only, no data loss.
 - Every write is temp-then-rename (`writeAtomic`); a run sweeps `.*.tmp-*` leftovers under the lock.
+  The media directory is fsynced after a new archive's rename, before the mirror or archives are pruned.
 - A run under another key refuses (the index does not open) and rewrites nothing.
 - `Restore` applies the newest archive, then the mirror, which wins. `write=false` proves every
   file opens at its own path and changes nothing; `write=true` writes through `os.Root` as
