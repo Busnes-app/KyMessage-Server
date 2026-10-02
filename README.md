@@ -194,6 +194,17 @@ Upgrading a stack from before Matrix backups:
 - **Overview** shows chat health, Matrix users and backups, each failing on its own.
 - **Users** lists Matrix users with their KyIdentity link. It ends one session or all of a
   person's sessions. There is no lock or unlock here: change access in KyIdentity.
+- **Rooms** lists every room (name, members, encryption, public or invite-only, creator, state
+  events, open or closed) with search and paging, and a room's members. It never shows
+  messages. **Close** is final: members are removed, rejoin is blocked, history stays.
+  **Delete permanently** purges the room's history after you type its name (or its ID when it
+  has none); attachments in encrypted rooms stay in the media store as encrypted files. Both
+  run as background jobs, need a sign-in from the last 10 minutes and are audited as
+  `matrix.room_close` and `matrix.room_delete`.
+- The console reaches Synapse's admin API as the service account `@kymessages-console`: no
+  password, no KyIdentity link, not MAS admin. The offboarding sweep exempts exactly that
+  name, so never create a KyIdentity user with that username. Locking the account in MAS cuts
+  the console's room access.
 - **Health** probes Synapse, MAS, Element, Postgres, the database and this app on each load and
   compares each running version with the Compose pin. It links components to their upstream
   source and shows the network check. Each load also proves Synapse admin access: it mints a
@@ -204,8 +215,8 @@ Upgrading a stack from before Matrix backups:
   and retries after you sign in again. Each ending is audited as `matrix.session_end`.
 - Session IPs and devices are shown to admins only and are never logged or audited.
 
-Rooms and settings are not built yet. `make matrix-acceptance` proves encrypted
-storage in Element, a closed server, offboarding, and backup then restore of a lost host (needs
+Settings are not built yet. `make matrix-acceptance` proves encrypted
+storage in Element, a closed server, offboarding, room close and delete, and backup then restore of a lost host (needs
 Docker, node and a KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
 
 ## Identity and recovery configuration

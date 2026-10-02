@@ -13,7 +13,8 @@ Every change needs a fresh sign-in and is audited.
 
 1. Synapse admin access is a MAS personal session for a dedicated service account
    `@kymessages-console`: created by KyMessages through the MAS admin API, no password, no
-   KyIdentity link, Synapse admin. The offboarding sweep exempts exactly that username. Each
+   KyIdentity link, and not MAS admin: personal sessions are not policy-checked and Synapse
+   decides admin by the `urn:synapse:admin:*` scope (proven live). The offboarding sweep exempts exactly that username. Each
    room action mints a session with scopes `urn:matrix:client:api:* urn:synapse:admin:*` and a
    5-minute lifetime, uses it and revokes it.
 2. Two separate removal actions: **Close** (`block=true`, `purge=false`; final) and **Delete
@@ -30,23 +31,26 @@ Every change needs a fresh sign-in and is audited.
   (`synapse/api/auth/mas.py`); the shared secret serves only MAS's internal endpoints.
 - MAS admin API `POST /api/admin/v1/personal-sessions` creates a session acting as a user with
   a given scope and `expires_in`; `.../revoke` ends it; `POST /api/admin/v1/users` and
-  `/users/{id}/set-admin` exist.
+  `/users/{id}/set-admin` exist (unused: the console account does not get the admin flag).
 
 ## Section 1: components
 
 - **Service account (`internal/matrixsync`).** Before the first room action KyMessages ensures
-  `@kymessages-console` exists in MAS and is admin (idempotent). The sweep's `Plan` exempts
+  `@kymessages-console` exists in MAS and is not MAS admin (idempotent). The sweep's `Plan` exempts
   exactly that username; every other unlinked user is still locked.
 - **Personal sessions.** Per action: mint (two scopes, 5 minutes), call Synapse, revoke —
   revoke runs even when the call fails, on a context not tied to the request.
 - **Rooms page** (new tab; Synapse admin API at the internal `http://synapse:8008`). List,
   paged and searchable: name, id, members, encrypted, public/invite-only, creator, size,
   blocked. Detail: members. Actions (fresh admin, audited):
-  - **Close:** remove all members, block rejoin, keep history.
-  - **Delete permanently:** purge history and media; the admin types the room name.
+  - **Close:** remove all members, block rejoin, keep history. A background job, polled like
+    Delete.
+  - **Delete permanently:** purge history; the admin types the room name. Removes only the
+    media Synapse can attribute to the room (usually the avatar); attachments in encrypted
+    rooms stay as encrypted files.
   Audit actions `matrix.room_close`, `matrix.room_delete` (room id,
-  admin, outcome). Delete is a Synapse background job: the row records it started; the page
-  polls status.
+  admin, outcome). Both are Synapse background jobs: the row records one started; the page
+  polls status for each.
 - **Routes.** `GET /api/admin/matrix/rooms` (paged, `search`), `GET
   /api/admin/matrix/rooms/{id}` (admin); `POST /api/admin/matrix/rooms/{id}/close`,
   `/delete` with `{"confirm":"<room name>"}` (fresh admin); `GET
@@ -58,12 +62,12 @@ Every change needs a fresh sign-in and is audited.
 - Service account broken (locked, session refused): Rooms and Health say Synapse admin access
   is not working and why; no fallback credential.
 - A session whose revoke fails still expires in 5 minutes.
-- Delete in progress: "Deleting…" until complete or failed; a second delete of the same room is
+- Delete in progress: "Deleting…" until complete or failed; a second close or delete of the same room is
   refused while one runs.
 - Closing a closed room is success. Delete re-checks the confirmation against the room name
   server side.
 - Member lists and room names are admin-only; messages are never shown.
-- **Tests.** Service-account ensure (idempotent, admin); sweep exemption limited to that exact
+- **Tests.** Service-account ensure (idempotent, not MAS admin); sweep exemption limited to that exact
   username; session mint (exact scopes, 5-minute lifetime) and revoke on success and failure;
   Synapse admin client against a fake (list, detail, close, delete, status); routes
   (role, freshness, audit, delete confirmation, Matrix off 404); vitest for the page, typed
@@ -81,5 +85,5 @@ moderation; federation.
 ## Risks
 
 - The whole approach is source-proven only; the plan proves it live first.
-- A service account with Synapse admin is a standing high-value identity; it has no password
+- A service account with Synapse admin scope is a standing high-value identity; it has no password
   or upstream link, sessions are minutes long, and every use is audited.
