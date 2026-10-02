@@ -477,7 +477,8 @@ func TestAuditClipsLongActorAndTarget(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	admin := loginAs(t, srv, st, "root", "admin")
 	ctx := context.Background()
-	long := strings.Repeat("\u00e9", 150) // 300 bytes
+	// 100 characters (within Postgres's varchar(128) username) but 400 bytes, past the 200-byte clip.
+	long := strings.Repeat("\U0001F600", 100)
 	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_long", Username: long, Role: "user", Status: "active"}); err != nil {
 		t.Fatal(err)
 	}
