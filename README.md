@@ -216,13 +216,16 @@ Upgrading a stack from before Matrix backups:
 - **Audit** is the read-only log, filtered by kind (auth, backup, branding, matrix, scim).
 - **Settings → Branding** sets the product name (1–64 characters; blank returns to
   `KY_APP_NAME`) and the logo (PNG only, at most 1 MiB and 1024×1024 pixels, re-encoded so
-  no embedded text or metadata survives). Both show on the next page load of the console,
-  its sign-in page and Element, with no restart: the app changes only the `brand` key of
-  `matrix/element/config.json`, in place, through the one read-write file it mounts under
-  `./matrix`, and puts it back within a minute if `matrix-init` re-renders it. If it cannot
+  no embedded text or metadata survives). Both show on the next page load of the console and
+  its sign-in page, and the logo in Element too. Element shows a new name after
+  `docker compose restart element`: it serves a copy of its config made when it starts, and
+  Settings shows the command while Element serves the old name. The app changes only the
+  `brand` key of `matrix/element/config.json`, in place, through the one read-write file it
+  mounts under `./matrix`, and puts it back within a minute if `matrix-init` re-renders it. If it cannot
   write that file, the name is still saved and Settings shows what Element says and why.
   If a crash mid-write ever leaves that file truncated or invalid, Element stops loading:
-  re-run `./kymessages matrix-init`, and the app re-applies the name within a minute.
+  re-run `./kymessages matrix-init`; the app re-applies the name within a minute, then restart
+  Element.
   Changes need a sign-in from the last 10 minutes and are audited (`admin.brand_name`,
   `admin.brand_logo`). `KY_APP_NAME` stays the backup service name: capsules and
   KyRecovery pairing never see the console name.

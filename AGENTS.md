@@ -141,10 +141,10 @@ When the user requests a durable behavior change, record it here or in the relev
   The app's one read-write path under `./matrix` is `./matrix/element/config.json`, its only
   mount of `./matrix/element`: the console sets Element's `brand` there in place, and the
   check holds the app to that one file (with the static-IP overlay too) and to no mount nested
-  in another (a nested mountpoint inside a read-only bind breaks `docker cp`). Element binds
-  that file at `/tmp/element-web-config/config.json`, where its nginx serves `/config.json`,
-  with the image's copying script `18-load-element-modules.sh` masked by `/dev/null`: a copy
-  would never see a rename. The check holds Element to exactly those two mounts.
+  in another (a nested mountpoint inside a read-only bind breaks `docker cp`). Element stays
+  stock (owner decision 2026-10-02): exactly that file at `/app/config.json:ro`, which its image
+  copies at start, so a rename shows after `docker compose restart element`; the check refuses
+  any `/dev/null`, `/tmp/element-web-config` or `/docker-entrypoint` mount on Element.
   `restore-matrix` (profile `restore`, `docker compose run --rm restore-matrix`) runs the app image as
   `KY_MATRIX_UID:KY_MATRIX_GID` with no capability on `matrix-db` only; it is the only
   read-write media mount besides Synapse, and its `./data`, `./backups` and `./matrix` are
@@ -194,9 +194,11 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   room (bob removed, his rejoin refused as blocked) and permanently deletes a throwaway room
   (no rows left in Synapse's room tables), both audited, and the restored app's start-up sweep
   leaves `kymessages-console` unlocked. Settings follows on the restored stack: a console rename
-  reaches Element's `/config.json` (same inode) and title; a PNG carrying a `tEXt` chunk is
+  reaches Element's file in place (same inode), the branding API reports the old brand served,
+  and after `docker compose restart element` `/config.json`, the title and the API carry it; a PNG carrying a `tEXt` chunk is
   served at `/app-icon.png` re-encoded without it, `no-cache`; a `matrix-init` re-run is undone
-  within one maintenance tick; resets restore the defaults; every change is audited.
+  in the file within one maintenance tick and served after a restart; resets restore the
+  defaults; every change is audited.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.

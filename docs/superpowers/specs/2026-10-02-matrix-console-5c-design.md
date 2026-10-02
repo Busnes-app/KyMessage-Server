@@ -6,7 +6,7 @@ Date: 2026-10-02. Parent: `2026-10-01-matrix-platform-design.md` (decisions 10, 
 ## Intent
 
 A KyMessages admin renames the product and replaces its logo from the console, and both reach
-Element without a shell or a restart. The admin also sees whether KyIdentity's offboarding
+Element without a shell; a rename needs one `docker compose restart element`. The admin also sees whether KyIdentity's offboarding
 sync is working: when the last webhook arrived, whether deliveries are being rejected, and how
 the last sweep went, with a hint naming the fix.
 
@@ -16,7 +16,10 @@ the last sweep went, with a hint naming the fix.
 2. The app writes Element's `config.json` itself (option A): only the `brand` key, in place,
    through a read-write bind of that one file. A compromised app could repoint Element; it
    already holds the MAS admin secret, so this adds little.
-3. No restart flow: name and logo take effect on the next page load.
+3. No restart flow: name and logo take effect on the next page load. Owner decision 2026-10-02:
+   Element serves a copy of config.json made at container start (18-load-element-modules.sh),
+   so a rename reaches Element after `docker compose restart element`; the logo needs no
+   restart. Element stays stock.
 
 ## Evidence
 
@@ -29,9 +32,8 @@ the last sweep went, with a hint naming the fix.
 - Element fetches `/config.json` on each page load. The app has no Docker access.
 - The Element image's start script (`18-load-element-modules.sh`) copies `/app/config.json` to
   `/tmp/element-web-config`, and nginx serves that copy, which a later write never reaches.
-  Compose therefore binds the file at `/tmp/element-web-config/config.json` and masks the
-  script with `/dev/null` (Element modules are unused); the acceptance run proves the rename
-  reaches Element live.
+  `docker compose restart element` keeps the single-file bind's inode, so the restarted Element
+  copies the patched file.
 - Nothing records webhook or sweep times today; rejected webhooks are only logged.
 
 ## Section 1: branding
@@ -43,8 +45,12 @@ the last sweep went, with a hint naming the fix.
 - **Element.** The app reconciles `brand` in `matrix/element/config.json` to the effective name
   when Matrix is enabled: at startup, after each save and on each maintenance tick (every minute).
   It changes only that key, preserves the others, writes only when the value differs, and
-  writes in place (same inode). `matrix-init` also writes this file in place, so its re-run
-  reaches a running Element too; the next tick restores the effective name.
+  writes in place (same inode). `matrix-init` also writes this file in place; the next tick
+  restores the effective name. A running Element shows the file's brand after
+  `docker compose restart element`. `GET /api/admin/branding` also reports the brand Element
+  serves (`element.served`, fetched from Element's `/config.json` on the internal network, or
+  `element.served_error`), and Settings shows "Element shows <served> until it restarts: docker
+  compose restart element" while it differs from a correctly patched file.
 - **Logo.** Upload: `image/png` only (SVG can carry script), body at most 1 MiB, dimensions at
   most 1024×1024 checked by `DecodeConfig` before decoding, then decoded and re-encoded so no
   ancillary chunk survives. Served at `/app-icon.png` in place of the embedded stamp, with
@@ -104,8 +110,9 @@ the last sweep went, with a hint naming the fix.
   unparseable file; `matrix-init` keeps the inode; sync records written by their owner only;
   rejections cause no database write; routes (role, freshness, audit rows, Matrix off 404);
   vitest for both panels and the card.
-- **Acceptance.** A console rename changes `brand` in the chat host's `/config.json` and
-  Element's title; an uploaded logo is served at `/app-icon.png` as its re-encoding; after the
+- **Acceptance.** A console rename is reported served-but-old until `docker compose restart
+  element`, after which it changes `brand` in the chat host's `/config.json` and Element's
+  title; an uploaded logo is served at `/app-icon.png` as its re-encoding; after the
   offboarding steps sync status shows an accepted webhook and an ok sweep; a badly signed
   delivery is counted as rejected.
 - **Browser regressions.** Settings across themes, widths and keyboard use.

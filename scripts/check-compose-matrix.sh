@@ -43,8 +43,6 @@ for s in "${!image[@]}"; do
   jq -e '.environment // {} | to_entries | any(.key | test("PASSWORD|SECRET|KEY|TOKEN") and (endswith("_FILE") | not))' <<<"$svc" >/dev/null \
     && bad "$s has a secret in plain env"
   while IFS=$'\t' read -r type src target ro; do
-    # Element's config-copying start script, masked so nginx serves the live file.
-    if [ "$s/$type/$src/$target/$ro" = "element/bind//dev/null//docker-entrypoint.d/18-load-element-modules.sh/true" ]; then continue; fi
     case $type in
       volume) [ "$src" = "${named[$s]}" ] || bad "$s mounts volume $src" ;;
       bind)
@@ -54,11 +52,12 @@ for s in "${!image[@]}"; do
     esac
   done < <(jq -r '.volumes // [] | .[] | [.type, .source, .target, (.read_only // false)] | @tsv' <<<"$svc")
 done
-# Element serves the live file, so the console's in-place rename reaches it: bound where nginx
-# serves /config.json, with the image's copying script masked.
-[ "$(jq -r '.services.element.volumes[] | "\(.source) \(.target)"' <<<"$out" | sort)" = "$(printf '%s\n' \
-  "/dev/null /docker-entrypoint.d/18-load-element-modules.sh" "$root/matrix/element/config.json /tmp/element-web-config/config.json" | sort)" ] \
-  || bad "element does not serve ./matrix/element/config.json live"
+# Element stays stock: exactly its config.json at /app/config.json, read-only. No mask of its
+# start script and no bind where nginx serves its copy (owner decision 2026-10-02).
+[ "$(jq -r '.services.element.volumes[] | "\(.type) \(.source) \(.target) \(.read_only // false)"' <<<"$out")" = \
+  "bind $root/matrix/element/config.json /app/config.json true" ] || bad "element does not mount exactly ./matrix/element/config.json at /app/config.json read-only"
+jq -e '[.services.element.volumes[] | select(.source == "/dev/null" or (.target | startswith("/tmp/element-web-config")) or (.target | startswith("/docker-entrypoint")))] | length == 0' <<<"$out" >/dev/null \
+  || bad "element's start-up is altered: a /dev/null, /tmp/element-web-config or /docker-entrypoint mount"
 for s in postgres synapse mas element; do
   [ "$(jq -r --arg s "$s" '.services[$s].restart' <<<"$out")" = unless-stopped ] || bad "$s restart is not unless-stopped"
 done
