@@ -93,8 +93,8 @@ More users are added later with no redeploy.
   - Yoshi signs in to Element at `msg.urlxl.com` through KyIdentity, sets up keys, creates an
     encrypted room and posts; Postgres (as `kybackup`) holds only `m.room.encrypted` there; a
     second device reads history.
-  - Offboarding, reversibly: disabling Yoshi in KyIdentity refuses his live token within 30 s
-    and MAS locks him; re-enabling unlocks with history. (Delete is proven by acceptance.)
+  - Offboarding, reversibly: disabling Yoshi in KyIdentity refuses their live token within 30 s
+    and MAS locks them; re-enabling unlocks with history. (Delete is proven by acceptance.)
   - Sync status shows a webhook accepted and the sweep ok.
   - A rename appears in Element after `rollout restart deployment/element`.
   - A KyRecovery deposit succeeds with the digest matching; `backup-drill` passes; the local
