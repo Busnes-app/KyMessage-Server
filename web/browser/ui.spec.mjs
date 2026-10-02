@@ -118,6 +118,8 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(nav.getByRole('button', { name: 'Audit', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(nav.getByRole('button', { name: 'Audit', exact: true })).toHaveAttribute('aria-current', 'page');
+  // Under All the sign-in rows are listed, so their absence after filtering is the filter.
+  await expect(page.getByRole('cell', { name: 'auth.login', exact: true }).first()).toBeVisible();
   await page.getByLabel('Kind').selectOption('backup');
   await expect(page.getByRole('cell', { name: 'admin.backup_run', exact: true }).first()).toBeVisible();
   await expect(page.getByRole('cell', { name: 'auth.login', exact: true })).toHaveCount(0);

@@ -506,10 +506,11 @@ ok "operator signed in to the console and replaced the bootstrap password"
 app_api GET /api/admin/health >"$state/health.json"
 expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres "health checks every component"
 expect "$(jq -r '[.components[] | select(.status != "up") | .name] | join(",")' "$state/health.json")" "" "every component up"
-dc config --format json >"$state/compose.json"
+# Only the image map: the resolved config holds secrets.
+dc config --format json | jq '.services | map_values(.image)' >"$state/images.json"
 for svc in synapse mas element postgres; do
 	# The pin, read here from the resolved Compose file, independently of the Go generator.
-	pin=$(jq -r --arg s "$svc" '.services[$s].image | split("@")[0] | split(":") | last | ltrimstr("v") | split("-")[0]' "$state/compose.json")
+	pin=$(jq -r --arg s "$svc" '.[$s] | split("@")[0] | split(":") | last | ltrimstr("v") | split("-")[0]' "$state/images.json")
 	expect "$(jq -r --arg s "$svc" '.components[] | select(.name == $s) | "\(.version) \(.pinned) \(.mismatch)"' "$state/health.json")" \
 		"$pin $pin false" "$svc runs the pinned $pin"
 done
