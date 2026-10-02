@@ -39,7 +39,8 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   the measured size in `backup_last_expanded_bytes`; `LastSize` warns from 75% of 256 MiB.
 - `MatrixRestore.Run` (`kymessages restore-matrix`) checks everything before writing: both
   owner passwords from `matrix/secrets`, gapless parts with no stray, `pg_restore --list` per
-  dump with any `EXTENSION` refused (unproven for MAS/Synapse schemas until the acceptance run),
+  dump refusing every extension entry except MAS's trusted `pg_trgm` (`EXTENSION - pg_trgm` and
+  `COMMENT - EXTENSION pg_trgm`, which the owner restores; no superuser),
   a full read of each dump (`pg_restore --file=/dev/null`; `--list` misses a truncated or
   missing last part),
   zero user relations in `mas` and `synapse` (`CountRelations`, host or host:port), and unless

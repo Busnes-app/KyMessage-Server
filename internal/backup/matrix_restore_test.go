@@ -198,12 +198,33 @@ func TestMatrixRestoreRefusesBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestMatrixRestoreRefusesAnExtension(t *testing.T) {
-	r, log := restoreFixture(t, "; 3; 3079 16385 EXTENSION - pg_trgm\n")
-	if err := r.Run(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "extension") {
-		t.Fatalf("err = %v", err)
+// MAS 1.26's dump, as pg_restore --list prints it: the trusted pg_trgm restores as the owner.
+func TestMatrixRestoreAcceptsPgTrgm(t *testing.T) {
+	r, log := restoreFixture(t, "2; 3079 17063 EXTENSION - pg_trgm \n3906; 0 0 COMMENT - EXTENSION pg_trgm \n218; 1259 16390 TABLE public _sqlx_migrations mas\n")
+	if err := r.Run(context.Background(), io.Discard); err != nil {
+		t.Fatal(err)
 	}
-	assertUntouched(t, r, log, 0)
+	if calls, _ := os.ReadFile(log); strings.Count(string(calls), "\n") != 2 {
+		t.Fatalf("pg_restore calls %q, want mas and synapse", calls)
+	}
+}
+
+func TestMatrixRestoreRefusesOtherExtensions(t *testing.T) {
+	for name, toc := range map[string]string{
+		"extension":           "2; 3079 17063 EXTENSION - plpython3u \n",
+		"comment":             "3906; 0 0 COMMENT - EXTENSION plpython3u \n",
+		"pg_trgm and another": "2; 3079 17063 EXTENSION - pg_trgm \n3; 3079 17064 EXTENSION - plpython3u \n",
+		"pg_trgm elsewhere":   "2; 3079 17063 EXTENSION public pg_trgm mas\n",
+		"no entry id":         "EXTENSION - pg_trgm\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, log := restoreFixture(t, toc)
+			if err := r.Run(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "cannot restore") {
+				t.Fatalf("err = %v", err)
+			}
+			assertUntouched(t, r, log, 0)
+		})
+	}
 }
 
 func TestMatrixRestoreSkipMedia(t *testing.T) {

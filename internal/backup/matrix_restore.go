@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -63,9 +64,8 @@ func (r MatrixRestore) Run(ctx context.Context, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("refused: the %s dump: %w", d.db, err)
 		}
-		// An owner cannot create most extensions; restoring as postgres is not an option.
-		if strings.Contains(toc, " EXTENSION ") {
-			return fmt.Errorf("refused: the %s dump creates an extension, which its owner cannot restore", d.db)
+		if ext := untrustedExtension(toc); ext != "" {
+			return fmt.Errorf("refused: the %s dump has %q, which its owner cannot restore", d.db, ext)
 		}
 		n, err := relations(ctx, r.DBHost, d.db, d.db, password)
 		if err != nil {
@@ -131,6 +131,30 @@ func (r MatrixRestore) checkMediaStore() error {
 		return fmt.Errorf("media store %s is not empty; restore-matrix loads only into a newly created stack", r.MediaDir)
 	}
 	return nil
+}
+
+// trustedExtension is the only extension a dump may carry: MAS creates pg_trgm, which Postgres
+// marks trusted, so the database owner recreates it and owns its comment. Any other extension
+// would need a superuser, and restoring as postgres is not an option.
+var trustedExtension = [][]string{{"EXTENSION", "-", "pg_trgm"}, {"COMMENT", "-", "EXTENSION", "pg_trgm"}}
+
+// untrustedExtension returns the first pg_restore --list line that mentions an extension other
+// than as trustedExtension's entries, or "". An entry is "<id>; <tableoid> <oid> <description>".
+func untrustedExtension(toc string) string {
+	for _, line := range strings.Split(toc, "\n") {
+		f := strings.Fields(line)
+		if !slices.Contains(f, "EXTENSION") {
+			continue
+		}
+		i := slices.IndexFunc(f, func(s string) bool {
+			id, ok := strings.CutSuffix(s, ";")
+			return ok && id != "" && strings.Trim(id, "0123456789") == ""
+		})
+		if i < 0 || len(f) < i+3 || !slices.ContainsFunc(trustedExtension, func(want []string) bool { return slices.Equal(f[i+3:], want) }) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
 }
 
 // restoreParts returns base's parts in dir from .000, refusing none, a gap or a stray part.
