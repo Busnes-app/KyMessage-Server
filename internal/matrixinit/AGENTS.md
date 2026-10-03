@@ -64,9 +64,14 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   `on_backchannel_logout: logout_all`; the URL for KyIdentity is `Registration.BackchannelLogoutURI`.
 - Shipped templates never contain `discovery_mode: insecure`, `allow_insecure_uris` or
   anything else named insecure (`TestMASConfigTrustsOnlyKyIdentity`).
-- Localpart: `preferred_username` lowercased, every character outside `[a-z0-9._=-]`
-  replaced by `_` (minijinja loop, checked against MAS 1.26's environment); a missing claim
-  renders empty and `action: require` refuses it; `on_conflict: fail` refuses collisions.
+- Localpart (owner decision 2026-10-02): the `email` claim's local part (before the first
+  `@`, minijinja `split`/`first`), lowercased, every character outside `[a-z0-9._=-]`
+  replaced by `_`. The exact template was rendered with MAS 1.26's environment (minijinja and
+  minijinja-contrib 2.21.0, `upstream_oauth2/template.rs` `environment()`) and is pinned in
+  `TestMASConfigTrustsOnlyKyIdentity`. No email, an email without `@` or with an empty local
+  part render empty, which `action: require` refuses (`RequiredAttributeEmpty`);
+  `on_conflict: fail` refuses collisions (the same local part on another domain). The
+  `email` import is `force`, not `require`, so the refusal is the localpart's.
   A mapped localpart starting with `_` (e.g. a name beginning with a non-ASCII letter) is
   refused by Synapse's `check_username`, which MAS calls through `is_localpart_available`:
   sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.

@@ -181,8 +181,9 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   unmodified over https. Playwright drives Element: native OIDC sign-in, key setup, DM and
   group messages read by the other user. It asserts no `m.room.message` in encrypted rooms
   and no plaintext in a Synapse `pg_dump`; registration, password login and federation
-  refused; unassigned and username-less KyIdentity users refused; mixed-case usernames
-  mapped. Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
+  refused; unassigned KyIdentity users and ID tokens without an email refused; the localpart
+  is the email's local part, lowercased and sanitised (`AQuinn`, email
+  `Alice.Q+Ky@kymatrix.test`, is `@alice.q_ky`). Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
   system linked to the MAS client's app record): disable refuses a live Element token within
   30s (fixed bound, times in the summary; live means `whoami` names that user, refused means
   `401 M_UNKNOWN_TOKEN`) and MAS locks; re-enable unlocks with history;

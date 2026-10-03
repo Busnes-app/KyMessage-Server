@@ -222,9 +222,20 @@ func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 		t.Errorf("provider: %v", p)
 	}
 	lp := p["claims_imports"].(map[string]any)["localpart"].(map[string]any)
-	if lp["action"] != "require" || lp["on_conflict"] != "fail" ||
-		!strings.Contains(lp["template"].(string), "| lower") {
+	// Owner decision 2026-10-02: the localpart is the email's local part. This exact template was
+	// rendered with MAS v1.26.0's minijinja environment: alice@example.com -> alice,
+	// Mixed.Case+Tag@Example.COM -> mixed.case_tag; empty, null, missing, "@"-less and
+	// "@example.com" render empty, which "require" refuses. matrix-acceptance checks it live.
+	const emailLocalpart = `{% if user.email and "@" in user.email %}{% for c in user.email | split("@") | first | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}{% endif %}`
+	if lp["action"] != "require" || lp["on_conflict"] != "fail" || lp["template"] != emailLocalpart {
 		t.Errorf("localpart mapping: %v", lp)
+	}
+	claims := p["claims_imports"].(map[string]any)
+	if dn := claims["displayname"].(map[string]any); dn["action"] != "force" || dn["template"] != "{{ user.name }}" {
+		t.Errorf("displayname mapping: %v", dn)
+	}
+	if em := claims["email"].(map[string]any); em["action"] != "force" || em["template"] != "{{ user.email }}" {
+		t.Errorf("email mapping: %v", em)
 	}
 	if strings.Contains(string(b), "insecure") {
 		t.Error("shipped MAS config contains an insecure relaxation")

@@ -2,7 +2,8 @@
 # Matrix stack acceptance: a throwaway KyIdentity, `kymessages matrix-init` and
 # docker-compose.matrix.yml on loopback, Element driven by Playwright. Proves that messages in
 # encrypted rooms are stored encrypted, that the server is closed (no registration,
-# password login or federation; unassigned KyIdentity users refused), and that a KyIdentity
+# password login or federation; unassigned KyIdentity users and users without an email
+# refused; the localpart is the email's local part), and that a KyIdentity
 # disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
 # making offboarding (including delete) stick in MAS. The operator console reports every
 # component up on its pinned version and ends a live Element session within 30 seconds,
@@ -238,13 +239,15 @@ export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_SPKI ACCEPT_ARTIFA
 
 # ---------------------------------------------------------------------------------------
 step kyidentity
-users=("Alice.Q@Ky" bob mallory nadia carol dave erin frank)
+# The MXID localpart is the email's local part, not the username: AQuinn's mixed-case email
+# with a "+" maps to alice.q_ky. Everyone else's email is <username>@kymatrix.test.
+users=(AQuinn bob mallory nadia carol dave erin frank)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
 for u in "${users[@]}"; do
 	openssl rand -hex 16 >"$state/$u.pass"
 	kid[$u]=$(kyid POST /api/admin/users "$(jq -n --arg u "$u" --arg p "$(cat "$state/$u.pass")" \
-		'{username: $u, displayName: ($u | split("@")[0]), email: (($u | ascii_downcase | gsub("[^a-z0-9.]"; "-")) + "@kymatrix.test"), password: $p}')" | jq -re .user.id)
+		'{username: $u, displayName: $u, email: (({AQuinn: "Alice.Q+Ky"}[$u] // $u) + "@kymatrix.test"), password: $p}')" | jq -re .user.id)
 done
 ok "users ${users[*]}"
 kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg b "$backchannel_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
@@ -326,7 +329,7 @@ for u in '@alice.q_ky:kymatrix.test' '@bob:kymatrix.test'; do
 	expect "$(sql synapse "SELECT count(*) FROM account_data WHERE user_id = '$u' AND account_data_type = 'm.secret_storage.default_key'")" 1 "$u recovery key (secret storage) set up"
 done
 expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users")" 'alice.q_ky,bob' \
-	"MAS accounts: mixed-case Alice.Q@Ky mapped to alice.q_ky"
+	"MAS accounts from email local parts: AQuinn (Alice.Q+Ky@kymatrix.test) mapped to alice.q_ky"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -362,8 +365,14 @@ pass
 # Element token; KyMessages' sweep (woken by the directory webhook) then locks, unlocks or
 # deactivates the MAS user.
 now_ms() { local t=${EPOCHREALTIME//[^0-9]/}; echo $((t / 1000)); }
-# mxid USER: USER's Matrix ID as MAS maps it (lowercased, anything outside [a-z0-9._=-] to _).
-mxid() { local l=${1,,}; echo "@${l//[^a-z0-9._=-]/_}:$KY_MATRIX_SERVER_NAME"; }
+# mxid USER: USER's Matrix ID as MAS maps it: the email's local part (as created in step
+# kyidentity), lowercased, anything outside [a-z0-9._=-] to _.
+mxid() {
+	local l=$1
+	[[ $l == AQuinn ]] && l=Alice.Q+Ky
+	l=${l,,}
+	echo "@${l//[^a-z0-9._=-]/_}:$KY_MATRIX_SERVER_NAME"
+}
 # token_status USER: Synapse's whoami for USER's captured Element token: "200 <user_id>" while
 # live, else "<status> <errcode>".
 token_status() {
@@ -541,7 +550,7 @@ for svc in synapse mas element postgres; do
 	expect "$(jq -r --arg s "$svc" '.components[] | select(.name == $s) | "\(.version) \(.pinned) \(.mismatch)"' "$state/health.json")" \
 		"$pin $pin false" "$svc runs the pinned $pin"
 done
-alice='Alice.Q@Ky'
+alice=AQuinn
 e2e token "$alice"
 expect "$(token_status "$alice")" "200 $(mxid "$alice")" "alice's captured Element token is live"
 device=$(hcurl -fsS -H "Authorization: Bearer $(cat "$state/$alice.token")" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami | jq -re .device_id)
@@ -708,7 +717,7 @@ pass
 # Rooms in the console, on the restored stack: the group room is listed encrypted with both
 # members; Close removes bob and refuses his rejoin; Delete permanently of a throwaway room
 # leaves none of its rows; both audited. The start-up sweep after the restore ran with the
-# console account present and never touched it. Before reproduce and no-username, which
+# console account present and never touched it. Before reproduce and no-email, which
 # change sign-in for everyone.
 step rooms
 uri() { jq -rn --arg v "$1" '$v | @uri'; }
@@ -794,7 +803,7 @@ pass
 # start, so the branding API reports the old brand served until `docker compose restart element`,
 # after which /config.json and the title carry the new one. An uploaded logo is served as its
 # re-encoding, its text chunk gone, with no restart. A matrix-init re-run is undone in the file by
-# the next maintenance tick. Resets return the defaults. Before reproduce and no-username, which
+# the next maintenance tick. Resets return the defaults. Before reproduce and no-email, which
 # change sign-in for everyone.
 step settings
 element_cfg=$scratch/matrix/element/config.json
@@ -914,9 +923,9 @@ fi
 
 # ---------------------------------------------------------------------------------------
 # Last: it narrows the KyIdentity client's scopes for everyone.
-step no-username
-kyid PUT "/api/admin/clients/$KY_MATRIX_MAS_CLIENT_ID" '{"allowedScopes": ["openid", "email"]}' >/dev/null
-ok "KyIdentity client narrowed to openid email: ID tokens carry no preferred_username"
+step no-email
+kyid PUT "/api/admin/clients/$KY_MATRIX_MAS_CLIENT_ID" '{"allowedScopes": ["openid", "profile"]}' >/dev/null
+ok "KyIdentity client narrowed to openid profile: ID tokens carry no email"
 e2e noclaim
 expect "$(sql mas "SELECT count(*) FROM users WHERE username = 'nadia'")" 0 "no MAS account for nadia"
 expect "$(sql synapse "SELECT count(*) FROM users WHERE name LIKE '@nadia%'")" 0 "no Synapse user for nadia"

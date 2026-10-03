@@ -34,8 +34,11 @@ published.
 **Sign-in.**
 - KyIdentity is the only upstream identity, through MAS. MAS's compatibility (legacy) login is
   not served; only native OIDC clients (current Element Web, Element X) sign in.
-- Matrix localpart = KyIdentity username lowercased, characters outside `[a-z0-9._=-]` replaced
-  by `_`. Accounts link by KyIdentity `sub`, so renames do not orphan them.
+- Matrix localpart = the local part of the KyIdentity email, lowercased, characters outside
+  `[a-z0-9._=-]` replaced by `_` (`Alice.Q+Ky@example.com` is `@alice.q_ky`). A user without an
+  email cannot sign in, and a second user whose email has the same local part on another domain
+  is refused. Accounts link by KyIdentity `sub` and keep their localpart, so later renames or
+  email changes do not orphan them.
 - The KyMessages console keeps a local operator login (bootstrap password must be replaced
   before privileged use); members reach chat only through KyIdentity.
 

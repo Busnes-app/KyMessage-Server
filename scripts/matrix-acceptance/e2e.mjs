@@ -157,8 +157,9 @@ async function prove() {
   const alice = await launch('alice');
   const bobId = await nativeSignIn(bob, 'bob', `@bob:${SERVER}`);
   fs.writeFileSync(`${dir}/state/bob.recovery`, await setUpRecovery(bob), { mode: 0o600 });
-  // Mixed-case KyIdentity username: the localpart is its lowercased, sanitised form.
-  const aliceId = await nativeSignIn(alice, 'Alice.Q@Ky', `@alice.q_ky:${SERVER}`);
+  // The localpart is the email's local part, lowercased and sanitised, never the username:
+  // KyIdentity user AQuinn has email Alice.Q+Ky@kymatrix.test.
+  const aliceId = await nativeSignIn(alice, 'AQuinn', `@alice.q_ky:${SERVER}`);
   fs.writeFileSync(`${dir}/state/alice.recovery`, await setUpRecovery(alice), { mode: 0o600 });
 
   const msgs = { dm1: text('dm-alice'), dm2: text('dm-bob'), g1: text('group-alice'), g2: text('group-bob') };
@@ -248,8 +249,8 @@ async function compat() {
   out({ users: [mxid], device: session.device, oidcKeys: session.oidc, rooms: { room }, element: body, raw });
 }
 
-// An assigned user whose ID token carries no preferred_username (the client's scopes were
-// narrowed to drop profile): MAS's required localpart import must refuse the sign-in.
+// An assigned user whose ID token carries no email (the client's scopes were narrowed to drop
+// email): the localpart template renders empty and MAS's required import refuses the sign-in.
 async function noclaim() {
   const page = await launch('nadia');
   await page.goto(`${CHAT}/#/login`);
@@ -260,7 +261,7 @@ async function noclaim() {
   await page.waitForURL(/^https:\/\/auth\.kymatrix\.test\//);
   await page.waitForLoadState('networkidle');
   const body = await page.locator('body').innerText();
-  check(/rendered to an empty string/.test(body), 'MAS refused: localpart template rendered empty');
+  check(/rendered to an empty string/.test(body) && body.includes('user.email | split'), 'MAS refused: the email localpart template rendered empty');
   check(!page.url().startsWith(CHAT), 'nadia never reached Element');
   out({ url: page.url().replace(/[?#].*/, ''), page: body.slice(0, 500) });
 }
@@ -445,7 +446,7 @@ async function restored() {
   const page = await launch('alice', 'restored-alice');
   await page.goto(`${CHAT}/#/login`);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await kyidentityLogin(page, 'Alice.Q@Ky');
+  await kyidentityLogin(page, 'AQuinn');
   await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
   const dlg = page.getByRole('dialog');
   await dlg.locator('input, textarea').first().fill(fs.readFileSync(`${dir}/state/alice.recovery`, 'utf8'));
