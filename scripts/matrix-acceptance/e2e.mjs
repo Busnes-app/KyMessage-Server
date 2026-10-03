@@ -2,14 +2,14 @@
 //        node e2e.mjs room|token|disabled|reread|reads USER
 //        node e2e.mjs title BRAND
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
-// proxy on loopback, and the browser trusts only that proxy's key (SPKI pin, which Chromium
-// honours only with a user data dir, hence persistent contexts). Writes its findings to
+// proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
+// database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
 // $ACCEPT_DIR/state/<scenario>[-<user>].json; exits non-zero when a UI-level check fails.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
-const { ACCEPT_DIR: dir, ACCEPT_PORT: port, ACCEPT_SPKI: spki, ACCEPT_ARTIFACTS: artifacts } = process.env;
+const { ACCEPT_DIR: dir, ACCEPT_PORT: port, ACCEPT_ARTIFACTS: artifacts } = process.env;
 const [scenario, user] = process.argv.slice(2);
 const CHAT = 'https://chat.kymatrix.test';
 const MATRIX = 'https://matrix.kymatrix.test';
@@ -31,7 +31,7 @@ async function launch(name, profile = `${scenario}-${name}`) {
   const ctx = await chromium.launchPersistentContext(`${dir}/profiles/${profile}`, {
     viewport: { width: 1280, height: 900 },
     permissions: ['camera', 'microphone'],
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--host-resolver-rules=MAP turn.kymatrix.test 127.0.0.1, MAP *.kymatrix.test 127.0.0.1:${port}`, `--ignore-certificate-errors-spki-list=${spki}`],
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--host-resolver-rules=MAP turn.kymatrix.test 127.0.0.1, MAP *.kymatrix.test 127.0.0.1:${port}`],
   });
   await ctx.addInitScript(({force, turnPort}) => {
     window.kyCallPeers = [];
@@ -40,7 +40,7 @@ async function launch(name, profile = `${scenario}-${name}`) {
       return {...config, ...(force ? {iceTransportPolicy:'relay'} : {}), iceServers:(config.iceServers ?? []).filter(server => !force || (Array.isArray(server.urls) ? server.urls : [server.urls]).some(url => url.startsWith('turns:'))).map(server => ({...server, urls:(Array.isArray(server.urls) ? server.urls : [server.urls]).filter(url => !force || url.startsWith('turns:')).map(url => url?.replace('turns:turn.kymatrix.test:443', `turns:turn.kymatrix.test:${turnPort}`))}))};
     };
     window.RTCPeerConnection = window.webkitRTCPeerConnection = class extends Original {
-      constructor(config, ...args) { super(rewrite(config), ...args); window.kyCallPeers.push(this); console.log("ky-call-peer", force, this.getConfiguration().iceServers?.map(s=>s.urls)); this.kyIceErrors=[]; this.addEventListener("icecandidateerror", e => (this.kyIceErrors.push({code:e.errorCode,text:e.errorText,url:e.url}),console.log("ky-call-ice-error",e.errorCode,e.errorText,e.url))); }
+      constructor(config, ...args) { super(rewrite(config), ...args); window.kyCallPeers.push(this); this.kyIceErrors=[]; this.addEventListener("icecandidateerror", e => (this.kyIceErrors.push({code:e.errorCode,text:e.errorText,url:e.url}))); }
       setConfiguration(config) { return super.setConfiguration(rewrite(config)); }
     };
   }, {force:process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1', turnPort:process.env.KYMATRIX_ACCEPT_TURN_PORT});
@@ -489,8 +489,9 @@ async function title() {
 
 async function calls(restored = false) {
   const alice = await resume('alice', restored ? 'restored-alice' : 'prove-alice');
-  const bob = restored ? await launch('bob', 'restored-bob') : await resume('bob', 'prove-bob');
-  if (restored) await recoveredSignIn(bob, 'bob', `@bob:${SERVER}`);
+  const force = process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1';
+  const bob = restored && !force ? await launch('bob', 'restored-bob') : await resume('bob', restored ? 'restored-bob' : 'prove-bob');
+  if (restored && !force) await recoveredSignIn(bob, 'bob', `@bob:${SERVER}`);
   const { rooms } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
   // Inspect all embedded call frames; Element ships its own call app.
   async function join(page, initiate, room = rooms.group, video = true) {
@@ -519,7 +520,7 @@ async function calls(restored = false) {
         for (const pc of window.kyCallPeers ?? []) {
           const report = await pc.getStats();
           for (const v of report.values()) {
-            if (v.type === 'candidate-pair' && v.state === 'succeeded' && v.nominated) all.push({kind:'transport', local:report.get(v.localCandidateId)?.candidateType});
+            if (v.type === 'candidate-pair' && v.state === 'succeeded' && v.nominated) all.push({kind:'transport', local:report.get(v.localCandidateId)?.candidateType, relayProtocol:report.get(v.localCandidateId)?.relayProtocol});
             if (v.type === 'inbound-rtp') all.push({kind:v.kind, bytes:v.bytesReceived, frames:v.framesDecoded, samples:v.totalSamplesReceived});
           }
         }
@@ -533,7 +534,7 @@ async function calls(restored = false) {
     for (let i = 0; i < 60; i++) {
       a = await received(alice); b = await received(bob);
       const media = (stats) => stats.some(s => s.kind==='audio' && s.bytes>0 && s.samples>0) && (!video || stats.some(s => s.kind==='video' && s.frames>0));
-      const relay = stats => stats.some(s => s.kind==='transport' && s.local==='relay');
+      const relay = stats => stats.some(s => s.kind==='transport' && s.local==='relay' && s.relayProtocol==='tls');
       if (media(a) && media(b) && (process.env.KYMATRIX_ACCEPT_FORCE_TURN !== '1' || (relay(a) && relay(b)))) return {alice:a, bob:b};
       await alice.waitForTimeout(1000);
     }

@@ -3,7 +3,7 @@
 # project directory, so ./matrix is the harness's own matrix-init output.
 # Loopback without weakening the shipped configs: a TLS proxy with a throwaway CA answers for
 # the five https hosts (network aliases inside, 127.0.0.1:<ephemeral> outside). MAS and
-# KyIdentity trust only that CA; the harness browser trusts only the proxy's key (SPKI pin).
+# KyIdentity trust only that CA; the harness imports its throwaway CA into Chromium temporarily.
 services:
   kyidentity:
     image: ${KYMATRIX_ACCEPT_KYID_IMAGE:?}

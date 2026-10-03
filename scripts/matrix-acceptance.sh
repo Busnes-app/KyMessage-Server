@@ -18,7 +18,7 @@
 # shows an accepted webhook and an ok sweep, and counts a badly signed delivery.
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
-# for the https hosts; MAS trusts that CA, the browser pins the proxy key. Everything runs in
+# for the https hosts; MAS and Chromium trust that CA; the temporary Chromium CA is removed on exit. Everything runs in
 # Compose project kymatrix-accept-<pid> with its own network and volumes; the exit trap runs
 # `down -v` on that project only, removes its KyIdentity and KyMessages images and deletes the
 # scratch directory.
@@ -196,11 +196,9 @@ no_insecure "shipped templates and docker-compose.matrix.yml" "$repo/internal/ma
 	openssl x509 -req -in leaf.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out leaf.crt -days 1 \
 		-extfile ext.cnf 2>/dev/null
 	chmod 0644 ca.crt
-	openssl x509 -pubkey -noout -in leaf.crt | openssl pkey -pubin -outform der |
-		openssl dgst -sha256 -binary | base64 >spki
 )
-# Chromium's WebRTC TURN/TLS verifier needs actual CA trust; the HTTPS SPKI
-# exception alone does not establish TURN trust. Remove only our own nickname.
+# Trust the throwaway CA for HTTPS and TURN/TLS without certificate-verification
+# exceptions. Remove only our own nickname on exit.
 nss_db=$HOME/.pki/nssdb
 [[ -d $nss_db ]] || nss_db=$HOME/.local/share/pki/nssdb
 mkdir -p "$nss_db"
@@ -259,8 +257,7 @@ pass
 
 export KYID_URL=https://id.kymatrix.test KYID_STATE=$state KYID_ADMIN_PASS=$KYMATRIX_ACCEPT_ADMIN_PASS
 export ACCEPT_CACERT=$scratch/tls/ca.crt ACCEPT_CONNECT=$tls_addr
-ACCEPT_SPKI=$(cat "$scratch/tls/spki")
-export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_SPKI ACCEPT_ARTIFACTS=$artifacts
+export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_ARTIFACTS=$artifacts
 
 # ---------------------------------------------------------------------------------------
 step kyidentity
