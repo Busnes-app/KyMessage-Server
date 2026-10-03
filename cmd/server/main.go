@@ -93,30 +93,8 @@ func runServer() {
 	}
 	defer st.Close()
 
-	// Ensure default admin user exists if database is empty
-	count, _ := st.Users().CountUsers(ctx)
-	if count == 0 {
-		adminPass := os.Getenv("KY_ADMIN_PASSWORD")
-		if adminPass == "" {
-			adminPass = crypto.RandomHex(12)
-			log.Printf("[SECURITY] Initial bootstrap: Created admin account. Username: admin | Password: %s", adminPass)
-		}
-		hash, err := password.Hash(adminPass)
-		if err != nil {
-			log.Fatalf("Failed to hash bootstrap admin password: %v", err)
-		}
-		if err := st.Users().CreateUser(ctx, &store.User{
-			ID:                 fmt.Sprintf("usr_%s", crypto.RandomHex(12)),
-			Username:           "admin",
-			DisplayName:        "Administrator",
-			PasswordHash:       hash,
-			Role:               "admin",
-			Status:             "active",
-			SSOProvider:        "local",
-			MustChangePassword: true,
-		}); err != nil {
-			log.Fatalf("Failed to create bootstrap admin: %v", err)
-		}
+	if err := bootstrapAdmin(ctx, st, cfg.Security.AdminUsername, os.Getenv("KY_ADMIN_PASSWORD")); err != nil {
+		log.Fatalf("Failed to create bootstrap admin: %v", err)
 	}
 
 	srv := api.NewServer(cfg, st)
@@ -383,19 +361,44 @@ func runDeposit(args []string) {
 	}
 }
 
+// bootstrapAdmin creates the local admin on an empty database, named by KY_ADMIN_USERNAME. A
+// blank password is generated and logged once; either way it must be replaced at first sign-in.
+func bootstrapAdmin(ctx context.Context, st store.Store, username, adminPass string) error {
+	if count, _ := st.Users().CountUsers(ctx); count != 0 {
+		return nil
+	}
+	if adminPass == "" {
+		adminPass = crypto.RandomHex(12)
+		log.Printf("[SECURITY] Initial bootstrap: Created admin account. Username: %s | Password: %s", username, adminPass)
+	}
+	hash, err := password.Hash(adminPass)
+	if err != nil {
+		return err
+	}
+	return st.Users().CreateUser(ctx, &store.User{
+		ID:                 fmt.Sprintf("usr_%s", crypto.RandomHex(12)),
+		Username:           username,
+		DisplayName:        "Administrator",
+		PasswordHash:       hash,
+		Role:               "admin",
+		Status:             "active",
+		SSOProvider:        "local",
+		MustChangePassword: true,
+	})
+}
+
 func runInitAdmin(args []string) {
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 	fs := flag.NewFlagSet("init-admin", flag.ExitOnError)
-	username := fs.String("username", "admin", "Admin username")
+	username := fs.String("username", cfg.Security.AdminUsername, "Admin username (default KY_ADMIN_USERNAME)")
 	passwordFlag := fs.String("password", "", "Admin password (minimum 12 characters)")
 	_ = fs.Parse(args)
 
 	if *passwordFlag == "" || len(*passwordFlag) < 12 {
 		log.Fatal("Error: -password is required and must be at least 12 characters")
-	}
-
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
 	}
 	ctx := context.Background()
 	st, err := store.Open(ctx, cfg.Database)
@@ -416,6 +419,10 @@ func runInitAdmin(args []string) {
 		}
 		log.Printf("✓ Admin user %q password successfully reset", *username)
 		return
+	}
+	// Checked only on creation, so an existing account keeps its reset path.
+	if !config.ValidUsername(*username) {
+		log.Fatal("Error: -username must be 3-64 characters of letters, digits, '.', '_' or '-'")
 	}
 
 	user := &store.User{

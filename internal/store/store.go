@@ -3,11 +3,14 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 var (
-	ErrNotFound       = errors.New("record not found")
-	ErrAlreadyExists  = errors.New("record already exists")
+	ErrNotFound      = errors.New("record not found")
+	ErrAlreadyExists = errors.New("record already exists")
+	// ErrUsernameTaken: another account holds the username (exact case, as the column is unique).
+	ErrUsernameTaken  = fmt.Errorf("username is taken: %w", ErrAlreadyExists)
 	ErrSessionExpired = errors.New("session expired")
 	ErrPairingExpired = errors.New("pairing session expired")
 )

@@ -4,13 +4,14 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"github.com/Busnes-app/ky_server_base/internal/config"
 )
 
 var (
 	ErrPasswordTooShort = errors.New("password must be at least 12 characters")
 	ErrInvalidUsername  = errors.New("username must be 3-64 alphanumeric characters, underscores, or hyphens")
 	ErrInvalidEmail     = errors.New("invalid email address format")
-	usernameRegex       = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{3,64}$`)
 	emailRegex          = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 )
 
@@ -24,7 +25,7 @@ func ValidatePassword(password string) error {
 
 // ValidateUsername checks username syntax.
 func ValidateUsername(username string) error {
-	if !usernameRegex.MatchString(username) {
+	if !config.ValidUsername(username) {
 		return ErrInvalidUsername
 	}
 	return nil

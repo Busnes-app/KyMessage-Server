@@ -12,6 +12,10 @@ priority is small teams and encrypted text chat.
   pulls an upstream base image. Use the build overlay while images are unpublished;
   preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
+- `cmd/server` `bootstrapAdmin` creates the local admin on an empty database as
+  `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose). A KyIdentity user whose
+  username another account holds is refused, never merged: webhook 409 with sync reason
+  `username_conflict` and audit `sso.sync_conflict`; sign-in 409 with `sso.login_conflict`.
 
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product
   definition on Matrix: what ships, what is later or out of scope, and known risks. Keep it

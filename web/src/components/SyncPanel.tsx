@@ -15,9 +15,10 @@ export const UNCERTAIN = 'A change made while KyMessages was down waits in KyIde
 const REASON: Record<string, string> = {
   not_configured: 'secret not set', bad_signature: 'bad signature', stale: 'outside the 5-minute window',
   bad_headers: 'missing or malformed headers', malformed: 'signed, but not a usable user',
+  username_conflict: 'username held by a local account',
 };
-// Refusals that mean the secret is wrong or missing, not one odd delivery.
-const SECRET_REASONS = new Set(['bad_signature', 'not_configured']);
+// Refusals that keep failing until someone acts, not one odd delivery.
+const WARN_REASONS = new Set(['bad_signature', 'not_configured', 'username_conflict']);
 
 const nullable = <T,>(v: unknown, read: (x: unknown) => T): T | null => (v === null ? null : read(v));
 const when = (t: string) => new Date(t).toLocaleString();
@@ -51,7 +52,7 @@ function openRejection(s: SyncStatus): string {
 
 export function syncState(s: SyncStatus): SyncState {
   if (s.sweep && !s.sweep.ok) return 'failing';
-  if (!s.webhook || !s.sweep || SECRET_REASONS.has(openRejection(s))) return 'warning';
+  if (!s.webhook || !s.sweep || WARN_REASONS.has(openRejection(s))) return 'warning';
   return 'ok';
 }
 
@@ -63,6 +64,7 @@ export function syncHints(s: SyncStatus): string[] {
   if (!s.webhook) hints.push('No webhook has been accepted yet: check the suite_webhook system in KyIdentity and KY_KYIDENTITY_HMAC_SECRET.');
   if (reason === 'bad_signature') hints.push('Deliveries fail the signature check: the secret in KyIdentity and KY_KYIDENTITY_HMAC_SECRET differ.');
   if (reason === 'not_configured') hints.push('KY_KYIDENTITY_HMAC_SECRET is not set, or is shorter than 16 bytes.');
+  if (reason === 'username_conflict') hints.push('A KyIdentity username matches a local KyMessages account, so that user is not synced: sign in to KyIdentity as another user, or set KY_ADMIN_USERNAME before a new install so the local admin is named differently.');
   if (reason === 'stale') hints.push("Deliveries arrive more than 5 minutes off this server's clock: check both clocks.");
   if (!s.sweep) hints.push('No offboarding sweep has finished yet.');
   hints.push(UNCERTAIN);

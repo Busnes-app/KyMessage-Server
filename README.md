@@ -267,6 +267,7 @@ instance; the current operator-console preview is not a chat release (see `docs/
 |---|---|
 | `KY_APP_NAME` | Defaults to `KyMessages`; also the capsule service name, pinned at pairing |
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks |
+| `KY_ADMIN_USERNAME` | Username of the local admin created on an empty database and `init-admin`'s default, default `admin`; 3-64 letters, digits, `.`, `_` or `-`. Set it before first start when a KyIdentity user is called `admin` (KyIdentity's own admin cannot be renamed): a KyIdentity user whose username a local account holds is refused, never merged into it |
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
 | `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |

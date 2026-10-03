@@ -72,28 +72,37 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Upsert user
+	// Accounts are matched by subject only; a username never links to an existing account.
 	user, err := s.store.Users().GetUserBySSO(r.Context(), "kyidentity", claims.Subject)
-	if err != nil {
-		if s.config.SSO.AutoProvision {
-			user = &store.User{
-				ID:          fmt.Sprintf("usr_%s", crypto.RandomHex(12)),
-				Username:    claims.PreferredUsername,
-				Email:       claims.Email,
-				DisplayName: claims.Name,
-				Role:        "user",
-				Status:      "active",
-				SSOProvider: "kyidentity",
-				SSOSubject:  claims.Subject,
-			}
-			if err := s.store.Users().CreateUser(r.Context(), user); err != nil {
-				s.writeError(w, http.StatusInternalServerError, "Failed to provision SSO user")
-				return
-			}
-		} else {
+	if errors.Is(err, store.ErrNotFound) {
+		if !s.config.SSO.AutoProvision {
 			s.writeError(w, http.StatusForbidden, "User account not provisioned")
 			return
 		}
+		user = &store.User{
+			ID:          fmt.Sprintf("usr_%s", crypto.RandomHex(12)),
+			Username:    claims.PreferredUsername,
+			Email:       claims.Email,
+			DisplayName: claims.Name,
+			Role:        "user",
+			Status:      "active",
+			SSOProvider: "kyidentity",
+			SSOSubject:  claims.Subject,
+		}
+		err = s.store.Users().CreateUser(r.Context(), user)
+		if errors.Is(err, store.ErrUsernameTaken) {
+			log.Printf("[SSO] sign-in by %q refused: username %q is held by another KyMessages account", claims.Subject, user.Username)
+			s.audit(r.Context(), "", r, "sso.login_conflict", user.Username, fmt.Sprintf("subject=%q", claims.Subject))
+			s.writeError(w, http.StatusConflict, fmt.Sprintf("KyIdentity username %q is held by another KyMessages account; ask an administrator", user.Username))
+			return
+		}
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "Failed to provision SSO user")
+			return
+		}
+	} else if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to look up SSO user")
+		return
 	}
 
 	// The session is as fresh as the IdP's signed auth_time; a missing one never passes step-up.
@@ -125,6 +134,10 @@ func (s *Server) handleKyIdentitySyncWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	case errors.Is(err, sso.ErrSyncMalformed):
 		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	case errors.Is(err, sso.ErrSyncUsernameConflict):
+		// Received and explained: KyIdentity fences a 500 as an uncertain write.
+		s.writeError(w, http.StatusConflict, err.Error())
 		return
 	case err != nil:
 		s.writeError(w, http.StatusInternalServerError, "Directory update failed")

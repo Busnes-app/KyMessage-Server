@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -263,5 +264,80 @@ func TestDirectoryWebhookEventsStaySpentAcrossRevisionReset(t *testing.T) {
 	d.must("user.updated", scimUser("kid-hana", "admin", true, 1)) // new events still apply
 	if u := d.user("kid-hana"); u.Role != "admin" {
 		t.Fatalf("a new event after the reset was refused: %+v", u)
+	}
+}
+
+// named is scimUser with a userName other than the subject.
+func named(subject, userName, role string, revision int64) []byte {
+	var m map[string]any
+	_ = json.Unmarshal(scimUser(subject, role, true, revision), &m)
+	m["userName"] = userName
+	body, _ := json.Marshal(m)
+	return body
+}
+
+// KyIdentity's own admin is called admin and cannot be renamed. A directory user named like a
+// local account must be refused, never merged into it, and the refusal must be visible.
+func TestDirectoryWebhookRefusesUsernameHeldByLocalAccount(t *testing.T) {
+	ctx := context.Background()
+	d := newDirectory(t)
+	local := &store.User{ID: "usr_local_admin", Username: "admin", PasswordHash: "hash", Role: "admin", Status: "active", SSOProvider: "local"}
+	if err := d.st.Users().CreateUser(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	created := uuid.NewString()
+	err := d.sendID(created, "user.created", named("kid-root", "admin", "user", 1))
+	if !errors.Is(err, sso.ErrSyncUsernameConflict) || !strings.Contains(err.Error(), `"admin"`) {
+		t.Fatalf("clash: got %v, want ErrSyncUsernameConflict naming the username", err)
+	}
+	if u := d.user("kid-root"); u != nil {
+		t.Fatalf("a directory row was created: %+v", u)
+	}
+	got, err := d.st.Users().GetUserByID(ctx, local.ID)
+	if err != nil || got.Username != "admin" || got.SSOProvider != "local" || got.SSOSubject != "" || got.Role != "admin" || got.PasswordHash != "hash" {
+		t.Fatalf("local admin changed: %v %+v", err, got)
+	}
+	if r := d.client.Rejections(); r.Count != 1 || r.LastReason != sso.RejectUsernameConflict {
+		t.Fatalf("rejections: %+v", r)
+	}
+	recs, _, err := d.st.Audit().ListAuditRecords(ctx, 0, 10, "sso.")
+	if err != nil || len(recs) != 1 || recs[0].Action != "sso.sync_conflict" || recs[0].Resource != "admin" || !strings.Contains(recs[0].Details, `"kid-root"`) {
+		t.Fatalf("audit: %v %+v", err, recs)
+	}
+	if _, err := d.st.Settings().GetSetting(ctx, sso.WebhookRecordKey); err == nil {
+		t.Fatal("a refused delivery was recorded as accepted")
+	}
+
+	// The refused event is not spent: once the local account is renamed, its redelivery applies.
+	local.Username = "kymessages-admin"
+	if err := d.st.Users().UpdateProfile(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.sendID(created, "user.created", named("kid-root", "admin", "user", 1)); err != nil {
+		t.Fatalf("redelivery after the rename: %v", err)
+	}
+	if u := d.user("kid-root"); u == nil || u.Username != "admin" || u.ID == local.ID {
+		t.Fatalf("directory user after the rename: %+v", u)
+	}
+}
+
+// An update may rename a directory user onto a local account's name; that is refused too, while
+// updates that keep (or reuse) the subject's own name still apply.
+func TestDirectoryWebhookRefusesRenameOntoLocalAccount(t *testing.T) {
+	ctx := context.Background()
+	d := newDirectory(t)
+	if err := d.st.Users().CreateUser(ctx, &store.User{ID: "usr_local_ops", Username: "ops", Role: "admin", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	d.must("user.created", named("kid-eve", "eve", "user", 1))
+	if err := d.send("user.updated", named("kid-eve", "ops", "admin", 2)); !errors.Is(err, sso.ErrSyncUsernameConflict) {
+		t.Fatalf("rename onto a local account: %v", err)
+	}
+	if u := d.user("kid-eve"); u.Username != "eve" || u.Role != "user" {
+		t.Fatalf("the refused rename applied: %+v", u)
+	}
+	d.must("user.updated", named("kid-eve", "eve", "admin", 3))
+	if u := d.user("kid-eve"); u.Username != "eve" || u.Role != "admin" {
+		t.Fatalf("same-subject update: %+v", u)
 	}
 }

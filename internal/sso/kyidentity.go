@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"sync"
+	"time"
 
+	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
@@ -97,6 +100,8 @@ var (
 	ErrSyncUnauthorized = errors.New("directory webhook not authenticated")
 	// ErrSyncMalformed is an authenticated body that is not a usable SCIM User.
 	ErrSyncMalformed = errors.New("directory webhook body is not a usable SCIM user")
+	// ErrSyncUsernameConflict is an authenticated user whose username another account holds.
+	ErrSyncUsernameConflict = errors.New("directory username is held by another KyMessages account")
 	// errNoSecret: the receiver has no key, so nothing can be verified.
 	errNoSecret = errors.New("KY_KYIDENTITY_HMAC_SECRET is not set")
 )
@@ -114,10 +119,27 @@ func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncau
 	switch {
 	case err == nil:
 		k.recordDelivery(ctx, kind)
-	case errors.Is(err, ErrSyncUnauthorized), errors.Is(err, ErrSyncMalformed):
+	case errors.Is(err, ErrSyncUnauthorized), errors.Is(err, ErrSyncMalformed), errors.Is(err, ErrSyncUsernameConflict):
 		k.reject(err)
 	}
 	return err
+}
+
+// usernameConflict refuses a directory user whose username another account holds; merging the
+// two would hand that account to whoever KyIdentity names alike. The delivery is authenticated,
+// so unlike other refusals it is logged and audited.
+func (k *KyIdentityClient) usernameConflict(ctx context.Context, in DirectoryUser) error {
+	log.Printf("[SSO] directory user %q refused: username %q is held by another KyMessages account", in.ID, in.UserName)
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := k.store.Audit().LogAudit(actx, &store.AuditRecord{
+		Action:   "sso.sync_conflict",
+		Resource: recoveryclient.AuditSafe(in.UserName),
+		Details:  recoveryclient.AuditSafe(fmt.Sprintf("subject=%q", in.ID)),
+	}); err != nil {
+		log.Printf("[AUDIT] sso.sync_conflict not recorded: %v", err)
+	}
+	return fmt.Errorf("%w: %q", ErrSyncUsernameConflict, in.UserName)
 }
 
 // applySyncWebhook verifies and applies one event and returns its signed type. The cause of
@@ -184,6 +206,9 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 			ID: fmt.Sprintf("usr_%s", crypto.RandomHex(12)), Username: in.UserName, Email: email,
 			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kyidentity", SSOSubject: in.ID,
 		}, ev)
+		if errors.Is(err, store.ErrUsernameTaken) {
+			return k.usernameConflict(ctx, in)
+		}
 		return err
 	}
 	if err != nil {
@@ -192,6 +217,9 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 	updated := *existing
 	updated.Username, updated.Email, updated.DisplayName, updated.Role, updated.Status = in.UserName, email, displayName, role, status
 	applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, ev)
+	if errors.Is(err, store.ErrUsernameTaken) {
+		return k.usernameConflict(ctx, in)
+	}
 	if err != nil || !applied {
 		return err
 	}

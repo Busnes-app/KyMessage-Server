@@ -11,6 +11,7 @@ import (
 
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/api"
+	"github.com/Busnes-app/ky_server_base/internal/store"
 	"github.com/google/uuid"
 )
 
@@ -114,5 +115,35 @@ func TestUnknownAPIPathIsNotAcknowledged(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "<html") {
 		t.Fatalf("SPA route /dashboard = %d, want the app shell", w.Code)
+	}
+}
+
+// KyIdentity fences a 500 as an uncertain write and stops delivering to the system, so a
+// username held by a local account must be a received, explained 409 instead.
+func TestDirectoryWebhookUsernameConflictIs409(t *testing.T) {
+	ctx := context.Background()
+	_, st, cfg := setupTestServer(t)
+	cfg.SSO.KyIdentityHMACSecret = "4f1c2a9e8b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e"
+	srv := api.NewServer(cfg, st)
+	woke := 0
+	srv.OnDirectoryChange(func() { woke++ })
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_local_admin", Username: "admin", Role: "admin", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"id":"kid-root","userName":"admin","roles":[{"value":"admin","primary":true}],"active":true,"meta":{"resourceType":"User","version":"W/\"1\""}}`)
+	req := httptest.NewRequest("POST", "/api/sso/kyidentity/sync", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/scim+json")
+	h, err := syncauth.Sign([]byte(cfg.SSO.KyIdentityHMACSecret), time.Now(), "user.created", uuid.NewString(), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Apply(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `\"admin\"`) || strings.Contains(w.Body.String(), cfg.SSO.KyIdentityHMACSecret) {
+		t.Fatalf("clash: %d %s", w.Code, w.Body.String())
+	}
+	if woke != 0 {
+		t.Fatal("a refused delivery woke the sweep")
 	}
 }

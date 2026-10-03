@@ -96,9 +96,30 @@ func (u *userStore) CreateUser(ctx context.Context, user *User) error {
 	return u.insertUser(ctx, u.store.db, user)
 }
 
-func (u *userStore) insertUser(ctx context.Context, db interface {
+// execQuerier is *sql.DB or *sql.Tx.
+type execQuerier interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, user *User) error {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// usernameTaken returns ErrUsernameTaken when an account other than id holds username, so a
+// clash is a typed error on both engines rather than a driver-specific constraint failure.
+func (u *userStore) usernameTaken(ctx context.Context, db execQuerier, username, id string) error {
+	var one int
+	err := db.QueryRowContext(ctx, u.store.rebind(`SELECT 1 FROM users WHERE username = ? AND id <> ?`), username, id).Scan(&one)
+	if err == nil {
+		return ErrUsernameTaken
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return err
+}
+
+func (u *userStore) insertUser(ctx context.Context, db execQuerier, user *User) error {
+	if err := u.usernameTaken(ctx, db, user.Username, user.ID); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = now
@@ -295,6 +316,9 @@ WHERE directory_sync_state.revision < excluded.revision OR excluded.revision = -
 
 func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, ev DirectoryEvent) (bool, error) {
 	return u.directoryWrite(ctx, user, ev, func(tx *sql.Tx) error {
+		if err := u.usernameTaken(ctx, tx, user.Username, user.ID); err != nil {
+			return err
+		}
 		user.UpdatedAt = time.Now().UTC()
 		_, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
 			user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)

@@ -16,6 +16,7 @@ services:
       - KY_ENV=${KY_ENV:-development}
       - KY_APP_NAME=${KY_APP_NAME:-KyMessages}
       - KY_APP_URL=${KY_APP_URL:-http://localhost:8080}
+      - KY_ADMIN_USERNAME=${KY_ADMIN_USERNAME:-admin}
       - KY_ADMIN_PASSWORD=${KY_ADMIN_PASSWORD:?Set a bootstrap operator password}
       - KY_SESSION_SECRET=${KY_SESSION_SECRET:-}
       - KY_DB_DRIVER=sqlite
