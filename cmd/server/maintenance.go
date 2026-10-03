@@ -47,3 +47,23 @@ func sweepPairings(ctx context.Context, st store.Store) {
 		log.Printf("[DEVICES] expired pairing sweep failed: %v", err)
 	}
 }
+
+// callMaintenanceLoop is drained alongside branding and pairings before the store closes.
+func callMaintenanceLoop(ctx context.Context, reconcile func(context.Context) error, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		run, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := reconcile(run)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.Printf("[MATRIX RTC] call reconciliation failed: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}

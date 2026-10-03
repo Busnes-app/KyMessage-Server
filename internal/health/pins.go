@@ -5,6 +5,7 @@ package health
 // Pins are the versions docker-compose.matrix.yml deploys, by Compose service.
 var Pins = map[string]string{
 	"element":  "1.12.30",
+	"livekit":  "1.13.7",
 	"mas":      "1.26.0",
 	"postgres": "17.6",
 	"synapse":  "1.162.0",

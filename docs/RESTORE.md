@@ -100,6 +100,15 @@ restoring her keys from key backup; the server name and signing key were unchang
    creates `secrets/postgres_password`: the capsule never carries the Postgres superuser
    password, and a fresh volume does not need the old one. Compose refuses to start
    `postgres` without it.
+   LiveKit config and API keys also come back from a calling-enabled capsule. Keep
+   `KY_MATRIX_RTC_HOST` and `KY_MATRIX_MEDIA_IP` in the setup environment (update the media IP
+   deliberately when moving hosts), and restore the direct TCP 7881/UDP 7882 forwards.
+   With TURN, restored private certificate/key copies are in `matrix/livekit`; set the
+   complete `KY_MATRIX_TURN_*` setup block to those files (or renewed PEM files), keep the
+   TURN overlay, DNS-only hostname, TCP 443 and UDP 3478/30000–30100 forwarding, and verify the
+   certificate is still valid before restarting LiveKit. For a
+   capsule from before calling, `matrix-init` generates the new LiveKit keys once. Active calls
+   and recordings are not restored; there is no recording service.
 3. Set `.env` as before, with `KY_MATRIX_UID` and `KY_MATRIX_GID` for that user. Build the
    image (build overlay).
 4. Only if this stack is meant to be replaced: `docker compose down -v`, which deletes its

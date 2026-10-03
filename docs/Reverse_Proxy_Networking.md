@@ -78,18 +78,19 @@ start it again once KyMessages is up.
 
 ## Matrix stack behind cloudflared
 
-`docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element Web. It publishes no
-port and its services join the same `kymessages-net` as KyMessages, so the cloudflared
+`docker-compose.matrix.yml` adds Postgres, Synapse, MAS, Element Web and LiveKit. It publishes only
+TCP 7881 and UDP 7882 for LiveKit media and its services join the same `kymessages-net` as KyMessages, so the cloudflared
 container set up above reaches them by name. Postgres is only on the internal `matrix-db`
 network; cloudflared cannot reach it and must never be given a route to it.
 
-Four public hostnames, all https, plus the server name:
+Five public hostnames, all https, plus the server name:
 
 | Variable | Example | Routes to |
 |---|---|---|
 | `KY_MATRIX_HOST` | `https://matrix.example.com` | `http://synapse:8008` |
 | `KY_MATRIX_AUTH_HOST` | `https://auth.example.com` | `http://mas:8080` |
 | `KY_MATRIX_CHAT_HOST` | `https://chat.example.com` | `http://element:8080` |
+| `KY_MATRIX_RTC_HOST` | `https://sfu.example.com` | `http://livekit:7880` (signalling only; refuse `/twirp/`) |
 | `KY_ADMIN_HOST` | `https://admin.example.com` | `http://kymessages:8080` |
 | `KY_MATRIX_SERVER_NAME` | `example.com` | only `/.well-known/matrix/client`, to `http://kymessages:8080` |
 
@@ -115,6 +116,11 @@ ingress:
     service: http://mas:8080
   - hostname: chat.example.com
     service: http://element:8080
+  - hostname: sfu.example.com
+    path: ^/twirp/
+    service: http_status:404
+  - hostname: sfu.example.com
+    service: http://livekit:7880
   - hostname: admin.example.com
     service: http://kymessages:8080
   - service: http_status:404
@@ -138,15 +144,50 @@ If another site already serves the apex, drop the `example.com` rule and have th
 and `Access-Control-Allow-Origin: *`:
 
 ```json
-{"m.homeserver":{"base_url":"https://matrix.example.com"}}
+{"m.homeserver":{"base_url":"https://matrix.example.com"},"org.matrix.msc4143.rtc_foci":[{"type":"livekit","livekit_service_url":"https://admin.example.com/api/matrix/rtc"}]}
 ```
 
 `KY_TRUSTED_PROXIES` stays cloudflared's /32 on `kymessages-net`. Setup order and the
 `KY_MATRIX_UID` step are in the README's "Matrix chat" section.
 
 Check after start: `https://<server name>/.well-known/matrix/client` returns
-`{"m.homeserver":{"base_url":"https://matrix.example.com"}}`, the chat host loads Element, and
+`{"m.homeserver":{"base_url":"https://matrix.example.com"},"org.matrix.msc4143.rtc_foci":[{"type":"livekit","livekit_service_url":"https://admin.example.com/api/matrix/rtc"}]}`, the chat host loads Element, and
 signing in goes through the auth host to KyIdentity.
+
+## Direct call media
+
+The signalling host supports WebSocket upgrades; its `/twirp/` API is internal only.
+The console's existing route also serves call-token requests under `/api/matrix/rtc`.
+Forward host TCP 7881 and UDP 7882 unchanged to the media host, and set
+`KY_MATRIX_MEDIA_IP` to the address callers can reach (public IP with NAT forwards, LAN IP
+for LAN-only use). `KY_MATRIX_MEDIA_BIND_IP` limits the host bind, default `0.0.0.0`.
+An HTTP cloudflared tunnel cannot carry WebRTC media. Restrictive client networks that allow
+only TLS on port 443 use the optional `docker-compose.turn.yml` overlay. Set the complete
+`KY_MATRIX_TURN_HOST`, `KY_MATRIX_TURN_CERT_FILE`, `KY_MATRIX_TURN_KEY_FILE` block before
+`matrix-init`; the hostname is DNS-only to the media IP, with a browser-trusted certificate.
+Forward TCP 443 (host 443 maps to the unprivileged 5349 listener) and UDP 3478 and 30000–30100 unchanged.
+The relay denies peers outside the configured media IP; on a shared public IP, use egress
+filtering to permit only its SFU/relay UDP ports. HTTP tunnels cannot carry TURN/TLS.
+Re-run `matrix-init` after certificate renewal and restart LiveKit after successful completion.
+K80/K81 deployment manifests and firewall changes belong to `ky-kubernetes`.
+
+Example nginx signalling host on the same network:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name sfu.example.com;
+    # ssl_certificate, ssl_certificate_key ...
+    location ^~ /twirp/ { return 404; }
+    location / {
+        proxy_pass http://livekit:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 1h;
+    }
+}
+```
 
 ## nginx
 

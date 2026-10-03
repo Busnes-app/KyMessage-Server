@@ -273,3 +273,36 @@ func TestPlanExemptsOnlyTheUnlinkedConsoleAccount(t *testing.T) {
 		t.Fatalf("locked %v", locked)
 	}
 }
+
+// Element requests its transport twice concurrently on the first call. MAS may answer
+// 500 rather than 409 when two requests create the console account at once.
+func TestConsoleCreationWaiterCanCancel(t *testing.T) {
+	f := newConsoleFake(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "by-username") {
+			once.Do(func() { close(entered); <-release })
+		}
+		f.handle(w, r)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "cid", "secret-value")
+	first := make(chan error, 1)
+	go func() { _, err := c.EnsureConsoleUser(context.Background()); first <- err }()
+	<-entered
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.EnsureConsoleUser(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("waiter: %v", err)
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.created) != 1 {
+		t.Fatalf("created %d accounts", len(f.created))
+	}
+}

@@ -10,7 +10,7 @@ root=$(git rev-parse --show-toplevel)
 export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only \
   KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 \
   KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com \
-  KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
+  KY_MATRIX_MEDIA_BIND_IP=0.0.0.0 KY_MATRIX_RTC_HOST=https://sfu.example.com KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
 unset KY_NETWORK_SUBNET KY_NETWORK
 render() { docker compose --env-file /dev/null --project-directory "$root" "$@" config --format json; }
 stack=(-f "$root/docker-compose.yml" -f "$root/docker-compose.proxy.yml" -f "$root/docker-compose.matrix.yml")
@@ -19,6 +19,7 @@ bad() { echo "$*"; fail=1; }
 out=$(render "${stack[@]}") || exit 1
 
 declare -A image=(
+ [livekit]=livekit/livekit-server:v1.13.7@sha256:6fd3b7088874c4d119160dd688798dfec852bc014786d392caad15f6f63912a3
   [postgres]=postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
   [synapse]=ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
   [mas]=ghcr.io/element-hq/matrix-authentication-service:1.26.0@sha256:e089f1048a1d4a9a492ed17b9fe759100f1bd619407b001f5927928d88b780c4
@@ -26,12 +27,12 @@ declare -A image=(
   [synapse-media-owner]=ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
 )
 # The named volume each service may use; every bind mount must be its own ./matrix/<service> path.
-declare -A named=([postgres]=matrix-postgres [synapse]=matrix-media [mas]="" [element]="" [synapse-media-owner]=matrix-media)
-declare -A own=([postgres]=postgres [synapse]=synapse [mas]=mas [element]=element [synapse-media-owner]=none)
+declare -A named=([livekit]="" [postgres]=matrix-postgres [synapse]=matrix-media [mas]="" [element]="" [synapse-media-owner]=matrix-media)
+declare -A own=([livekit]=livekit [postgres]=postgres [synapse]=synapse [mas]=mas [element]=element [synapse-media-owner]=none)
 
-[ "$(jq -c '[.services | keys[] | select(. != "app")] | sort' <<<"$out")" = '["element","mas","postgres","synapse","synapse-media-owner"]' ] \
+[ "$(jq -c '[.services | keys[] | select(. != "app")] | sort' <<<"$out")" = '["element","livekit","mas","postgres","synapse","synapse-media-owner"]' ] \
   || bad "unexpected Matrix services: $(jq -c '.services | keys' <<<"$out")"
-[ "$(jq '[.services[] | .ports // [] | length] | add' <<<"$out")" = 0 ] || bad "a service publishes a port"
+[ "$(jq '[.services | to_entries[] | select(.key != "livekit") | .value.ports // [] | length] | add' <<<"$out")" = 0 ] || bad "a service publishes a port"
 [ "$(jq -r '.networks.default.name' <<<"$out")" = kymessages-net ] || bad "network not named kymessages-net"
 for s in "${!image[@]}"; do
   svc=$(jq -c --arg s "$s" '.services[$s]' <<<"$out")
@@ -52,16 +53,30 @@ for s in "${!image[@]}"; do
     esac
   done < <(jq -r '.volumes // [] | .[] | [.type, .source, .target, (.read_only // false)] | @tsv' <<<"$svc")
 done
+# Only media may cross the host boundary; signalling and admin API stay private.
+[ "$(jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort' <<<"$out")" = '[[7881,"7881","tcp","0.0.0.0"],[7882,"7882","udp","0.0.0.0"]]' ] || bad "LiveKit must publish exactly TCP 7881 and UDP 7882"
+[ "$(jq -c '.services.livekit.command' <<<"$out")" = '["--config","/config/config.yaml"]' ] || bad "LiveKit does not use its generated config"
+# Directory bind observes atomic configuration/certificate renewal after restart.
+[ "$(jq -r '.services.livekit.volumes[] | "\(.source) \(.target) \(.read_only)"' <<<"$out")" = "$root/matrix/livekit /config true" ] || bad "LiveKit must bind its private directory read-only"
+for extra in "" "$root/docker-compose.static-ip.yml"; do
+  turnstack=("${stack[@]}" -f "$root/docker-compose.turn.yml")
+  [ -z "$extra" ] || turnstack+=(-f "$extra")
+  turn=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${turnstack[@]}") || exit 1
+  jq -e '.services.livekit.ports | length == 105' <<<"$turn" >/dev/null || bad "TURN overlay port count"
+  jq -e '[.services.livekit.ports[] | select(.target == 5349) | [.published,.protocol]] == [["443","tcp"]]' <<<"$turn" >/dev/null || bad "TURN TLS must publish 443 to 5349"
+  jq -e '[.services.livekit.ports[] | select(.target >= 30000 and .target <= 30100) | select(.protocol == "udp" and (.published | tonumber) == .target)] | length == 101' <<<"$turn" >/dev/null || bad "TURN relay range must be forwarded unchanged"
+  jq -e '[.services.livekit.ports[] | select(.target == 7880)] | length == 0' <<<"$turn" >/dev/null || bad "TURN publishes signalling/admin"
+done
 # Element stays stock: exactly its config.json at /app/config.json, read-only. No mask of its
 # start script and no bind where nginx serves its copy (owner decision 2026-10-02).
 [ "$(jq -r '.services.element.volumes[] | "\(.type) \(.source) \(.target) \(.read_only // false)"' <<<"$out")" = \
   "bind $root/matrix/element/config.json /app/config.json true" ] || bad "element does not mount exactly ./matrix/element/config.json at /app/config.json read-only"
 jq -e '[.services.element.volumes[] | select(.source == "/dev/null" or (.target | startswith("/tmp/element-web-config")) or (.target | startswith("/docker-entrypoint")))] | length == 0' <<<"$out" >/dev/null \
   || bad "element's start-up is altered: a /dev/null, /tmp/element-web-config or /docker-entrypoint mount"
-for s in postgres synapse mas element; do
+for s in postgres synapse mas element livekit; do
   [ "$(jq -r --arg s "$s" '.services[$s].restart' <<<"$out")" = unless-stopped ] || bad "$s restart is not unless-stopped"
 done
-for s in postgres synapse mas; do
+for s in postgres synapse mas livekit; do
   [ "$(jq -r --arg s "$s" '.services[$s].user' <<<"$out")" = 1234:5678 ] || bad "$s does not run as KY_MATRIX_UID:KY_MATRIX_GID"
 done
 for s in postgres synapse element; do
@@ -151,7 +166,7 @@ jq -e --arg r "$root/matrix" --argjson nc "$nocreate" 'length > 0 and all(.[]; .
     and .read_only == true and .bind == $nc and .source != $r and .source != $r + "/secrets")' <<<"$appmx" >/dev/null \
   || bad "app ./matrix binds are not read-only, same-path, non-creating pieces: $appmx"
 jq -e 'any(.[]; .source | test("postgres_password")) | not' <<<"$appmx" >/dev/null || bad "app can read the Postgres superuser password"
-for d in synapse mas postgres; do
+for d in synapse mas postgres livekit; do
   jq -e --arg t "/matrix/$d" 'any(.[]; .target == $t)' <<<"$appmx" >/dev/null || bad "app does not mount ./matrix/$d"
 done
 # No app mount inside another: Docker cannot recreate a nested mountpoint inside a read-only

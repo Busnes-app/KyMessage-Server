@@ -16,7 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var services = []string{"element", "mas", "postgres", "synapse"}
+var services = []string{"element", "livekit", "mas", "postgres", "synapse"}
 
 func main() {
 	compose := flag.String("compose", "", "path to docker-compose.matrix.yml")

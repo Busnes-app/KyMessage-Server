@@ -30,6 +30,7 @@ func (e *StatusError) Error() string {
 // Client calls MAS's admin API with a client-credentials token, cached until shortly before
 // it expires and refetched once on a 401.
 type Client struct {
+	consoleMu        chan struct{} // Serialize first-use account creation; validate again on every use.
 	base, id, secret string
 	hc               *http.Client
 
@@ -42,7 +43,7 @@ func NewClient(baseURL, clientID, secret string) *Client {
 	// Never through a proxy from the environment: it would see the admin credentials.
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = nil
-	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, tokenMu: make(chan struct{}, 1), hc: &http.Client{
+	return &Client{base: strings.TrimSuffix(baseURL, "/"), id: clientID, secret: secret, tokenMu: make(chan struct{}, 1), consoleMu: make(chan struct{}, 1), hc: &http.Client{
 		Transport:     tr,
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -415,6 +416,12 @@ const ConsoleCallTimeout = 10 * time.Second
 // admin: personal sessions need no admin flag, and with it an interactive login as the
 // account could request urn:mas:admin.
 func (c *Client) EnsureConsoleUser(ctx context.Context) (string, error) {
+	select {
+	case c.consoleMu <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-c.consoleMu }()
 	path := adminPrefix + "users/by-username/" + ConsoleUsername
 	r, err := c.one(ctx, path)
 	var se *StatusError

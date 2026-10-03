@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"embed"
 	"encoding/base64"
@@ -19,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -55,6 +57,8 @@ const ClientSecretFile = "secrets/kyidentity_client_secret"
 type Input struct {
 	ServerName, MatrixHost, AuthHost, ChatHost, AdminHost string
 	Issuer, ClientID                                      string
+	RTCHost, MediaIP                                      string
+	TurnHost, TurnCertFile, TurnKeyFile                   string
 }
 
 // Registration is what the operator enters in KyIdentity for the MAS client.
@@ -89,11 +93,15 @@ func InputFromEnv(getenv func(string) string) (Input, error) {
 		{"KY_MATRIX_AUTH_HOST", &in.AuthHost}, {"KY_MATRIX_CHAT_HOST", &in.ChatHost},
 		{"KY_ADMIN_HOST", &in.AdminHost}, {"KY_KYIDENTITY_ISSUER", &in.Issuer},
 		{"KY_MATRIX_MAS_CLIENT_ID", &in.ClientID},
+		{"KY_MATRIX_RTC_HOST", &in.RTCHost}, {"KY_MATRIX_MEDIA_IP", &in.MediaIP},
 	} {
 		if *f.dst = getenv(f.env); *f.dst == "" {
 			return Input{}, fmt.Errorf("%s is required", f.env)
 		}
 	}
+	in.TurnHost = getenv("KY_MATRIX_TURN_HOST")
+	in.TurnCertFile = getenv("KY_MATRIX_TURN_CERT_FILE")
+	in.TurnKeyFile = getenv("KY_MATRIX_TURN_KEY_FILE")
 	return in.validate()
 }
 
@@ -105,12 +113,24 @@ func (in Input) validate() (Input, error) {
 	for _, h := range []struct {
 		name string
 		v    *string
-	}{{"matrix host", &in.MatrixHost}, {"auth host", &in.AuthHost}, {"chat host", &in.ChatHost}, {"admin host", &in.AdminHost}} {
+	}{{"matrix host", &in.MatrixHost}, {"auth host", &in.AuthHost}, {"chat host", &in.ChatHost}, {"admin host", &in.AdminHost}, {"RTC host", &in.RTCHost}} {
 		o, err := Origin(*h.v)
 		if err != nil {
 			return Input{}, fmt.Errorf("%s: %w", h.name, err)
 		}
 		*h.v = o
+	}
+	ip, err := netip.ParseAddr(in.MediaIP)
+	if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() {
+		return Input{}, errors.New("KY_MATRIX_MEDIA_IP must be the reachable IPv4 address of the media host")
+	}
+	if in.TurnHost != "" || in.TurnCertFile != "" || in.TurnKeyFile != "" {
+		if in.TurnHost == "" || in.TurnCertFile == "" || in.TurnKeyFile == "" {
+			return Input{}, errors.New("TURN requires KY_MATRIX_TURN_HOST, KY_MATRIX_TURN_CERT_FILE and KY_MATRIX_TURN_KEY_FILE together")
+		}
+		if err := ValidServerName(in.TurnHost); err != nil {
+			return Input{}, fmt.Errorf("TURN host: %w", err)
+		}
 	}
 	// The issuer may carry a path and must match what KyIdentity advertises byte for byte.
 	if _, err := httpsURL(in.Issuer); err != nil {
@@ -163,6 +183,8 @@ var secretSpecs = []struct {
 	name string
 	gen  func() ([]byte, error)
 }{
+	{"livekit_api_key", hexSecret},
+	{"livekit_api_secret", hexSecret},
 	{"synapse_db_password", hexSecret},
 	{"mas_db_password", hexSecret},
 	{"postgres_password", hexSecret}, // superuser; a Compose secret, never rendered
@@ -184,13 +206,28 @@ func Run(in Input, dir string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	cert, key, err := loadTurnTLS(in)
+	if err != nil {
+		return Result{}, err
+	}
 	res := Result{Dir: dir}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return Result{}, err
 	}
-	for _, sub := range []string{".", "secrets", "synapse", "mas", "element", "postgres"} {
+	for _, sub := range []string{".", "secrets", "synapse", "mas", "element", "postgres", "livekit"} {
 		if err := privateDir(filepath.Join(dir, sub)); err != nil {
 			return Result{}, err
+		}
+	}
+	if in.TurnHost != "" {
+		for _, file := range []struct {
+			name string
+			data []byte
+		}{{"livekit/turn.crt", cert}, {"livekit/turn.key", key}} {
+			if err := replaceFile(filepath.Join(dir, file.name), file.data, 0o600); err != nil {
+				return Result{}, fmt.Errorf("%s: %w", file.name, err)
+			}
+			res.Rendered = append(res.Rendered, file.name)
 		}
 	}
 	clientSecret, err := readClientSecret(filepath.Join(dir, ClientSecretFile))
@@ -222,7 +259,7 @@ func Run(in Input, dir string) (Result, error) {
 	}
 
 	data := map[string]any{"In": in, "S": s,
-		"Localpart": localpartTemplate, "DisplayName": displayNameTemplate, "Email": emailTemplate}
+		"TurnDeny": turnPeerDeny(in.MediaIP), "Localpart": localpartTemplate, "DisplayName": displayNameTemplate, "Email": emailTemplate}
 	s["kyidentity_client_secret"] = clientSecret
 	for _, r := range []struct {
 		tmpl, rel string
@@ -230,6 +267,7 @@ func Run(in Input, dir string) (Result, error) {
 		inPlace   bool
 	}{
 		{"homeserver.yaml.tmpl", "synapse/homeserver.yaml", 0o600, false},
+		{"livekit.yaml.tmpl", "livekit/config.yaml", 0o600, false},
 		{"mas.yaml.tmpl", "mas/config.yaml", 0o600, false},
 		{"pg-init.sql.tmpl", "postgres/init.sql", 0o600, false},
 		// After init.sql by name: the entrypoint runs both on a new volume; operators run it once
@@ -477,4 +515,73 @@ func newULID() ([]byte, error) {
 		n.Rsh(n, 5)
 	}
 	return out, nil
+}
+
+// ACME source symlinks are supported; inspect the opened regular file. Private keys
+// must not be group/world readable. Read limits also hold if the source grows.
+func readTurnTLSFile(path string, private bool) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !st.Mode().IsRegular() || (private && st.Mode().Perm()&0o077 != 0) {
+		return nil, errors.New("TURN TLS input must be regular; private key permissions must be 0600 or stricter")
+	}
+	const max = 1 << 20
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > max {
+		return nil, errors.New("TURN TLS input exceeds 1 MiB")
+	}
+	return b, nil
+}
+
+func loadTurnTLS(in Input) ([]byte, []byte, error) {
+	if in.TurnHost == "" {
+		return nil, nil, nil
+	}
+	cert, err := readTurnTLSFile(in.TurnCertFile, false)
+	if err != nil {
+		return nil, nil, fmt.Errorf("TURN certificate: %w", err)
+	}
+	key, err := readTurnTLSFile(in.TurnKeyFile, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("TURN private key: %w", err)
+	}
+	pair, err := tls.X509KeyPair(cert, key)
+	if err != nil {
+		return nil, nil, errors.New("TURN certificate/private key PEM is invalid or does not match")
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return nil, nil, errors.New("TURN certificate is invalid")
+	}
+	if err := leaf.VerifyHostname(in.TurnHost); err != nil {
+		return nil, nil, errors.New("TURN certificate does not cover the TURN hostname")
+	}
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
+		return nil, nil, errors.New("TURN certificate is not currently valid")
+	}
+	return cert, key, nil
+}
+
+// Deny the complement of the one IPv4 SFU address; TURN must not become a
+// generic public relay. Deployment egress rules additionally restrict ports.
+func turnPeerDeny(ip string) []string {
+	addr := netip.MustParseAddr(ip).As4()
+	deny := []string{"::/0"}
+	for bits := 1; bits <= 32; bits++ {
+		sibling := addr
+		sibling[(bits-1)/8] ^= 1 << (7 - (bits-1)%8)
+		deny = append(deny, netip.PrefixFrom(netip.AddrFrom4(sibling), bits).Masked().String())
+	}
+	return deny
 }

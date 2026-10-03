@@ -68,7 +68,9 @@ and `KY_TRUSTED_PROXIES`; publishes no port; names the network `kymessages-net`)
 ## Matrix chat
 
 Chat is Matrix: Synapse, Matrix Authentication Service (MAS) and Element Web, with KyIdentity
-as the only sign-in. It publishes no port and expects cloudflared in front (routes in
+as the only sign-in. Voice and video calls are enabled by default through stock Element Call
+and LiveKit. HTTP services stay private behind the proxy; LiveKit publishes TCP 7881 and
+UDP 7882 for direct media (routes in
 [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md)). Registration and
 federation are closed and MAS's compatibility (password) login is not served.
 
@@ -86,7 +88,9 @@ client secret once, when you register the client the first run describes.
 1. Export these for `matrix-init` (it reads the process environment, not `.env`). Hosts are
    https origins without a path: `KY_MATRIX_SERVER_NAME` (for example `example.com`),
    `KY_MATRIX_HOST`, `KY_MATRIX_AUTH_HOST`, `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`,
-   `KY_KYIDENTITY_ISSUER` and `KY_MATRIX_MAS_CLIENT_ID` (a name you choose; not secret).
+   `KY_KYIDENTITY_ISSUER`, `KY_MATRIX_MAS_CLIENT_ID` (a name you choose; not secret), `KY_MATRIX_RTC_HOST` (the HTTPS LiveKit
+   signalling origin, for example `https://sfu.example.com`) and `KY_MATRIX_MEDIA_IP` (the IPv4
+   address clients can reach directly: public IP for remote callers, LAN IP for LAN-only use).
 2. Run `./kymessages matrix-init` as the unprivileged user that will own the files
    (`-dir` defaults to `./matrix`; it refuses root, and an existing directory that group or
    others can read). It writes every config except MAS's, prints the KyIdentity registration
@@ -107,7 +111,7 @@ client secret once, when you register the client the first run describes.
 5. Run `./kymessages matrix-init` again. It keeps every secret and now writes
    `matrix/mas/config.yaml`. Until then, `docker compose up` refuses MAS and the app with
    "bind source path does not exist". Whenever you re-run it on a running stack, apply the configs
-   with `docker compose restart synapse mas element app` (the app mounts each secret file, so
+   with `docker compose restart synapse mas element livekit app` (the app mounts each secret file, so
    it sees a replaced `kyidentity_client_secret` only after a restart).
 6. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`)
    and link it to the MAS client's app. KyIdentity shows its signing secret once: that is
@@ -117,7 +121,7 @@ client secret once, when you register the client the first run describes.
 7. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed, plus `KY_MATRIX_SERVER_NAME`,
    `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
    from them), `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`) and
-   `KY_KYIDENTITY_HMAC_SECRET`. With Matrix enabled, KyMessages refuses to start with missing
+   `KY_KYIDENTITY_HMAC_SECRET` and `KY_MATRIX_RTC_HOST`. With Matrix enabled, KyMessages refuses to start with missing
    admin settings (client ID, readable non-empty secret file) or no webhook secret. A wrong
    admin secret still starts, but every offboarding sweep then fails; the failure is logged
    once per failure streak (`[MATRIX] offboarding sweep failing`), so check the logs after
@@ -197,6 +201,51 @@ Upgrading a stack from before Matrix backups:
    `KY_BACKUP_MEDIA_FULL_KEEP`.
 4. `docker compose up -d`. The first scheduled run then backs up Matrix.
 
+### Voice and video calls
+
+Calling is enabled in Element by default for DMs and group rooms. Members start or join a
+call themselves; their browsers ask for microphone/camera permission. All callers must be
+active KyIdentity users who have joined that Matrix room. No Matrix identity server is needed.
+
+Route `KY_MATRIX_RTC_HOST` over HTTPS/WebSocket to `http://livekit:7880`; never expose LiveKit's
+`/twirp/` administration routes. The existing console route carries `/api/matrix/rtc/get_token`
+and `/api/matrix/rtc/sfu/get`, so Element can request grants with Matrix OpenID tokens. The app
+checks local identity, directory/MAS status and joined-room membership; it never trusts a
+caller-supplied server URL. See [network setup](docs/Reverse_Proxy_Networking.md).
+
+Forward **TCP 7881 and UDP 7882**, unchanged, to the Docker host at `KY_MATRIX_MEDIA_IP`.
+`KY_MATRIX_MEDIA_BIND_IP` optionally limits which host interface Compose publishes on
+(default `0.0.0.0`). Cloudflared handles HTTPS/WebSocket signalling; its HTTP tunnel cannot
+carry these media ports.
+
+For networks limited to TLS 443, export `KY_MATRIX_TURN_HOST` (DNS-only hostname resolving to
+that public media IP), `KY_MATRIX_TURN_CERT_FILE` and `KY_MATRIX_TURN_KEY_FILE`, and re-run
+`matrix-init`. Use a browser-trusted certificate covering that hostname; the input key must
+be 0600 or stricter. Append `docker-compose.turn.yml` to your existing overlay chain, then
+recreate LiveKit. Forward TCP443 to host 443 and UDP 3478 and 30000–30100 unchanged, alongside the
+direct ports. LiveKit listens internally on 5349 and advertises external 443. The generated
+private TLS copies enter encrypted backups. TURN permits only the configured media IP;
+deployment egress rules must also restrict ports when that IP serves other applications.
+
+After ACME renewal, run `matrix-init` with the renewed certificate/key inputs, and restart
+LiveKit only after it succeeds. The whole private LiveKit directory is mounted read-only,
+so replacements become visible; LiveKit reads its certificate at startup. Renewal keeps
+API keys and invalid TLS input leaves generated files untouched.
+
+Upgrade an existing stack by exporting the two new setup values, running `matrix-init` as its
+original owner, adding `KY_MATRIX_RTC_HOST` to `.env`, configuring the routes/media ports,
+and running `docker compose up -d --force-recreate app synapse element livekit` (preserve your
+Compose overlay chain). The new write-once LiveKit keys/config are included in backups.
+Update a moved host's media IP and re-run `matrix-init` before restarting LiveKit.
+
+The call reconciler runs every 5 seconds and evicts users disabled/unassigned/deleted in the
+local directory, locked/deactivated in MAS, or removed from the Matrix room. LiveKit refreshes
+connected users' tokens: cached grants can reconnect between passes, and a stopped or failing
+control plane cannot evict media. Ending a MAS browser session alone does not end its active
+call. Calls are not recorded or restored. LiveKit routes media; the existing text encryption
+acceptance does not prove call encryption. `make matrix-acceptance` includes a separate
+real audio/video check; production networking still needs deployment verification.
+
 ### Operator console
 
 - **Overview** shows chat health, Matrix users, backups and (with Matrix) a KyIdentity sync
@@ -275,6 +324,9 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
 | `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
+| `KY_MATRIX_RTC_HOST`, `KY_MATRIX_MEDIA_IP` | LiveKit HTTPS signalling origin and directly reachable media IPv4; required by `matrix-init`; set the host in `.env` too |
+| `KY_MATRIX_TURN_HOST`, `KY_MATRIX_TURN_CERT_FILE`, `KY_MATRIX_TURN_KEY_FILE` | Optional complete TURN/TLS setup block for `matrix-init`; DNS-only hostname and trusted PEM files; enable the TURN overlay |
+| `KY_MATRIX_MEDIA_BIND_IP` | Host interface for direct TCP 7881/UDP 7882, default `0.0.0.0`; does not change the advertised media IP |
 | `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync`; required with the Matrix stack |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
 | `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |

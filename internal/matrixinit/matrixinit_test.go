@@ -15,7 +15,7 @@ func goodInput() Input {
 	return Input{ServerName: "example.com", MatrixHost: "https://matrix.example.com",
 		AuthHost: "https://auth.example.com", ChatHost: "https://chat.example.com",
 		AdminHost: "https://admin.example.com", Issuer: "https://id.example.com",
-		ClientID: "mas-client"}
+		ClientID: "mas-client", RTCHost: "https://sfu.example.com", MediaIP: "192.0.2.10"}
 }
 
 // runWithSecret saves the KyIdentity-issued client secret the way the operator does, then runs.
@@ -40,6 +40,9 @@ func TestInitRefusesBadInputs(t *testing.T) {
 		"control char in id":   func(i *Input) { i.ClientID = "a\nb: c" },
 		"bad server name":      func(i *Input) { i.ServerName = "Not A Domain" },
 		"single label server":  func(i *Input) { i.ServerName = "localhost" },
+		"invalid media IP":     func(i *Input) { i.MediaIP = "example.com" },
+		"multicast media IP":   func(i *Input) { i.MediaIP = "224.0.0.1" },
+		"invalid RTC host":     func(i *Input) { i.RTCHost = "http://sfu.example.com" },
 		"http issuer":          func(i *Input) { i.Issuer = "http://id.example.com" },
 		"issuer with fragment": func(i *Input) { i.Issuer = "https://id.example.com#x" },
 	} {
@@ -61,6 +64,7 @@ func TestInputFromEnvReadsAndValidates(t *testing.T) {
 		"KY_MATRIX_AUTH_HOST": "https://auth.example.com", "KY_MATRIX_CHAT_HOST": "https://chat.example.com",
 		"KY_ADMIN_HOST": "https://admin.example.com", "KY_KYIDENTITY_ISSUER": "https://id.example.com",
 		"KY_MATRIX_MAS_CLIENT_ID": "mas-client",
+		"KY_MATRIX_RTC_HOST":      "https://sfu.example.com", "KY_MATRIX_MEDIA_IP": "192.0.2.10",
 	}
 	in, err := InputFromEnv(func(k string) string { return env[k] })
 	if err != nil {
@@ -173,7 +177,7 @@ func TestSynapseConfigIsClosedAndEncrypted(t *testing.T) {
 	for _, l := range hs["listeners"].([]any) {
 		for _, r := range l.(map[string]any)["resources"].([]any) {
 			for _, n := range r.(map[string]any)["names"].([]any) {
-				if n != "client" {
+				if n != "client" && n != "openid" {
 					t.Errorf("listener serves %v", n)
 				}
 			}
@@ -413,11 +417,11 @@ func TestElementIsBrandedAndContactsNoThirdParty(t *testing.T) {
 			t.Errorf("%s = %v", k, el[k])
 		}
 	}
-	if ec, _ := el["element_call"].(map[string]any); ec["disable"] != true {
+	if ec, _ := el["element_call"].(map[string]any); ec["disable"] != false || ec["use_exclusively"] != true {
 		t.Errorf("element_call: %v", el["element_call"])
 	}
-	if defaults["UIFeature.voip"] != false || defaults["UIFeature.widgets"] != false {
-		t.Errorf("calls/widgets UI not disabled: %v", defaults)
+	if defaults["UIFeature.voip"] != true || defaults["UIFeature.widgets"] != false {
+		t.Errorf("call UI not enabled or widgets UI enabled: %v", defaults)
 	}
 	if j, _ := el["jitsi"].(map[string]any); j["preferred_domain"] != "jitsi.invalid" {
 		t.Errorf("jitsi: %v", el["jitsi"])
@@ -796,5 +800,32 @@ func TestElementConfigThatIsNotAFileIsRefused(t *testing.T) {
 	}
 	if _, err := Run(goodInput(), dir); err == nil || !strings.Contains(err.Error(), "element/config.json") {
 		t.Fatalf("got %v, want a refusal naming element/config.json", err)
+	}
+}
+
+func TestLiveKitConfigIsPrivateAndDiscovered(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	var lk, hs map[string]any
+	b, _ := os.ReadFile(filepath.Join(dir, "livekit/config.yaml"))
+	if err := yaml.Unmarshal(b, &lk); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := os.ReadFile(filepath.Join(dir, "secrets/livekit_api_key"))
+	secret, _ := os.ReadFile(filepath.Join(dir, "secrets/livekit_api_secret"))
+	if lk["keys"].(map[string]any)[string(key)] != string(secret) || lk["room"].(map[string]any)["auto_create"] != false {
+		t.Fatal("LiveKit keys or room policy")
+	}
+	rtc := lk["rtc"].(map[string]any)
+	if rtc["node_ip"] != "192.0.2.10" || rtc["use_external_ip"] != false || rtc["tcp_port"] != 7881 || rtc["udp_port"] != 7882 {
+		t.Fatal(rtc)
+	}
+	b, _ = os.ReadFile(filepath.Join(dir, "synapse/homeserver.yaml"))
+	yaml.Unmarshal(b, &hs)
+	transports := hs["matrix_rtc"].(map[string]any)["transports"].([]any)
+	if transports[0].(map[string]any)["livekit_service_url"] != "https://admin.example.com/api/matrix/rtc" || hs["max_event_delay_duration"] != "24h" {
+		t.Fatal("call discovery or delayed events")
 	}
 }

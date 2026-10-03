@@ -37,7 +37,7 @@ project=kymatrix-accept-$$
 kyid_image=$project-kyidentity:local
 app_image=kymatrix-accept-app:$$
 
-for tool in docker go node npm openssl curl jq; do
+for tool in docker go node npm openssl curl jq certutil; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
 done
 [[ -f $kyid_src/Dockerfile ]] || { echo "matrix-acceptance: no KyIdentity checkout at $kyid_src (set KYIDENTITY_SRC)" >&2; exit 2; }
@@ -69,6 +69,12 @@ export KY_MATRIX_CHAT_HOST=https://chat.kymatrix.test
 export KY_ADMIN_HOST=https://admin.kymatrix.test KY_APP_URL=https://admin.kymatrix.test
 export KY_KYIDENTITY_ISSUER=https://id.kymatrix.test
 export KY_MATRIX_MAS_CLIENT_ID=kymatrix-mas
+export KY_MATRIX_RTC_HOST=https://sfu.kymatrix.test KY_MATRIX_MEDIA_IP=127.0.0.1
+# Scratch media ports are chosen independently of any existing deployment.
+KYMATRIX_ACCEPT_TCP_PORT=$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
+KYMATRIX_ACCEPT_UDP_PORT=$(node -e 'const s=require("dgram").createSocket("udp4");s.bind(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
+KYMATRIX_ACCEPT_TURN_PORT=$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
+export KYMATRIX_ACCEPT_TCP_PORT KYMATRIX_ACCEPT_UDP_PORT KYMATRIX_ACCEPT_TURN_PORT
 KYMATRIX_ACCEPT_ADMIN_PASS=$(openssl rand -hex 16)
 export KYMATRIX_ACCEPT_ADMIN_PASS
 export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image KYMATRIX_ACCEPT_APP_IMAGE=$app_image
@@ -85,6 +91,9 @@ pass() { printf 'PASS %-19s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$su
 
 cleanup() {
 	local rc=$?
+	if [[ ${nss_imported:-0} == 1 ]]; then
+		certutil -D -d "sql:$nss_db" -n "$project" || { echo 'matrix-acceptance: could not remove its temporary CA' >&2; rc=1; }
+	fi
 	if ((rc != 0)); then
 		printf 'FAIL %-19s %4ss\n' "$current" "$((SECONDS - t0))" >>"$summary"
 		mkdir -p "$artifacts"
@@ -143,7 +152,12 @@ eventually() {
 	done
 	ok "$what ($((SECONDS - start))s)"
 }
-matrix_init() { "$scratch/kymessages" matrix-init -dir "$scratch/matrix"; }
+matrix_init() {
+ "$scratch/kymessages" matrix-init -dir "$scratch/matrix"
+ # Only the scratch media ports differ; every authentication/encryption setting stays shipped.
+ sed -i "/^rtc:/a\\  enable_loopback_candidate: true" "$scratch/matrix/livekit/config.yaml"
+ sed -i "s/tcp_port: 7881/tcp_port: $KYMATRIX_ACCEPT_TCP_PORT/; s/udp_port: 7882/udp_port: $KYMATRIX_ACCEPT_UDP_PORT/; s/127.0.0.1:7882/127.0.0.1:$KYMATRIX_ACCEPT_UDP_PORT/" "$scratch/matrix/livekit/config.yaml"
+}
 
 # ---------------------------------------------------------------------------------------
 step build
@@ -185,7 +199,18 @@ no_insecure "shipped templates and docker-compose.matrix.yml" "$repo/internal/ma
 	openssl x509 -pubkey -noout -in leaf.crt | openssl pkey -pubin -outform der |
 		openssl dgst -sha256 -binary | base64 >spki
 )
+# Chromium's WebRTC TURN/TLS verifier needs actual CA trust; the HTTPS SPKI
+# exception alone does not establish TURN trust. Remove only our own nickname.
+nss_db=$HOME/.pki/nssdb
+[[ -d $nss_db ]] || nss_db=$HOME/.local/share/pki/nssdb
+mkdir -p "$nss_db"
+if [[ ! -f $nss_db/cert9.db && ! -f $nss_db/cert8.db ]]; then certutil -N -d "sql:$nss_db" --empty-password; fi
+if certutil -L -d "sql:$nss_db" -n "$project" >/dev/null 2>&1; then echo 'temporary CA nickname already exists' >&2; exit 1; fi
+certutil -A -d "sql:$nss_db" -n "$project" -t 'C,,' -i "$scratch/tls/ca.crt"
+nss_imported=1
 ok "throwaway CA and loopback certificate"
+export KY_MATRIX_TURN_HOST=turn.kymatrix.test
+export KY_MATRIX_TURN_CERT_FILE=$scratch/tls/leaf.crt KY_MATRIX_TURN_KEY_FILE=$scratch/tls/leaf.key
 
 # First pass: KyIdentity issues the client secret only when the client is registered with
 # the redirect URI this prints, so there is no MAS config yet. The kyidentity step saves the
@@ -206,7 +231,7 @@ grep -qF "save the secret it shows to $client_secret_file (mode 0600), and run m
 	{ echo "  FAILED: first pass did not say where to save the client secret" >&2; false; }
 [[ ! -e $scratch/matrix/mas/config.yaml ]] || { echo "  FAILED: first pass rendered a MAS config" >&2; false; }
 ok "first pass: no MAS config, told where to save the client secret"
-no_insecure "rendered configs (used unmodified)" "$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/element/config.json"
+no_insecure "rendered configs (only scratch media ports remapped)" "$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/element/config.json"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -294,11 +319,11 @@ ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallor
 delivered() { kyid GET "/api/admin/systems/$system/provisioning" | jq '[.users[] | select(.desired and .acknowledged)] | length'; }
 eventually 60 "$((${#users[@]} - 1))" "KyMessages acknowledged every assigned user's webhook" delivered
 # Element pulls in Synapse, MAS and Postgres; the base file's app service never starts.
-dc up -d --quiet-pull --wait --wait-timeout 300 element >/dev/null
+dc up -d --quiet-pull --wait --wait-timeout 300 element livekit >/dev/null
 ready https://auth.kymatrix.test/.well-known/openid-configuration
 ready https://matrix.kymatrix.test/_matrix/client/versions
 published=$(docker ps --filter "label=com.docker.compose.project=$project" --format '{{.Names}} {{.Ports}}' | grep -- '->' || true)
-expect "$(grep -c . <<<"$published" || true)" 1 "only the harness proxy publishes a port ($published)"
+expect "$(grep -c . <<<"$published" || true)" 2 "only the harness proxy and loopback media publish ports ($published)"
 ok "stack healthy behind https://*.kymatrix.test on $tls_addr"
 pass
 
@@ -306,6 +331,8 @@ pass
 # Shipped settings: compat login unrouted, nothing relaxed.
 step prove
 e2e prove
+e2e calls
+KYMATRIX_ACCEPT_FORCE_TURN=1 e2e calls
 read -r dm group < <(jq -r '[.rooms.dm, .rooms.group] | @tsv' "$state/prove.json")
 sent=$(jq '.messages | length' "$state/prove.json")
 in_encrypted="room_id IN (SELECT room_id FROM current_state_events WHERE type = 'm.room.encryption')"
@@ -328,7 +355,7 @@ for u in '@alice.q_ky:kymatrix.test' '@bob:kymatrix.test'; do
 	expect "$(sql synapse "SELECT count(*) > 0 FROM e2e_room_keys_versions WHERE user_id = '$u'")" t "$u key backup created"
 	expect "$(sql synapse "SELECT count(*) FROM account_data WHERE user_id = '$u' AND account_data_type = 'm.secret_storage.default_key'")" 1 "$u recovery key (secret storage) set up"
 done
-expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users")" 'alice.q_ky,bob' \
+expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users")" 'alice.q_ky,bob,kymessages-console' \
 	"MAS accounts from email local parts: AQuinn (Alice.Q+Ky@kymatrix.test) mapped to alice.q_ky"
 pass
 
@@ -531,7 +558,7 @@ ok "operator signed in to the console and replaced the bootstrap password"
 # Warm-up: the first load creates the console account inside the probe's 3s, which may time out.
 app_api GET /api/admin/health >"$state/health-warmup.json"
 app_api GET /api/admin/health >"$state/health.json"
-expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres,synapse-admin "health checks every component"
+expect "$(jq -r '[.components[].name] | join(",")' "$state/health.json")" kymessages,database,synapse,mas,element,postgres,synapse-admin,livekit "health checks every component"
 expect "$(jq -r '[.components[] | select(.status != "up") | "\(.name): \(.error)"] | join("; ")' "$state/health.json")" "" "every component up"
 # Synapse admin access, proven by the probe above: the console account exists without MAS admin
 # (Synapse decides by the session's scope alone), unlocked and unlinked, and every session it
@@ -648,7 +675,7 @@ caps=("$state"/backups/*.kycap)
 # Unmatched, the glob stays literal and still counts one.
 [[ -f ${caps[0]} ]] || { echo "  FAILED: no sealed capsule in the backup copy" >&2; false; }
 expect "${#caps[@]}" 1 "one sealed capsule"
-dc rm -sfv app element synapse mas postgres synapse-media-owner >/dev/null
+dc rm -sfv app element synapse mas postgres livekit synapse-media-owner >/dev/null
 for v in matrix-postgres matrix-media app-data app-backups; do docker volume rm "${project}_$v" >/dev/null; done
 expect "$(docker volume ls -q --filter "label=com.docker.compose.project=$project" | grep -cE '_(matrix-postgres|matrix-media|app-data|app-backups)$' || true)" 0 "Matrix and app volumes gone"
 mv "$scratch/matrix" "$state/matrix.before"
@@ -658,6 +685,8 @@ mv "$scratch/restored/matrix" "$scratch/matrix"
 mv "$scratch/restored/data" "$scratch/data"
 cmp "$state/signing.key" "$scratch/matrix/synapse/signing.key"
 ok "Synapse signing key restored"
+cmp "$state/matrix.before/livekit/config.yaml" "$scratch/matrix/livekit/config.yaml"
+ok "LiveKit config restored byte for byte"
 [[ ! -e $scratch/matrix/secrets/postgres_password ]] || { echo "  FAILED: the capsule carried the superuser password" >&2; false; }
 diff -r -x postgres_password "$state/matrix.before/secrets" "$scratch/matrix/secrets"
 ok "matrix-init secrets restored, all but the superuser password"
@@ -696,12 +725,14 @@ docker run --rm --network none --user 0:0 -v "$scratch/data:/data" -v "$scratch/
 ok "./data and ./backups chowned to root"
 # The app now uses the shipped ./data and ./backups binds, as a deployment would.
 export KYMATRIX_ACCEPT_APP_DATA=./data KYMATRIX_ACCEPT_APP_BACKUPS=./backups
-dc up -d --quiet-pull --wait --wait-timeout 300 element >/dev/null
+dc up -d --quiet-pull --wait --wait-timeout 300 element livekit >/dev/null
 dc up -d app >/dev/null
 ready "$KY_APP_URL/.well-known/matrix/client"
 ready https://matrix.kymatrix.test/_matrix/client/versions
 ok "restored stack up"
 e2e restored
+e2e restoredcalls
+KYMATRIX_ACCEPT_FORCE_TURN=1 e2e restoredcalls
 expect "$(mas_user bob 'locked_at IS NULL AND deactivated_at IS NULL')" t "bob's MAS account intact"
 for r in "$dm" "$group"; do
 	expect "$(sql synapse "SELECT membership FROM local_current_membership WHERE user_id = '@bob:$KY_MATRIX_SERVER_NAME' AND room_id = '$r'")" join "bob still in $r"

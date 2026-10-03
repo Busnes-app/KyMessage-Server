@@ -1,7 +1,7 @@
 # Health
 
 ## Purpose
-Probes KyMessages, its database and (with Matrix) Synapse, MAS, Element and Postgres once per
+Probes KyMessages, its database and (with Matrix) Synapse, MAS, Element, LiveKit and Postgres once per
 request, and compares running versions with the versions Compose pins.
 
 ## Ownership
@@ -19,6 +19,8 @@ Owns `Check`, the per-component probes, `ComposeTargets`, the source links and `
   Postgres: `SHOW server_version` as `kybackup` on database `synapse`.
 - The HTTP client ignores proxy variables and follows no redirects. Errors carry no credential:
   `Check` redacts the secrets it is given; the Postgres DSN never appears in an error.
+- `livekit` (built in `internal/api`) checks authenticated `ListRooms`; the API exposes no
+  running version, so the console shows its Compose pin with version unknown.
 - `synapse-admin` (built in `internal/api`) mints and revokes a console session and reads one
   room through Synapse's admin API on every Health load; it has no version. The first load
   also creates the console account and may time out.

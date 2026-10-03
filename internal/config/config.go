@@ -40,6 +40,9 @@ type MatrixConfig struct {
 	AdminURL      string `json:"admin_url"`
 	AdminClientID string `json:"admin_client_id"`
 	AdminSecret   string `json:"-"`
+	RTCHost       string `json:"rtc_host"`
+	RTCKey        string `json:"-"`
+	RTCSecret     string `json:"-"`
 	// Backups: matrix-init's output and Synapse's media store, both mounted read-only, the
 	// Postgres host on matrix-db, and the read-only kybackup role's password.
 	Dir              string `json:"dir"`
@@ -308,6 +311,7 @@ func matrixFromEnv() (MatrixConfig, error) {
 		ServerName: getEnv("KY_MATRIX_SERVER_NAME", ""),
 		Host:       getEnv("KY_MATRIX_HOST", ""),
 		ChatHost:   getEnv("KY_MATRIX_CHAT_HOST", ""),
+		RTCHost:    getEnv("KY_MATRIX_RTC_HOST", ""),
 
 		AdminURL:      getEnv("KY_MATRIX_ADMIN_URL", ""),
 		AdminClientID: getEnv("KY_MATRIX_ADMIN_CLIENT_ID", ""),
@@ -318,7 +322,7 @@ func matrixFromEnv() (MatrixConfig, error) {
 	}
 	secretFile := getEnv("KY_MATRIX_ADMIN_SECRET_FILE", "")
 	backupPWFile := getEnv("KY_MATRIX_BACKUP_DB_PASSWORD_FILE", "")
-	if m == (MatrixConfig{}) && secretFile == "" && backupPWFile == "" {
+	if m == (MatrixConfig{}) && secretFile == "" && backupPWFile == "" && getEnv("KY_MATRIX_RTC_KEY_FILE", "") == "" && getEnv("KY_MATRIX_RTC_SECRET_FILE", "") == "" {
 		return m, nil
 	}
 	if err := matrixinit.ValidServerName(m.ServerName); err != nil {
@@ -364,6 +368,25 @@ func matrixFromEnv() (MatrixConfig, error) {
 	m.BackupDBPassword = strings.TrimSpace(string(pw))
 	if err != nil || m.BackupDBPassword == "" {
 		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_BACKUP_DB_PASSWORD_FILE %q must name a readable, non-empty file: %v", backupPWFile, err)
+	}
+	if m.RTCHost != "" {
+		origin, err := matrixinit.Origin(m.RTCHost)
+		if err != nil {
+			return MatrixConfig{}, fmt.Errorf("KY_MATRIX_RTC_HOST: %w", err)
+		}
+		m.RTCHost = origin
+		for _, f := range []struct {
+			env string
+			dst *string
+		}{{"KY_MATRIX_RTC_KEY_FILE", &m.RTCKey}, {"KY_MATRIX_RTC_SECRET_FILE", &m.RTCSecret}} {
+			b, err := os.ReadFile(getEnv(f.env, ""))
+			if err != nil || len(b) < 32 || len(b) > 256 || strings.ContainsFunc(string(b), unicode.IsControl) {
+				return MatrixConfig{}, fmt.Errorf("%s must name a readable secret of 32-256 bytes without control characters", f.env)
+			}
+			*f.dst = string(b)
+		}
+	} else if getEnv("KY_MATRIX_RTC_KEY_FILE", "") != "" || getEnv("KY_MATRIX_RTC_SECRET_FILE", "") != "" {
+		return MatrixConfig{}, errors.New("KY_MATRIX_RTC_HOST is required with call secrets")
 	}
 	m.ElementRestartHint = getEnv("KY_MATRIX_ELEMENT_RESTART_HINT", DefaultElementRestartHint)
 	if len(m.ElementRestartHint) > 256 || strings.ContainsFunc(m.ElementRestartHint, unicode.IsControl) {

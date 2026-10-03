@@ -1,0 +1,8 @@
+# Optional TURN/TLS transport. matrix-init requires matching trusted certificate/key
+# inputs (KY_MATRIX_TURN_*). Preserve the existing COMPOSE_FILE overlay chain.
+services:
+  livekit:
+    ports:
+      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:3478:3478/udp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:443:5349/tcp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:30000-30100:30000-30100/udp"

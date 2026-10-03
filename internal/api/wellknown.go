@@ -26,5 +26,9 @@ func (s *Server) handleMatrixClientWellKnown(w http.ResponseWriter, r *http.Requ
 	type homeserver struct {
 		BaseURL string `json:"base_url"`
 	}
-	s.writeJSON(w, http.StatusOK, map[string]homeserver{"m.homeserver": {BaseURL: s.config.Matrix.Host}})
+	out := map[string]any{"m.homeserver": homeserver{BaseURL: s.config.Matrix.Host}}
+	if s.config.Matrix.RTCHost != "" {
+		out["org.matrix.msc4143.rtc_foci"] = []map[string]string{{"type": "livekit", "livekit_service_url": s.config.Server.AppURL + rtcPrefix}}
+	}
+	s.writeJSON(w, http.StatusOK, out)
 }
