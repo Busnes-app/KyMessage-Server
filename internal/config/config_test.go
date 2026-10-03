@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -258,6 +259,42 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret", Dir: "/matrix", MediaDir: "/matrix-media", DBHost: "postgres", BackupDBPassword: "kybpw", ElementRestartHint: config.DefaultElementRestartHint}); cfg.Matrix != want {
 		t.Fatalf("got %+v want %+v", cfg.Matrix, want)
 	}
+	t.Run("calling credentials", func(t *testing.T) {
+		t.Setenv("KY_MATRIX_RTC_HOST", "https://sfu.example.com/")
+		key := filepath.Join(t.TempDir(), "rtc-key")
+		value := strings.Repeat("k", 64)
+		if err := os.WriteFile(key, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("KY_MATRIX_RTC_KEY_FILE", key)
+		t.Setenv("KY_MATRIX_RTC_SECRET_FILE", key)
+		cfg, err := config.LoadFromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Matrix.RTCHost != "https://sfu.example.com" || cfg.Matrix.RTCSecret != value {
+			t.Fatal("calling config missing")
+		}
+		raw, err := json.Marshal(cfg.Matrix)
+		if err != nil || bytes.Contains(raw, []byte(value)) {
+			t.Fatal("credential serialized")
+		}
+		t.Setenv("KY_MATRIX_RTC_HOST", "http://sfu.example.com")
+		if _, err := config.LoadFromEnv(); err == nil {
+			t.Fatal("insecure signalling accepted")
+		}
+		t.Setenv("KY_MATRIX_RTC_HOST", "")
+		if _, err := config.LoadFromEnv(); err == nil {
+			t.Fatal("orphan credential accepted")
+		}
+		t.Setenv("KY_MATRIX_RTC_HOST", "https://sfu.example.com")
+		if err := os.WriteFile(key, []byte("short"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := config.LoadFromEnv(); err == nil || strings.Contains(err.Error(), "short") {
+			t.Fatal("invalid credential handling", err)
+		}
+	})
 	// Without the webhook secret every directory delivery is refused, so a KyIdentity disable
 	// or delete never reaches MAS.
 	t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "")

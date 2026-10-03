@@ -15,6 +15,7 @@ func matrixEnv() map[string]string {
 		"KY_MATRIX_AUTH_HOST": "https://auth.example.com", "KY_MATRIX_CHAT_HOST": "https://chat.example.com",
 		"KY_ADMIN_HOST": "https://admin.example.com", "KY_KYIDENTITY_ISSUER": "https://id.example.com",
 		"KY_MATRIX_MAS_CLIENT_ID": "mas-client",
+		"KY_MATRIX_RTC_HOST":      "https://sfu.example.com", "KY_MATRIX_MEDIA_IP": "192.0.2.10",
 	}
 }
 

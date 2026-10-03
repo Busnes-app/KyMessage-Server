@@ -1,0 +1,33 @@
+# Stock LiveKit; signalling is proxied over HTTPS, media connects directly.
+port: 7880
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+  # Keep STUN discovery local to the configured media endpoint.
+  stun_servers: [{{ q (printf "%s:3478" .In.MediaIP) }}]
+  node_ip: {{ q .In.MediaIP }}
+keys:
+  {{ q .S.livekit_api_key }}: {{ q .S.livekit_api_secret }}
+room:
+  auto_create: false
+logging:
+  level: info
+{{ if .In.TurnHost }}
+turn:
+  enabled: true
+  domain: {{ q .In.TurnHost }}
+  # LiveKit advertises 443, independently of this internal TLS listener port.
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: false
+  cert_file: /config/turn.crt
+  key_file: /config/turn.key
+  ttl_seconds: 300
+  per_user_relay_allocation_limit: 12
+  relay_range_start: 30000
+  relay_range_end: 30100
+  allow_restricted_peer_cidrs: [{{ q (printf "%s/32" .In.MediaIP) }}]
+  deny_peer_cidrs:
+{{ range .TurnDeny }}    - {{ q . }}
+{{ end }}{{ end }}

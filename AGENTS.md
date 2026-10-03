@@ -3,7 +3,7 @@
 KyMessages builds on the inherited server base. Its source-built operator console
 uses the KyMessages identity. Chat is moving to Matrix; the design is
 `docs/superpowers/specs/2026-10-01-matrix-platform-design.md`. The user-selected
-priority is small teams and encrypted text chat.
+priority is small teams and encrypted chat, with voice and video calls enabled by default.
 
 - `kymessages` is the binary and local image name; `KY_APP_NAME` defaults to
   `KyMessages`. `internal/config.AppVersion` is shared by CLI and capsule paths.
@@ -129,7 +129,10 @@ When the user requests a durable behavior change, record it here or in the relev
   `KY_ENV=production`; `scripts/check-compose-proxy.sh` checks it, including with the static-IP
   overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
-  `./matrix`: official images pinned by tag and digest, nothing published, the stateful three
+  `./matrix`: official images pinned by tag and digest. LiveKit publishes TCP 7881 and UDP 7882
+  for direct media; optional `docker-compose.turn.yml` adds TCP 443→5349 and
+  UDP 3478 and 30000–30100. LiveKit binds its private directory read-only so renewed TLS files are
+  observed after restart. Signalling and the other services stay private. The stateful three
   as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network (the app joins it
   for `pg_dump` as the read-only `kybackup` role, and mounts `matrix-media` and `./matrix`
   read-only, the latter piece by piece: the config directories and each secret but
@@ -158,6 +161,19 @@ When the user requests a durable behavior change, record it here or in the relev
   read-write media mount besides Synapse, and its `./data`, `./backups` and `./matrix` are
   read-only. The check script holds it to that.
 
+- Voice and video calls are enabled by default (owner decision 2026-10-03): stock Element Call
+  with stock LiveKit, authorized by KyMessages after local Matrix OpenID verification, active
+  KyIdentity directory/MAS checks and room membership checks. No public or guest callers.
+  Setup needs `KY_MATRIX_RTC_HOST` and a directly reachable IPv4 `KY_MATRIX_MEDIA_IP`; cloudflared
+  carries signalling only. Optional TURN/TLS is configured by the complete `KY_MATRIX_TURN_*`
+  hostname/certificate/key setup block; validate before writes, renew through `matrix-init`
+  and restart LiveKit only after success. Restrict TURN peers by exact media IP and deployed
+  egress ports. User authorized UPnP for the SOHO gateway; `ky-kubernetes` owns mappings and
+  renewal. `callMaintenanceLoop` reconciles participants every 5 seconds under
+  a 5-second context (detached MAS mint/revoke can extend the pass), removing offboarded users and removed room members. It joins the existing
+  maintenance drain before the store closes. Previously issued LiveKit tokens can reconnect
+  between sweeps; this is not instantaneous media revocation. Call acceptance is a release gate.
+
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
@@ -180,8 +196,11 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   then saving the issued secret to the 0600 file) and the Matrix overlay as Compose project
   `kymatrix-accept-<pid>` (own network and volumes; its exit trap runs `down -v` on that
   project only) behind a harness TLS proxy with a throwaway CA, so shipped configs run
-  unmodified over https. Playwright drives Element: native OIDC sign-in, key setup, DM and
-  group messages read by the other user. It asserts no `m.room.message` in encrypted rooms
+  over https (only scratch LiveKit media/TLS ports are randomized). The harness temporarily
+  imports its own CA nickname into Chromium's NSS database for TURN/TLS verification and
+  removes exactly that nickname on exit; `certutil` is required. Playwright drives Element: native OIDC sign-in, key setup, DM and
+  group messages read by the other user, group video decoded and DM voice audio received by
+  both users, directly and with relay-only ICE, repeated after restoring a fresh LiveKit. It asserts no `m.room.message` in encrypted rooms
   and no plaintext in a Synapse `pg_dump`; registration, password login and federation
   refused; unassigned KyIdentity users and ID tokens without an email refused; the localpart
   is the email's local part, lowercased and sanitised (`AQuinn`, email
@@ -214,7 +233,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.
 
 `make lint` and `make ci` need docker compose v2.24 or later and jq for
-the compose checks. `make matrix-acceptance` also needs node, openssl, Playwright Chromium
+the compose checks. `make matrix-acceptance` also needs node, openssl, certutil (libnss3-tools), Playwright Chromium
 (`npx playwright install chromium` in `scripts/matrix-acceptance`) and a KyIdentity-server checkout. Run the same checks locally with `make ci` (`tidy-check lint test-race test-web smoke`); add `make test-postgres` when a Postgres instance is available.
 
 ## Child DOX Index
@@ -225,6 +244,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, Playwrigh
 - [internal/auth/AGENTS.md](internal/auth/AGENTS.md): Authentication, MFA (TOTP), recovery codes, sessions, and CAPTCHA.
 - [internal/sso/AGENTS.md](internal/sso/AGENTS.md): Single Sign-On federation (KyIdentity, OIDC, SAML 2.0).
 - [internal/scim/AGENTS.md](internal/scim/AGENTS.md): SCIM 2.0 user and group provisioning engine.
+- [internal/matrixrtc/AGENTS.md](internal/matrixrtc/AGENTS.md): Element Call authorization hashes, scoped LiveKit grants and room management.
 - [internal/matrixinit/AGENTS.md](internal/matrixinit/AGENTS.md): `kymessages matrix-init` config generation for Synapse, MAS, Element and Postgres; write-once secrets.
 - [internal/branding/AGENTS.md](internal/branding/AGENTS.md): Product name validation, PNG normalisation and the in-place Element `brand` patch behind console settings.
 - [internal/matrixsync/AGENTS.md](internal/matrixsync/AGENTS.md): MAS admin client and sweep that locks, unlocks and deactivates Matrix users from the KyIdentity directory.

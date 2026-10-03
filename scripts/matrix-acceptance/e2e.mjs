@@ -2,14 +2,14 @@
 //        node e2e.mjs room|token|disabled|reread|reads USER
 //        node e2e.mjs title BRAND
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
-// proxy on loopback, and the browser trusts only that proxy's key (SPKI pin, which Chromium
-// honours only with a user data dir, hence persistent contexts). Writes its findings to
+// proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
+// database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
 // $ACCEPT_DIR/state/<scenario>[-<user>].json; exits non-zero when a UI-level check fails.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
-const { ACCEPT_DIR: dir, ACCEPT_PORT: port, ACCEPT_SPKI: spki, ACCEPT_ARTIFACTS: artifacts } = process.env;
+const { ACCEPT_DIR: dir, ACCEPT_PORT: port, ACCEPT_ARTIFACTS: artifacts } = process.env;
 const [scenario, user] = process.argv.slice(2);
 const CHAT = 'https://chat.kymatrix.test';
 const MATRIX = 'https://matrix.kymatrix.test';
@@ -30,8 +30,20 @@ function check(ok, what) {
 async function launch(name, profile = `${scenario}-${name}`) {
   const ctx = await chromium.launchPersistentContext(`${dir}/profiles/${profile}`, {
     viewport: { width: 1280, height: 900 },
-    args: [`--host-resolver-rules=MAP *.kymatrix.test 127.0.0.1:${port}`, `--ignore-certificate-errors-spki-list=${spki}`],
+    permissions: ['camera', 'microphone'],
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--host-resolver-rules=MAP turn.kymatrix.test 127.0.0.1, MAP *.kymatrix.test 127.0.0.1:${port}`],
   });
+  await ctx.addInitScript(({force, turnPort}) => {
+    window.kyCallPeers = [];
+    const Original = window.RTCPeerConnection;
+    const rewrite = (config = {}) => {
+      return {...config, ...(force ? {iceTransportPolicy:'relay'} : {}), iceServers:(config.iceServers ?? []).filter(server => !force || (Array.isArray(server.urls) ? server.urls : [server.urls]).some(url => url.startsWith('turns:'))).map(server => ({...server, urls:(Array.isArray(server.urls) ? server.urls : [server.urls]).filter(url => !force || url.startsWith('turns:')).map(url => url?.replace('turns:turn.kymatrix.test:443', `turns:turn.kymatrix.test:${turnPort}`))}))};
+    };
+    window.RTCPeerConnection = window.webkitRTCPeerConnection = class extends Original {
+      constructor(config, ...args) { super(rewrite(config), ...args); window.kyCallPeers.push(this); this.kyIceErrors=[]; this.addEventListener("icecandidateerror", e => (this.kyIceErrors.push({code:e.errorCode,text:e.errorText,url:e.url}))); }
+      setConfiguration(config) { return super.setConfiguration(rewrite(config)); }
+    };
+  }, {force:process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1', turnPort:process.env.KYMATRIX_ACCEPT_TURN_PORT});
   await ctx.tracing.start({ screenshots: true, snapshots: true });
   contexts.push([name, ctx]);
   const page = ctx.pages()[0] ?? (await ctx.newPage());
@@ -439,20 +451,24 @@ async function media() {
   out({ dm });
 }
 
+async function recoveredSignIn(page, name, expected) {
+  await page.goto(`${CHAT}/#/login`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await kyidentityLogin(page, name);
+  await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.locator('input, textarea').first().fill(fs.readFileSync(`${dir}/state/${name === "AQuinn" ? "alice" : name}.recovery`, 'utf8'));
+  await dlg.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  return signedIn(page, expected);
+}
+
 // After the restore: alice on a new device confirms her identity with her recovery key, then
 // reads bob's earlier message and image from key backup, and sends one message.
 async function restored() {
   const { rooms: { dm }, messages } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
   const page = await launch('alice', 'restored-alice');
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await kyidentityLogin(page, 'AQuinn');
-  await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
-  const dlg = page.getByRole('dialog');
-  await dlg.locator('input, textarea').first().fill(fs.readFileSync(`${dir}/state/alice.recovery`, 'utf8'));
-  await dlg.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  const mxid = await signedIn(page, `@alice.q_ky:${SERVER}`);
+  const mxid = await recoveredSignIn(page, 'AQuinn', `@alice.q_ky:${SERVER}`);
   await openRoom(page, dm, false);
   await sees(page, messages[1]); // prove's dm2, bob's DM message
   await decryptedImage(page);
@@ -471,7 +487,81 @@ async function title() {
   console.log(`  ok: Element's title is "${await page.title()}"`);
 }
 
-const scenarios = { prove, refused, compat, noclaim, room, token, disabled, reread, reads, media, restored, title };
+async function calls(restored = false) {
+  const alice = await resume('alice', restored ? 'restored-alice' : 'prove-alice');
+  const force = process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1';
+  const bob = restored && !force ? await launch('bob', 'restored-bob') : await resume('bob', restored ? 'restored-bob' : 'prove-bob');
+  if (restored && !force) await recoveredSignIn(bob, 'bob', `@bob:${SERVER}`);
+  const { rooms } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
+  // Inspect all embedded call frames; Element ships its own call app.
+  async function join(page, initiate, room = rooms.group, video = true) {
+    await openRoom(page, room, false);
+    if (initiate) await page.getByRole('button', { name: video ? /Video call|Start video call/i : /Voice call|Start voice call|Audio call/i }).first().click();
+    else await page.getByRole('button', { name: /Join call|Join video call|Video call|Voice call|Audio call/i }).first().click();
+    for (let i = 0; i < 30; i++) {
+      for (const frame of page.frames()) {
+        const join = frame.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
+        if (await join.isVisible()) await join.click();
+        if (await frame.getByRole('button', { name: 'End call', exact: true }).isVisible()) return;
+      }
+      await page.waitForTimeout(1000);
+    }
+    const diagnostics = [];
+    for (const frame of page.frames()) diagnostics.push(await frame.evaluate(() => (window.kyCallPeers ?? []).map(pc => ({state:pc.connectionState,ice:pc.iceConnectionState,errors:pc.kyIceErrors,config:pc.getConfiguration().iceTransportPolicy,remote:pc.remoteDescription?.sdp.split('\r\n').filter(line=>line.startsWith('a=candidate:'))}))));
+    throw new Error(`Call never reached its connected view: ${JSON.stringify(diagnostics)}`);
+  }
+  await join(alice, true);
+  await join(bob, false);
+  async function received(page) {
+    const stats = [];
+    for (const frame of page.frames()) {
+      stats.push(...await frame.evaluate(async () => {
+        const all = [];
+        for (const pc of window.kyCallPeers ?? []) {
+          const report = await pc.getStats();
+          for (const v of report.values()) {
+            if (v.type === 'candidate-pair' && v.state === 'succeeded' && v.nominated) all.push({kind:'transport', local:report.get(v.localCandidateId)?.candidateType, relayProtocol:report.get(v.localCandidateId)?.relayProtocol});
+            if (v.type === 'inbound-rtp') all.push({kind:v.kind, bytes:v.bytesReceived, frames:v.framesDecoded, samples:v.totalSamplesReceived});
+          }
+        }
+        return all;
+      }));
+    }
+    return stats;
+  }
+  async function proveMedia(video) {
+    let a, b;
+    for (let i = 0; i < 60; i++) {
+      a = await received(alice); b = await received(bob);
+      const media = (stats) => stats.some(s => s.kind==='audio' && s.bytes>0 && s.samples>0) && (!video || stats.some(s => s.kind==='video' && s.frames>0));
+      const relay = stats => stats.some(s => s.kind==='transport' && s.local==='relay' && s.relayProtocol==='tls');
+      if (media(a) && media(b) && (process.env.KYMATRIX_ACCEPT_FORCE_TURN !== '1' || (relay(a) && relay(b)))) return {alice:a, bob:b};
+      await alice.waitForTimeout(1000);
+    }
+    throw new Error(`Both users must receive ${video ? 'audio and decoded video' : 'audio'}: ${JSON.stringify({a,b})}`);
+  }
+  const video = await proveMedia(true);
+  check(true, 'both Element clients receive audio and decode group video');
+  for (const page of [alice, bob]) {
+    for (const frame of page.frames()) {
+      const end = frame.getByRole('button', {name:'End call', exact:true});
+      if (await end.isVisible()) {
+        await end.click();
+        // Leaving is asynchronous; changing rooms early can retain the group-call view.
+        await end.waitFor({state:'hidden'});
+      }
+    }
+    for (const frame of page.frames()) await frame.evaluate(() => {window.kyCallPeers = []});
+  }
+  await join(alice, true, rooms.dm, false);
+  await join(bob, false, rooms.dm, false);
+  const voice = await proveMedia(false);
+  check(!voice.alice.some(s => s.kind==='video' && s.frames>0) && !voice.bob.some(s => s.kind==='video' && s.frames>0), 'DM voice call sends audio without video');
+  check(true, 'both Element clients receive DM voice audio');
+  out({group:rooms.group, dm:rooms.dm, video, voice});
+}
+
+const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, disabled, reread, reads, media, restored, title };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

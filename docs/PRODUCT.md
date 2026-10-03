@@ -14,22 +14,40 @@ published.
 **Private team conversations, on infrastructure you control.**
 
 - Small business teams first: one organization per deployment, self-hosted.
-- Encrypted text chat first. Calls, widgets and integrations are off.
+- Encrypted chat, with voice and video calls enabled by default. Widgets and integrations are off.
 - Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
   guests.
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
-- Not offered: Slack or Teams parity, calling, compliance archiving, federation.
+- Not offered: Slack or Teams parity, compliance archiving, federation.
 
 ## What ships
 
 **Stack.**
-- `kymessages matrix-init` generates Synapse, MAS, Element and Postgres configs and write-once
-  secrets; `docker-compose.matrix.yml` adds the four upstream images, pinned by tag and digest,
+- `kymessages matrix-init` generates Synapse, MAS, Element, LiveKit and Postgres configs and write-once
+  secrets; `docker-compose.matrix.yml` adds the upstream images, pinned by tag and digest,
   unmodified (AGPL rule below).
-- One subdomain per part (Synapse, MAS, Element, console); user IDs stay `@alice:<server name>`
-  through `.well-known` served by KyMessages. Nothing is published; cloudflared fronts it.
+- One subdomain per part (Synapse, MAS, Element, LiveKit signalling, console); user IDs stay `@alice:<server name>`
+  through `.well-known` served by KyMessages. Signalling stays private behind the proxy; LiveKit publishes direct media ports.
 - Federation off (empty allow-list, no federation listener). Registration, guest access and
   password login off.
+
+**Calls.**
+- Stock Element Call provides voice/video in DMs and group rooms; stock LiveKit routes media.
+  Calling is enabled by default; members choose when to start or join and grant media access.
+- KyMessages authorizes the pinned client's legacy and Matrix 2.0 token requests: local Matrix
+  OpenID identity, active KyIdentity/MAS account, joined room. Grants cannot administer LiveKit.
+- Direct media needs TCP 7881/UDP 7882 and an advertised reachable IPv4; HTTPS/WebSocket
+  signalling can use cloudflared. Optional embedded TURN/TLS uses external TCP 443 and
+  UDP 3478 and 30000–30100, a DNS-only hostname and a trusted certificate. No call recording, guests
+  or third-party call service.
+- Every 5 seconds the control plane removes offboarded participants and removed room members;
+  each pass uses a 5-second context; detached admin-session minting and cleanup can extend it. A cached LiveKit token may reconnect between passes, and
+  LiveKit refreshes connected users' tokens; an unavailable control plane cannot evict calls.
+  Ending a MAS browser session alone does not end an already connected call.
+- Config, copied TURN TLS material and LiveKit keys are included in server backups; active calls are not restored.
+- The call gate requires real audio received and video decoded by both Element clients,
+  both directly and with relay-only ICE, before and after full restore.
+  The existing text-encryption acceptance remains separate; do not extend its evidence to calls.
 
 **Sign-in.**
 - KyIdentity is the only upstream identity, through MAS. MAS's compatibility (legacy) login is
@@ -80,7 +98,7 @@ published.
 - Rooms: list, search, members (never messages). Close (final: members removed, rejoin
   blocked, history kept) or Delete permanently (typed name; media stays in the media store).
   Runs as the service account `@kymessages-console` through 5-minute MAS sessions.
-- Health: per-load probes of Synapse, MAS, Element, Postgres and the app, versions compared
+- Health: per-load probes of Synapse, MAS, Element, LiveKit, Postgres and the app (LiveKit runtime version unknown), versions compared
   with the Compose pins, links to each upstream source release.
 - Audit: read-only log filtered by kind.
 - Settings: product name and PNG logo; the logo reaches Element at once, a name after
@@ -105,7 +123,7 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
   conversation never carries the E2EE label.
 - A lighter homeserver (Tuwunel) trial.
 - Federation: off.
-- Calls, widgets and integrations: disabled in Element's config.
+- Widgets and integrations: disabled in Element's config.
 - Console: room creation, membership editing, message moderation, colour editing, health
   history and alerting.
 

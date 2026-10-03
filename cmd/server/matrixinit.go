@@ -64,7 +64,11 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 			filepath.Join(res.Dir, matrixinit.ClientSecretFile))
 		return nil
 	}
-	fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element")
+	fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element livekit")
+	fmt.Fprintln(w, "Calls are enabled: set KY_MATRIX_RTC_HOST in .env, proxy that HTTPS/WebSocket host to livekit:7880, and forward TCP 7881 and UDP 7882 to KY_MATRIX_MEDIA_IP. HTTP tunnels carry signalling, not media.")
+	if in.TurnHost != "" {
+		fmt.Fprintln(w, "TURN/TLS: preserve the overlay chain and append docker-compose.turn.yml; forward external TCP 443 and UDP 30000-30100. After certificate renewal re-run matrix-init, then restart livekit only after success.")
+	}
 	fmt.Fprintln(w, "and, once per existing stack, the backup role:")
 	fmt.Fprintln(w, "  docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/kybackup-role.sql")
 	return nil

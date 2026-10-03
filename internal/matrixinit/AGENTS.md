@@ -2,7 +2,7 @@
 
 ## Purpose
 Renders the configuration for the Matrix stack (Synapse, Matrix Authentication Service,
-Element Web, Postgres init) from env, for `kymessages matrix-init`. KyIdentity is MAS's only
+Element Web, LiveKit, Postgres init) from env, for `kymessages matrix-init`. KyIdentity is MAS's only
 upstream sign-in.
 
 ## Ownership
@@ -12,9 +12,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 
 ## Local Contracts
 - Inputs: `KY_MATRIX_SERVER_NAME`, `KY_MATRIX_HOST`, `KY_MATRIX_AUTH_HOST`,
-  `KY_MATRIX_CHAT_HOST`, `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`, `KY_MATRIX_MAS_CLIENT_ID`;
-  `-dir` defaults to `./matrix` (git- and docker-ignored). `KY_ADMIN_HOST` is validated but
-  not rendered into any config yet. The CLI refuses uid 0 (`runMatrixInit` takes the uid).
+  `KY_MATRIX_CHAT_HOST`, `KY_MATRIX_RTC_HOST`, `KY_MATRIX_MEDIA_IP` (reachable IPv4), `KY_ADMIN_HOST`, `KY_KYIDENTITY_ISSUER`, `KY_MATRIX_MAS_CLIENT_ID`;
+  `-dir` defaults to `./matrix` (git- and docker-ignored). `KY_ADMIN_HOST` supplies the call authorization origin and Element branding/help links. The CLI refuses uid 0 (`runMatrixInit` takes the uid).
 - KyIdentity generates the MAS client secret and shows it once, so it is never an env var:
   the operator saves it to `secrets/kyidentity_client_secret` (`ClientSecretFile`). Absent:
   the run renders everything but `mas/config.yaml`, sets `ClientSecretMissing`, and the CLI
@@ -24,7 +23,7 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   kept byte for byte. Never add an http escape hatch: loopback overrides belong to the
   acceptance harness's scratch copy. Everything is validated before `dir` is created.
 - Layout: `secrets/<name>` (write-once), `synapse/{homeserver.yaml,signing.key}`,
-  `mas/config.yaml`, `element/config.json`, `postgres/init.sql`, `postgres/kybackup-role.sql`. Directories 0700; files
+  `livekit/config.yaml`, `mas/config.yaml`, `element/config.json`, `postgres/init.sql`, `postgres/kybackup-role.sql`. Directories 0700; files
   0600 except `element/config.json` (0644, no secrets). Only directories it creates are
   chmodded; an existing one with group or other bits is refused (never lock down `-dir .`).
   A kept secret or signing key looser than 0600 is refused, not tightened: the operator
@@ -75,8 +74,20 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   A mapped localpart starting with `_` (e.g. a name beginning with a non-ASCII letter) is
   refused by Synapse's `check_username`, which MAS calls through `is_localpart_available`:
   sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.
-- Element contacts no third party: integrations are null, `element_call.disable`,
-  `UIFeature.voip`/`UIFeature.widgets` off, `jitsi.preferred_domain` is `jitsi.invalid`
+- Calls default on: `element_call.disable: false`, `use_exclusively: true`, `UIFeature.voip: true`.
+  Synapse advertises the console origin + `/api/matrix/rtc` as its LiveKit authorization URL,
+  serves the narrow `openid` resource alongside `client` (federation stays off), and enables
+  MSC4143/MSC4222 and delayed leave events. `livekit/config.yaml` uses generated write-once
+  API keys, explicit media IP and TCP 7881/UDP 7882, with auto-create off; own-endpoint
+  STUN prevents third-party fallback. Optional `KY_MATRIX_TURN_HOST`, `_CERT_FILE`, `_KEY_FILE`
+  form one complete block. Validate bounded regular PEM files, private key permissions,
+  matching pair, hostname and current validity before any output mutation. ACME source
+  symlinks are supported. Copy both TLS files privately into `livekit` using rename; only
+  restart after a successful run. LiveKit mounts this entire directory read-only for renewal.
+  TURN internally listens on 5349, advertises 443, offers own-endpoint STUN/UDP TURN on 3478, allocates UDP 30000–30100 and denies all
+  peer IPs except the configured media IPv4 (including an exact private-IP allowance).
+  Certificate trust is an operator prerequisite; deployment egress must restrict peer ports.
+- Element contacts no third party: integrations are null, `UIFeature.widgets` off, `jitsi.preferred_domain` is `jitsi.invalid`
   (Element keeps its `meet.element.io` default for an object set to null, so the
   unresolvable name makes any Jitsi start fail closed), help links and the logo
   (`/app-icon.png`) point at the admin host, desktop-build promotion is off. No rendered

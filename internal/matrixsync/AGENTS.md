@@ -21,7 +21,7 @@ supplies subject → status.
 - The console account is MAS user `kymessages-console` (`ConsoleUsername`): no password, no
   upstream link, never MAS admin (`can_request_admin`): personal sessions do not need it, and it
   would let an interactive login as the account request `urn:mas:admin`. `EnsureConsoleUser`
-  creates it on first use (never at start-up) and refuses it locked, deactivated, MAS admin or
+  serializes first-use creation within the shared client (never at start-up), revalidates it on every use and refuses it locked, deactivated, MAS admin or
   linked to any upstream identity (a linked one is a person), before any session is minted.
   `Plan` skips exactly that username while it has no link and is not `Ambiguous`, so the sweep
   never locks or unlocks it; linked, it is judged as a person. Locking it in MAS cuts the

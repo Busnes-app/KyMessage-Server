@@ -28,7 +28,7 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key
   (`data/recovery.pub`, only when paired).
 - With Matrix enabled `Collect` adds `data/media.key` (write-once, `MediaKeyPath`), `matrix/<sub>/<file>`
-  for secrets, synapse, mas, element and postgres (dot-files skipped; never
+  for secrets, synapse, mas, element and postgres, plus livekit (including private TURN certificate/key copies) when calling is configured (dot-files skipped; never
   `secrets/postgres_password`, the superuser's: a fresh volume needs none and `matrix-init`
   regenerates it), and `pg_dump --format=custom`
   parts `matrix/dumps/{mas,synapse}.dump.NNN` (MAS first, 64 MiB parts) run as `kybackup`: the child

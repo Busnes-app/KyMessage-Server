@@ -3,7 +3,7 @@
 # project directory, so ./matrix is the harness's own matrix-init output.
 # Loopback without weakening the shipped configs: a TLS proxy with a throwaway CA answers for
 # the five https hosts (network aliases inside, 127.0.0.1:<ephemeral> outside). MAS and
-# KyIdentity trust only that CA; the harness browser trusts only the proxy's key (SPKI pin).
+# KyIdentity trust only that CA; the harness imports its throwaway CA into Chromium temporarily.
 services:
   kyidentity:
     image: ${KYMATRIX_ACCEPT_KYID_IMAGE:?}
@@ -31,9 +31,18 @@ services:
       - ./nginx-extra:/etc/nginx/kymatrix-extra:ro
     networks:
       default:
-        aliases: [id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test, admin.kymatrix.test]
+        aliases: [id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test, admin.kymatrix.test, sfu.kymatrix.test]
     # Only KyIdentity: the client is registered there before MAS has a config.
     depends_on: [kyidentity]
+
+  livekit:
+    ports: !override
+      - "127.0.0.1:${KYMATRIX_ACCEPT_TCP_PORT:?}:${KYMATRIX_ACCEPT_TCP_PORT:?}/tcp"
+      - "127.0.0.1:${KYMATRIX_ACCEPT_UDP_PORT:?}:${KYMATRIX_ACCEPT_UDP_PORT:?}/udp"
+
+      - "127.0.0.1:${KYMATRIX_ACCEPT_TURN_PORT:?}:5349/tcp"
+      - "127.0.0.1:3478:3478/udp"
+      - "127.0.0.1:30000-30100:30000-30100/udp"
 
   mas:
     volumes:

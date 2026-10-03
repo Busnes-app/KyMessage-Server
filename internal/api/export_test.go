@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/Busnes-app/ky_server_base/internal/matrixrtc"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/health"
@@ -59,3 +60,5 @@ func SetRoomBudgetForTest(s *Server, d time.Duration) { s.roomBudget = d }
 func RoomWriteDeadlineForTest() (budget, steps, total time.Duration) {
 	return roomChangeTimeout, roomAfterBudget, roomWriteTimeout(roomChangeTimeout)
 }
+
+func SetRTCForTest(s *Server, c *matrixrtc.Client) { s.rtc = c }

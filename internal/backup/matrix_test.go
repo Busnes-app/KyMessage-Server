@@ -43,6 +43,9 @@ func matrixInstance(t *testing.T, masDump, synapseDump []byte) (*config.Config, 
 		"synapse/homeserver.yaml":          "server_name: example.com",
 		"mas/config.yaml":                  "clients: []",
 		"element/config.json":              "{}",
+		"livekit/config.yaml":              "keys: {}",
+		"livekit/turn.crt":                 "certificate",
+		"livekit/turn.key":                 "private key",
 		"postgres/init.sql":                "CREATE USER synapse;",
 		"postgres/kybackup-role.sql":       "CREATE ROLE kybackup;",
 	} {
@@ -55,7 +58,7 @@ func matrixInstance(t *testing.T, masDump, synapseDump []byte) (*config.Config, 
 		}
 	}
 	cfg.Matrix = config.MatrixConfig{ServerName: "example.com", Dir: mdir, MediaDir: t.TempDir(),
-		DBHost: "postgres", BackupDBPassword: "pw-never-in-argv"}
+		RTCHost: "https://sfu.example.com", DBHost: "postgres", BackupDBPassword: "pw-never-in-argv"}
 	fx := t.TempDir()
 	mas, syn, log := filepath.Join(fx, "mas"), filepath.Join(fx, "synapse"), filepath.Join(fx, "log")
 	if err := os.WriteFile(mas, masDump, 0o600); err != nil {

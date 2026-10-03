@@ -30,6 +30,11 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 - `KY_CAPTCHA_PROVIDER` is `pow` (default) or `none`; anything else fails startup, because login verifies nothing else. `KY_CAPTCHA_POW_DIFFICULTY` defaults to 50000.
 - `KY_MATRIX_ELEMENT_RESTART_HINT` (default `DefaultElementRestartHint`, `docker compose restart element`) is `Config.Matrix.ElementRestartHint`, read only with Matrix enabled: the command Settings shows for restarting Element. One line, at most 256 bytes, else startup fails. Displayed, never run.
 
+- Calls: `KY_MATRIX_RTC_HOST` is the HTTPS LiveKit signalling origin. When present,
+  `KY_MATRIX_RTC_KEY_FILE` and `KY_MATRIX_RTC_SECRET_FILE` must be readable files containing
+  32-256 bytes without controls; credentials are `json:"-"`. A partial block fails startup.
+  All unset supports older Matrix deployments without calling; Compose requires the host.
+
 ## Verification
 - `go test -v ./internal/config/...`
 - `go test -v ./internal/auth/ -run TestClientIP` (the helper that consumes the allowlist)

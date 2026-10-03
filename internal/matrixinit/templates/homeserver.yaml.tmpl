@@ -7,8 +7,8 @@ listeners:
     tls: false
     x_forwarded: true
     resources:
-      # Client API only: no federation listener.
-      - names: [client]
+      # OpenID userinfo authenticates calls; no federation resource.
+      - names: [client, openid]
         compress: false
 database:
   name: psycopg2
@@ -34,3 +34,19 @@ matrix_authentication_service:
   enabled: true
   endpoint: http://mas:8080/
   secret: {{ q .S.mas_synapse_shared_secret }}
+
+# Element Call uses delayed leave events to clean up disconnected participants.
+experimental_features:
+  msc4143_enabled: true
+  msc4222_enabled: true
+max_event_delay_duration: 24h
+rc_message:
+  per_second: 0.5
+  burst_count: 30
+rc_delayed_event_mgmt:
+  per_second: 1
+  burst_count: 20
+matrix_rtc:
+  transports:
+    - type: livekit
+      livekit_service_url: {{ q (print .In.AdminHost "/api/matrix/rtc") }}

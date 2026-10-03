@@ -1,5 +1,5 @@
-# Matrix stack: Postgres, Synapse, MAS and Element, configured by `kymessages matrix-init`
-# (./matrix). Append to COMPOSE_FILE after the proxy overlay; nothing is published, the proxy
+# Matrix stack: Postgres, Synapse, MAS, Element and LiveKit, configured by `kymessages matrix-init`
+# (./matrix). Append to COMPOSE_FILE after the proxy overlay; only LiveKit media is published; the proxy
 # reaches synapse:8008, mas:8080 and element:8080 on kymessages-net. Postgres is only on the
 # internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
 # (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
@@ -26,6 +26,9 @@ services:
       - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}
       - KY_MATRIX_HOST=${KY_MATRIX_HOST:?Set KY_MATRIX_HOST}
       - KY_MATRIX_CHAT_HOST=${KY_MATRIX_CHAT_HOST:?Set KY_MATRIX_CHAT_HOST}
+      - KY_MATRIX_RTC_HOST=${KY_MATRIX_RTC_HOST:?Set KY_MATRIX_RTC_HOST}
+      - KY_MATRIX_RTC_KEY_FILE=/matrix/secrets/livekit_api_key
+      - KY_MATRIX_RTC_SECRET_FILE=/matrix/secrets/livekit_api_secret
       # Signs KyIdentity's directory webhook; without it offboarding never reaches MAS.
       - KY_KYIDENTITY_HMAC_SECRET=${KY_KYIDENTITY_HMAC_SECRET:?Set KY_KYIDENTITY_HMAC_SECRET (the KyIdentity suite_webhook secret)}
       # Offboarding sync: MAS's admin API, reachable only on matrix-admin.
@@ -61,6 +64,9 @@ services:
       # `docker cp` from the app.
       - {type: bind, source: ./matrix/element/config.json, target: /matrix/element/config.json, read_only: false, bind: {create_host_path: false}}
       - {<<: *matrix-ro, source: ./matrix/postgres, target: /matrix/postgres}
+      - {<<: *matrix-ro, source: ./matrix/livekit, target: /matrix/livekit}
+      - {<<: *matrix-ro, source: ./matrix/secrets/livekit_api_key, target: /matrix/secrets/livekit_api_key}
+      - {<<: *matrix-ro, source: ./matrix/secrets/livekit_api_secret, target: /matrix/secrets/livekit_api_secret}
       - {<<: *matrix-ro, source: ./matrix/secrets/synapse_db_password, target: /matrix/secrets/synapse_db_password}
       - {<<: *matrix-ro, source: ./matrix/secrets/mas_db_password, target: /matrix/secrets/mas_db_password}
       - {<<: *matrix-ro, source: ./matrix/secrets/synapse_macaroon_secret_key, target: /matrix/secrets/synapse_macaroon_secret_key}
@@ -175,6 +181,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+
+  livekit:
+    <<: *hardening
+    image: livekit/livekit-server:v1.13.7@sha256:6fd3b7088874c4d119160dd688798dfec852bc014786d392caad15f6f63912a3
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    command: ["--config", "/config/config.yaml"]
+    volumes:
+      - {<<: *matrix-ro, source: ./matrix/livekit, target: /config}
+    # Media bypasses the HTTP tunnel. Forward these two ports unchanged to this host.
+    # 7880 signalling/admin stays private, reached by the proxy and KyMessages.
+    ports:
+      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:7881:7881/tcp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:7882:7882/udp"
 
   # One-shot, after `kymessages restore` and `kymessages matrix-init` (which recreates the
   # superuser password the capsule leaves out), against a fresh stack with only postgres up:

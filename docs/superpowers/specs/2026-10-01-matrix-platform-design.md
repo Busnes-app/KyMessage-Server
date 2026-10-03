@@ -76,7 +76,14 @@ it is a separate later project (a self-built Teams bot), not part of this design
     Element config, KyIdentity status). Admin mutations need a fresh sign-in and are audited.
     Split into 5a (users, health, audit), 5b (rooms) and 5c (settings); 5a is specified in
     `2026-10-02-matrix-console-5a-design.md` and 5b in `2026-10-02-matrix-console-5b-design.md` and 5c in `2026-10-02-matrix-console-5c-design.md` (name after an Element restart, logo at once); the 5a console has no lock/unlock (access is KyIdentity's).
-12. **Review process** stays the suite's: security-audit run, PR security reviewer, task and
+12. **Calls — on by default** (owner amendment 2026-10-03). Stock Element Call and LiveKit,
+    with authorization in KyMessages: local OpenID, active directory/MAS user and Matrix room
+    membership. Direct media ports accompany proxied HTTPS/WebSocket signalling. Client-managed
+    delayed leave events clean disconnected calls. The control plane periodically evicts
+    offboarded users and removed members; token refresh/reconnect and control-plane outages
+    remain explicit limitations in PRODUCT.md. No guests or recording. Real voice/video
+    acceptance is a release gate; existing text evidence does not establish call encryption.
+13. **Review process** stays the suite's: security-audit run, PR security reviewer, task and
     branch reviews. Labels never claim an independent audit.
 
 ## Sub-projects (each: spec → plan → build, in order)

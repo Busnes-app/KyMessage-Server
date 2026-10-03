@@ -101,7 +101,6 @@ func runServer() {
 	backupDone := make(chan struct{})
 	go backupLoop(ctx, cfg, st, backupDone)
 	maintenanceDone := make(chan struct{})
-	go maintenanceLoop(ctx, st, srv.ReconcileBrand, maintenanceDone)
 	matrixDone := make(chan struct{})
 	if cfg.Matrix.Enabled() {
 		mas := matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret)
@@ -112,6 +111,14 @@ func runServer() {
 	} else {
 		close(matrixDone)
 	}
+	go func() {
+		callsDone := make(chan struct{})
+		go callMaintenanceLoop(ctx, srv.ReconcileCalls, callsDone)
+		brandDone := make(chan struct{})
+		maintenanceLoop(ctx, st, srv.ReconcileBrand, brandDone)
+		<-callsDone
+		close(maintenanceDone)
+	}()
 	backgroundDone := make(chan struct{})
 	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone; <-matrixDone }()
 

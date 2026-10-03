@@ -39,7 +39,7 @@ var expandLimit = capsule.MaxExpandedBytes - 1<<20
 
 // matrixDirs are the matrix-init subdirectories a rebuilt stack needs: secrets, the signing
 // key and every rendered config. dumps/ exists only in a restored tree and is never collected.
-var matrixDirs = []string{"secrets", "synapse", "mas", "element", "postgres"}
+var matrixDirs = []string{"secrets", "synapse", "mas", "element", "postgres", "livekit"}
 
 // superuserSecret is never collected: a fresh Postgres volume needs no old superuser password,
 // and matrix-init regenerates it. Compose hides it from the app too.
@@ -114,6 +114,9 @@ func (b *budget) err() error {
 func collectMatrix(ctx context.Context, m config.MatrixConfig, b *budget) ([]recoveryclient.File, error) {
 	var files []recoveryclient.File
 	for _, sub := range matrixDirs {
+		if sub == "livekit" && m.RTCHost == "" {
+			continue
+		}
 		err := filepath.WalkDir(filepath.Join(m.Dir, sub), func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err

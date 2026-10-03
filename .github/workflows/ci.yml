@@ -183,6 +183,8 @@ jobs:
       # The script runs npm ci itself; install the browser for the version its lockfile pins.
       - run: npx --yes "playwright@$(jq -r '.packages["node_modules/playwright"].version' package-lock.json)" install --with-deps chromium
         working-directory: scripts/matrix-acceptance
+      - name: TURN TLS certificate tools
+        run: sudo apt-get update && sudo apt-get install -y libnss3-tools
       - name: Matrix acceptance
         env:
           KYIDENTITY_SRC: ${{ github.workspace }}/kyidentity-src

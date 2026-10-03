@@ -18,6 +18,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/devices"
 	"github.com/Busnes-app/ky_server_base/internal/health"
+	"github.com/Busnes-app/ky_server_base/internal/matrixrtc"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/scim"
 	"github.com/Busnes-app/ky_server_base/internal/sso"
@@ -67,6 +68,7 @@ type Server struct {
 	saml             *sso.SAMLServiceProvider
 	scim             *scim.Server
 	recovery         recoveryClient
+	rtc              *matrixrtc.Client
 	mas              MatrixAdmin // nil when Matrix is off
 	rooms            RoomAdmin
 	roomBudget       time.Duration // a room change's steps before its final Close or Delete
@@ -216,6 +218,9 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 	s.rooms = synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
 	s.roomBudget = roomChangeTimeout
 
+	if cfg.Matrix.RTCHost != "" {
+		s.rtc = matrixrtc.New("http://livekit:7880", cfg.Matrix.RTCKey, cfg.Matrix.RTCSecret)
+	}
 	s.routes()
 	return s
 }
@@ -354,6 +359,8 @@ func (s *Server) routes() {
 		s.writeError(w, http.StatusNotFound, "Unknown API endpoint")
 	})
 
+	s.mux.HandleFunc("POST "+rtcPrefix+"/sfu/get", s.tracked(s.handleRTCToken))
+	s.mux.HandleFunc("POST "+rtcPrefix+"/get_token", s.tracked(s.handleRTCToken))
 	// Matrix client discovery lives outside /api/, so it must precede the SPA catch-all.
 	s.mux.HandleFunc("GET "+wellKnownMatrixClient, s.handleMatrixClientWellKnown)
 
@@ -429,6 +436,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
 
+	// Call grants use explicit Matrix OpenID tokens, never browser cookies.
+	if rtcPath(r.URL.Path) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Del("Access-Control-Allow-Credentials")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		s.mux.ServeHTTP(w, r)
+		return
+	}
 	origin := r.Header.Get("Origin")
 	if origin != "" && sameOrigin(origin, s.config.Server.AppURL) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
