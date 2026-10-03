@@ -50,7 +50,7 @@ func TestUserStoreLifecycle(t *testing.T) {
 	}
 
 	// Duplicate should fail
-	if err := st.Users().CreateUser(ctx, user); err != store.ErrAlreadyExists {
+	if err := st.Users().CreateUser(ctx, user); !errors.Is(err, store.ErrAlreadyExists) {
 		t.Fatalf("expected ErrAlreadyExists, got %v", err)
 	}
 

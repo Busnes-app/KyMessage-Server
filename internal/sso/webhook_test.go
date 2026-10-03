@@ -308,36 +308,92 @@ func TestDirectoryWebhookRefusesUsernameHeldByLocalAccount(t *testing.T) {
 		t.Fatal("a refused delivery was recorded as accepted")
 	}
 
-	// The refused event is not spent: once the local account is renamed, its redelivery applies.
+	// KyIdentity takes a 409 on user.created as delivered and never retries it. The operator
+	// renames the local account and presses Resync, which sends the user again as a new event;
+	// the refused create advanced no revision, so it applies.
 	local.Username = "kymessages-admin"
 	if err := d.st.Users().UpdateProfile(ctx, local); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.sendID(created, "user.created", named("kid-root", "admin", "user", 1)); err != nil {
-		t.Fatalf("redelivery after the rename: %v", err)
+	if err := d.send("user.created", named("kid-root", "admin", "user", 1)); err != nil {
+		t.Fatalf("resync after the rename: %v", err)
 	}
 	if u := d.user("kid-root"); u == nil || u.Username != "admin" || u.ID == local.ID {
 		t.Fatalf("directory user after the rename: %+v", u)
 	}
 }
 
-// An update may rename a directory user onto a local account's name; that is refused too, while
-// updates that keep (or reuse) the subject's own name still apply.
-func TestDirectoryWebhookRefusesRenameOntoLocalAccount(t *testing.T) {
+// An update that renames a directory user onto a local account's name keeps the old username
+// and applies everything else: a deactivation or downgrade carried with it must never be lost.
+// It is acknowledged, so KyIdentity does not retry it, and the refused rename is audited once.
+func TestDirectoryWebhookRenameOntoLocalAccountKeepsUsernameAppliesTheRest(t *testing.T) {
 	ctx := context.Background()
 	d := newDirectory(t)
 	if err := d.st.Users().CreateUser(ctx, &store.User{ID: "usr_local_ops", Username: "ops", Role: "admin", Status: "active", SSOProvider: "local"}); err != nil {
 		t.Fatal(err)
 	}
-	d.must("user.created", named("kid-eve", "eve", "user", 1))
-	if err := d.send("user.updated", named("kid-eve", "ops", "admin", 2)); !errors.Is(err, sso.ErrSyncUsernameConflict) {
-		t.Fatalf("rename onto a local account: %v", err)
+	session := func(subject string) {
+		t.Helper()
+		now := time.Now().UTC()
+		if err := d.st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "tok-" + subject, UserID: d.user(subject).ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if u := d.user("kid-eve"); u.Username != "eve" || u.Role != "user" {
-		t.Fatalf("the refused rename applied: %+v", u)
+	sessionGone := func(subject string) bool {
+		_, err := d.st.Sessions().GetSession(ctx, "tok-"+subject)
+		return errors.Is(err, store.ErrNotFound)
 	}
-	d.must("user.updated", named("kid-eve", "eve", "admin", 3))
-	if u := d.user("kid-eve"); u.Username != "eve" || u.Role != "admin" {
+	conflicts := func() int {
+		recs, _, err := d.st.Audit().ListAuditRecords(ctx, 0, 10, "sso.sync_conflict")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(recs)
+	}
+
+	// Rename plus deactivation in one event.
+	d.must("user.created", named("kid-eve", "eve", "admin", 1))
+	session("kid-eve")
+	deactivate := named("kid-eve", "ops", "admin", 2)
+	var m map[string]any
+	_ = json.Unmarshal(deactivate, &m)
+	m["active"] = false
+	deactivate, _ = json.Marshal(m)
+	if err := d.send("user.updated", deactivate); err != nil {
+		t.Fatalf("rename onto a local account with deactivation: %v", err)
+	}
+	if u := d.user("kid-eve"); u.Username != "eve" || u.Status != "inactive" {
+		t.Fatalf("want username kept and status applied: %+v", u)
+	}
+	if !sessionGone("kid-eve") {
+		t.Fatal("deactivation did not revoke the session")
+	}
+	if n := conflicts(); n != 1 {
+		t.Fatalf("sso.sync_conflict rows: %d, want 1", n)
+	}
+
+	// Rename plus role downgrade in one event.
+	d.must("user.created", named("kid-ann", "ann", "admin", 1))
+	session("kid-ann")
+	if err := d.send("user.updated", named("kid-ann", "ops", "user", 2)); err != nil {
+		t.Fatalf("rename onto a local account with downgrade: %v", err)
+	}
+	if u := d.user("kid-ann"); u.Username != "ann" || u.Role != "user" || u.Status != "active" {
+		t.Fatalf("want username kept and role applied: %+v", u)
+	}
+	if !sessionGone("kid-ann") {
+		t.Fatal("downgrade did not revoke the session")
+	}
+	if got, _ := d.st.Users().GetUserByID(ctx, "usr_local_ops"); got.SSOProvider != "local" || got.Role != "admin" {
+		t.Fatalf("local account changed: %+v", got)
+	}
+	if r := d.client.Rejections(); r.Count != 0 {
+		t.Fatalf("an applied update was counted as refused: %+v", r)
+	}
+
+	// Updates that keep the subject's own name apply as before.
+	d.must("user.updated", named("kid-ann", "ann", "admin", 3))
+	if u := d.user("kid-ann"); u.Username != "ann" || u.Role != "admin" {
 		t.Fatalf("same-subject update: %+v", u)
 	}
 }

@@ -125,21 +125,24 @@ func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncau
 	return err
 }
 
-// usernameConflict refuses a directory user whose username another account holds; merging the
-// two would hand that account to whoever KyIdentity names alike. The delivery is authenticated,
-// so unlike other refusals it is logged and audited.
-func (k *KyIdentityClient) usernameConflict(ctx context.Context, in DirectoryUser) error {
-	log.Printf("[SSO] directory user %q refused: username %q is held by another KyMessages account", in.ID, in.UserName)
+// auditUsernameConflict records a directory username another account holds; merging the two
+// would hand that account to whoever KyIdentity names alike. The delivery is authenticated, so
+// unlike other refusals it is logged and audited. kept is the username retained, if any.
+func (k *KyIdentityClient) auditUsernameConflict(ctx context.Context, in DirectoryUser, kept string) {
+	details := fmt.Sprintf("subject=%q", in.ID)
+	if kept != "" {
+		details += fmt.Sprintf(" kept=%q", kept)
+	}
+	log.Printf("[SSO] directory username %q refused for %s: held by another KyMessages account", in.UserName, details)
 	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := k.store.Audit().LogAudit(actx, &store.AuditRecord{
 		Action:   "sso.sync_conflict",
 		Resource: recoveryclient.AuditSafe(in.UserName),
-		Details:  recoveryclient.AuditSafe(fmt.Sprintf("subject=%q", in.ID)),
+		Details:  recoveryclient.AuditSafe(details),
 	}); err != nil {
 		log.Printf("[AUDIT] sso.sync_conflict not recorded: %v", err)
 	}
-	return fmt.Errorf("%w: %q", ErrSyncUsernameConflict, in.UserName)
 }
 
 // applySyncWebhook verifies and applies one event and returns its signed type. The cause of
@@ -207,7 +210,8 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kyidentity", SSOSubject: in.ID,
 		}, ev)
 		if errors.Is(err, store.ErrUsernameTaken) {
-			return k.usernameConflict(ctx, in)
+			k.auditUsernameConflict(ctx, in, "")
+			return fmt.Errorf("%w: %q", ErrSyncUsernameConflict, in.UserName)
 		}
 		return err
 	}
@@ -218,7 +222,11 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 	updated.Username, updated.Email, updated.DisplayName, updated.Role, updated.Status = in.UserName, email, displayName, role, status
 	applied, err := k.store.Users().ApplyDirectoryProfile(ctx, &updated, ev)
 	if errors.Is(err, store.ErrUsernameTaken) {
-		return k.usernameConflict(ctx, in)
+		// Refuse only the rename: the same event may deactivate or downgrade, which must land.
+		// The failed write rolled back with its event ID, so it applies again under the old name.
+		k.auditUsernameConflict(ctx, in, existing.Username)
+		updated.Username = existing.Username
+		applied, err = k.store.Users().ApplyDirectoryProfile(ctx, &updated, ev)
 	}
 	if err != nil || !applied {
 		return err

@@ -14,8 +14,10 @@ priority is small teams and encrypted text chat.
 - `make clean` removes generated artifacts only; never runtime data or backups.
 - `cmd/server` `bootstrapAdmin` creates the local admin on an empty database as
   `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose). A KyIdentity user whose
-  username another account holds is refused, never merged: webhook 409 with sync reason
-  `username_conflict` and audit `sso.sync_conflict`; sign-in 409 with `sso.login_conflict`.
+  username another account holds is refused, never merged: a webhook create gets 409 with
+  sync reason `username_conflict` (recovery: rename, then Resync Directory in KyIdentity), an
+  update keeps the old username and applies the rest, both audit `sso.sync_conflict`; sign-in
+  gets 409 with `sso.login_conflict`.
 
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product
   definition on Matrix: what ships, what is later or out of scope, and known risks. Keep it

@@ -152,13 +152,24 @@ INSERT INTO users (
 		user.PushDeviceID, user.MustChangePassword,
 		user.CreatedAt, user.UpdatedAt, lastLogin,
 	)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "duplicate key") {
-			return ErrAlreadyExists
-		}
-		return err
+	return uniqueError(err)
+}
+
+// uniqueError types a users-table unique violation: on username (a write that lost a race after
+// usernameTaken passed) ErrUsernameTaken, any other ErrAlreadyExists. The wording is the
+// engines': SQLite names table.column, Postgres the column constraint users_username_key.
+func uniqueError(err error) error {
+	if err == nil {
+		return nil
 	}
-	return nil
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "UNIQUE constraint failed: users.username"), strings.Contains(s, `"users_username_key"`):
+		return ErrUsernameTaken
+	case strings.Contains(s, "UNIQUE"), strings.Contains(s, "duplicate key"):
+		return ErrAlreadyExists
+	}
+	return err
 }
 
 func (u *userStore) scanUser(row interface{ Scan(...any) error }) (*User, error) {
@@ -322,7 +333,7 @@ func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, ev Di
 		user.UpdatedAt = time.Now().UTC()
 		_, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
 			user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)
-		return err
+		return uniqueError(err)
 	})
 }
 

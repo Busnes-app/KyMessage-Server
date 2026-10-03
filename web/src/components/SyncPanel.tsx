@@ -64,7 +64,7 @@ export function syncHints(s: SyncStatus): string[] {
   if (!s.webhook) hints.push('No webhook has been accepted yet: check the suite_webhook system in KyIdentity and KY_KYIDENTITY_HMAC_SECRET.');
   if (reason === 'bad_signature') hints.push('Deliveries fail the signature check: the secret in KyIdentity and KY_KYIDENTITY_HMAC_SECRET differ.');
   if (reason === 'not_configured') hints.push('KY_KYIDENTITY_HMAC_SECRET is not set, or is shorter than 16 bytes.');
-  if (reason === 'username_conflict') hints.push('A KyIdentity username matches a local KyMessages account, so that user is not synced: sign in to KyIdentity as another user, or set KY_ADMIN_USERNAME before a new install so the local admin is named differently.');
+  if (reason === 'username_conflict') hints.push('A KyIdentity username matches a local KyMessages account, so that user was not created here. Rename the local account (KY_ADMIN_USERNAME only applies to an empty database) or change the KyIdentity user, then press Resync Directory on the KyMessages system in KyIdentity: KyIdentity does not resend it on its own.');
   if (reason === 'stale') hints.push("Deliveries arrive more than 5 minutes off this server's clock: check both clocks.");
   if (!s.sweep) hints.push('No offboarding sweep has finished yet.');
   hints.push(UNCERTAIN);

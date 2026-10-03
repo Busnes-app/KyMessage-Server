@@ -10,7 +10,7 @@ const OK = {
   kyidentity_url: 'https://id.example.com',
 };
 const SECRETS_DIFFER = 'Deliveries fail the signature check: the secret in KyIdentity and KY_KYIDENTITY_HMAC_SECRET differ.';
-const USERNAME_CONFLICT = 'A KyIdentity username matches a local KyMessages account, so that user is not synced: sign in to KyIdentity as another user, or set KY_ADMIN_USERNAME before a new install so the local admin is named differently.';
+const USERNAME_CONFLICT = 'A KyIdentity username matches a local KyMessages account, so that user was not created here. Rename the local account (KY_ADMIN_USERNAME only applies to an empty database) or change the KyIdentity user, then press Resync Directory on the KyMessages system in KyIdentity: KyIdentity does not resend it on its own.';
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
