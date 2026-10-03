@@ -67,7 +67,7 @@ upstream_oauth2:
       claims_imports:
         localpart:
           action: require
-          # preferred_username, lowercased, every character outside [a-z0-9._=-] replaced by "_".
+          # The email local part, lowercased, every character outside [a-z0-9._=-] replaced by "_".
           template: {{ q .Localpart }}
           on_conflict: fail
         displayname:

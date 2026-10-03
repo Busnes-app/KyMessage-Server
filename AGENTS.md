@@ -12,6 +12,12 @@ priority is small teams and encrypted text chat.
   pulls an upstream base image. Use the build overlay while images are unpublished;
   preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
+- `cmd/server` `bootstrapAdmin` creates the local admin on an empty database as
+  `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose). A KyIdentity user whose
+  username another account holds is refused, never merged: a webhook create gets 409 with
+  sync reason `username_conflict` (recovery: rename, then Resync Directory in KyIdentity), an
+  update keeps the old username and applies the rest, both audit `sso.sync_conflict`; sign-in
+  gets 409 with `sso.login_conflict`.
 
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product
   definition on Matrix: what ships, what is later or out of scope, and known risks. Keep it
@@ -177,8 +183,9 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   unmodified over https. Playwright drives Element: native OIDC sign-in, key setup, DM and
   group messages read by the other user. It asserts no `m.room.message` in encrypted rooms
   and no plaintext in a Synapse `pg_dump`; registration, password login and federation
-  refused; unassigned and username-less KyIdentity users refused; mixed-case usernames
-  mapped. Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
+  refused; unassigned KyIdentity users and ID tokens without an email refused; the localpart
+  is the email's local part, lowercased and sanitised (`AQuinn`, email
+  `Alice.Q+Ky@kymatrix.test`, is `@alice.q_ky`). Offboarding (KyMessages built from this checkout, its webhook a `suite_webhook`
   system linked to the MAS client's app record): disable refuses a live Element token within
   30s (fixed bound, times in the summary; live means `whoami` names that user, refused means
   `401 M_UNKNOWN_TOKEN`) and MAS locks; re-enable unlocks with history;

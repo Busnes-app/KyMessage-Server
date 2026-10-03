@@ -11,7 +11,7 @@ import (
 
 // auditKinds maps the console's filter to action prefixes.
 var auditKinds = map[string][]string{
-	"auth":     {"auth.", "device."},
+	"auth":     {"auth.", "device.", "sso."},
 	"backup":   {"backup.", "admin.backup_", "restore."},
 	"branding": {"admin.brand_"},
 	"matrix":   {"matrix."},

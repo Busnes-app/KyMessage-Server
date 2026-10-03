@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
+	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -32,62 +34,17 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var issuer string
-	var mu sync.Mutex
-	tokens := map[string]string{}
-	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}})
-		case "/keys":
-			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{"kty": "RSA", "kid": "k", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": "AQAB"}}})
-		case "/token":
-			_ = r.ParseForm()
-			mu.Lock()
-			token := tokens[r.Form.Get("code")]
-			mu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "unused", "token_type": "Bearer", "id_token": token})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer idp.Close()
-	issuer = idp.URL
-	cfg.SSO.KyIdentityIssuer = issuer
-	cfg.SSO.KyIdentityClientID = "client"
+	idp := newFakeIdP(t, cfg)
 	srv := api.NewServer(cfg, st)
 
 	ssoLogin := func(authTime int64) *http.Cookie {
-		login := httptest.NewRecorder()
-		srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kyidentity/login", nil))
-		authorize, _ := url.Parse(login.Header().Get("Location"))
-		claims := map[string]any{"iss": issuer, "aud": "client", "sub": "sub-admin", "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": authorize.Query().Get("nonce")}
+		claims := map[string]any{"sub": "sub-admin"}
 		if authTime != 0 {
 			claims["auth_time"] = authTime
 		}
-		body, _ := json.Marshal(claims)
-		input := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"k"}`)) + "." + base64.RawURLEncoding.EncodeToString(body)
-		digest := sha256.Sum256([]byte(input))
-		sig, _ := rsa.SignPKCS1v15(rand.Reader, key, stdcrypto.SHA256, digest[:])
-		code := crypto.RandomHex(16)
-		mu.Lock()
-		tokens[code] = input + "." + base64.RawURLEncoding.EncodeToString(sig)
-		mu.Unlock()
-		callback := httptest.NewRequest("GET", "/api/sso/kyidentity/callback?code="+code+"&state="+authorize.Query().Get("state"), nil)
-		for _, c := range login.Result().Cookies() {
-			callback.AddCookie(c)
-		}
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, callback)
-		for _, c := range w.Result().Cookies() {
-			if c.Name == auth.SessionCookieName {
-				return c
-			}
+		w := idp.signIn(srv, claims)
+		if c := sessionCookie(w); c != nil {
+			return c
 		}
 		t.Fatalf("callback issued no session: %d %s", w.Code, w.Body.String())
 		return nil
@@ -111,5 +68,114 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	fresh := ssoLogin(time.Now().Unix())
 	if w := adminDo(t, srv, fresh, "PUT", "/api/backup/schedule", map[string]int64{"interval_sec": 0}); w.Code != http.StatusOK {
 		t.Fatalf("fresh auth_time: schedule got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func sessionCookie(w *httptest.ResponseRecorder) *http.Cookie {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			return c
+		}
+	}
+	return nil
+}
+
+// fakeIdP is a KyIdentity issuer for callback tests: discovery, JWKS and a token endpoint that
+// returns the ID token signIn minted.
+type fakeIdP struct {
+	issuer string
+	key    *rsa.PrivateKey
+	mu     sync.Mutex
+	tokens map[string]string
+}
+
+// newFakeIdP starts the issuer and points cfg's KyIdentity settings at it.
+func newFakeIdP(t *testing.T, cfg *config.Config) *fakeIdP {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeIdP{key: key, tokens: map[string]string{}}
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": f.issuer, "authorization_endpoint": f.issuer + "/authorize", "token_endpoint": f.issuer + "/token", "jwks_uri": f.issuer + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}})
+		case "/keys":
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{"kty": "RSA", "kid": "k", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": "AQAB"}}})
+		case "/token":
+			_ = r.ParseForm()
+			f.mu.Lock()
+			token := f.tokens[r.Form.Get("code")]
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "unused", "token_type": "Bearer", "id_token": token})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(idp.Close)
+	f.issuer = idp.URL
+	cfg.SSO.KyIdentityIssuer = f.issuer
+	cfg.SSO.KyIdentityClientID = "client"
+	return f
+}
+
+// signIn runs login and callback against srv with an ID token carrying claims (iss, aud, exp,
+// iat and nonce are filled in) and returns the callback's response.
+func (f *fakeIdP) signIn(srv *api.Server, claims map[string]any) *httptest.ResponseRecorder {
+	login := httptest.NewRecorder()
+	srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kyidentity/login", nil))
+	authorize, _ := url.Parse(login.Header().Get("Location"))
+	full := map[string]any{"iss": f.issuer, "aud": "client", "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": authorize.Query().Get("nonce")}
+	maps.Copy(full, claims)
+	body, _ := json.Marshal(full)
+	input := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"k"}`)) + "." + base64.RawURLEncoding.EncodeToString(body)
+	digest := sha256.Sum256([]byte(input))
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, f.key, stdcrypto.SHA256, digest[:])
+	code := crypto.RandomHex(16)
+	f.mu.Lock()
+	f.tokens[code] = input + "." + base64.RawURLEncoding.EncodeToString(sig)
+	f.mu.Unlock()
+	callback := httptest.NewRequest("GET", "/api/sso/kyidentity/callback?code="+code+"&state="+authorize.Query().Get("state"), nil)
+	for _, c := range login.Result().Cookies() {
+		callback.AddCookie(c)
+	}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, callback)
+	return w
+}
+
+// A KyIdentity sign-in whose username a local account holds is refused with 409 and audited; it
+// never signs in as, links to or alters the local account.
+func TestSSOSignInRefusesUsernameHeldByLocalAccount(t *testing.T) {
+	ctx := context.Background()
+	_, st, cfg := setupTestServer(t)
+	local := &store.User{ID: "usr_local_admin", Username: "admin", PasswordHash: "hash", Role: "admin", Status: "active", SSOProvider: "local"}
+	if err := st.Users().CreateUser(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	idp := newFakeIdP(t, cfg)
+	srv := api.NewServer(cfg, st)
+
+	w := idp.signIn(srv, map[string]any{"sub": "kid-root", "preferred_username": "admin"})
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `\"admin\"`) || sessionCookie(w) != nil {
+		t.Fatalf("clash: %d %s (session %v)", w.Code, w.Body.String(), sessionCookie(w))
+	}
+	if _, err := st.Users().GetUserBySSO(ctx, "kyidentity", "kid-root"); err == nil {
+		t.Fatal("an SSO row was created")
+	}
+	got, err := st.Users().GetUserByID(ctx, local.ID)
+	if err != nil || got.SSOProvider != "local" || got.SSOSubject != "" || got.PasswordHash != "hash" {
+		t.Fatalf("local admin changed: %v %+v", err, got)
+	}
+	recs, _, err := st.Audit().ListAuditRecords(ctx, 0, 10, "sso.")
+	if err != nil || len(recs) != 1 || recs[0].Action != "sso.login_conflict" || recs[0].Resource != "admin" || !strings.Contains(recs[0].Details, `"kid-root"`) {
+		t.Fatalf("audit: %v %+v", err, recs)
+	}
+
+	// Another username still provisions.
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-root", "preferred_username": "root"}); sessionCookie(w) == nil {
+		t.Fatalf("non-clashing sign-in: %d %s", w.Code, w.Body.String())
 	}
 }

@@ -10,6 +10,7 @@ const OK = {
   kyidentity_url: 'https://id.example.com',
 };
 const SECRETS_DIFFER = 'Deliveries fail the signature check: the secret in KyIdentity and KY_KYIDENTITY_HMAC_SECRET differ.';
+const USERNAME_CONFLICT = 'A KyIdentity username matches a local KyMessages account, so that user was not created here. Rename the local account (KY_ADMIN_USERNAME only applies to an empty database) or change the KyIdentity user, then press Resync Directory on the KyMessages system in KyIdentity: KyIdentity does not resend it on its own.';
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -46,6 +47,14 @@ describe('syncState, syncHints and syncCard', () => {
     const s = parseSyncStatus({ ...OK, rejected: { count: 1, last_at: NOW, last_reason: 'stale' } });
     expect(syncState(s)).toBe('ok');
     expect(syncHints(s).some((h) => h.includes('check both clocks'))).toBe(true);
+  });
+  it('warns when a KyIdentity username matches a local account, until a webhook is accepted after it', () => {
+    const s = parseSyncStatus({ ...OK, rejected: { count: 1, last_at: NOW, last_reason: 'username_conflict' } });
+    expect(syncState(s)).toBe('warning');
+    expect(syncHints(s)[0]).toBe(USERNAME_CONFLICT);
+    expect(syncCard(s)).toEqual({ text: `Needs attention: ${USERNAME_CONFLICT}`, tone: 'warning' });
+    const fixed = parseSyncStatus({ ...OK, rejected: { count: 1, last_at: '2026-10-02T09:00:00Z', last_reason: 'username_conflict' } });
+    expect(syncState(fixed)).toBe('ok');
   });
   it('warns before the first sweep', () => {
     expect(syncState(parseSyncStatus({ ...OK, sweep: null }))).toBe('warning');

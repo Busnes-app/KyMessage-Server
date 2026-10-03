@@ -36,10 +36,11 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"sqlq": func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" },
 }).ParseFS(templateFS, "templates/*"))
 
-// MAS claims templates (minijinja). The localpart keeps [a-z0-9._=-] and maps every other
-// character to "_"; a missing claim renders empty, which "require" refuses.
+// MAS claims templates (minijinja). The localpart is the email's local part (before the first
+// "@"), lowercased, with every character outside [a-z0-9._=-] mapped to "_"; no email, or one
+// without "@" or local part, renders empty, which "require" refuses.
 const (
-	localpartTemplate   = `{% for c in user.preferred_username | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}`
+	localpartTemplate   = `{% if user.email and "@" in user.email %}{% for c in user.email | split("@") | first | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}{% endif %}`
 	displayNameTemplate = `{{ user.name }}`
 	emailTemplate       = `{{ user.email }}`
 )

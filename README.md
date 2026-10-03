@@ -94,7 +94,11 @@ client secret once, when you register the client the first run describes.
    `matrix/synapse/signing.key`; they are never regenerated.
 3. In KyIdentity, register the printed confidential client (client ID, redirect URI, back-channel
    logout URI, scopes `openid profile email`) and assign the users who may chat. Unassigned
-   users cannot sign in. The back-channel logout URI is what ends a disabled user's open
+   users cannot sign in. A user's Matrix ID comes from their KyIdentity email: its local part,
+   lowercased, with characters outside `[a-z0-9._=-]` replaced by `_`
+   (`Alice.Q+Ky@example.com` becomes `@alice.q_ky`). A user without an email, or whose local
+   part another chat user already has (`alice@` on two domains), cannot sign in. The ID is
+   fixed at first sign-in. The back-channel logout URI is what ends a disabled user's open
    Element sessions; without it they keep working until their token expires.
 4. Save the client secret KyIdentity shows to `matrix/secrets/kyidentity_client_secret` with
    mode 0600 (for example `install -m 600 /dev/null matrix/secrets/kyidentity_client_secret`,
@@ -211,7 +215,7 @@ Upgrading a stack from before Matrix backups:
   MAS admin. For each action it mints a 5-minute MAS session and revokes it afterwards. The
   offboarding sweep exempts exactly that unlinked account. A KyIdentity-linked account named
   `kymessages-console` is not exempt: the sweep judges it as a person and the console refuses
-  it, so never create a KyIdentity user with that username. Locking the account in MAS cuts
+  it, so never give a KyIdentity user an email whose local part is `kymessages-console`. Locking the account in MAS cuts
   the console's room access.
 - **Health** probes Synapse, MAS, Element, Postgres, the database and this app on each load and
   compares each running version with the Compose pin. It links components to their upstream
@@ -267,6 +271,7 @@ instance; the current operator-console preview is not a chat release (see `docs/
 |---|---|
 | `KY_APP_NAME` | Defaults to `KyMessages`; also the capsule service name, pinned at pairing |
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks |
+| `KY_ADMIN_USERNAME` | Username of the local admin created on an empty database and `init-admin`'s default, default `admin`; 3-64 letters, digits, `.`, `_` or `-`. Set it before first start when a KyIdentity user is called `admin` (KyIdentity's own admin cannot be renamed): a KyIdentity user whose username a local account holds is refused, never merged into it. It has no effect on an existing database. After resolving a clash (renaming the local account or the KyIdentity user), press Resync Directory on the KyMessages system in KyIdentity; KyIdentity does not resend a refused new user on its own |
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
 | `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |

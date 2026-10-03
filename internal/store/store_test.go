@@ -50,7 +50,7 @@ func TestUserStoreLifecycle(t *testing.T) {
 	}
 
 	// Duplicate should fail
-	if err := st.Users().CreateUser(ctx, user); err != store.ErrAlreadyExists {
+	if err := st.Users().CreateUser(ctx, user); !errors.Is(err, store.ErrAlreadyExists) {
 		t.Fatalf("expected ErrAlreadyExists, got %v", err)
 	}
 
@@ -280,6 +280,37 @@ func TestSpendTOTPCounterRefusesReplay(t *testing.T) {
 	got, _ := st.Users().GetUserByID(ctx, u.ID)
 	if got.TOTPLastCounter != 101 {
 		t.Fatalf("stored counter %d, want 101", got.TOTPLastCounter)
+	}
+}
+
+// A taken username is a typed error on both engines, from every path that writes one, and the
+// directory write leaves its event unspent.
+func TestUsernameTakenIsTyped(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_admin", Username: "admin", Role: "admin", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	err := st.Users().CreateUser(ctx, &store.User{ID: "usr_2", Username: "admin", SSOProvider: "local"})
+	if !errors.Is(err, store.ErrUsernameTaken) || !errors.Is(err, store.ErrAlreadyExists) {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	dir := &store.User{ID: "usr_dir", Username: "admin", SSOProvider: "kyidentity", SSOSubject: "kid"}
+	ev := store.DirectoryEvent{ID: uuid.NewString(), Revision: 1}
+	if _, err := st.Users().CreateDirectoryUser(ctx, dir, ev); !errors.Is(err, store.ErrUsernameTaken) {
+		t.Fatalf("CreateDirectoryUser: %v", err)
+	}
+	dir.Username = "kid"
+	if applied, err := st.Users().CreateDirectoryUser(ctx, dir, ev); err != nil || !applied {
+		t.Fatalf("the refused event was spent: %v %v", applied, err)
+	}
+	dir.Username = "admin"
+	if _, err := st.Users().ApplyDirectoryProfile(ctx, dir, store.DirectoryEvent{ID: uuid.NewString(), Revision: 2}); !errors.Is(err, store.ErrUsernameTaken) {
+		t.Fatalf("ApplyDirectoryProfile: %v", err)
+	}
+	dir.Username = "kid" // its own name is not taken
+	if applied, err := st.Users().ApplyDirectoryProfile(ctx, dir, store.DirectoryEvent{ID: uuid.NewString(), Revision: 3}); err != nil || !applied {
+		t.Fatalf("same-name update: %v %v", applied, err)
 	}
 }
 

@@ -36,7 +36,8 @@ is stored encrypted — proven by a repeatable acceptance test, not assumed.
 - **Synapse settings:** auth delegated to MAS; registration off; federation off;
   `encryption_enabled_by_default_for_room_type: all`; media in its own volume.
 - **MAS settings:** KyIdentity sole upstream provider; local passwords and password
-  registration off; localpart from `preferred_username` lowercased with Matrix-disallowed
+  registration off; localpart from the email's local part (amended 2026-10-02; was
+  `preferred_username`; platform design decision 8) lowercased with Matrix-disallowed
   characters replaced by `_`, collisions refused (if MAS templates cannot express this, it is
   documented as an enforced rule and pinned by the acceptance test); compatibility login off
   or unrouted.

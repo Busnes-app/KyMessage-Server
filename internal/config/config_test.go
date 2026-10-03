@@ -333,3 +333,23 @@ func TestElementRestartHintFromEnv(t *testing.T) {
 		}
 	}
 }
+
+// KY_ADMIN_USERNAME names the bootstrap admin, so a KyIdentity user called admin can sync.
+func TestAdminUsernameFromEnv(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	t.Setenv("KY_ADMIN_USERNAME", "")
+	cfg, err := config.LoadFromEnv()
+	if err != nil || cfg.Security.AdminUsername != "admin" {
+		t.Fatalf("default: %v %+v", err, cfg)
+	}
+	t.Setenv("KY_ADMIN_USERNAME", "ky.local-admin_1")
+	if cfg, err = config.LoadFromEnv(); err != nil || cfg.Security.AdminUsername != "ky.local-admin_1" {
+		t.Fatalf("override: %v %+v", err, cfg)
+	}
+	for _, bad := range []string{"ab", "local admin", "ad\x01min", "ädmin", "a/b", strings.Repeat("a", 65)} {
+		t.Setenv("KY_ADMIN_USERNAME", bad)
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_ADMIN_USERNAME") {
+			t.Errorf("%q: got %v, want a KY_ADMIN_USERNAME error", bad, err)
+		}
+	}
+}

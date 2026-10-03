@@ -29,10 +29,12 @@ const (
 	RejectStale         = "stale"          // timestamp outside the ±5-minute window
 	RejectBadHeaders    = "bad_headers"    // event type, ID or timestamp missing or unparseable
 	RejectMalformed     = "malformed"      // signed, but not a usable SCIM user
+	// signed, but another KyMessages account holds the username
+	RejectUsernameConflict = "username_conflict"
 )
 
-// Rejections counts refused deliveries since this process started. Memory only: their senders
-// are unauthenticated, so nothing about them reaches the database or the audit log.
+// Rejections counts refused deliveries since this process started. Memory only; an
+// unauthenticated sender never reaches the database or the audit log.
 type Rejections struct {
 	Count      int64      `json:"count"`
 	LastAt     *time.Time `json:"last_at"`
@@ -62,6 +64,8 @@ func rejectReason(err error) string {
 	switch {
 	case errors.Is(err, ErrSyncMalformed):
 		return RejectMalformed
+	case errors.Is(err, ErrSyncUsernameConflict):
+		return RejectUsernameConflict
 	case errors.Is(err, errNoSecret), errors.Is(err, syncauth.ErrShortKey):
 		return RejectNotConfigured
 	case errors.Is(err, syncauth.ErrStale):

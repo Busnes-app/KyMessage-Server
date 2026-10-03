@@ -85,7 +85,15 @@ type SecurityConfig struct {
 	// TrustedProxies is the parsed KY_TRUSTED_PROXIES allowlist. Only a request whose peer
 	// address falls inside it may speak for a client other than itself.
 	TrustedProxies []netip.Prefix `json:"-"`
+	// AdminUsername names the local admin created on an empty database (KY_ADMIN_USERNAME).
+	AdminUsername string `json:"admin_username"`
 }
+
+// usernamePattern is the account username rule; auth.ValidateUsername applies it too.
+var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{3,64}$`)
+
+// ValidUsername reports whether s is a valid account username.
+func ValidUsername(s string) bool { return usernamePattern.MatchString(s) }
 
 // SSOConfig holds identity provider and federation parameters.
 type SSOConfig struct {
@@ -218,6 +226,11 @@ func LoadFromEnv() (*Config, error) {
 		return nil, err
 	}
 
+	adminUsername := getEnv("KY_ADMIN_USERNAME", "admin")
+	if !ValidUsername(adminUsername) {
+		return nil, errors.New("KY_ADMIN_USERNAME: must be 3-64 characters of letters, digits, '.', '_' or '-'")
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Host:         host,
@@ -243,6 +256,7 @@ func LoadFromEnv() (*Config, error) {
 			CookieDomain:   getEnv("KY_COOKIE_DOMAIN", ""),
 			SessionTTL:     7 * 24 * time.Hour,
 			TrustedProxies: trustedProxies,
+			AdminUsername:  adminUsername,
 		},
 		SSO: SSOConfig{
 			Enabled:              getEnvBool("KY_SSO_ENABLED", true),

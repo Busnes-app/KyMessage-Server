@@ -56,10 +56,12 @@ it is a separate later project (a self-built Teams bot), not part of this design
    `2026-10-01-matrix-backups-design.md`. Users restore
    history with their own security keys; the server never sees plaintext. The people/messages
    capsule split is retired.
-8. **Usernames.** Matrix localpart = KyIdentity username lowercased with characters Matrix
-   disallows replaced by `_`; display name keeps the original; a collision refuses the second
-   sign-in with a clear message. MAS links accounts by KyIdentity `sub`, so renames do not
-   orphan accounts. Planning checks whether MAS templates can do the mapping.
+8. **Usernames.** (Amended 2026-10-02, owner.) Matrix localpart = the local part of the
+   KyIdentity email (before the `@`), lowercased with characters Matrix disallows replaced by
+   `_`; a user without an email cannot sign in. Display name keeps the KyIdentity name. Two
+   emails with the same local part on different domains collide: the second sign-in is
+   refused. MAS links accounts by KyIdentity `sub` and keeps the localpart, so a later email or
+   username change does not rename or orphan the account. The mapping is a MAS claims template.
 9. **Domains — one subdomain per part.** e.g. `matrix.` (Synapse), `auth.` (MAS), `chat.`
    (Element Web), `admin.` (KyMessages console); user IDs stay `@alice:example.com` through
    `.well-known` delegation served by KyMessages. Each is a cloudflared hostname on

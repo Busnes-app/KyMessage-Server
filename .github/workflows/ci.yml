@@ -168,7 +168,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Busnes-app/KyIdentity-server
-          ref: c21445bb1ce00b6d0dfec8a7a69a50776e3ff607
+          ref: 8cf7cf9f424e14eaf9d7bea8e822af904f779528
           path: kyidentity-src
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
