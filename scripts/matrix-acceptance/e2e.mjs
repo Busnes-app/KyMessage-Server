@@ -545,7 +545,11 @@ async function calls(restored = false) {
   for (const page of [alice, bob]) {
     for (const frame of page.frames()) {
       const end = frame.getByRole('button', {name:'End call', exact:true});
-      if (await end.isVisible()) await end.click();
+      if (await end.isVisible()) {
+        await end.click();
+        // Leaving is asynchronous; changing rooms early can retain the group-call view.
+        await end.waitFor({state:'hidden'});
+      }
     }
     for (const frame of page.frames()) await frame.evaluate(() => {window.kyCallPeers = []});
   }
