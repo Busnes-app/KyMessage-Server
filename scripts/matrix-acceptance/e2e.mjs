@@ -501,9 +501,12 @@ async function calls(restored = false) {
     // Element replaces its call iframe during startup; resolve it again on each action.
     const call = page.frameLocator('iframe[title="Element Call"]');
     for (let i = 0; i < 30; i++) {
-      const join = call.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
-      if (await join.isVisible()) await join.click();
       if (await call.getByRole('button', { name: 'End call', exact: true }).isVisible()) return;
+      // An incoming call can ask for confirmation in Element before creating its iframe.
+      const confirm = page.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
+      const join = call.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
+      if (await confirm.isVisible()) await confirm.click();
+      else if (await join.isVisible()) await join.click();
       await page.waitForTimeout(1000);
     }
     const diagnostics = [];
