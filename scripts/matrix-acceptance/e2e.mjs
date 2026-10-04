@@ -550,7 +550,10 @@ async function calls(restored = false) {
     for (const page of [alice, bob]) {
       // Controls can briefly hide while the other participant leaves; always hang up.
       const end = page.frameLocator('iframe[title="Element Call"]').getByRole('button', {name:'End call', exact:true});
-      await end.click();
+      await end.click({timeout:5000}).catch(async err => {
+        // Ending a DM can also close the other participant's iframe during this click.
+        if (await page.locator('iframe[title="Element Call"]').count()) throw err;
+      });
       // Leaving is asynchronous; changing rooms early can retain the group-call view.
       await end.waitFor({state:'hidden'});
       for (const frame of page.frames()) await frame.evaluate(() => {window.kyCallPeers = []});
