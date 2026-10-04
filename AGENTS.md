@@ -196,7 +196,12 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   then saving the issued secret to the 0600 file) and the Matrix overlay as Compose project
   `kymatrix-accept-<pid>` (own network and volumes; its exit trap runs `down -v` on that
   project only) behind a harness TLS proxy with a throwaway CA, so shipped configs run
-  over https (only scratch LiveKit media/TLS ports are randomized). The harness temporarily
+  over https (scratch LiveKit media/TLS ports are randomized). Scratch LiveKit keeps native
+  Docker bridge and loopback ICE addresses, rather than rewriting both to loopback; the Linux
+  host reaches the private bridge directly and TURN's peer policy still permits only loopback.
+  Call checks resolve the current iframe, hang up both calls before reusing profiles, and
+  verify relay-only ICE policy plus TLS transport (Chromium may label that candidate `prflx`).
+  The harness temporarily
   imports its own CA nickname into Chromium's NSS database for TURN/TLS verification and
   removes exactly that nickname on exit; `certutil` is required. Playwright drives Element: native OIDC sign-in, key setup, DM and
   group messages read by the other user, group video decoded and DM voice audio received by

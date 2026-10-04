@@ -154,7 +154,10 @@ eventually() {
 }
 matrix_init() {
  "$scratch/kymessages" matrix-init -dir "$scratch/matrix"
- # Only the scratch media ports differ; every authentication/encryption setting stays shipped.
+ # Keep native bridge and loopback candidates distinct: rewriting both to 127.0.0.1
+ # makes ICE pick between different UDP sockets with the same advertised address.
+ # The host can reach the private Docker bridge; TURN still permits only the loopback peer.
+ sed -i '/^  node_ip:/d' "$scratch/matrix/livekit/config.yaml"
  sed -i "/^rtc:/a\\  enable_loopback_candidate: true" "$scratch/matrix/livekit/config.yaml"
  sed -i "s/tcp_port: 7881/tcp_port: $KYMATRIX_ACCEPT_TCP_PORT/; s/udp_port: 7882/udp_port: $KYMATRIX_ACCEPT_UDP_PORT/; s/127.0.0.1:7882/127.0.0.1:$KYMATRIX_ACCEPT_UDP_PORT/" "$scratch/matrix/livekit/config.yaml"
 }
@@ -229,7 +232,7 @@ grep -qF "save the secret it shows to $client_secret_file (mode 0600), and run m
 	{ echo "  FAILED: first pass did not say where to save the client secret" >&2; false; }
 [[ ! -e $scratch/matrix/mas/config.yaml ]] || { echo "  FAILED: first pass rendered a MAS config" >&2; false; }
 ok "first pass: no MAS config, told where to save the client secret"
-no_insecure "rendered configs (only scratch media ports remapped)" "$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/element/config.json"
+no_insecure "rendered configs" "$scratch/matrix/synapse/homeserver.yaml" "$scratch/matrix/element/config.json"
 pass
 
 # ---------------------------------------------------------------------------------------
