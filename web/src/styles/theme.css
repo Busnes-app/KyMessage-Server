@@ -328,6 +328,7 @@ dialog.modal-window::backdrop {
 .dr-members li { font-family: var(--font-mono); font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-strong); }
 .dr-copies { margin: 12px 0 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
 .dr-copies li { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; border-top: 1px dashed var(--line); }
+.dr-copies span { min-width: 0; overflow-wrap: anywhere; }
 .dr-drill { margin-top: 12px; font-size: 14px; }
 .dr-checks { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 13px; }
 .dr-check { display: flex; align-items: flex-start; gap: 8px; }
