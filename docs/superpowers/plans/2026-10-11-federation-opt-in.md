@@ -51,9 +51,11 @@ Full open federation is not a level (D4).
 5. Each server shows **Connected**, **Waiting for them to allow you**, **Restart to apply**, or
    **Unreachable**.
 
-One-time setup for installs made before this ships: re-run `matrix-init` (creates the file)
-and widen the apex route to `^/\.well-known/matrix/(client|server)$`. New installs get both
-from the docs from the start.
+One-time setup for installs made before this ships: re-run `matrix-init` (creates the file
+closed), then `docker compose up -d` with the existing overlay chain, not `restart`: a restart
+keeps the old Synapse command and the app's old mounts, so only recreating the containers
+loads the new file. Then widen the apex route to `^/\.well-known/matrix/(client|server)$`.
+New installs get all of it from the docs from the start.
 
 ## Facts this plan relies on
 
@@ -100,8 +102,10 @@ from the docs from the start.
 ## Warnings shown before enabling (and in docs)
 
 - Allowed servers see room names, topics, membership, display names and timestamps of rooms
-  their users join. Messages stay end-to-end encrypted in Element. **Cross-server encryption
-  is unproven until the acceptance task runs it.**
+  their users join. Chat keeps its label, "End-to-end encrypted in Element (not independently
+  audited)", with its caveat: Synapse does not enforce encryption, so a client that does not
+  encrypt can post plaintext. **Cross-server encryption is unproven until the acceptance task
+  runs it.**
 - Offboarding a user here does not remove what was already sent to other servers.
 - **Close** removes this server from a room; other servers keep it. **Delete permanently**
   deletes only this server's copy.
@@ -126,8 +130,10 @@ restart") instead of matching message text.
 - `FederationYAML(allow []string) []byte`: empty list → listener `[client, openid]` and
   `federation_domain_whitelist: []`; non-empty → `[client, openid, federation]` and the list.
   Sorted, deduplicated output.
-- `ValidServerName(s string) error`: lowercase DNS hostname with an optional port, at most 255
-  bytes. Refuse IP literals, our own server name and wildcards. List capped at 100.
+- Names: the existing `ValidServerName` (a lowercase DNS name, at most 253 bytes, no port).
+  Refuse IP literals, our own server name and wildcards. List capped at 100. Server names with
+  an explicit port are valid Matrix but rare; they are refused with a clear message until
+  someone needs one (YAGNI).
 - `homeserver.yaml.tmpl`: drop `listeners` and `federation_domain_whitelist` (now owned by the
   second file); keep `trusted_key_servers: []` (keys come straight from each origin).
 - `matrix-init` creates `matrix/federation/federation.yaml` (closed) **only if missing**, owned
