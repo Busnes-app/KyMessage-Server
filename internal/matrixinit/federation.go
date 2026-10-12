@@ -18,8 +18,9 @@ const MaxFederationServers = 100
 
 // FederationYAML renders Synapse's listeners and federation allow-list. An empty list is
 // today's closed server: no federation resource and an allow-list that denies every server.
-// The output is JSON, which YAML reads as is, so a name cannot add keys.
-func FederationYAML(allow []string) ([]byte, error) {
+// The output is JSON, which YAML reads as is, so a name cannot add keys. self, this server's
+// own name, is refused in the list.
+func FederationYAML(self string, allow []string) ([]byte, error) {
 	names := slices.Clone(allow)
 	slices.Sort(names)
 	names = slices.Compact(names)
@@ -32,6 +33,9 @@ func FederationYAML(allow []string) ([]byte, error) {
 		}
 		if _, err := netip.ParseAddr(n); err == nil {
 			return nil, fmt.Errorf("server name %q is an IP address", n)
+		}
+		if n == self {
+			return nil, fmt.Errorf("server name %q is this server's own", n)
 		}
 	}
 	resources := []string{"client", "openid"}
@@ -64,8 +68,8 @@ func FederationYAML(allow []string) ([]byte, error) {
 
 // WriteFederation rewrites the file in place: Compose binds this single file into Synapse and
 // the app, and a running container keeps the inode it was given.
-func WriteFederation(path string, allow []string) error {
-	b, err := FederationYAML(allow)
+func WriteFederation(path, self string, allow []string) error {
+	b, err := FederationYAML(self, allow)
 	if err != nil {
 		return err
 	}
@@ -77,7 +81,7 @@ func WriteFederation(path string, allow []string) error {
 func ensureFederation(path string) (created bool, err error) {
 	fi, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		b, err := FederationYAML(nil)
+		b, err := FederationYAML("", nil)
 		if err != nil {
 			return false, err
 		}
