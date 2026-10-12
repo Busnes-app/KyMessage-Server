@@ -377,7 +377,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST "+rtcPrefix+"/get_token", s.tracked(s.handleRTCToken))
 	// Matrix client discovery lives outside /api/, so it must precede the SPA catch-all.
 	s.mux.HandleFunc("GET "+wellKnownMatrixClient, s.handleMatrixClientWellKnown)
-	s.mux.HandleFunc("GET /.well-known/matrix/server", s.handleMatrixServerWellKnown)
+	s.mux.HandleFunc("GET "+wellKnownMatrixServer, s.handleMatrixServerWellKnown)
 
 	// Embedded React PWA Frontend. /app-icon.png is the admin's logo when one is set; public.
 	static := web.Handler()
@@ -480,8 +480,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, "+syncauth.HeaderSignature)
 
 	// Matrix discovery is public: any client origin may preflight it.
-	if r.Method == http.MethodOptions && r.URL.Path == wellKnownMatrixClient {
-		s.handleMatrixClientWellKnown(w, r)
+	if r.Method == http.MethodOptions && (r.URL.Path == wellKnownMatrixClient || r.URL.Path == wellKnownMatrixServer) {
+		publicDiscovery(w, r)
 		return
 	}
 	if r.Method == http.MethodOptions {
