@@ -92,9 +92,11 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   peer IPs except the configured media IPv4 (including an exact private-IP allowance).
   Certificate trust is an operator prerequisite; deployment egress must restrict peer ports.
 - Federation (owner decision 2026-10-11, plan `docs/superpowers/plans/2026-10-11-federation-opt-in.md`):
-  `listeners` and `federation_domain_whitelist` live only in `federation/federation.yaml`, which
-  Synapse loads second (`--config-path` order; Synapse 1.162 merges files with a shallow
-  update, `synapse/config/_base.py` `read_config_files`). `FederationYAML` is its only
+  `federation/federation.yaml`, which Synapse loads second (`--config-path` order; Synapse 1.162
+  merges files with a shallow update, `synapse/config/_base.py` `read_config_files`), replaces
+  `listeners` and `federation_domain_whitelist`. `homeserver.yaml` keeps the closed values of
+  both, equal to `FederationYAML(nil)` (`TestFederationFileOwnsOnlyListenersAndAllowList`), so
+  a Synapse started without the second file (a deployment not yet updated) runs, closed. `FederationYAML` is its only
   renderer: JSON (valid YAML, so a name cannot add keys), names sorted and deduplicated, each a
   `ValidServerName` and not an IP literal, at most `MaxFederationServers`. Empty is today's
   closed server: `[client, openid]` and `[]` (never null, which allows every server).

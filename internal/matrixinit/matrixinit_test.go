@@ -862,14 +862,16 @@ func TestFederationFileOwnsOnlyListenersAndAllowList(t *testing.T) {
 	if err := yaml.Unmarshal(b, &hs); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"listeners", "federation_domain_whitelist"} {
-		if _, ok := hs[k]; ok {
-			t.Errorf("homeserver.yaml still sets %s, which the federation file must own", k)
-		}
-	}
 	b, _ = os.ReadFile(filepath.Join(dir, FederationFile))
 	if err := yaml.Unmarshal(b, &fed); err != nil {
 		t.Fatal(err)
+	}
+	// homeserver.yaml alone is the closed server, so a Synapse started without the federation
+	// file (an un-updated deployment) still runs, closed: same keys, same values.
+	for _, k := range []string{"listeners", "federation_domain_whitelist"} {
+		if fmt.Sprint(hs[k]) != fmt.Sprint(fed[k]) {
+			t.Errorf("%s: homeserver.yaml %v, closed federation file %v", k, hs[k], fed[k])
+		}
 	}
 	if len(fed) != 2 || fed["listeners"] == nil || fed["federation_domain_whitelist"] == nil {
 		t.Errorf("federation file keys: %v", fed)
