@@ -114,6 +114,19 @@ func TestRemoteCallersJoinOnlyAllowedExistingCalls(t *testing.T) {
 	if len(removed) != 0 {
 		t.Fatalf("allowed participants evicted: %v", removed)
 	}
+	// A closed room keeps its remote members in Synapse, but grants no call and its call keeps
+	// nobody.
+	rooms.blocked[rGroup] = true
+	request(403)
+	if err := srv.ReconcileCalls(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(removed, ",") != "alice-device,bob-device" {
+		t.Fatalf("closed room evicted %v, want everyone", removed)
+	}
+	removed = nil
+	rooms.blocked[rGroup] = false
+
 	// Unreadable federation settings evict remote callers and still evict local ones.
 	set("federation_servers", "not json")
 	if err := srv.ReconcileCalls(context.Background()); err == nil {
