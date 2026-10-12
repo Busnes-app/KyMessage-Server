@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -85,39 +84,49 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 		s.rtcError(w, 400, "Invalid room, slot or device")
 		return
 	}
-	// The caller cannot choose a network destination, even when presenting a foreign OpenID token.
-	if in.OpenID.ServerName != s.config.Matrix.ServerName || !rtcValue(in.OpenID.AccessToken) {
-		s.rtcError(w, 403, "Only this deployment's users may call")
+	if !rtcValue(in.OpenID.AccessToken) {
+		s.rtcError(w, 401, "Invalid Matrix OpenID token")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", s.matrixTargets.Synapse+"/_matrix/federation/v1/openid/userinfo?access_token="+url.QueryEscape(in.OpenID.AccessToken), nil)
-	resp, err := s.probeHTTP.Do(req)
+	// The caller cannot choose a network destination: only this server, or a server on the
+	// federation allow-list (D3: remote users join calls a local user started).
+	local := in.OpenID.ServerName == s.config.Matrix.ServerName
+	if !local {
+		allowed, err := s.federationAllows(ctx, in.OpenID.ServerName)
+		if err != nil {
+			s.rtcError(w, 502, "Unable to verify access")
+			return
+		}
+		if !allowed {
+			s.rtcError(w, 403, "Only this deployment's users and allowed servers may call")
+			return
+		}
+	}
+	sub, status, err := s.openIDUser(ctx, in.OpenID.ServerName, in.OpenID.AccessToken)
 	if err != nil {
-		s.rtcError(w, 502, "Unable to verify identity")
+		msg := "Unable to verify identity"
+		if status == 401 {
+			msg = "Invalid Matrix OpenID token"
+		}
+		s.rtcError(w, status, msg)
 		return
 	}
-	defer resp.Body.Close()
-	var user struct {
-		Sub string `json:"sub"`
-	}
-	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&user) != nil || !strings.HasPrefix(user.Sub, "@") || !strings.HasSuffix(user.Sub, ":"+s.config.Matrix.ServerName) {
-		s.rtcError(w, 401, "Invalid Matrix OpenID token")
-		return
-	}
-	if !legacy && in.Member.UserID != user.Sub {
+	if !legacy && in.Member.UserID != sub {
 		s.rtcError(w, 403, "Call identity does not match")
 		return
 	}
-	active, err := s.activeCallUsers(ctx)
-	if err != nil {
-		s.rtcError(w, 502, "Unable to verify access")
-		return
-	}
-	if !active[user.Sub] {
-		s.rtcError(w, 403, "Chat access is disabled")
-		return
+	if local {
+		active, err := s.activeCallUsers(ctx)
+		if err != nil {
+			s.rtcError(w, 502, "Unable to verify access")
+			return
+		}
+		if !active[sub] {
+			s.rtcError(w, 403, "Chat access is disabled")
+			return
+		}
 	}
 	var joined bool
 	err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
@@ -125,7 +134,7 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		joined = slices.Contains(members, user.Sub)
+		joined = slices.Contains(members, sub)
 		return nil
 	})
 	if err != nil {
@@ -137,15 +146,28 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	room := matrixrtc.Hash(in.RoomID, in.SlotID)
-	identity := matrixrtc.Hash(user.Sub, in.Member.DeviceID, in.Member.ID)
+	identity := matrixrtc.Hash(sub, in.Member.DeviceID, in.Member.ID)
 	if legacy {
-		identity = user.Sub + ":" + in.DeviceID
+		identity = sub + ":" + in.DeviceID
 	}
-	if err := s.rtc.Create(ctx, room, in.RoomID); err != nil {
-		s.rtcError(w, 502, "Call service is unavailable")
-		return
+	if local {
+		if err := s.rtc.Create(ctx, room, in.RoomID); err != nil {
+			s.rtcError(w, 502, "Call service is unavailable")
+			return
+		}
+	} else {
+		// Remote users only join: the call must already exist, started by someone here.
+		rooms, err := s.rtc.Rooms(ctx)
+		if err != nil {
+			s.rtcError(w, 502, "Call service is unavailable")
+			return
+		}
+		if !slices.ContainsFunc(rooms, func(r matrixrtc.Room) bool { return r.Name == room }) {
+			s.rtcError(w, 403, "Wait for someone on "+s.config.Matrix.ServerName+" to start the call")
+			return
+		}
 	}
-	s.writeJSON(w, 200, map[string]string{"url": "wss" + strings.TrimPrefix(s.config.Matrix.RTCHost, "https"), "jwt": s.rtc.Join(room, identity, user.Sub)})
+	s.writeJSON(w, 200, map[string]string{"url": "wss" + strings.TrimPrefix(s.config.Matrix.RTCHost, "https"), "jwt": s.rtc.Join(room, identity, sub)})
 }
 
 func rtcValue(v string) bool {
@@ -171,7 +193,8 @@ func (s *Server) activeCallUsers(ctx context.Context) (map[string]bool, error) {
 	return active, nil
 }
 
-// ReconcileCalls evicts offboarded users and people removed from a Matrix room. Metadata in
+// ReconcileCalls evicts offboarded users, users of servers no longer allowed and people removed
+// from a Matrix room. Metadata in
 // grants and rooms comes only from this server and cannot be changed by participants.
 func (s *Server) ReconcileCalls(ctx context.Context) error {
 	if s.rtc == nil || s.mas == nil {
@@ -187,6 +210,18 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 	active, err := s.activeCallUsers(ctx)
 	if err != nil {
 		return err
+	}
+	st, err := s.fedState(ctx)
+	if err != nil {
+		return err
+	}
+	allowed := st.allow()
+	// A local user must be active here; a remote one's server must still be allowed.
+	mayCall := func(mxid string) bool {
+		if server := mxidServer(mxid); server != s.config.Matrix.ServerName {
+			return slices.Contains(allowed, server)
+		}
+		return active[mxid]
 	}
 	var result error
 	for _, room := range rooms {
@@ -212,7 +247,7 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 			members = nil
 		}
 		for _, p := range participants {
-			if active[p.Metadata] && slices.Contains(members, p.Metadata) {
+			if mayCall(p.Metadata) && slices.Contains(members, p.Metadata) {
 				continue
 			}
 			if err := s.rtc.Remove(ctx, room.Name, p.Identity); err != nil {

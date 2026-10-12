@@ -53,12 +53,21 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - KyIdentity accounts are matched by subject only, never by username. The directory webhook answers 409 for `sso.ErrSyncUsernameConflict` (never 500, which KyIdentity fences). The sign-in callback auto-provisions only on `store.ErrNotFound`; a username another account holds is a JSON 409 naming it, audited `sso.login_conflict` (resource the username, details `subject="..."`), with no session and no change to that account (`TestSSOSignInRefusesUsernameHeldByLocalAccount`).
 - `Server.OnDirectoryChange(fn)` registers a callback run after each acknowledged KyIdentity directory webhook (never after a refused one); it must not block, as the sender is waiting. `cmd/server` passes the Matrix offboarding syncer's `Wake`.
 - `POST /api/matrix/rtc/{sfu/get,get_token}` authenticates an explicit Matrix OpenID token
-  against the fixed internal Synapse origin; rejects foreign servers before any network call;
-  checks active directory/MAS access and Matrix room membership before creating a LiveKit room
-  and issuing a scoped 15-second grant. These two exact paths alone use CORS `*`, no credentials,
+  against the fixed internal Synapse origin, or, for a server on the effective federation
+  allow-list (owner decision D3, 2026-10-11), against that server's
+  `/_matrix/federation/v1/openid/userinfo` found through its `/.well-known/matrix/server`
+  (else `<name>:8448`; no SRV), with `fedHTTP`: dial-time refusal of Synapse's default
+  blocklist ranges (`blockedPeerRanges`, plus unspecified and IPv4-mapped), no proxy, no
+  redirects, 8 s, 4 KiB. Any other server is refused before any network call; the token's
+  `sub` must belong to the server that verified it. A local caller must be active in the
+  directory and MAS, and gets the LiveKit room created; a remote caller only joins a room that
+  already exists (a local user started the call; 403 otherwise, never `Create`). Both need
+  Matrix room membership before a scoped 15-second grant. These two exact paths alone use CORS `*`, no credentials,
   no cookie authentication/CSRF, bounded JSON and per-IP throttling. They are `tracked` so the
   shutdown drain covers their store reads. Caller URLs and delayed-delegation fields are not used.
-  `ReconcileCalls` removes inactive accounts and removed room members through LiveKit. A missing
+  `ReconcileCalls` removes inactive accounts, users of servers no longer on the effective
+  allow-list (at once, without waiting for Synapse to restart) and removed room members
+  through LiveKit. A missing
   room has no members; other read failures remain failures. Errors and logs omit caller tokens.
 - `GET /.well-known/matrix/client` (unauthenticated, registered before the SPA catch-all) returns `{"m.homeserver":{"base_url":<KY_MATRIX_HOST>}}` plus `org.matrix.msc4143.rtc_foci` pointing at the console call-authorizer when calling is configured, with `Access-Control-Allow-Origin: *`, no credentials header and no HSTS; JSON 404 when Matrix is not configured. `ServeHTTP` answers its `OPTIONS` preflight from any origin, the app's own included (200, `*`, no credentials), before the app-origin preflight rule (`wellknown_test.go`).
 - `GET /api/settings` always carries `chat_url` (the Element origin, empty when Matrix is not configured) in the public tier; the members' "Open chat" link reads it.
