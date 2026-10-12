@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"github.com/Busnes-app/ky_server_base/internal/matrixrtc"
+	"net/http"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/health"
@@ -71,4 +73,21 @@ func SetFederationPresetsForTest(t interface{ Cleanup(func()) }, names ...string
 		federationPresets = append(federationPresets, federationPreset{Name: n, Operator: "Test", Source: "https://" + n + "/", Checked: "2026-10-11"})
 	}
 	t.Cleanup(func() { federationPresets = old })
+}
+
+// SetFederationPeerForTest sends every federation request to base with client.
+func SetFederationPeerForTest(s *Server, base string, client *http.Client) {
+	s.fedBaseForTest = func(string) string { return base }
+	s.fedHTTP = client
+}
+
+// FederationHTTPForTest is the app's client for other homeservers.
+func FederationHTTPForTest(s *Server) *http.Client { return s.fedHTTP }
+
+var PublicOnlyForTest = publicOnly
+
+// FederationBaseForTest resolves name with client, as the call authorizer does.
+func FederationBaseForTest(s *Server, client *http.Client, name string) (string, error) {
+	s.fedHTTP = client
+	return s.federationBase(context.Background(), name)
 }
