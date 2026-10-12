@@ -149,9 +149,11 @@ When the user requests a durable behavior change, record it here or in the relev
   until `matrix-init`'s second pass has the KyIdentity client secret. Synapse and
   `restore-matrix` mount `matrix-media` with `nocopy`: otherwise Docker re-copies the image's
   root-owned `/media` onto the empty volume at each mount and undoes `synapse-media-owner`.
-  The app's one read-write path under `./matrix` is `./matrix/element/config.json`, its only
-  mount of `./matrix/element`: the console sets Element's `brand` there in place, and the
-  check holds the app to that one file (with the static-IP overlay too) and to no mount nested
+  The app's read-write paths under `./matrix` are `./matrix/element/config.json`, its only
+  mount of `./matrix/element`, where the console sets Element's `brand` in place, and
+  `./matrix/federation/federation.yaml` (Synapse's listeners and allow-list, see
+  `internal/matrixinit/AGENTS.md`); the check holds the app to those two files (with the
+  static-IP overlay too) and to no mount nested
   in another (a nested mountpoint inside a read-only bind breaks `docker cp`). Element stays
   stock (owner decision 2026-10-02): exactly that file at `/app/config.json:ro`, which its image
   copies at start, so a rename shows after `docker compose restart element`; the check refuses

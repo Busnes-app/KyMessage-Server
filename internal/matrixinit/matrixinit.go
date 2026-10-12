@@ -214,7 +214,7 @@ func Run(in Input, dir string) (Result, error) {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return Result{}, err
 	}
-	for _, sub := range []string{".", "secrets", "synapse", "mas", "element", "postgres", "livekit"} {
+	for _, sub := range []string{".", "secrets", "synapse", "federation", "mas", "element", "postgres", "livekit"} {
 		if err := privateDir(filepath.Join(dir, sub)); err != nil {
 			return Result{}, err
 		}
@@ -256,6 +256,11 @@ func Run(in Input, dir string) (Result, error) {
 	}
 	if _, err := ensure(filepath.Join("synapse", "signing.key"), synapseSigningKey); err != nil {
 		return Result{}, err
+	}
+	if created, err := ensureFederation(filepath.Join(dir, FederationFile)); err != nil {
+		return Result{}, fmt.Errorf("%s: %w", FederationFile, err)
+	} else if created {
+		res.Rendered = append(res.Rendered, FederationFile)
 	}
 
 	data := map[string]any{"In": in, "S": s,

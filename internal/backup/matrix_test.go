@@ -41,6 +41,7 @@ func matrixInstance(t *testing.T, masDump, synapseDump []byte) (*config.Config, 
 		"secrets/.synapse_db_password.123": "matrix-init temp file",
 		"synapse/signing.key":              "ed25519 a_abcd seed",
 		"synapse/homeserver.yaml":          "server_name: example.com",
+		"federation/federation.yaml":       "federation_domain_whitelist: []",
 		"mas/config.yaml":                  "clients: []",
 		"element/config.json":              "{}",
 		"livekit/config.yaml":              "keys: {}",
@@ -129,7 +130,7 @@ func TestCollectSplitsDumpsAndRejoins(t *testing.T) {
 			t.Errorf("pg_dump args %q", args)
 		}
 	}
-	for _, path := range []string{"matrix/secrets/synapse_db_password", "matrix/synapse/signing.key", "matrix/mas/config.yaml",
+	for _, path := range []string{"matrix/secrets/synapse_db_password", "matrix/synapse/signing.key", "matrix/federation/federation.yaml", "matrix/mas/config.yaml",
 		"matrix/element/config.json", "matrix/postgres/init.sql", "matrix/postgres/kybackup-role.sql", "data/media.key"} {
 		if findFile(p.Files, path) == nil {
 			t.Errorf("payload lacks %s", path)
@@ -282,5 +283,26 @@ func TestPgDumpDropsInheritedPGEnv(t *testing.T) {
 	}
 	if strings.Contains(string(env), "PGHOST") || strings.Contains(string(env), "PGSERVICEFILE") || !strings.Contains(string(env), "PGPASSWORD") {
 		t.Errorf("pg_dump environment:\n%s", env)
+	}
+}
+
+// A stack upgraded without re-running matrix-init has no federation directory; backups still run.
+func TestCollectToleratesAMissingFederationDir(t *testing.T) {
+	cfg, _ := matrixInstance(t, dumpOf(100), dumpOf(100))
+	if err := os.RemoveAll(filepath.Join(cfg.Matrix.Dir, "federation")); err != nil {
+		t.Fatal(err)
+	}
+	p, err := backup.Collect(context.Background(), cfg, "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members(p, "matrix/federation/")) != 0 || len(members(p, "matrix/synapse/")) == 0 {
+		t.Errorf("members: %v", p.Files)
+	}
+	if err := os.RemoveAll(filepath.Join(cfg.Matrix.Dir, "mas")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); err == nil {
+		t.Error("a missing mas directory was tolerated")
 	}
 }
