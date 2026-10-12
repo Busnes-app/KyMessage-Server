@@ -399,3 +399,23 @@ func TestFederationStatusProbesAfterSlowSetup(t *testing.T) {
 		t.Errorf("after a slow setup: %v", got)
 	}
 }
+
+// Every shipped preset is a valid allow-list entry with its evidence recorded.
+func TestShippedFederationPresetsAreWellFormed(t *testing.T) {
+	presets := api.FederationPresetsForTest()
+	if len(presets) == 0 {
+		t.Skip("no presets in this release")
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, p := range presets {
+		if seen[p.Name] || p.Operator == "" || !strings.HasPrefix(p.Source, "https://") || len(p.Checked) != len("2006-01-02") {
+			t.Errorf("preset %+v", p)
+		}
+		seen[p.Name] = true
+		names = append(names, p.Name)
+	}
+	if _, err := matrixinit.FederationYAML(names); err != nil {
+		t.Errorf("presets do not render: %v", err)
+	}
+}

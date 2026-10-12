@@ -261,7 +261,13 @@ Synapse args and file mount, the app's rw mount, `KY_MATRIX_SYNAPSE_RESTART_HINT
 (`kubectl -n ky-stack rollout restart deploy/synapse`), Synapse egress to public 443/8448
 (private ranges denied), and the Cloudflare apex path rule.
 
-### Task 8 — Public presets (level 3)
+### Task 8 — Public presets (level 3) — done 2026-10-11
+
+Vetted against fetched sources: matrix.org, mozilla.org, kde.org, gnome.org and fedora.im
+pass; opensuse.org, tchncs.de, envs.net, gitter.im and element.io fail a criterion. Evidence
+sits beside each entry in `internal/api/federation_presets.go`. Four of the five passes are
+Element-hosted. No Synapse 1.162 option blocks invites from strangers server-wide (Task 0);
+per-user `m.invite_permission_config` (MSC4380) can, from a client that supports it.
 - A list compiled into the binary (`internal/api/federation_presets.go`), never fetched at
   runtime: name, operator, sign-up policy (open/closed), source URL, date checked. Releases
   update it.
