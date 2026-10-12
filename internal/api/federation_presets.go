@@ -7,7 +7,10 @@ package api
 //   - run by an identifiable organisation;
 //   - federating for at least two years;
 //   - a published abuse/moderation contact and policy;
-//   - serves federation over valid TLS and answers the federation status check.
+//   - serves federation over valid TLS: the Matrix federation tester
+//     (federationtester.matrix.org) reports FederationOK, valid certificates and an ed25519 key.
+//     The console's own status probe (a remote profile lookup) needs a public, federating
+//     Synapse, so it is each operator's "Check connections", not a vetting step.
 //
 // An entry nobody has verified against these is never listed.
 type federationPreset struct {
@@ -18,8 +21,9 @@ type federationPreset struct {
 	Checked    string `json:"checked"`     // date checked, YYYY-MM-DD
 }
 
-// Checked 2026-10-11 against the criteria above: each server's /.well-known/matrix/server and
-// its delegated /_matrix/federation/v1/version answered over valid TLS that day. Four of the
+// Checked against the criteria above: each server's /.well-known/matrix/server and its delegated
+// /_matrix/federation/v1/version answered over valid TLS on 2026-10-11, and the federation
+// tester reported FederationOK for all five on 2026-10-12. Four of the
 // five are hosted by Element (modular.im / ems.host), so one Element incident can reach them
 // together. Names, not hosts: delegation is resolved at use and has changed before. Failed and
 // left out: opensuse.org (no reachable policy or contact), tchncs.de (run by an individual),

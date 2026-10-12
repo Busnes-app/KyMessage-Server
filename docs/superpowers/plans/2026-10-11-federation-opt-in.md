@@ -273,7 +273,9 @@ per-user `m.invite_permission_config` (MSC4380) can, from a client that supports
   update it.
 - Vetting criteria, written into the file's header and applied per entry, with sources: run
   by an identifiable organisation, at least two years old, a published abuse/moderation contact
-  and policy, serves federation over valid TLS, passes the Task 0 probe. Candidate list is a
+  and policy, serves federation over valid TLS (federation tester FederationOK). The Task 0
+  profile probe needs a public, federating Synapse, so it stays the operator's "Check
+  connections" rather than a vetting step. Candidate list is a
   research task; nothing is listed unverified.
 - UI (level 3 only): under "Add server", a "Public servers" list with a checkbox each and an
   "Open sign-up" badge where it applies. A ticked preset joins the same effective allow-list
