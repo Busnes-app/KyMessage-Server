@@ -1,0 +1,3 @@
+# Acceptance harness only: loaded by the harness's Synapse after /federation.yaml. Never part
+# of a deployment.
+federation_custom_ca_list: [/accept-ca.crt]

@@ -16,6 +16,9 @@
 # once, Element's /config.json and title after `docker compose restart element`, and a
 # matrix-init re-run is undone by the next maintenance tick. After offboarding, sync status
 # shows an accepted webhook and an ok sweep, and counts a badly signed delivery.
+# Federation: the console lists a peer Synapse and, after a Synapse restart, messages cross
+# both ways; removing it gets the peer refused; level closed restores the closed file and 404s.
+# A peer's call token is refused (private address while allowed, before any lookup after).
 #
 # Loopback without weakening shipped configs: a harness TLS proxy with a throwaway CA answers
 # for the https hosts; MAS and Chromium trust that CA; the temporary Chromium CA is removed on exit. Everything runs in
@@ -381,6 +384,14 @@ done
 rc=0
 dc exec -T synapse curl -s -o /dev/null --max-time 5 http://localhost:8448/ || rc=$?
 expect "$rc" 7 "Synapse has no federation listener (curl to 8448: connection refused)"
+# server_wk: the server name's /.well-known/matrix/server as "<status> <compact body>".
+server_wk() {
+	local code
+	code=$(hcurl -o "$state/wk.json" -w '%{http_code}' "https://$KY_MATRIX_SERVER_NAME/.well-known/matrix/server")
+	echo "$code $(jq -c . "$state/wk.json" 2>/dev/null || echo unparsable)"
+}
+expect "$(status GET "https://$KY_MATRIX_SERVER_NAME/.well-known/matrix/client")" 200 "the server name serves the app's client discovery file"
+expect "$(server_wk)" '404 {"error":"Federation is not enabled"}' "the app serves no /.well-known/matrix/server while closed"
 e2e refused
 expect "$(sql mas "SELECT count(*) FROM users WHERE username = 'mallory'")" 0 "no MAS account for mallory"
 expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links WHERE subject = '${kid[mallory]}'")" 0 "no upstream link for mallory"
@@ -901,6 +912,124 @@ cmp -s "$state/icon-default.png" "$repo/web/dist/app-icon.png" || { echo "  FAIL
 ok "resetting the logo serves the embedded stamp again"
 expect "$(app_api GET '/api/admin/audit?kind=branding&limit=20' | jq -r '[.records[] | "\(.action) \(.outcome)"] | join(",")')" \
 	"admin.brand_name saved,admin.brand_logo reset,admin.brand_logo saved,admin.brand_name saved" "the audit shows every branding change, newest first"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Federation with a peer Synapse (peer.kymatrix.test) on the restored stack, opened and closed
+# from the console. Test-only: both Synapses trust the throwaway CA and the proxy's private
+# address (synapse-federation.yaml, peer.yaml); the shipped files set neither. The second listed
+# server, gone.kymatrix.test, keeps the federation listener on once the peer is removed, so the
+# peer is refused by the allow-list, not by a missing listener. A cross-server call cannot run
+# here: the app's remote-caller client refuses private addresses by design.
+step federation
+fed_file=$scratch/matrix/federation/federation.yaml
+peer=peer.kymatrix.test peer_user=@fedpeer:peer.kymatrix.test
+ours=https://matrix.kymatrix.test/_matrix/client/v3 theirs=https://$peer/_matrix/client/v3
+# fed_shape: the federation file's allow-list and listener resources (JSON after its comment line).
+fed_shape() { tail -n +2 "$fed_file" | jq -c '[.federation_domain_whitelist, .listeners[0].resources[0].names]'; }
+fed_status() { app_api GET /api/admin/federation/status | jq -cS .statuses; }
+restart_synapse() {
+	dc restart synapse >/dev/null
+	dc up -d --no-deps --wait --wait-timeout 120 synapse >/dev/null
+	ready https://matrix.kymatrix.test/_matrix/client/versions
+}
+# received BASE TOKEN ROOM BODY: "yes" once BODY is among ROOM's newest 50 events for TOKEN.
+received() {
+	hcurl -fsS -H "Authorization: Bearer $2" "$1/rooms/$(uri "$3")/messages?dir=b&limit=50" |
+		jq -r --arg b "$4" 'if any(.chunk[]; .content.body? == $b) then "yes" else "no" end'
+}
+# say BASE TOKEN ROOM BODY: sends BODY as a plain m.room.message.
+say() {
+	hcurl -fsS -X PUT -H "Authorization: Bearer $2" -H 'Content-Type: application/json' -d "$(jq -n --arg b "$4" '{msgtype: "m.text", body: $b}')" \
+		"$1/rooms/$(uri "$3")/send/m.room.message/kymatrix-$(openssl rand -hex 8)" >/dev/null
+}
+peer_profile() { answer GET "$theirs/profile/$(uri "@alice.q_ky:$KY_MATRIX_SERVER_NAME")" -H "Authorization: Bearer $peer_token"; }
+expect "$(fed_shape)" '[[],["client","openid"]]' "the federation file is closed"
+cp "$fed_file" "$state/federation.closed"
+
+tls_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(dc ps -q tls)")
+printf 'ip_range_whitelist: ["%s/32"]\n' "$tls_ip" | tee -a "$scratch/overrides/synapse-federation.yaml" >>"$scratch/overrides/peer.yaml"
+printf 'registration_shared_secret: "%s"\n' "$(openssl rand -hex 32)" >>"$scratch/overrides/peer.yaml"
+dc up -d --quiet-pull --no-deps --wait --wait-timeout 120 peer >/dev/null
+ready "https://$peer/_matrix/client/versions"
+openssl rand -hex 16 >"$state/fedpeer.pass"
+dc exec -T peer register_new_matrix_user -c /peer.yaml -u fedpeer -p "$(cat "$state/fedpeer.pass")" --no-admin http://localhost:8008 >/dev/null
+peer_token=$(hcurl -fsS -H 'Content-Type: application/json' -d "$(jq -n --arg p "$(cat "$state/fedpeer.pass")" \
+	'{type: "m.login.password", identifier: {type: "m.id.user", user: "fedpeer"}, password: $p}')" "$theirs/login" | jq -re .access_token)
+ok "peer homeserver $peer up; $peer_user signed in there (test-only: CA and $tls_ip/32 allowed on both)"
+
+# Widening needs a sign-in from the last 10 minutes.
+app_login "$admin_pass"
+app_api PUT /api/admin/federation/level '{"level": "manual"}' >/dev/null
+app_api POST /api/admin/federation/servers "$(jq -n --arg n "$peer" '{name: $n}')" >/dev/null
+app_api POST /api/admin/federation/servers '{"name": "gone.kymatrix.test"}' >"$state/federation.json"
+expect "$(jq -c '[.level, [.servers[].name]]' "$state/federation.json")" "[\"manual\",[\"$peer\",\"gone.kymatrix.test\"]]" "the console set level manual and listed both servers"
+expect "$(fed_shape)" "[[\"gone.kymatrix.test\",\"$peer\"],[\"client\",\"openid\",\"federation\"]]" "the federation file lists them with the federation resource"
+expect "$(fed_status)" "{\"gone.kymatrix.test\":\"not_allowed\",\"$peer\":\"not_allowed\"}" "status before the restart: not_allowed (Synapse still runs the closed file)"
+restart_synapse
+expect "$(server_wk)" '200 {"m.server":"matrix.kymatrix.test:443"}' "/.well-known/matrix/server delegates to the matrix host"
+expect "$(status GET https://matrix.kymatrix.test/_matrix/federation/v1/version)" 200 "federation served on the matrix host"
+peer_status() { fed_status | jq -r --arg p "$peer" '.[$p] // "absent"'; }
+eventually 60 connected "the console reports $peer connected" peer_status
+ok "statuses: $(fed_status)"
+expect "$(peer_profile)" '200 -' "the peer reads alice's profile through our Synapse"
+
+# Alice's token: a fresh Element session (MAS access tokens live 5 minutes; used only below).
+e2e fedtoken AQuinn
+alice_token=$(cat "$state/AQuinn.token")
+fed_room=$(hcurl -fsS -H "Authorization: Bearer $alice_token" -H 'Content-Type: application/json' \
+	-d '{"name": "kymatrix-federation", "preset": "private_chat"}' "$ours/createRoom" | jq -re .room_id)
+hcurl -fsS -H "Authorization: Bearer $alice_token" -H 'Content-Type: application/json' \
+	-d "$(jq -n --arg u "$peer_user" '{user_id: $u}')" "$ours/rooms/$(uri "$fed_room")/invite" >/dev/null
+hcurl -fsS -H "Authorization: Bearer $peer_token" -H 'Content-Type: application/json' -d '{}' \
+	"$theirs/join/$(uri "$fed_room")?server_name=$KY_MATRIX_SERVER_NAME" >/dev/null
+expect "$(latest_membership "$peer_user" "$fed_room")" join "$peer_user joined alice's room $fed_room over federation"
+# Plain m.room.message on purpose: this proves transport, not cross-server encryption.
+from_peer=kymatrix-from-peer-$$ from_alice=kymatrix-from-alice-$$
+say "$theirs" "$peer_token" "$fed_room" "$from_peer"
+eventually 60 yes "alice read the peer's message" received "$ours" "$alice_token" "$fed_room" "$from_peer"
+say "$ours" "$alice_token" "$fed_room" "$from_alice"
+eventually 60 yes "the peer read alice's reply" received "$theirs" "$peer_token" "$fed_room" "$from_alice"
+
+# Calls: a peer user's OpenID token. Allowed, the app looks the peer up with its public-only
+# client, which refuses the proxy's private address; not allowed, it refuses before any lookup.
+openid=$(hcurl -fsS -H "Authorization: Bearer $peer_token" -H 'Content-Type: application/json' -d '{}' \
+	"$theirs/user/$(uri "$peer_user")/openid/request_token" | jq -re .access_token)
+rtc_token() {
+	local code
+	code=$(answer POST "$KY_APP_URL/api/matrix/rtc/get_token" -H 'Content-Type: application/json' -d "$(jq -n --arg r "$fed_room" --arg u "$peer_user" --arg t "$openid" --arg s "$peer" \
+		'{room_id: $r, slot_id: "m.call#ROOM", member: {id: "kymatrix-fed", claimed_user_id: $u, claimed_device_id: "KYFEDPEER"}, openid_token: {access_token: $t, matrix_server_name: $s}}')")
+	echo "$code $(jq -r .error "$state/answer.json")"
+}
+expect "$(rtc_token)" '502 M_UNKNOWN Unable to verify identity' "a call token for the allowed peer's user is refused: its address is private"
+
+# Narrowing: remove the peer (no step-up), restart.
+app_api DELETE "/api/admin/federation/servers/$peer" >/dev/null
+expect "$(rtc_token)" "403 M_FORBIDDEN Only this deployment's users and allowed servers may call" "a call token for the removed peer's user is refused before any lookup"
+expect "$(fed_shape)" '[["gone.kymatrix.test"],["client","openid","federation"]]' "the federation file drops the peer and keeps federation on"
+restart_synapse
+expect "$(fed_status | jq -r 'keys | join(",")')" gone.kymatrix.test "status probes listed servers only: the peer is no longer probed"
+eventually 60 '403 M_FORBIDDEN' "our Synapse refuses the peer's profile lookup (Federation denied)" peer_profile
+since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+denied_late=kymatrix-denied-$$
+say "$theirs" "$peer_token" "$fed_room" "$denied_late"
+# The peer's transaction reaches our Synapse and is refused there (access log: 403 on /send).
+denied_send() { dc logs --no-color --since "$since" synapse 2>&1 | grep -qE ' 403 "PUT /_matrix/federation/v1/send/' && echo yes || echo no; }
+eventually 60 yes "our Synapse refused the peer's next transaction" denied_send
+expect "$(sql synapse "SELECT count(*) FROM event_json WHERE room_id = '$fed_room' AND json LIKE '%$denied_late%'")" 0 "the peer's message after the removal never arrived"
+
+# Closing: back to the closed file; federation paths and the delegation are gone again.
+app_login "$admin_pass"
+app_api PUT /api/admin/federation/level '{"level": "closed"}' >/dev/null
+cmp "$state/federation.closed" "$fed_file"
+ok "level closed: the federation file is byte for byte the closed one again"
+restart_synapse
+for p in /_matrix/federation/v1/version /_matrix/key/v2/server; do
+	expect "$(status GET "https://matrix.kymatrix.test$p")" 404 "federation path $p not served again"
+done
+expect "$(server_wk)" '404 {"error":"Federation is not enabled"}' "no /.well-known/matrix/server again"
+expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=20' | jq -r '[.records[] | select(.action | startswith("matrix.federation_")) | "\(.target) \(.outcome)"] | join(",")')" \
+	"closed changed from manual,$peer removed,gone.kymatrix.test added,$peer added,manual changed from closed" "the audit shows every federation change, newest first"
 pass
 
 # ---------------------------------------------------------------------------------------
