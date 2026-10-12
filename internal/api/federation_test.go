@@ -44,7 +44,7 @@ func setupFederation(t *testing.T) (*api.Server, store.Store, *config.Config, *f
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := matrixinit.WriteFederation(path, nil); err != nil {
+	if err := matrixinit.WriteFederation(path, "example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 	return srv, st, cfg, f, path
