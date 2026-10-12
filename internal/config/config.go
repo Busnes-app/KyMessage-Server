@@ -52,6 +52,9 @@ type MatrixConfig struct {
 	// ElementRestartHint is the command Settings shows for restarting Element, whose image
 	// serves a copy of its config made at start. Displayed only, never run.
 	ElementRestartHint string `json:"element_restart_hint"`
+	// SynapseRestartHint is the command Settings shows after a federation change: Synapse
+	// reads its config only at start. Displayed only, never run.
+	SynapseRestartHint string `json:"synapse_restart_hint"`
 }
 
 // Enabled reports whether the Matrix stack is configured.
@@ -150,6 +153,9 @@ const DefaultAppName = "KyMessages"
 
 // DefaultElementRestartHint is the Compose command; a cluster sets KY_MATRIX_ELEMENT_RESTART_HINT.
 const DefaultElementRestartHint = "docker compose restart element"
+
+// DefaultSynapseRestartHint is the Compose command; a cluster sets KY_MATRIX_SYNAPSE_RESTART_HINT.
+const DefaultSynapseRestartHint = "docker compose restart synapse"
 
 // AppVersion is shared by the CLI and every capsule-producing path.
 const AppVersion = "0.1.0-dev"
@@ -389,8 +395,11 @@ func matrixFromEnv() (MatrixConfig, error) {
 		return MatrixConfig{}, errors.New("KY_MATRIX_RTC_HOST is required with call secrets")
 	}
 	m.ElementRestartHint = getEnv("KY_MATRIX_ELEMENT_RESTART_HINT", DefaultElementRestartHint)
-	if len(m.ElementRestartHint) > 256 || strings.ContainsFunc(m.ElementRestartHint, unicode.IsControl) {
-		return MatrixConfig{}, errors.New("KY_MATRIX_ELEMENT_RESTART_HINT must be one line of at most 256 bytes")
+	m.SynapseRestartHint = getEnv("KY_MATRIX_SYNAPSE_RESTART_HINT", DefaultSynapseRestartHint)
+	for k, v := range map[string]string{"KY_MATRIX_ELEMENT_RESTART_HINT": m.ElementRestartHint, "KY_MATRIX_SYNAPSE_RESTART_HINT": m.SynapseRestartHint} {
+		if len(v) > 256 || strings.ContainsFunc(v, unicode.IsControl) {
+			return MatrixConfig{}, errors.New(k + " must be one line of at most 256 bytes")
+		}
 	}
 	return m, nil
 }

@@ -256,7 +256,7 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret", Dir: "/matrix", MediaDir: "/matrix-media", DBHost: "postgres", BackupDBPassword: "kybpw", ElementRestartHint: config.DefaultElementRestartHint}); cfg.Matrix != want {
+	if want := (config.MatrixConfig{ServerName: "example.com", Host: "https://matrix.example.com", ChatHost: "https://chat.example.com", AdminURL: "http://mas-admin:8081", AdminClientID: "01J0000000000000000000ADMN", AdminSecret: "s3cret", Dir: "/matrix", MediaDir: "/matrix-media", DBHost: "postgres", BackupDBPassword: "kybpw", ElementRestartHint: config.DefaultElementRestartHint, SynapseRestartHint: config.DefaultSynapseRestartHint}); cfg.Matrix != want {
 		t.Fatalf("got %+v want %+v", cfg.Matrix, want)
 	}
 	t.Run("calling credentials", func(t *testing.T) {
@@ -368,6 +368,18 @@ func TestElementRestartHintFromEnv(t *testing.T) {
 		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_MATRIX_ELEMENT_RESTART_HINT") {
 			t.Errorf("%q: err = %v, want one naming KY_MATRIX_ELEMENT_RESTART_HINT", bad, err)
 		}
+	}
+	t.Setenv("KY_MATRIX_ELEMENT_RESTART_HINT", "")
+	if cfg, err = config.LoadFromEnv(); err != nil || cfg.Matrix.SynapseRestartHint != "docker compose restart synapse" {
+		t.Fatalf("default Synapse hint %q, %v", cfg.Matrix.SynapseRestartHint, err)
+	}
+	t.Setenv("KY_MATRIX_SYNAPSE_RESTART_HINT", "kubectl -n ky-stack rollout restart deployment/synapse")
+	if cfg, err = config.LoadFromEnv(); err != nil || cfg.Matrix.SynapseRestartHint != "kubectl -n ky-stack rollout restart deployment/synapse" {
+		t.Fatalf("set Synapse hint %q, %v", cfg.Matrix.SynapseRestartHint, err)
+	}
+	t.Setenv("KY_MATRIX_SYNAPSE_RESTART_HINT", "a\nb")
+	if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_MATRIX_SYNAPSE_RESTART_HINT") {
+		t.Errorf("multi-line Synapse hint: %v", err)
 	}
 }
 

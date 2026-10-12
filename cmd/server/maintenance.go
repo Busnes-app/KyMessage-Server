@@ -11,9 +11,10 @@ import (
 // brandTimeout bounds one Element brand reconcile: a small local file.
 const brandTimeout = 10 * time.Second
 
-// maintenanceLoop reconciles Element's brand at its start, then once a minute deletes expired
-// QR pairings and reconciles the brand again. brand is api.Server.ReconcileBrand (a no-op
-// without Matrix, logging its own failures once per streak); nil skips it. done closes between
+// maintenanceLoop reconciles Element's brand and Synapse's federation file at its start, then
+// once a minute deletes expired QR pairings and reconciles them again. brand runs
+// api.Server.ReconcileBrand and ReconcileFederation (no-ops without Matrix, logging their own
+// failures once per streak); nil skips it. done closes between
 // ticks, so shutdown can wait for it before the store closes.
 func maintenanceLoop(ctx context.Context, st store.Store, brand func(context.Context) error, done chan<- struct{}) {
 	defer close(done)

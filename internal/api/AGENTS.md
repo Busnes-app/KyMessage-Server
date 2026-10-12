@@ -85,6 +85,47 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 
 - Branding (`branding_handlers.go`): `GET /api/admin/branding` (admin, `no-store`) answers `{name, stored_name, default_name, logo:{custom, sha256, size}, element}`; `element` (`{brand?, error?, served?, served_error?, restart_hint}`: `brand` read from Element's file, with the last reconcile error while the brand differs; `served` the brand Element serves, fetched from `<Element>/config.json` with the probes' client (no proxy, no redirects, `probeTimeout`, 64 KiB, only `brand` parsed via `branding.ParseBrand`), else `served_error`) is present only with Matrix configured. Element's image serves a copy made at start, so `served` lags a rename until Element restarts; `restart_hint` is `KY_MATRIX_ELEMENT_RESTART_HINT`, the command Settings shows for that. `PUT /api/admin/branding/name` (`{"name"}`, strict; blank resets to `KY_APP_NAME`; 400 when `branding.ValidateName` refuses), `PUT /api/admin/branding/logo` (raw body: 415 unless `image/png`, 413 over 1 MiB through the handler's own `MaxBytesReader`, 400 when `branding.NormalizePNG` refuses) and `DELETE /api/admin/branding/logo` are `requireFreshAdmin`, `tracked`, run on a detached 10 s context and answer the same view. Settings: `brand_name`, and `brand_logo` (base64 of the normalised PNG); both travel in the capsule. The effective name is display only: capsules, pairing, local copies and backup status keep `KY_APP_NAME` (`TestBrandNameNeverRenamesTheService`). Audit `admin.brand_name` (`outcome old new`, names clipped to 40 bytes) and `admin.brand_logo` (`outcome sha256 size`, or `outcome="reset"`), success and failure after authentication and input parsing; refusals are `refused: <reason>`, never the bytes. A malformed name body is not audited.
 - `Server.ReconcileBrand` patches Element's `brand` (`<KY_MATRIX_DIR>/element/config.json`) to the effective name under `brandMu`, the file's only writer in this process: after each name save, and from `cmd/server`'s maintenance loop at start and every minute. It never creates the file, writes only on change, refuses to write on a store read error, and logs a failure once per streak; the saved name stands, and Settings shows Element's value and the error. It is a no-op without Matrix.
+- Federation (`federation_handlers.go`, `federation_presets.go`; owner decisions D1–D5 in
+  `docs/superpowers/plans/2026-10-11-federation-opt-in.md`). Settings `federation_level`
+  (`closed` default, `manual`, `curated`), `federation_servers` and `federation_presets` (JSON
+  lists of server names) are the source of truth. The effective allow-list is the manual
+  servers plus, at `curated` only, ticked presets still in this release's compiled
+  `federationPresets` (never fetched; empty until entries pass the vetting criteria in that
+  file); `closed` is empty. `ReconcileFederation` writes Synapse's federation file
+  (`<KY_MATRIX_DIR>/federation/federation.yaml`) through `matrixinit.WriteFederation` under
+  `fedMu`, only on change and never after a settings read error (a broken store neither opens
+  nor closes federation); it runs after each change and from `cmd/server`'s maintenance loop at
+  start and every minute, so hand edits are undone. Synapse applies the file at its next start:
+  the view's `restart_hint` is `KY_MATRIX_SYNAPSE_RESTART_HINT`. Routes are `requireAdmin`;
+  changes are `tracked`, detached (`fedTimeout`) and audited (`matrix.federation_level`
+  resource the new level, `matrix.federation_server` and `matrix.federation_preset` resource
+  the name, details `outcome=...`: `changed from <level>`, `added`, `removed`, `ticked`,
+  `unticked`, `unchanged`, `refused: ...`, `error: ...`). A change that widens (a higher level,
+  an added server, a ticked preset) needs a sign-in from the last `stepUpWindow`, checked in
+  `fedChange` before anything is saved (`writeStepUp`, the same refusal as
+  `requireFreshAdmin`); narrowing never does, so closing is always one click. Names are
+  lowercased and trimmed, then refused unless a `matrixinit.ValidServerName` that is not an IP
+  literal or this server's own name; at most `matrixinit.MaxFederationServers` servers and
+  presets together. `GET /.well-known/matrix/server` (public, no HSTS) answers
+  `{"m.server":"<KY_MATRIX_HOST host>:443"}` (its port when set) at `manual` or `curated`, else
+  JSON 404, as on a server without federation. `GET /api/admin/federation/status` probes each
+  effective server through one `AsConsole` session in parallel, `fedProbeTimeout` each, with
+  `GET /_matrix/client/v3/profile/@kymessages-federation-check:<name>` on Synapse: 200 or 404
+  `M_NOT_FOUND` `connected`; 403 `M_FORBIDDEN` `not_allowed` (either side's allow-list,
+  ours included until Synapse restarts; message text is never matched); 404 `M_UNRECOGNIZED`
+  `federation_off`; 502 `unreachable` (Synapse's default blocklist refuses private
+  addresses the same way); anything else `unknown`. Measured on Synapse 1.162 (plan Task 0).
+  The app opens no outbound connection for it.
+
+| Method | Path | Handler | Guard | Response |
+|---|---|---|---|---|
+| GET | `/api/admin/federation` | `handleFederation` | admin | `{level, server_name, servers:[{name}], presets:[{name, operator, open_signup, source, checked, ticked}], restart_hint, file_error?}` |
+| GET | `/api/admin/federation/status` | `handleFederationStatus` | admin | `{statuses: {name: connected\|not_allowed\|federation_off\|unreachable\|unknown}}` |
+| PUT | `/api/admin/federation/level` | `handleFederationLevel` | admin; fresh to widen | the view; body `{"level"}` |
+| POST | `/api/admin/federation/servers` | `handleFederationAddServer` | fresh | the view; body `{"name"}` |
+| DELETE | `/api/admin/federation/servers/{name}` | `handleFederationRemoveServer` | admin | the view; 404 when not listed |
+| PUT | `/api/admin/federation/presets/{name}` | `handleFederationPreset` | admin; fresh to tick | the view; body `{"ticked"}`; 404 for an unlisted preset |
+
 - `GET /app-icon.png` (public: the login page and Element's sign-in page) serves the stored logo as `image/png` with `Cache-Control: no-cache` and an `ETag` of the quoted SHA-256 (304 on `If-None-Match`, via `http.ServeContent`), else the embedded stamp, also `no-cache`, so a new logo or a reset shows on the next load.
 - `GET /api/admin/matrix/sync-status` (`sync_handlers.go`; admin, `no-store`; 404 `matrix_disabled` without Matrix) answers `{webhook: sso.WebhookRecord|null, rejected: sso.Rejections, sweep: matrixsync.SweepRecord|null, kyidentity_url}`. It only reads the records; their only writers are `internal/sso` and `internal/matrixsync`. An unreadable record shows as null. `kyidentity_url` is `KY_KYIDENTITY_ISSUER`. Hints are the page's.
 

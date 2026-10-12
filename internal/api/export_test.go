@@ -62,3 +62,13 @@ func RoomWriteDeadlineForTest() (budget, steps, total time.Duration) {
 }
 
 func SetRTCForTest(s *Server, c *matrixrtc.Client) { s.rtc = c }
+
+// SetFederationPresetsForTest replaces the compiled public-server list for one test.
+func SetFederationPresetsForTest(t interface{ Cleanup(func()) }, names ...string) {
+	old := federationPresets
+	federationPresets = nil
+	for _, n := range names {
+		federationPresets = append(federationPresets, federationPreset{Name: n, Operator: "Test", Source: "https://" + n + "/", Checked: "2026-10-11"})
+	}
+	t.Cleanup(func() { federationPresets = old })
+}
