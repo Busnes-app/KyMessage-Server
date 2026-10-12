@@ -259,7 +259,7 @@ Closed by default. Settings > Federation has three levels:
 |---|---|
 | Closed | nobody (as before; federation paths are 404) |
 | Manual approval | servers you add by name |
-| Curated list + approval | those, plus vetted public servers you tick |
+| Curated list + approval | those, plus vetted public servers you tick, from the list this release ships (Settings says when it is empty) |
 
 There is no open federation level. Both servers must list each other.
 

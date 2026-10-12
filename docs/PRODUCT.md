@@ -33,8 +33,8 @@ published.
 
 **Federation** (owner decisions 2026-10-11, plan `superpowers/plans/2026-10-11-federation-opt-in.md`).
 - Three console levels: Closed (default), Manual approval (servers the operator adds by name),
-  Curated list + approval (plus vetted public servers ticked from a list compiled into each
-  release). Allow-list only: both servers must list each other. Open federation is not
+  Curated list + approval (plus vetted public servers ticked from the list compiled into each
+  release; an empty list says so in Settings, and servers are then added by hand). Allow-list only: both servers must list each other. Open federation is not
   offered: its only gains (working large public rooms, no admin step for unknown servers) come
   with remote media (including illegal content) cached on the operator's disk, database growth
   past the backup limit, spam from any server and Synapse's federation API open to everyone.
