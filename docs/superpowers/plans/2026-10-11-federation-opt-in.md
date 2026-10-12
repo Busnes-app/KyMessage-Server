@@ -227,9 +227,13 @@ evicts anyone not active in MAS, which would evict every remote participant with
   `--config-path` in the acceptance overlay only):
   level 2 + add peer + restart → probe Connected; a peer user joins an invited room and a
   message crosses both ways; a server not on the list gets "Federation denied"; remove peer +
-  restart → denied again; level 1 + restart → federation paths 404 again. Level 3 with a
-  preset pointing at the peer (test build of the list) → Connected; back to level 2 + restart
-  → denied.
+  restart → denied again; level 1 + restart → federation paths 404 again.
+- Not in acceptance (decided 2026-10-12): a preset path with a test build of the list. A ticked
+  preset joins the same effective allow-list as a typed server, so Synapse sees no difference
+  from the manual path this stage proves; what is preset-specific (counted only at `curated`,
+  dropped when unticked, the level lowered or a release drops it) is pure settings logic,
+  covered by `TestFederationPresetsCountOnlyAtTheCuratedLevel`. A test build would add a
+  build tag or env hook to the shipped binary for no new Synapse behaviour.
 - Optional, required before the encryption label covers federated rooms: a second Element
   against the peer, with the existing "ciphertext only in the database" check on both servers.
 
