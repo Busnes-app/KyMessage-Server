@@ -123,12 +123,12 @@ func (s *Server) reconcileFederationLocked(ctx context.Context) error {
 	st, err := s.fedState(ctx)
 	var want []byte
 	if err == nil {
-		want, err = matrixinit.FederationYAML(st.allow())
+		want, err = matrixinit.FederationYAML(s.config.Matrix.ServerName, st.allow())
 	}
 	if err == nil {
 		var have []byte
 		if have, err = os.ReadFile(s.federationFile()); err == nil && !bytes.Equal(have, want) {
-			if err = matrixinit.WriteFederation(s.federationFile(), st.allow()); err == nil {
+			if err = matrixinit.WriteFederation(s.federationFile(), s.config.Matrix.ServerName, st.allow()); err == nil {
 				log.Printf("[FEDERATION] Synapse federation file written: level %s, %d servers; restart Synapse to apply", st.Level, len(st.allow()))
 			}
 		}
