@@ -361,6 +361,16 @@ wizard and runbook; not versioned). Design record:
 restarted with `kubectl -n ky-stack rollout restart deployment/element`
 (`KY_MATRIX_ELEMENT_RESTART_HINT`).
 
+Before running this release's `matrix-init` on the cluster, update the Synapse Deployment:
+`homeserver.yaml` no longer carries `listeners`, so a Synapse started with only that file has
+no listener. Give Synapse the args `run --config-path /config/homeserver.yaml --config-path
+/federation.yaml` and a read-only subPath mount of `federation/federation.yaml` at
+`/federation.yaml`; give the app a writable subPath mount of the same file at
+`/matrix/federation/federation.yaml`; set `KY_MATRIX_SYNAPSE_RESTART_HINT` to
+`kubectl -n ky-stack rollout restart deployment/synapse`. Opening federation also needs
+Synapse egress to public addresses on 443 and 8448 and the apex `/.well-known/matrix/server`
+route; closed, neither is needed.
+
 ## Identity and recovery configuration
 
 Deployment is still unverified. Prepare these settings for the eventual HTTPS
