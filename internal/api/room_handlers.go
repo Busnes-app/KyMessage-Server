@@ -57,6 +57,7 @@ type roomView struct {
 	Alias       string `json:"alias"`
 	Creator     string `json:"creator"`
 	Members     int    `json:"members"`
+	Remote      int    `json:"remote_members"` // joined from other servers: Close does not end the room for them
 	Encrypted   bool   `json:"encrypted"`
 	Public      bool   `json:"public"`
 	JoinRule    string `json:"join_rule"`
@@ -70,7 +71,7 @@ func roomViewOf(r synapseadmin.Room, closed bool) roomView {
 		rule = "other"
 	}
 	return roomView{ID: r.ID, Name: clip200(r.Name), Alias: clip200(r.Alias), Creator: clip200(r.Creator), Members: r.Members,
-		Encrypted: r.Encryption != "", Public: r.Public, JoinRule: rule, StateEvents: r.StateEvents, Closed: closed}
+		Remote: max(r.Members-r.LocalMembers, 0), Encrypted: r.Encryption != "", Public: r.Public, JoinRule: rule, StateEvents: r.StateEvents, Closed: closed}
 }
 
 type jobView struct {

@@ -39,6 +39,8 @@ Representative captures from the automated run (2026-09-25; scratch pairing code
 
 Build the frontend, then run `go build -o .browser/server ./cmd/server` from the repo root and `cd web && npx playwright install chromium && npm run test:browser`.
 
+Federation panel (2026-10-11): a disposable built server with Matrix configured (no MAS or Synapse) at 1280×800 and 390×844, Busnes dark. Checked the level picker, the inline warnings before widening, adding a server, the restart notice and the status error when MAS is unreachable. The check found and fixed radios stretched by the global `input` width and a restart notice split into columns on mobile.
+
 ### Manual inspection
 
 Run npm ci, npm test (where configured), and npm run build in web/, then start the product with isolated local preview data following its README. Use System theme, emulate OS light/dark, and inspect both viewport sizes. Do not point preview instances at production data. For KyVault, use a configured development KyIdentity or explicitly labeled read-only browser fixtures; never bypass backend authentication.
