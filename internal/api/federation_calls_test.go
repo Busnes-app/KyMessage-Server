@@ -148,18 +148,35 @@ func TestFederationClientRefusesNonPublicAddresses(t *testing.T) {
 func TestFederationBaseFollowsWellKnown(t *testing.T) {
 	answer := ""
 	wk := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/.well-known/matrix/server" || answer == "" {
+		switch {
+		case r.URL.Path == "/www/.well-known/matrix/server":
+			w.Write([]byte(`{"m.server":"matrix.peer.example:443"}`))
+		case r.URL.Path != "/.well-known/matrix/server" || answer == "":
 			http.NotFound(w, r)
-			return
+		case answer == "redirect":
+			http.Redirect(w, r, "https://www.peer.example/www/.well-known/matrix/server", http.StatusMovedPermanently)
+		case answer == "redirect-http":
+			http.Redirect(w, r, "http://www.peer.example/www/.well-known/matrix/server", http.StatusMovedPermanently)
+		default:
+			w.Write([]byte(answer))
 		}
-		w.Write([]byte(answer))
 	}))
 	defer wk.Close()
 	// Every host dials the test server; the TLS check is the test server's own.
 	client := wk.Client()
 	tr := client.Transport.(*http.Transport).Clone()
-	tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, wk.Listener.Addr().String())
+	plainHit := false
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHit = true
+		w.Write([]byte(`{"m.server":"evil.example:443"}`))
+	}))
+	defer plain.Close()
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		target := wk.Listener.Addr().String()
+		if strings.HasSuffix(addr, ":80") {
+			target = plain.Listener.Addr().String()
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, target)
 	}
 	tr.TLSClientConfig.InsecureSkipVerify = true // the certificate names 127.0.0.1, not peer.example
 	client.Transport = tr
@@ -174,6 +191,18 @@ func TestFederationBaseFollowsWellKnown(t *testing.T) {
 		if got, err := api.FederationBaseForTest(srv, client, "peer.example"); err != nil || got != c.want {
 			t.Errorf("%q: %q, %v; want %q", c.answer, got, err, c.want)
 		}
+	}
+	// A redirect is followed (mozilla.org answers 301 to www.mozilla.org), https only.
+	answer = "redirect"
+	if got, err := api.FederationBaseForTest(srv, client, "peer.example"); err != nil || got != "https://matrix.peer.example:443" {
+		t.Errorf("redirected well-known: %q, %v", got, err)
+	}
+	answer = "redirect-http"
+	if got, err := api.FederationBaseForTest(srv, client, "peer.example"); err != nil || got != "https://peer.example:8448" {
+		t.Errorf("an https-to-http redirect was followed: %q, %v", got, err)
+	}
+	if plainHit {
+		t.Error("the client fetched an http:// redirect target")
 	}
 	for _, bad := range []string{`{"m.server":"evil.example/path"}`, `{"m.server":"user@evil.example"}`, `{"m.server":":443"}`} {
 		answer = bad
