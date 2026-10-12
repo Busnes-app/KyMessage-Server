@@ -221,7 +221,15 @@ evicts anyone not active in MAS, which would evict every remote participant with
 - Dashboard card only at level 2 or 3 when a server is not Connected.
 - vitest for the panel; Playwright light/dark/mobile screenshots per `UI-VERIFICATION.md`.
 
-### Task 5 — Acceptance (`scripts/matrix-acceptance.sh`)
+### Task 5 — Acceptance (`scripts/matrix-acceptance.sh`) — done 2026-10-11 (step `federation`)
+
+Proven in a full local run: closed defaults; level manual, add, restart, connected; plain
+messages both ways; removal refuses the peer's lookups and transactions; level closed is
+byte-identical to the closed file again; audit rows. Still unproven: cross-server E2EE (every
+room is encrypted by default, so the stage sends plain events), a real cross-server call (the
+app refuses private peers, so only its 502 and 403 answers are shown), and the preset path in
+acceptance (unit tests only). Not done: the Overview card (it would mint a console session on
+every Overview load).
 - Default run unchanged: federation paths 404, no `/.well-known/matrix/server`.
 - New stage with a peer Synapse (test-only CA and IP-range overlay mounted as a third
   `--config-path` in the acceptance overlay only):
