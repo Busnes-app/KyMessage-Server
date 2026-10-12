@@ -86,6 +86,7 @@ export const FederationPanel: React.FC = () => {
   const [changed, setChanged] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [checkError, setCheckError] = useState('');
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -93,8 +94,9 @@ export const FederationPanel: React.FC = () => {
       const res = await fetch('/api/admin/federation/status', { cache: 'no-store' });
       if (!res.ok) throw new Error(await errorMessage(res, 'Could not check the servers'));
       setStatuses(parseStatuses(await res.json()));
+      setCheckError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not check the servers');
+      setCheckError(err instanceof Error ? err.message : 'Could not check the servers');
     } finally {
       setChecking(false);
     }
@@ -139,7 +141,11 @@ export const FederationPanel: React.FC = () => {
   const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const setLevel = (level: Level) => void change('/api/admin/federation/level', json('PUT', { level }), `Federation set to ${LEVEL_TEXT[level].label}.`);
   const pick = (level: Level) => {
-    if (!state || level === state.level) return;
+    if (!state) return;
+    if (level === state.level) {
+      setPending(null);
+      return;
+    }
     // Wider levels show what they expose first; narrowing applies at once.
     if (LEVELS.indexOf(level) > LEVELS.indexOf(state.level)) setPending(level);
     else setLevel(level);
@@ -252,6 +258,7 @@ export const FederationPanel: React.FC = () => {
         </>
       )}
       {message && <div className="dr-alert dr-alert-success" role="status">{message}</div>}
+      {checkError && <div className="dr-alert dr-alert-error" role="alert">{checkError}</div>}
       {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
     </section>
   );
