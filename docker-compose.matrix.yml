@@ -15,7 +15,8 @@
 # matrix-init) so its 0600 files stay unreadable to anyone else.
 # Element's page loads the logo from <KY_ADMIN_HOST>/app-icon.png. Its nginx sends no CSP
 # header and its own meta CSP allows img-src *; a proxy in front must not add an img-src that
-# excludes the admin host. Route https://<server name>/.well-known/matrix/client to the app.
+# excludes the admin host. Route https://<server name>/.well-known/matrix/{client,server} to the
+# app (the server file answers only while federation is open).
 x-hardening: &hardening
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
@@ -24,7 +25,7 @@ x-hardening: &hardening
 x-matrix-ro: &matrix-ro {type: bind, read_only: true, bind: {create_host_path: false}}
 
 services:
-  # Serves /.well-known/matrix/client and the members' Open chat link.
+  # Serves /.well-known/matrix/{client,server} and the members' Open chat link.
   app:
     environment:
       - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}

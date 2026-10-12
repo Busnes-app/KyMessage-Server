@@ -18,7 +18,7 @@ published.
 - Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
   guests.
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
-- Not offered: Slack or Teams parity, compliance archiving, federation.
+- Not offered: Slack or Teams parity, compliance archiving, open federation.
 
 ## What ships
 
@@ -28,8 +28,19 @@ published.
   unmodified (AGPL rule below).
 - One subdomain per part (Synapse, MAS, Element, LiveKit signalling, console); user IDs stay `@alice:<server name>`
   through `.well-known` served by KyMessages. Signalling stays private behind the proxy; LiveKit publishes direct media ports.
-- Federation off (empty allow-list, no federation listener). Registration, guest access and
-  password login off.
+- Federation closed by default (empty allow-list, no federation resource). Registration, guest
+  access and password login off.
+
+**Federation** (owner decisions 2026-10-11, plan `superpowers/plans/2026-10-11-federation-opt-in.md`).
+- Three console levels: Closed (default), Manual approval (servers the operator adds by name),
+  Curated list + approval (plus vetted public servers ticked from the list compiled into each
+  release; an empty list says so in Settings, and servers are then added by hand). Allow-list only: both servers must list each other. Open federation is not
+  offered: its only gains (working large public rooms, no admin step for unknown servers) come
+  with remote media (including illegal content) cached on the operator's disk, database growth
+  past the backup limit, spam from any server and Synapse's federation API open to everyone.
+- Synapse applies a change after a restart; the console shows the command and a per-server
+  connection status. Widening needs a recent sign-in; narrowing never does.
+- Users of allowed servers may join calls a local user started; they never start calls.
 
 **Calls.**
 - Stock Element Call provides voice/video in DMs and group rooms; stock LiveKit routes media.
@@ -122,7 +133,8 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 - Other bridges (mautrix): later, admin-enabled. A bridge decrypts, so a bridged
   conversation never carries the E2EE label.
 - A lighter homeserver (Tuwunel) trial.
-- Federation: off.
+- Open federation (no allow-list), an inbound "request to federate" queue, room-level server
+  ACL editing, moderation bots, LAN-only peers, automatic Synapse restart.
 - Widgets and integrations: disabled in Element's config.
 - Console: room creation, membership editing, message moderation, colour editing, health
   history and alerting.
@@ -142,3 +154,7 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 - `@kymessages-console` holds Synapse admin scope; sessions last 5 minutes and every use is
   audited.
 - Operational weight: PostgreSQL plus several services, against the old single binary.
+- Federation: allowed servers hold copies the operator cannot recall; a public server's rooms
+  spread posts beyond the allow-list; the app can write Synapse's config through the federation
+  file, so a compromised app can run code in Synapse. Encryption across servers and a real
+  cross-server call are not covered by acceptance.

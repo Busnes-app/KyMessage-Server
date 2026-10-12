@@ -18,8 +18,10 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   `StateEvents` is the only size-like count Synapse reports; there is no byte size.
 - `Close` and `Delete` are `DELETE /_synapse/admin/v2/rooms/{id}` with `block` true and
   `purge` sent explicitly (false, true): Synapse's purge defaults to true. Both start a
-  background job and return its `delete_id`. Close makes every local member leave; with
-  federation off the server is then out of the room and nobody can rejoin, so Close is final.
+  background job and return its `delete_id`. Close makes every local member leave. With no
+  members from other servers, this server is then out of the room and nobody can rejoin, so
+  Close is final; with members from other servers (federation open), the room lives on there
+  and Close only removes this server.
 - `DeleteJobs` lists started jobs only (Synapse omits scheduled ones and gives no failure
   reason); no job is an empty list. Only 404 `M_NOT_FOUND` means "none"; `M_UNRECOGNIZED` or an
   errcode-less 404 is a routing error and stays an error.
