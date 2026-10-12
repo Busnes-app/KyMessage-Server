@@ -101,8 +101,8 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   (`closed` default, `manual`, `curated`), `federation_servers` and `federation_presets` (JSON
   lists of server names) are the source of truth. The effective allow-list is the manual
   servers plus, at `curated` only, ticked presets still in this release's compiled
-  `federationPresets` (never fetched; empty until entries pass the vetting criteria in that
-  file); `closed` is empty. `ReconcileFederation` writes Synapse's federation file
+  `federationPresets` (never fetched; only entries that passed the vetting criteria in that
+  file, with the evidence and check date beside each; `TestShippedFederationPresetsAreWellFormed`); `closed` is empty. `ReconcileFederation` writes Synapse's federation file
   (`<KY_MATRIX_DIR>/federation/federation.yaml`) through `matrixinit.WriteFederation` under
   `fedMu`, only on change and never after a settings read error (a broken store neither opens
   nor closes federation); it runs after each change and from `cmd/server`'s maintenance loop at

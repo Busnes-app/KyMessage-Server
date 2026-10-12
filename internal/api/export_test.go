@@ -91,3 +91,6 @@ func FederationBaseForTest(s *Server, client *http.Client, name string) (string,
 	s.fedHTTP = client
 	return s.federationBase(context.Background(), name)
 }
+
+// FederationPresetsForTest is this release's compiled public-server list.
+func FederationPresetsForTest() []federationPreset { return federationPresets }
