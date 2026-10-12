@@ -279,8 +279,9 @@ There is no open federation level. Both servers must list each other.
 
 What changes when a server is allowed:
 - Its servers see the metadata of rooms their users join (names, topics, membership,
-  display names, timestamps). Messages stay end-to-end encrypted in Element; encryption across
-  servers is not covered by the acceptance run.
+  display names, timestamps). The chat label stays "End-to-end encrypted in Element (not
+  independently audited)" with the caveat above (Synapse does not enforce encryption);
+  encryption across servers is not covered by the acceptance run.
 - Offboarding someone here does not remove what was already sent to other servers. Closing a
   room removes this server from it; other servers keep it. Deleting a room deletes only this
   server's copy.
