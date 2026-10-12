@@ -906,6 +906,12 @@ func TestFederationYAMLOpensOnlyForListedServers(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
+	if _, err := FederationYAML([]string{strings.Repeat("a", 63) + ".example"}); err != nil {
+		t.Errorf("a 63-byte label refused: %v", err)
+	}
+	if _, err := FederationYAML([]string{strings.Repeat("a", 64) + ".example"}); err == nil {
+		t.Error("a 64-byte label accepted")
+	}
 	many := make([]string, MaxFederationServers+1)
 	for i := range many {
 		many[i] = fmt.Sprintf("s%d.example", i)
