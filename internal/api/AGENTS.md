@@ -63,12 +63,13 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `sub` must belong to the server that verified it. A local caller must be active in the
   directory and MAS, and gets the LiveKit room created; a remote caller only joins a room that
   already exists (a local user started the call; 403 otherwise, never `Create`). Both need
-  Matrix room membership before a scoped 15-second grant. These two exact paths alone use CORS `*`, no credentials,
+  Matrix room membership in a room that is not closed (`RoomAdmin.Blocked`: a closed room
+  keeps its remote members) before a scoped 15-second grant. These two exact paths alone use CORS `*`, no credentials,
   no cookie authentication/CSRF, bounded JSON and per-IP throttling. They are `tracked` so the
   shutdown drain covers their store reads. Caller URLs and delayed-delegation fields are not used.
   `ReconcileCalls` removes inactive accounts, users of servers no longer on the effective
-  allow-list (at once, without waiting for Synapse to restart) and removed room members
-  through LiveKit. A missing
+  allow-list (at once, without waiting for Synapse to restart), removed room members and
+  everyone in a closed room's call through LiveKit. A missing
   room has no members; other read failures remain failures. Errors and logs omit caller tokens.
 - `GET /.well-known/matrix/client` (unauthenticated, registered before the SPA catch-all) returns `{"m.homeserver":{"base_url":<KY_MATRIX_HOST>}}` plus `org.matrix.msc4143.rtc_foci` pointing at the console call-authorizer when calling is configured, with `Access-Control-Allow-Origin: *`, no credentials header and no HSTS; JSON 404 when Matrix is not configured. `ServeHTTP` answers its `OPTIONS` preflight from any origin, the app's own included (200, `*`, no credentials), before the app-origin preflight rule (`wellknown_test.go`).
 - `GET /api/settings` always carries `chat_url` (the Element origin, empty when Matrix is not configured) in the public tier; the members' "Open chat" link reads it.
