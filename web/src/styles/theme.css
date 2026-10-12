@@ -340,6 +340,16 @@ dialog.modal-window::backdrop {
 .dr-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; flex-wrap: wrap; }
 .dr-field { display: flex; flex-direction: column; gap: 4px; flex: 1; font-size: 13px; color: var(--ink); }
 .dr-narrow { flex: 0 0 6rem; }
+.dr-fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--ink); }
+.dr-fieldset legend { padding: 0 6px; font-weight: 600; color: var(--ink-strong); }
+.dr-choice { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.dr-choice input { width: auto; padding: 0; margin: 3px 0 0; flex-shrink: 0; accent-color: var(--accent); }
+.dr-choice input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dr-choice > span { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.dr-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.dr-list li { align-items: center; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
+.dr-list li code { overflow-wrap: anywhere; }
+.dr-alert ul { margin: 6px 0 10px; padding-left: 18px; }
 
 /* Busnes.app light/dark defaults. Existing named palettes remain selectable. */
 :root[data-theme="busnes-light"] {

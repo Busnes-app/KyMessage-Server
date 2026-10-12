@@ -6,7 +6,7 @@ import { arr, bool, count, obj, oneOf, str } from '../dto';
 const JOB_STATUSES = ['scheduled', 'active', 'complete', 'failed', 'cancelled', 'unknown'] as const;
 const JOIN_RULES = ['public', 'invite', 'knock', 'restricted', 'knock_restricted', 'private', 'other', ''] as const;
 export interface RoomRow {
-  id: string; name: string; alias: string; creator: string; members: number; encrypted: boolean;
+  id: string; name: string; alias: string; creator: string; members: number; remote_members: number; encrypted: boolean;
   public: boolean; join_rule: (typeof JOIN_RULES)[number]; state_events: number; closed: boolean;
 }
 export interface RoomsPage { rooms: RoomRow[]; total: number; offset: number; limit: number }
@@ -17,7 +17,7 @@ function parseRoom(v: unknown): RoomRow {
   const r = obj(v);
   return {
     id: str(r.id, 255), name: str(r.name, 255), alias: str(r.alias, 255), creator: str(r.creator, 255),
-    members: count(r.members), encrypted: bool(r.encrypted), public: bool(r.public),
+    members: count(r.members), remote_members: r.remote_members === undefined ? 0 : count(r.remote_members), encrypted: bool(r.encrypted), public: bool(r.public),
     join_rule: oneOf(r.join_rule, JOIN_RULES), state_events: count(r.state_events), closed: bool(r.closed),
   };
 }
@@ -169,7 +169,11 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
               </button>
             ) : (
               <div role="group" aria-label="Confirm close" className="dr-alert dr-alert-warn">
-                <span>Everyone is removed and nobody can rejoin: a closed room cannot be reopened. Its history stays on the server until you delete the room.</span>
+                {detail.room.remote_members > 0 ? (
+                  <span>Everyone on this server is removed and cannot rejoin. {detail.room.remote_members} {detail.room.remote_members === 1 ? 'person' : 'people'} on other servers keep the room: closing removes this server from it, not the room itself. Its history stays here until you delete the room, and on the other servers.</span>
+                ) : (
+                  <span>Everyone is removed and nobody can rejoin: a closed room cannot be reopened. Its history stays on the server until you delete the room.</span>
+                )}
                 <div className="dr-actions">
                   <button type="button" className="btn-danger" disabled={locked} onClick={() => void act('close')}>Close room</button>
                   <button type="button" className="btn-secondary" disabled={busy} onClick={() => setConfirmClose(false)}>Cancel</button>
@@ -183,8 +187,8 @@ const RoomPanel: React.FC<{ id: string; pollMs: number; onClose: () => void; onD
               <input value={typed} maxLength={255} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
             </label>
             <p className="dr-hint">
-              Purges the room's history from the server for everyone. The room's media (attachments, avatars) stays in the
-              media store. This cannot be undone.
+              Purges the room's history from this server for everyone. The room's media (attachments, avatars) stays in the
+              media store. Other servers in the room keep their copies. This cannot be undone.
             </p>
             <button type="button" className="btn-danger" disabled={locked || typed !== detail.confirm_text} onClick={() => void act('delete')}>
               <Trash2 size={14} /><span>Delete permanently</span>

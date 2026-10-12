@@ -272,4 +272,14 @@ describe('Rooms', () => {
     await within(panel).findByText('A close or delete of this room is running…');
     await waitFor(() => expect(within(panel).queryByRole('alert')).toBeNull());
   });
+  it('says Close only removes this server when other servers are in the room', async () => {
+    serve((url) => (url === `/api/admin/matrix/rooms/${ENC}` ? json({ ...DETAIL, room: { ...ROOM, members: 3, remote_members: 1 } }) : list(url)));
+    render(<Rooms />);
+    const panel = await openRoom();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close room…' }));
+    const confirm = within(panel).getByRole('group', { name: 'Confirm close' });
+    expect(confirm.textContent).toContain('1 person on other servers keep the room');
+    expect(confirm.textContent).not.toContain('cannot be reopened');
+    expect(within(panel).getByText(/Other servers in the room keep their copies/)).toBeTruthy();
+  });
 });

@@ -287,6 +287,16 @@ func TestRoomDetailShowsMembersAndConfirmText(t *testing.T) {
 		g.ConfirmText != "Team chat" || g.Jobs == nil || len(g.Jobs) != 0 {
 		t.Fatalf("group %+v", g)
 	}
+	rooms.rooms[rGroup].Members, rooms.rooms[rGroup].LocalMembers = 3, 2
+	type remote struct {
+		Room struct {
+			Remote int `json:"remote_members"`
+		}
+	}
+	if r := decode[remote](t, adminDo(t, srv, admin, "GET", roomPath(rGroup), nil)); r.Room.Remote != 1 {
+		t.Errorf("remote members %d, want 1", r.Room.Remote)
+	}
+	rooms.rooms[rGroup].Members = 2
 	if d := get(rDM); d.ConfirmText != rDM {
 		t.Errorf("an unnamed room confirms with its ID: %q", d.ConfirmText)
 	}
