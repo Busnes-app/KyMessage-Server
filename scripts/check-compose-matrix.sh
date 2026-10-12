@@ -94,8 +94,6 @@ owner=$(jq -c '.services["synapse-media-owner"]' <<<"$out")
 # Synapse loads the console's federation file after its own config; nothing else sets listeners.
 [ "$(jq -c '.services.synapse.command' <<<"$out")" = '["run","--config-path","/config/homeserver.yaml","--config-path","/federation.yaml"]' ] \
   || bad "synapse does not load homeserver.yaml then /federation.yaml: $(jq -c '.services.synapse.command' <<<"$out")"
-[ "$(jq -c --arg f "$root/matrix/federation/federation.yaml" '[.services.synapse.volumes[] | select(.source == $f) | [.target, .read_only, .bind.create_host_path]]' <<<"$out")" = '[["/federation.yaml",true,false]]' ] \
-  || bad "synapse does not bind ./matrix/federation/federation.yaml read-only at /federation.yaml"
 [ "$(jq -c '.services.mas.networks | keys' <<<"$out")" = '["default","matrix-admin","matrix-db"]' ] || bad "mas is not on default, matrix-admin and matrix-db"
 # MAS is probed through its public discovery resource; it has no internal port to reach.
 jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("http://mas:8080/.well-known/openid-configuration")' <<<"$out" >/dev/null \
@@ -109,6 +107,9 @@ bindjson() { printf 'services: {p: {image: x, volumes: [{type: bind, source: /x,
   | docker compose --env-file /dev/null -f - config --format json | jq -c '.services.p.volumes[0].bind'; }
 nocreate=$(bindjson false)
 if [ -z "$nocreate" ] || [ "$nocreate" = "$(bindjson true)" ]; then bad "this docker compose cannot express create_host_path false"; fi
+jq -e --arg f "$root/matrix/federation/federation.yaml" --argjson nc "$nocreate" \
+  '[.services.synapse.volumes[] | select(.source == $f)] | length == 1 and .[0].target == "/federation.yaml" and .[0].read_only == true and .[0].bind == $nc' <<<"$out" >/dev/null \
+  || bad "synapse does not bind ./matrix/federation/federation.yaml read-only at /federation.yaml, create_host_path false"
 [ "$(jq -c '.services.mas.volumes' <<<"$out")" = "[{\"type\":\"bind\",\"source\":\"$root/matrix/mas/config.yaml\",\"target\":\"/config/config.yaml\",\"read_only\":true,\"bind\":$nocreate}]" ] \
   || bad "mas does not bind only ./matrix/mas/config.yaml read-only with create_host_path false: $(jq -c '.services.mas.volumes' <<<"$out")"
 dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition // ""' <<<"$out"; }
