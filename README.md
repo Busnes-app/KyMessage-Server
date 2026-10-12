@@ -71,8 +71,9 @@ Chat is Matrix: Synapse, Matrix Authentication Service (MAS) and Element Web, wi
 as the only sign-in. Voice and video calls are enabled by default through stock Element Call
 and LiveKit. HTTP services stay private behind the proxy; LiveKit publishes TCP 7881 and
 UDP 7882 for direct media (routes in
-[docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md)). Registration and
-federation are closed and MAS's compatibility (password) login is not served.
+[docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md)). Registration is closed
+and MAS's compatibility (password) login is not served. Federation is closed by default; an
+operator can open it to named servers (see "Federation" below).
 
 Encryption label: **End-to-end encrypted in Element (not independently audited)**. In the
 acceptance run, every message Element sent to an encrypted room (direct and group) was stored
@@ -247,6 +248,50 @@ control plane cannot evict media. Ending a MAS browser session alone does not en
 call. Calls are not recorded or restored. LiveKit routes media; the existing text encryption
 acceptance does not prove call encryption. `make matrix-acceptance` includes a separate
 real audio/video check; production networking still needs deployment verification.
+
+### Federation
+
+Closed by default. Settings > Federation has three levels:
+
+| Level | Who can reach this server |
+|---|---|
+| Closed | nobody (as before; federation paths are 404) |
+| Manual approval | servers you add by name |
+| Curated list + approval | those, plus vetted public servers you tick |
+
+There is no open federation level. Both servers must list each other.
+
+1. One-time proxy change: route `https://<server name>/.well-known/matrix/server` to the app as
+   well as the client file (cloudflared path `^/\.well-known/matrix/(client|server)$`,
+   [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md)). Federation then
+   reaches Synapse through the existing `KY_MATRIX_HOST` route on port 443; 8448 stays shut.
+2. In Settings > Federation, choose a level. A wider level first lists what it exposes and
+   needs a sign-in from the last 10 minutes; going back to Closed is one click.
+3. Copy "Your server" and send it to the other operator; type their server name and press
+   Add server. They do the same with yours.
+4. Run the restart command the panel shows (`docker compose restart synapse`, or
+   `KY_MATRIX_SYNAPSE_RESTART_HINT`): Synapse reads the list only at start. One restart covers
+   several changes.
+5. "Check connections" shows each server as Connected, Not allowed yet (one side has not listed
+   the other, or Synapse has not restarted), Their federation is off, or Unreachable.
+
+What changes when a server is allowed:
+- Its servers see the metadata of rooms their users join (names, topics, membership,
+  display names, timestamps). Messages stay end-to-end encrypted in Element; encryption across
+  servers is not covered by the acceptance run.
+- Offboarding someone here does not remove what was already sent to other servers. Closing a
+  room removes this server from it; other servers keep it. Deleting a room deletes only this
+  server's copy.
+- People on allowed servers can join calls in rooms they share with your users, through your
+  LiveKit; only your users start calls. Removing a server or closing federation drops its
+  callers within seconds, without waiting for the restart.
+- Public servers: what members post in a room on a public server reaches every server in that
+  room, allowed or not; Synapse's allow-list cannot prevent that. Presets suit direct messages
+  and small rooms. Servers marked "Open sign-up" let strangers invite your members.
+
+The app writes Synapse's `matrix/federation/federation.yaml` from its settings; edit federation
+only in the console (hand edits are undone within a minute). Peers on private addresses (LAN
+only) are refused, by Synapse's default and by the app.
 
 ### Operator console
 

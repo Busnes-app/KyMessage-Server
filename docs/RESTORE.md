@@ -96,7 +96,9 @@ restoring her keys from key backup; the server name and signing key were unchang
 2. As the same user, export the `matrix-init` environment from setup (README, Matrix step 1)
    with the exact values used there, and run `./kymessages matrix-init`. It re-renders every
    config from that environment, so a changed server name, host, issuer or client ID changes the
-   restored configs too. It keeps every restored secret and the signing key, and
+   restored configs too. It keeps every restored secret, the signing key and the restored
+   `federation/federation.yaml` (a capsule from before federation existed has none, so it is
+   created closed; on start the app rewrites it from the restored federation settings), and
    creates `secrets/postgres_password`: the capsule never carries the Postgres superuser
    password, and a fresh volume does not need the old one. Compose refuses to start
    `postgres` without it.

@@ -92,7 +92,7 @@ Five public hostnames, all https, plus the server name:
 | `KY_MATRIX_CHAT_HOST` | `https://chat.example.com` | `http://element:8080` |
 | `KY_MATRIX_RTC_HOST` | `https://sfu.example.com` | `http://livekit:7880` (signalling only; refuse `/twirp/`) |
 | `KY_ADMIN_HOST` | `https://admin.example.com` | `http://kymessages:8080` |
-| `KY_MATRIX_SERVER_NAME` | `example.com` | only `/.well-known/matrix/client`, to `http://kymessages:8080` |
+| `KY_MATRIX_SERVER_NAME` | `example.com` | only `/.well-known/matrix/client` and `/.well-known/matrix/server`, to `http://kymessages:8080` |
 
 The server name is the part after the colon in user IDs (`@alice.q_ky:example.com`). The
 four hosts are bare https origins (no path). Set `KY_APP_URL` to the admin host's origin, since that hostname is where KyMessages is served.
@@ -104,7 +104,7 @@ Tunnel `config.yml`, rules in this order, each hostname routed to exactly one ta
 ```yaml
 ingress:
   - hostname: example.com
-    path: ^/\.well-known/matrix/client$
+    path: ^/\.well-known/matrix/(client|server)$
     service: http://kymessages:8080
   # Synapse's admin API and the MAS-only API: MAS reaches Synapse internally.
   - hostname: matrix.example.com
@@ -146,6 +146,12 @@ and `Access-Control-Allow-Origin: *`:
 ```json
 {"m.homeserver":{"base_url":"https://matrix.example.com"},"org.matrix.msc4143.rtc_foci":[{"type":"livekit","livekit_service_url":"https://admin.example.com/api/matrix/rtc"}]}
 ```
+
+The app answers `/.well-known/matrix/server` only while federation is open (Settings >
+Federation); closed, it is 404, as before. A static apex instead serves
+`{"m.server":"matrix.example.com:443"}` for it, and only once federation is open: Synapse's
+federation then uses the existing `matrix.example.com` route, so no new hostname or port is
+needed.
 
 `KY_TRUSTED_PROXIES` stays cloudflared's /32 on `kymessages-net`. Setup order and the
 `KY_MATRIX_UID` step are in the README's "Matrix chat" section.
