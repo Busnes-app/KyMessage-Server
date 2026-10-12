@@ -71,8 +71,12 @@ New installs get all of it from the docs from the start.
 | `federation_domain_whitelist` "does not stop a server from joining rooms that servers not on the whitelist are in"; it is "only useful to establish a private federation" | synapse v1.162.0 `docs/usage/configuration/config_documentation.md` | read |
 | `lk-jwt-service` lets remote users join existing LiveKit rooms but only listed ("full-access") homeservers create them, and requires LiveKit `auto_create: false` | `element-hq/lk-jwt-service` README (main) | read |
 | Our LiveKit already has `auto_create: false`; the app creates the room on each token request; the RTC endpoint already answers CORS `*` without credentials | `livekit.yaml.tmpl:12-13`, `rtc_handlers.go:144`, `server.go:441-444` | read |
-| Synapse's default `ip_range_blacklist` refuses private addresses for outbound federation | Synapse config docs | **unproven** for 1.162; Task 0 |
-| A remote alias lookup (`GET /_matrix/client/v3/directory/room/#kymessages-check:<peer>`) gives different, stable results for: our allow-list denies, theirs denies, peer unreachable, connected (404 `M_NOT_FOUND`) | Synapse federation query path | **unproven**; Task 0, pinned by acceptance |
+| Synapse's default `ip_range_blacklist` (`DEFAULT_IP_RANGE_BLOCKLIST`, `synapse/config/server.py:143`) refuses private addresses for outbound federation; the client sees 502 `M_UNKNOWN`, as for an unreachable peer | Task 0 run, synapse v1.162.0 | **proven** |
+| The stock entrypoint with two `--config-path` files works; the later file replaces `listeners` and `federation_domain_whitelist` wholesale; without the `federation` resource, `/_matrix/federation/v1/version` and `/_matrix/key/v2/server` are 404 | Task 0 run | **proven** |
+| The alias lookup (`GET /_matrix/client/v3/directory/room/#…:<peer>`) cannot tell the states apart: both denials and unreachable are 502 `M_UNKNOWN` with the same text, and a peer with federation off answers 404 `M_NOT_FOUND` like a connected one | Task 0 run | **failed**; not used |
+| The remote profile lookup (`GET /_matrix/client/v3/profile/@x:<peer>`) separates: connected 404 `M_NOT_FOUND`; either allow-list denying 403 `M_FORBIDDEN` (the two differ only in message text, not matched); unreachable or private address 502 `M_UNKNOWN`; peer federation off 404 `M_UNRECOGNIZED` | Task 0 run (three repeats, same results) | **proven**; the status probe |
+| `/_matrix/federation/v1/openid/userinfo` answers any requester, even one off the peer's allow-list (`REQUIRE_AUTH = False`); 401 `M_UNKNOWN_TOKEN` for a bad token | Task 0 run | **proven**; the app's own allow-list is the gate for remote callers |
+| No Synapse 1.162 option blocks invites from users who share no room. Per-user account data can: `m.invite_permission_config` `{"default_action":"block"}` (MSC4380, no flag) returned 403 `M_INVITE_BLOCKED` for local and federated invites; MSC4155 is behind `experimental_features.msc4155_enabled` | Task 0 run (MSC4380 run; MSC4155 read only) | **proven** / MSC4155 **unproven** |
 
 ## Decisions
 
@@ -117,7 +121,7 @@ New installs get all of it from the docs from the start.
 
 ## Tasks
 
-### Task 0 — Prove the unproven facts (gate)
+### Task 0 — Prove the unproven facts (gate) — done 2026-10-11, results in the facts table
 Run a scratch Synapse 1.162.0 pair (Compose, private CA via `federation_custom_ca_list` and
 `ip_range_whitelist` for the Docker subnet, test-only). Record: the default
 `ip_range_blacklist`, that the two-file merge works with the pinned image, and the exact
@@ -168,9 +172,11 @@ restart") instead of matching message text.
   change.
 - `/.well-known/matrix/server`: served only at level 2 or 3, 404 otherwise; same CORS/HSTS
   handling as the client file.
-- Status: the alias probe through `mas.AsConsole`, run for each server on `GET`, with a
-  5 s timeout per server and run concurrently. The app opens no outbound connection of its own:
-  Synapse's SSRF rules apply.
+- Status: the profile probe (Task 0) through one `mas.AsConsole` session, on its own route
+  (`GET /api/admin/federation/status`) so a dead peer never slows the page, all servers in
+  parallel, 10 s each (Synapse's slowest observed failure was 6 s). The two denials merge into
+  one `not_allowed` status. The app opens no outbound connection of its own: Synapse's SSRF
+  rules apply.
 - Self-check in `network_check.go` at level 2 or 3: fetch our public
   `https://<server name>/.well-known/matrix/server` and `https://<matrix host>/_matrix/key/v2/server`
   and name the fix (apex route, restart) when either fails.

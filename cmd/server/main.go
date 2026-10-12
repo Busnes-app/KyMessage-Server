@@ -115,7 +115,11 @@ func runServer() {
 		callsDone := make(chan struct{})
 		go callMaintenanceLoop(ctx, srv.ReconcileCalls, callsDone)
 		brandDone := make(chan struct{})
-		maintenanceLoop(ctx, st, srv.ReconcileBrand, brandDone)
+		// Both files are small, local and logged by their reconcilers; Synapse's federation file
+		// is rewritten from settings at start and if anything else ever changes it.
+		maintenanceLoop(ctx, st, func(ctx context.Context) error {
+			return errors.Join(srv.ReconcileBrand(ctx), srv.ReconcileFederation(ctx))
+		}, brandDone)
 		<-callsDone
 		close(maintenanceDone)
 	}()

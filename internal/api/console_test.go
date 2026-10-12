@@ -45,6 +45,8 @@ type fakeMAS struct {
 	consoleErr  error
 	consoleHang chan struct{}
 	consoleRuns int
+	// consoleLate hands fn an already ended context, as after a slow console setup.
+	consoleLate bool
 }
 
 // AsConsole stands in for the console session: fn gets a fixed token unless consoleErr is set.
@@ -59,6 +61,11 @@ func (f *fakeMAS) AsConsole(ctx context.Context, fn func(context.Context, string
 	}
 	if err != nil {
 		return err
+	}
+	if f.consoleLate {
+		late, cancel := context.WithCancel(ctx)
+		cancel()
+		ctx = late
 	}
 	return fn(ctx, "console-token")
 }

@@ -89,6 +89,11 @@ type Server struct {
 	brandMu      sync.Mutex
 	brandFailing bool
 	brandErr     string
+	// fedMu serialises federation settings changes and Synapse federation file writes;
+	// fedFailing and fedErr describe the current write failure streak.
+	fedMu      sync.Mutex
+	fedFailing bool
+	fedErr     string
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -350,6 +355,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/admin/branding/logo", s.tracked(s.requireFreshAdmin(s.handleBrandLogo)))
 	s.mux.HandleFunc("DELETE /api/admin/branding/logo", s.tracked(s.requireFreshAdmin(s.handleBrandLogoReset)))
 
+	// Federation. Any admin reads it and may narrow it; widening needs a recent sign-in, checked
+	// in fedChange because one route can do either. Changes run detached and are audited.
+	s.mux.HandleFunc("GET /api/admin/federation", s.requireAdmin(s.handleFederation))
+	s.mux.HandleFunc("GET /api/admin/federation/status", s.requireAdmin(s.handleFederationStatus))
+	s.mux.HandleFunc("PUT /api/admin/federation/level", s.tracked(s.requireAdmin(s.handleFederationLevel)))
+	s.mux.HandleFunc("POST /api/admin/federation/servers", s.tracked(s.requireAdmin(s.handleFederationAddServer)))
+	s.mux.HandleFunc("DELETE /api/admin/federation/servers/{name}", s.tracked(s.requireAdmin(s.handleFederationRemoveServer)))
+	s.mux.HandleFunc("PUT /api/admin/federation/presets/{name}", s.tracked(s.requireAdmin(s.handleFederationPreset)))
+
 	// SCIM 2.0 routes
 	s.scim.RegisterRoutes(s.mux)
 
@@ -363,6 +377,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST "+rtcPrefix+"/get_token", s.tracked(s.handleRTCToken))
 	// Matrix client discovery lives outside /api/, so it must precede the SPA catch-all.
 	s.mux.HandleFunc("GET "+wellKnownMatrixClient, s.handleMatrixClientWellKnown)
+	s.mux.HandleFunc("GET "+wellKnownMatrixServer, s.handleMatrixServerWellKnown)
 
 	// Embedded React PWA Frontend. /app-icon.png is the admin's logo when one is set; public.
 	static := web.Handler()
@@ -399,16 +414,21 @@ func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 			return
 		}
 		if fresh && time.Since(sess.CreatedAt) > stepUpWindow {
-			body := map[string]string{"error": "Confirm it's you: this change needs a sign-in from the last 10 minutes", "code": "reauthentication_required"}
-			if user.SSOProvider == "kyidentity" {
-				// A plain SSO login may silently reuse the IdP session; this one forces credentials.
-				body["reauth_url"] = reauthURL
-			}
-			s.writeJSON(w, http.StatusForbidden, body)
+			s.writeStepUp(w, user)
 			return
 		}
 		h(w, r)
 	}
+}
+
+// writeStepUp is the one refusal every step-up check sends.
+func (s *Server) writeStepUp(w http.ResponseWriter, user *store.User) {
+	body := map[string]string{"error": "Confirm it's you: this change needs a sign-in from the last 10 minutes", "code": "reauthentication_required"}
+	if user.SSOProvider == "kyidentity" {
+		// A plain SSO login may silently reuse the IdP session; this one forces credentials.
+		body["reauth_url"] = reauthURL
+	}
+	s.writeJSON(w, http.StatusForbidden, body)
 }
 
 func (s *Server) requireAuthenticated(h http.HandlerFunc) http.HandlerFunc {
@@ -460,8 +480,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, "+syncauth.HeaderSignature)
 
 	// Matrix discovery is public: any client origin may preflight it.
-	if r.Method == http.MethodOptions && r.URL.Path == wellKnownMatrixClient {
-		s.handleMatrixClientWellKnown(w, r)
+	if r.Method == http.MethodOptions && (r.URL.Path == wellKnownMatrixClient || r.URL.Path == wellKnownMatrixServer) {
+		publicDiscovery(w, r)
 		return
 	}
 	if r.Method == http.MethodOptions {
