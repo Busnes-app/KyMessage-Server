@@ -74,6 +74,8 @@ type Server struct {
 	roomBudget       time.Duration // a room change's steps before its final Close or Delete
 	matrixTargets    health.Targets
 	probeHTTP        *http.Client
+	fedHTTP          *http.Client // other homeservers: public addresses only
+	fedBaseForTest   func(name string) string
 	mux              *http.ServeMux
 	// clientAttempts throttles anonymous callers by address; accountAttempts throttles by
 	// user ID. Separate maps, so anonymous traffic filling one cannot evict the other.
@@ -216,6 +218,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		recovery:        recovery,
 		matrixTargets:   health.ComposeTargets,
 		probeHTTP:       health.NewHTTPClient(),
+		fedHTTP:         newFederationHTTP(),
 		mux:             http.NewServeMux(),
 		clientAttempts:  attemptLimiter{m: make(map[string]attemptWindow), cap: attemptsCap},
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
