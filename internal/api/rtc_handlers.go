@@ -130,6 +130,11 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 	}
 	var joined bool
 	err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
+		// A closed room keeps its remote members; it never grants a call.
+		blocked, err := s.rooms.Blocked(ctx, token, in.RoomID)
+		if err != nil || blocked {
+			return err
+		}
 		members, err := s.rooms.Members(ctx, token, in.RoomID)
 		if err != nil {
 			return err
@@ -235,7 +240,11 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 		}
 		var members []string
 		err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
-			var err error
+			// A closed room keeps its remote members; its call keeps nobody.
+			blocked, err := s.rooms.Blocked(ctx, token, room.Metadata)
+			if err != nil || blocked {
+				return err
+			}
 			members, err = s.rooms.Members(ctx, token, room.Metadata)
 			return err
 		})
