@@ -95,10 +95,11 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   `federation/federation.yaml`, which Synapse loads second (`--config-path` order; Synapse 1.162
   merges files with a shallow update, `synapse/config/_base.py` `read_config_files`), replaces
   `listeners` and `federation_domain_whitelist`. `homeserver.yaml` keeps the closed values of
-  both, equal to `FederationYAML(nil)` (`TestFederationFileOwnsOnlyListenersAndAllowList`), so
+  both, equal to `FederationYAML("", nil)` (`TestFederationFileOwnsOnlyListenersAndAllowList`), so
   a Synapse started without the second file (a deployment not yet updated) runs, closed. `FederationYAML` is its only
   renderer: JSON (valid YAML, so a name cannot add keys), names sorted and deduplicated, each a
-  `ValidServerName` and not an IP literal, at most `MaxFederationServers`. Empty is today's
+  `ValidServerName`, not an IP literal and not the local server name (`self`), at most
+  `MaxFederationServers`. Empty is today's
   closed server: `[client, openid]` and `[]` (never null, which allows every server).
   Non-empty adds the `federation` resource on the same 8008 listener, which the proxy already
   routes. `WriteFederation` rewrites in place, mode 0600 (Synapse runs as the owner).

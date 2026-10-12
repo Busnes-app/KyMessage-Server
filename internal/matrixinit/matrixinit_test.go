@@ -890,7 +890,7 @@ func TestFederationFileOwnsOnlyListenersAndAllowList(t *testing.T) {
 
 func TestFederationYAMLOpensOnlyForListedServers(t *testing.T) {
 	var fed map[string]any
-	b, err := FederationYAML([]string{"b.example", "a.example", "b.example"})
+	b, err := FederationYAML("example.com", []string{"b.example", "a.example", "b.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -905,21 +905,24 @@ func TestFederationYAMLOpensOnlyForListedServers(t *testing.T) {
 		t.Errorf("resources %v", names)
 	}
 	for _, bad := range [][]string{{"Evil.example"}, {"a.example\nenable_registration: true"}, {"10.0.0.1"}, {"*.example"}, {"localhost"}, {""}} {
-		if _, err := FederationYAML(bad); err == nil {
+		if _, err := FederationYAML("example.com", bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	if _, err := FederationYAML([]string{strings.Repeat("a", 63) + ".example"}); err != nil {
+	if _, err := FederationYAML("example.com", []string{strings.Repeat("a", 63) + ".example"}); err != nil {
 		t.Errorf("a 63-byte label refused: %v", err)
 	}
-	if _, err := FederationYAML([]string{strings.Repeat("a", 64) + ".example"}); err == nil {
+	if _, err := FederationYAML("example.com", []string{strings.Repeat("a", 64) + ".example"}); err == nil {
 		t.Error("a 64-byte label accepted")
+	}
+	if _, err := FederationYAML("example.com", []string{"partner.example", "example.com"}); err == nil {
+		t.Error("this server's own name accepted")
 	}
 	many := make([]string, MaxFederationServers+1)
 	for i := range many {
 		many[i] = fmt.Sprintf("s%d.example", i)
 	}
-	if _, err := FederationYAML(many); err == nil {
+	if _, err := FederationYAML("example.com", many); err == nil {
 		t.Error("over the cap accepted")
 	}
 }
@@ -930,7 +933,7 @@ func TestInitKeepsTheConsolesFederationFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, FederationFile)
-	if err := WriteFederation(path, []string{"partner.example"}); err != nil {
+	if err := WriteFederation(path, "example.com", []string{"partner.example"}); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
@@ -944,10 +947,16 @@ func TestInitKeepsTheConsolesFederationFile(t *testing.T) {
 	if slices.Contains(res.Rendered, FederationFile) {
 		t.Error("re-run reported the kept file as rendered")
 	}
+	if err := WriteFederation(path, "example.com", []string{"example.com"}); err == nil {
+		t.Error("WriteFederation listed this server itself")
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+		t.Error("a refused write changed the file")
+	}
 	// In place, like Element's config: the bind into Synapse and the app keeps its inode.
 	var st1, st2 syscall.Stat_t
 	syscall.Stat(path, &st1)
-	if err := WriteFederation(path, nil); err != nil {
+	if err := WriteFederation(path, "example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 	syscall.Stat(path, &st2)
