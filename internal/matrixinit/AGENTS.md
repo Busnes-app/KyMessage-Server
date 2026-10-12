@@ -74,6 +74,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   A mapped localpart starting with `_` (e.g. a name beginning with a non-ASCII letter) is
   refused by Synapse's `check_username`, which MAS calls through `is_localpart_available`:
   sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.
+- Synapse sets `push.include_content: false`: push gateways (Element's or self-hosted) receive
+  event and room IDs only. Never re-enable content; clients fetch it after the push.
 - Calls default on: `element_call.disable: false`, `use_exclusively: true`, `UIFeature.voip: true`.
   Synapse advertises the console origin + `/api/matrix/rtc` as its LiveKit authorization URL,
   serves the narrow `openid` resource alongside `client` (federation stays off), and enables

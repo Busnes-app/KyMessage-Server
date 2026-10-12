@@ -30,6 +30,9 @@ trusted_key_servers: []
 enable_registration: false
 allow_guest_access: false
 encryption_enabled_by_default_for_room_type: all
+# Push gateways (Element's, or a self-hosted ntfy) get event and room IDs only, never content.
+push:
+  include_content: false
 matrix_authentication_service:
   enabled: true
   endpoint: http://mas:8080/

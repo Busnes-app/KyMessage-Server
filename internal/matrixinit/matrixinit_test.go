@@ -171,6 +171,9 @@ func TestSynapseConfigIsClosedAndEncrypted(t *testing.T) {
 	if fed, ok := hs["federation_domain_whitelist"].([]any); !ok || len(fed) != 0 {
 		t.Errorf("federation not disabled: %v", hs["federation_domain_whitelist"])
 	}
+	if push, _ := hs["push"].(map[string]any); push["include_content"] != false {
+		t.Errorf("push content not withheld: %v", hs["push"])
+	}
 	if ks, ok := hs["trusted_key_servers"].([]any); !ok || len(ks) != 0 {
 		t.Errorf("key servers: %v", hs["trusted_key_servers"])
 	}
