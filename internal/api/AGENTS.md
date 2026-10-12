@@ -119,8 +119,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   presets together. `GET /.well-known/matrix/server` (public discovery like the client file: `publicDiscovery` sets CORS `*`, no credentials, no HSTS, and answers its preflight from any origin) answers
   `{"m.server":"<KY_MATRIX_HOST host>:443"}` (its port when set) at `manual` or `curated`, else
   JSON 404, as on a server without federation. `GET /api/admin/federation/status` probes each
-  effective server through one `AsConsole` session in parallel, `fedProbeTimeout` each (its
-  write deadline, `fedStatusWriteTimeout`, covers the session's mint and revoke too), with
+  effective server through one `AsConsole` session in parallel, `fedProbeTimeout` each (account
+  checks and probes share `fedStatusBudget`; the write deadline, `fedStatusWriteTimeout`, adds
+  the detached mint and revoke), with
   `GET /_matrix/client/v3/profile/@kymessages-federation-check:<name>` on Synapse: 200 or 404
   `M_NOT_FOUND` `connected`; 403 `M_FORBIDDEN` `not_allowed` (either side's allow-list,
   ours included until Synapse restarts; message text is never matched); 404 `M_UNRECOGNIZED`
