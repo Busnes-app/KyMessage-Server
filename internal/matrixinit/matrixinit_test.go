@@ -1,11 +1,15 @@
 package matrixinit
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -157,11 +161,7 @@ func TestSynapseConfigIsClosedAndEncrypted(t *testing.T) {
 	if _, err := Run(goodInput(), dir); err != nil {
 		t.Fatal(err)
 	}
-	var hs map[string]any
-	b, _ := os.ReadFile(filepath.Join(dir, "synapse", "homeserver.yaml"))
-	if err := yaml.Unmarshal(b, &hs); err != nil {
-		t.Fatal(err)
-	}
+	hs := synapseConfig(t, dir)
 	if hs["server_name"] != "example.com" || hs["enable_registration"] != false ||
 		hs["encryption_enabled_by_default_for_room_type"] != "all" ||
 		hs["public_baseurl"] != "https://matrix.example.com/" {
@@ -830,5 +830,128 @@ func TestLiveKitConfigIsPrivateAndDiscovered(t *testing.T) {
 	transports := hs["matrix_rtc"].(map[string]any)["transports"].([]any)
 	if transports[0].(map[string]any)["livekit_service_url"] != "https://admin.example.com/api/matrix/rtc" || hs["max_event_delay_duration"] != "24h" {
 		t.Fatal("call discovery or delayed events")
+	}
+}
+
+// synapseConfig merges Synapse's two config files as Synapse 1.162 does: a shallow update in
+// --config-path order (synapse/config/_base.py read_config_files).
+func synapseConfig(t *testing.T, dir string) map[string]any {
+	t.Helper()
+	hs := map[string]any{}
+	for _, rel := range []string{"synapse/homeserver.yaml", FederationFile} {
+		var part map[string]any
+		b, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := yaml.Unmarshal(b, &part); err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		maps.Copy(hs, part)
+	}
+	return hs
+}
+
+func TestFederationFileOwnsOnlyListenersAndAllowList(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	var hs, fed map[string]any
+	b, _ := os.ReadFile(filepath.Join(dir, "synapse", "homeserver.yaml"))
+	if err := yaml.Unmarshal(b, &hs); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"listeners", "federation_domain_whitelist"} {
+		if _, ok := hs[k]; ok {
+			t.Errorf("homeserver.yaml still sets %s, which the federation file must own", k)
+		}
+	}
+	b, _ = os.ReadFile(filepath.Join(dir, FederationFile))
+	if err := yaml.Unmarshal(b, &fed); err != nil {
+		t.Fatal(err)
+	}
+	if len(fed) != 2 || fed["listeners"] == nil || fed["federation_domain_whitelist"] == nil {
+		t.Errorf("federation file keys: %v", fed)
+	}
+	// Neither file may loosen Synapse's defaults for outbound federation or public rooms.
+	all := synapseConfig(t, dir)
+	for _, k := range []string{"ip_range_whitelist", "ip_range_blacklist", "allow_public_rooms_over_federation", "federation_custom_ca_list"} {
+		if _, ok := all[k]; ok {
+			t.Errorf("%s is set", k)
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, FederationFile)); fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v", fi.Mode().Perm())
+	}
+}
+
+func TestFederationYAMLOpensOnlyForListedServers(t *testing.T) {
+	var fed map[string]any
+	b, err := FederationYAML([]string{"b.example", "a.example", "b.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(b, &fed); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(fed["federation_domain_whitelist"]); got != "[a.example b.example]" {
+		t.Errorf("allow-list %s, want sorted and deduplicated", got)
+	}
+	names := fed["listeners"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)["names"]
+	if fmt.Sprint(names) != "[client openid federation]" {
+		t.Errorf("resources %v", names)
+	}
+	for _, bad := range [][]string{{"Evil.example"}, {"a.example\nenable_registration: true"}, {"10.0.0.1"}, {"*.example"}, {"localhost"}, {""}} {
+		if _, err := FederationYAML(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	many := make([]string, MaxFederationServers+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("s%d.example", i)
+	}
+	if _, err := FederationYAML(many); err == nil {
+		t.Error("over the cap accepted")
+	}
+}
+
+func TestInitKeepsTheConsolesFederationFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, FederationFile)
+	if err := WriteFederation(path, []string{"partner.example"}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	res, err := Run(goodInput(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+		t.Errorf("re-run rewrote the console's allow-list:\n%s", after)
+	}
+	if slices.Contains(res.Rendered, FederationFile) {
+		t.Error("re-run reported the kept file as rendered")
+	}
+	// In place, like Element's config: the bind into Synapse and the app keeps its inode.
+	var st1, st2 syscall.Stat_t
+	syscall.Stat(path, &st1)
+	if err := WriteFederation(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	syscall.Stat(path, &st2)
+	if st1.Ino != st2.Ino {
+		t.Error("WriteFederation replaced the inode")
+	}
+	if fed := synapseConfig(t, dir)["federation_domain_whitelist"].([]any); len(fed) != 0 {
+		t.Errorf("closed again: %v", fed)
+	}
+	os.Remove(path)
+	os.Mkdir(path, 0o700)
+	if _, err := Run(goodInput(), dir); err == nil {
+		t.Error("a directory at the federation path was accepted")
 	}
 }

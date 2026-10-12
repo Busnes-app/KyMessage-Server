@@ -169,7 +169,7 @@ func Members(cfg *config.Config) []string {
 		m = append(m, recoveryPubPath)
 	}
 	if cfg.Matrix.Enabled() {
-		m = append(m, mediaKeyPath, "matrix/secrets/", "matrix/synapse/", "matrix/mas/", "matrix/element/", "matrix/postgres/",
+		m = append(m, mediaKeyPath, "matrix/secrets/", "matrix/synapse/", "matrix/federation/", "matrix/mas/", "matrix/element/", "matrix/postgres/",
 			"matrix/dumps/mas.dump.NNN", "matrix/dumps/synapse.dump.NNN")
 	}
 	return m

@@ -4,8 +4,12 @@
 # internal matrix-db network, shared with Synapse and MAS. The app reaches MAS's admin API
 # (mas-admin:8081) on the internal matrix-admin network, which only the app and MAS join.
 # The app also joins matrix-db and reads ./matrix (minus the Postgres superuser password) and the
-# media volume read-only, for server backups (docs/RESTORE.md). It writes one file there:
-# Element's config.json, whose "brand" the console sets in place.
+# media volume read-only, for server backups (docs/RESTORE.md). It writes two files there, in
+# place: Element's config.json, whose "brand" the console sets, and federation/federation.yaml,
+# Synapse's listeners and federation allow-list (Settings > Federation; closed by default).
+# Cost, recorded (owner decision 2026-10-11): the app can write any Synapse setting through
+# that file, so a compromised app can run code in Synapse. It already reads every secret
+# Synapse holds and can act as Synapse admin.
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
@@ -63,6 +67,8 @@ services:
       # ./matrix/element bind: Docker cannot recreate a mountpoint inside one, which breaks
       # `docker cp` from the app.
       - {type: bind, source: ./matrix/element/config.json, target: /matrix/element/config.json, read_only: false, bind: {create_host_path: false}}
+      # Same pattern: the whole of ./matrix/federation, rewritten in place by Settings > Federation.
+      - {type: bind, source: ./matrix/federation/federation.yaml, target: /matrix/federation/federation.yaml, read_only: false, bind: {create_host_path: false}}
       - {<<: *matrix-ro, source: ./matrix/postgres, target: /matrix/postgres}
       - {<<: *matrix-ro, source: ./matrix/livekit, target: /matrix/livekit}
       - {<<: *matrix-ro, source: ./matrix/secrets/livekit_api_key, target: /matrix/secrets/livekit_api_key}
@@ -122,11 +128,13 @@ services:
     image: ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
     # start.py execs Synapse directly when not root; it changes no ownership in run mode.
     user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
-    environment:
-      SYNAPSE_CONFIG_PATH: /config/homeserver.yaml
+    # The stock start.py passes these through; Synapse merges the files in order, so the
+    # console-owned federation file sets listeners and the allow-list.
+    command: ["run", "--config-path", "/config/homeserver.yaml", "--config-path", "/federation.yaml"]
     networks: [default, matrix-db]
     volumes:
       - ./matrix/synapse:/config:ro
+      - {<<: *matrix-ro, source: ./matrix/federation/federation.yaml, target: /federation.yaml}
       # nocopy: while the volume is empty, Docker copies the image's root-owned /media onto it
       # at every mount, undoing synapse-media-owner's chown.
       - {type: volume, source: matrix-media, target: /media, volume: {nocopy: true}}
