@@ -3,7 +3,8 @@
 # services as the matrix-init owner, mount only each service's own ./matrix path read-only,
 # pass the Postgres superuser password as a secret file and keep it out of the app's view, and
 # keep composing with the proxy and static-IP overlays.
-# The app's one writable ./matrix path is Element's config.json, whose brand the console sets.
+# The app's writable ./matrix paths are Element's config.json, whose brand the console sets, and
+# federation/federation.yaml, Synapse's listeners and allow-list (Settings > Federation).
 # Uses throwaway values and ignores any local .env; contacts nothing.
 set -u
 root=$(git rev-parse --show-toplevel)
@@ -47,7 +48,7 @@ for s in "${!image[@]}"; do
     case $type in
       volume) [ "$src" = "${named[$s]}" ] || bad "$s mounts volume $src" ;;
       bind)
-        case $src in "$root/matrix/${own[$s]}" | "$root/matrix/${own[$s]}/"*) ;; *) bad "$s binds $src outside ./matrix/${own[$s]}" ;; esac
+        case $s:$src in "$s:$root/matrix/${own[$s]}" | "$s:$root/matrix/${own[$s]}/"* | "synapse:$root/matrix/federation/federation.yaml") ;; *) bad "$s binds $src outside ./matrix/${own[$s]}" ;; esac
         [ "$ro" = true ] || bad "$s bind $src -> $target is writable" ;;
       *) bad "$s has a $type mount" ;;
     esac
@@ -90,6 +91,9 @@ owner=$(jq -c '.services["synapse-media-owner"]' <<<"$out")
 [ "$(jq -c '.services.postgres.networks | keys' <<<"$out")" = '["matrix-db"]' ] || bad "postgres is not only on matrix-db"
 [ "$(jq -r '.networks["matrix-db"].internal' <<<"$out")" = true ] || bad "matrix-db is not internal"
 [ "$(jq -c '.services.synapse.networks | keys' <<<"$out")" = '["default","matrix-db"]' ] || bad "synapse is not on default and matrix-db"
+# Synapse loads the console's federation file after its own config; nothing else sets listeners.
+[ "$(jq -c '.services.synapse.command' <<<"$out")" = '["run","--config-path","/config/homeserver.yaml","--config-path","/federation.yaml"]' ] \
+  || bad "synapse does not load homeserver.yaml then /federation.yaml: $(jq -c '.services.synapse.command' <<<"$out")"
 [ "$(jq -c '.services.mas.networks | keys' <<<"$out")" = '["default","matrix-admin","matrix-db"]' ] || bad "mas is not on default, matrix-admin and matrix-db"
 # MAS is probed through its public discovery resource; it has no internal port to reach.
 jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("http://mas:8080/.well-known/openid-configuration")' <<<"$out" >/dev/null \
@@ -103,6 +107,9 @@ bindjson() { printf 'services: {p: {image: x, volumes: [{type: bind, source: /x,
   | docker compose --env-file /dev/null -f - config --format json | jq -c '.services.p.volumes[0].bind'; }
 nocreate=$(bindjson false)
 if [ -z "$nocreate" ] || [ "$nocreate" = "$(bindjson true)" ]; then bad "this docker compose cannot express create_host_path false"; fi
+jq -e --arg f "$root/matrix/federation/federation.yaml" --argjson nc "$nocreate" \
+  '[.services.synapse.volumes[] | select(.source == $f)] | length == 1 and .[0].target == "/federation.yaml" and .[0].read_only == true and .[0].bind == $nc' <<<"$out" >/dev/null \
+  || bad "synapse does not bind ./matrix/federation/federation.yaml read-only at /federation.yaml, create_host_path false"
 [ "$(jq -c '.services.mas.volumes' <<<"$out")" = "[{\"type\":\"bind\",\"source\":\"$root/matrix/mas/config.yaml\",\"target\":\"/config/config.yaml\",\"read_only\":true,\"bind\":$nocreate}]" ] \
   || bad "mas does not bind only ./matrix/mas/config.yaml read-only with create_host_path false: $(jq -c '.services.mas.volumes' <<<"$out")"
 dep() { jq -r --arg s "$1" --arg d "$2" '.services[$s].depends_on[$d].condition // ""' <<<"$out"; }
@@ -159,9 +166,10 @@ done
 appvol() { jq -r --arg t "$1" '.services.app.volumes[] | select(.target == $t) | [.type, .source, (.read_only // false)] | @tsv' <<<"$out"; }
 # ./matrix piece by piece: each bind read-only at the same path under /matrix, never created by
 # Docker, and none of them ./matrix, ./matrix/secrets or the Postgres superuser password.
-# Element's config.json is the one exception, checked by rw_check below.
+# Element's config.json and the federation file are the exceptions, checked by rw_check below.
 elementcfg="$root/matrix/element/config.json"
-appmx=$(jq -c --arg r "$root/matrix" --arg e "$elementcfg" '[.services.app.volumes[] | select(.type == "bind" and .source != $e and (.source == $r or (.source | startswith($r + "/"))))]' <<<"$out")
+fedcfg="$root/matrix/federation/federation.yaml"
+appmx=$(jq -c --arg r "$root/matrix" --arg e "$elementcfg" --arg f "$fedcfg" '[.services.app.volumes[] | select(.type == "bind" and .source != $e and .source != $f and (.source == $r or (.source | startswith($r + "/"))))]' <<<"$out")
 jq -e --arg r "$root/matrix" --argjson nc "$nocreate" 'length > 0 and all(.[]; .target == "/matrix" + (.source | ltrimstr($r))
     and .read_only == true and .bind == $nc and .source != $r and .source != $r + "/secrets")' <<<"$appmx" >/dev/null \
   || bad "app ./matrix binds are not read-only, same-path, non-creating pieces: $appmx"
@@ -173,14 +181,15 @@ done
 # bind, and `docker cp` from the app then fails.
 nested=$(jq -c '[.services.app.volumes[].target] as $t | [$t[] as $a | $t[] | select(startswith($a + "/"))]' <<<"$out")
 [ "$nested" = '[]' ] || bad "app mounts nested inside another app mount break docker cp: $nested"
-# The app's only writable bind under ./matrix: Element's config.json (all it needs of
-# ./matrix/element), never created by Docker. Element's own mount of it stays read-only (the
-# per-service loop above).
+# The app's only writable binds under ./matrix: Element's config.json (all it needs of
+# ./matrix/element) and the federation file (all of ./matrix/federation), never created by
+# Docker. Element's and Synapse's own mounts stay read-only (the per-service loop above).
 rw_check() {
   local rw
   rw=$(jq -c --arg r "$root/matrix" '[.services.app.volumes[] | select(.type == "bind" and (.source == $r or (.source | startswith($r + "/"))) and (.read_only // false) == false)]' <<<"$1")
-  jq -e --arg e "$elementcfg" --argjson nc "$nocreate" 'length == 1 and .[0].source == $e and .[0].target == "/matrix/element/config.json" and .[0].bind == $nc' <<<"$rw" >/dev/null \
-    || bad "$2: the app's writable ./matrix binds must be exactly ./matrix/element/config.json at /matrix/element/config.json, create_host_path false: $rw"
+  jq -e --arg r "$root/matrix" --argjson nc "$nocreate" '[.[] | [(.source | ltrimstr($r)), .target, (.bind == $nc)]] | sort
+      == [["/element/config.json", "/matrix/element/config.json", true], ["/federation/federation.yaml", "/matrix/federation/federation.yaml", true]]' <<<"$rw" >/dev/null \
+    || bad "$2: the app's writable ./matrix binds must be exactly ./matrix/element/config.json and ./matrix/federation/federation.yaml at the same paths under /matrix, create_host_path false: $rw"
 }
 rw_check "$out" "matrix overlay"
 rw_check "$both" "matrix + static-ip"

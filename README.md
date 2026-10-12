@@ -95,7 +95,11 @@ client secret once, when you register the client the first run describes.
    (`-dir` defaults to `./matrix`; it refuses root, and an existing directory that group or
    others can read). It writes every config except MAS's, prints the KyIdentity registration
    values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Back up `matrix/secrets` and
-   `matrix/synapse/signing.key`; they are never regenerated.
+   `matrix/synapse/signing.key`; they are never regenerated. Upgrading a stack set up before
+   `matrix/federation/federation.yaml` existed: re-run `matrix-init` first, or Compose refuses
+   to start Synapse (it never creates that file), then `docker compose up -d` with your overlay
+   chain. `restart` is not enough: it keeps Synapse's old command and the app's old mounts. The
+   file is created closed; Settings owns it after.
 3. In KyIdentity, register the printed confidential client (client ID, redirect URI, back-channel
    logout URI, scopes `openid profile email`) and assign the users who may chat. Unassigned
    users cannot sign in. A user's Matrix ID comes from their KyIdentity email: its local part,
@@ -278,8 +282,8 @@ real audio/video check; production networking still needs deployment verificatio
   (`docker compose restart element`, or the command in `KY_MATRIX_ELEMENT_RESTART_HINT`): it
   serves a copy of its config made when it starts, and Settings shows that command while
   Element serves the old name. The app changes only the
-  `brand` key of `matrix/element/config.json`, in place, through the one read-write file it
-  mounts under `./matrix`, and puts it back within a minute if `matrix-init` re-renders it. If it cannot
+  `brand` key of `matrix/element/config.json`, in place, through one of the two read-write
+  files it mounts under `./matrix`, and puts it back within a minute if `matrix-init` re-renders it. If it cannot
   write that file, the name is still saved and Settings shows what Element says and why.
   If a crash mid-write ever leaves that file truncated or invalid, Settings shows the error
   and a running Element is unaffected, but a restarted Element fails to load: re-run

@@ -23,6 +23,7 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   kept byte for byte. Never add an http escape hatch: loopback overrides belong to the
   acceptance harness's scratch copy. Everything is validated before `dir` is created.
 - Layout: `secrets/<name>` (write-once), `synapse/{homeserver.yaml,signing.key}`,
+  `federation/federation.yaml` (created closed when absent, then kept: the console owns it),
   `livekit/config.yaml`, `mas/config.yaml`, `element/config.json`, `postgres/init.sql`, `postgres/kybackup-role.sql`. Directories 0700; files
   0600 except `element/config.json` (0644, no secrets). Only directories it creates are
   chmodded; an existing one with group or other bits is refused (never lock down `-dir .`).
@@ -45,12 +46,13 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   value cannot add keys.
 - Container contract (`docker-compose.matrix.yml`, checked by `scripts/check-compose-matrix.sh`):
   Postgres, Synapse and MAS run as `KY_MATRIX_UID:KY_MATRIX_GID` so the 0600 files stay
-  private; Postgres and Synapse mount only their own `./matrix/<service>` read-only, MAS only
+  private; Postgres and Synapse mount only their own `./matrix/<service>` read-only (Synapse
+  also `./matrix/federation/federation.yaml` at `/federation.yaml`, read-only), MAS only
   the file `./matrix/mas/config.yaml` (`create_host_path: false`), Element only the single 0644
   `config.json` (nginx cannot enter the 0700 dir) at the image's stock `/app/config.json`;
-  the image serves a copy made at start, so a rename shows after `docker compose restart element`. The app's only read-write path under `./matrix` is `./matrix/element/config.json`
+  the image serves a copy made at start, so a rename shows after `docker compose restart element`. The app's read-write paths under `./matrix` are `./matrix/element/config.json`
   (`create_host_path: false`), its only mount of `./matrix/element`, so the console can
-  set `brand` (`internal/branding`); the file belongs to `KY_MATRIX_UID`, and the root app
+  set `brand` (`internal/branding`), and `./matrix/federation/federation.yaml`, the same way; the file belongs to `KY_MATRIX_UID`, and the root app
   writes it through Docker's default `CAP_DAC_OVERRIDE` (a `cap_drop: [ALL]` on the app would
   make the write fail, which Settings then shows). Synapse reads `/config` (its dir) and writes media to `/media`;
   services reach each other as `postgres` (internal `matrix-db` network only), `synapse:8008`,
@@ -78,7 +80,7 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   event and room IDs only. Never re-enable content; clients fetch it after the push.
 - Calls default on: `element_call.disable: false`, `use_exclusively: true`, `UIFeature.voip: true`.
   Synapse advertises the console origin + `/api/matrix/rtc` as its LiveKit authorization URL,
-  serves the narrow `openid` resource alongside `client` (federation stays off), and enables
+  serves the narrow `openid` resource alongside `client`, and enables
   MSC4143/MSC4222 and delayed leave events. `livekit/config.yaml` uses generated write-once
   API keys, explicit media IP and TCP 7881/UDP 7882, with auto-create off; own-endpoint
   STUN prevents third-party fallback. Optional `KY_MATRIX_TURN_HOST`, `_CERT_FILE`, `_KEY_FILE`
@@ -89,6 +91,21 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   TURN internally listens on 5349, advertises 443, offers own-endpoint STUN/UDP TURN on 3478, allocates UDP 30000–30100 and denies all
   peer IPs except the configured media IPv4 (including an exact private-IP allowance).
   Certificate trust is an operator prerequisite; deployment egress must restrict peer ports.
+- Federation (owner decision 2026-10-11, plan `docs/superpowers/plans/2026-10-11-federation-opt-in.md`):
+  `federation/federation.yaml`, which Synapse loads second (`--config-path` order; Synapse 1.162
+  merges files with a shallow update, `synapse/config/_base.py` `read_config_files`), replaces
+  `listeners` and `federation_domain_whitelist`. `homeserver.yaml` keeps the closed values of
+  both, equal to `FederationYAML("", nil)` (`TestFederationFileOwnsOnlyListenersAndAllowList`), so
+  a Synapse started without the second file (a deployment not yet updated) runs, closed. `FederationYAML` is its only
+  renderer: JSON (valid YAML, so a name cannot add keys), names sorted and deduplicated, each a
+  `ValidServerName`, not an IP literal and not the local server name (`self`), at most
+  `MaxFederationServers`. Empty is today's
+  closed server: `[client, openid]` and `[]` (never null, which allows every server).
+  Non-empty adds the `federation` resource on the same 8008 listener, which the proxy already
+  routes. `WriteFederation` rewrites in place, mode 0600 (Synapse runs as the owner).
+  `trusted_key_servers: []` stays: keys come from each allowed origin. Neither file sets
+  `ip_range_whitelist`, `ip_range_blacklist`, `federation_custom_ca_list` or
+  `allow_public_rooms_over_federation` (`TestFederationFileOwnsOnlyListenersAndAllowList`).
 - Element contacts no third party: integrations are null, `UIFeature.widgets` off, `jitsi.preferred_domain` is `jitsi.invalid`
   (Element keeps its `meet.element.io` default for an object set to null, so the
   unresolvable name makes any Jitsi start fail closed), help links and the logo
