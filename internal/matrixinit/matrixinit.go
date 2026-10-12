@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -146,9 +147,10 @@ func cleanValue(v string) bool {
 	return v != "" && !strings.ContainsFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
-// ValidServerName refuses anything but a lowercase DNS name of at least two labels.
+// ValidServerName refuses anything but a lowercase DNS name of at least two labels, each at
+// most 63 bytes.
 func ValidServerName(name string) error {
-	if len(name) > 253 || !serverNameRE.MatchString(name) {
+	if len(name) > 253 || !serverNameRE.MatchString(name) || slices.ContainsFunc(strings.Split(name, "."), func(l string) bool { return len(l) > 63 }) {
 		return fmt.Errorf("server name %q is not a lowercase DNS name", name)
 	}
 	return nil

@@ -2,27 +2,36 @@ package api
 
 import "net/http"
 
-const wellKnownMatrixClient = "/.well-known/matrix/client"
+const (
+	wellKnownMatrixClient = "/.well-known/matrix/client"
+	wellKnownMatrixServer = "/.well-known/matrix/server"
+)
 
-// handleMatrixClientWellKnown tells Matrix clients where the homeserver is. Any origin may read
-// it (the spec requires CORS *), so it carries no credentials.
-func (s *Server) handleMatrixClientWellKnown(w http.ResponseWriter, r *http.Request) {
-	// Served on the apex too; never pin HSTS there.
+// publicDiscovery makes a Matrix discovery file readable from any origin (the spec requires
+// CORS *) with no credentials and no HSTS (it is served on the apex too). It answers a
+// preflight itself and then reports true.
+func publicDiscovery(w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Del("Strict-Transport-Security")
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Del("Access-Control-Allow-Credentials")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "X-Requested-With, Content-Type, Authorization")
-		w.WriteHeader(http.StatusOK)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Del("Access-Control-Allow-Credentials")
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "X-Requested-With, Content-Type, Authorization")
+	w.WriteHeader(http.StatusOK)
+	return true
+}
+
+// handleMatrixClientWellKnown tells Matrix clients where the homeserver is.
+func (s *Server) handleMatrixClientWellKnown(w http.ResponseWriter, r *http.Request) {
+	if publicDiscovery(w, r) {
 		return
 	}
 	if s.config.Matrix.Host == "" {
 		s.writeError(w, http.StatusNotFound, "Matrix is not configured")
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Del("Access-Control-Allow-Credentials")
 	type homeserver struct {
 		BaseURL string `json:"base_url"`
 	}

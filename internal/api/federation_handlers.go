@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/matrixinit"
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -364,7 +365,7 @@ func (s *Server) handleFederationPreset(w http.ResponseWriter, r *http.Request) 
 // handleMatrixServerWellKnown delegates federation to the Synapse host on 443 while federation
 // is open; closed, it is absent, as before federation existed.
 func (s *Server) handleMatrixServerWellKnown(w http.ResponseWriter, r *http.Request) {
-	w.Header().Del("Strict-Transport-Security") // served on the apex too
+	publicDiscovery(w, r)
 	st, err := s.fedState(r.Context())
 	u, uerr := url.Parse(s.config.Matrix.Host)
 	if !s.config.Matrix.Enabled() || err != nil || uerr != nil || st.Level == fedClosed {
@@ -394,6 +395,10 @@ const (
 // fedProbeTimeout covers Synapse's slowest observed failure (6 s to an absent host).
 const fedProbeTimeout = 10 * time.Second
 
+// fedStatusWriteTimeout outlasts the listener's 15 s: the console session's mint and revoke
+// (each up to matrixsync.ConsoleCallTimeout), the parallel probes and writing the answer.
+const fedStatusWriteTimeout = 2*matrixsync.ConsoleCallTimeout + fedProbeTimeout + 5*time.Second
+
 // fedProbeUser is looked up on each peer; it need not exist there.
 const fedProbeUser = "@kymessages-federation-check:"
 
@@ -403,6 +408,7 @@ func (s *Server) handleFederationStatus(w http.ResponseWriter, r *http.Request) 
 	if !s.matrixOn(w) {
 		return
 	}
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(fedStatusWriteTimeout))
 	st, err := s.fedState(r.Context())
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Could not read federation settings")
