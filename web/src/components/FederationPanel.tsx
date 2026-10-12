@@ -49,7 +49,8 @@ const LEVEL_TEXT: Record<Level, { label: string; help: string }> = {
 export function wideningWarnings(to: Level): string[] {
   if (to === 'closed') return [];
   const w = [
-    'Allowed servers see room names, topics, membership, display names and timestamps of rooms their users join. Messages stay end-to-end encrypted in Element; encryption across servers has not been independently tested.',
+    'Allowed servers see room names, topics, membership, display names and timestamps of rooms their users join.',
+    'Chat stays “End-to-end encrypted in Element (not independently audited)”, but Synapse does not enforce encryption: a client that does not encrypt can post plaintext. Encryption across servers is not covered by our acceptance tests.',
     'Offboarding someone here does not remove what was already sent to other servers.',
     'Closing a room removes this server from it; other servers keep it. Deleting a room deletes only this server’s copy.',
     'People on allowed servers can join calls in rooms they share with your users; only your users start calls, and their media uses your bandwidth.',
@@ -85,6 +86,7 @@ export const FederationPanel: React.FC = () => {
   const [changed, setChanged] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [checkError, setCheckError] = useState('');
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -92,8 +94,9 @@ export const FederationPanel: React.FC = () => {
       const res = await fetch('/api/admin/federation/status', { cache: 'no-store' });
       if (!res.ok) throw new Error(await errorMessage(res, 'Could not check the servers'));
       setStatuses(parseStatuses(await res.json()));
+      setCheckError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not check the servers');
+      setCheckError(err instanceof Error ? err.message : 'Could not check the servers');
     } finally {
       setChecking(false);
     }
@@ -138,7 +141,11 @@ export const FederationPanel: React.FC = () => {
   const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const setLevel = (level: Level) => void change('/api/admin/federation/level', json('PUT', { level }), `Federation set to ${LEVEL_TEXT[level].label}.`);
   const pick = (level: Level) => {
-    if (!state || level === state.level) return;
+    if (!state) return;
+    if (level === state.level) {
+      setPending(null);
+      return;
+    }
     // Wider levels show what they expose first; narrowing applies at once.
     if (LEVELS.indexOf(level) > LEVELS.indexOf(state.level)) setPending(level);
     else setLevel(level);
@@ -251,6 +258,7 @@ export const FederationPanel: React.FC = () => {
         </>
       )}
       {message && <div className="dr-alert dr-alert-success" role="status">{message}</div>}
+      {checkError && <div className="dr-alert dr-alert-error" role="alert">{checkError}</div>}
       {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
     </section>
   );

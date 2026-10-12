@@ -34,7 +34,7 @@ describe('parsing', () => {
     expect(wideningWarnings('closed')).toEqual([]);
     expect(wideningWarnings('manual').some((w) => w.includes('public servers'))).toBe(false);
     expect(wideningWarnings('curated').some((w) => w.includes('public servers'))).toBe(true);
-    expect(wideningWarnings('manual').some((w) => w.includes('not been independently tested'))).toBe(true);
+    expect(wideningWarnings('manual').some((w) => w.includes('End-to-end encrypted in Element (not independently audited)') && w.includes('does not enforce encryption'))).toBe(true);
   });
 });
 
@@ -146,5 +146,36 @@ describe('FederationPanel', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Add a server' }), { target: { value: 'example.com' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
     expect(await screen.findByText("that is this server's own name")).toBeTruthy();
+  });
+  it('drops a pending widening when the applied level is chosen again', async () => {
+    const calls = serve((url, init) => {
+      if (url === '/api/admin/federation' && !init?.method) return json({ ...CLOSED, level: 'manual' });
+      if (url === '/api/admin/federation/status') return json({ statuses: {} });
+      return undefined;
+    });
+    render(<FederationPanel />);
+    fireEvent.click(await screen.findByRole('radio', { name: /Curated list/ }));
+    expect(screen.getByRole('button', { name: 'Allow Curated list + approval' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /Manual approval/ }));
+    expect((screen.getByRole('radio', { name: /Manual approval/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Allow Curated list + approval' })).toBeNull();
+    expect(calls.some((c) => c.init?.method === 'PUT')).toBe(false);
+  });
+
+  it('clears a failed check once a retry succeeds', async () => {
+    let first = true;
+    serve((url, init) => {
+      if (url === '/api/admin/federation' && !init?.method) return json({ ...CLOSED, level: 'manual', servers: [{ name: 'partner.example' }] });
+      if (url === '/api/admin/federation/status') {
+        if (first) { first = false; return json({ error: 'Matrix admin API unavailable' }, 502); }
+        return json({ statuses: { 'partner.example': 'connected' } });
+      }
+      return undefined;
+    });
+    render(<FederationPanel />);
+    expect(await screen.findByText('Matrix admin API unavailable')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Check connections' }));
+    expect(await screen.findByText('Connected')).toBeTruthy();
+    expect(screen.queryByText('Matrix admin API unavailable')).toBeNull();
   });
 });
