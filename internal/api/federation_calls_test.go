@@ -114,6 +114,16 @@ func TestRemoteCallersJoinOnlyAllowedExistingCalls(t *testing.T) {
 	if len(removed) != 0 {
 		t.Fatalf("allowed participants evicted: %v", removed)
 	}
+	// Unreadable federation settings evict remote callers and still evict local ones.
+	set("federation_servers", "not json")
+	if err := srv.ReconcileCalls(context.Background()); err == nil {
+		t.Error("a settings error was not reported")
+	}
+	if strings.Join(removed, ",") != "bob-device" {
+		t.Fatalf("with unreadable settings evicted %v, want the remote caller", removed)
+	}
+	removed = nil
+	set("federation_servers", `["peer.example"]`)
 	set("federation_level", "closed") // takes effect on calls at once, without a Synapse restart
 	if err := srv.ReconcileCalls(context.Background()); err != nil {
 		t.Fatal(err)

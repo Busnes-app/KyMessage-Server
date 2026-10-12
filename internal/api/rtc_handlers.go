@@ -211,11 +211,12 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	st, err := s.fedState(ctx)
-	if err != nil {
-		return err
+	// Unreadable federation settings must not stop local evictions: no remote caller stays.
+	st, fedErr := s.fedState(ctx)
+	var allowed []string
+	if fedErr == nil {
+		allowed = st.allow()
 	}
-	allowed := st.allow()
 	// A local user must be active here; a remote one's server must still be allowed.
 	mayCall := func(mxid string) bool {
 		if server := mxidServer(mxid); server != s.config.Matrix.ServerName {
@@ -257,5 +258,5 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 			log.Printf("[MATRIX RTC] removed participant from call")
 		}
 	}
-	return result
+	return errors.Join(result, fedErr)
 }
