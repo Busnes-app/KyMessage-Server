@@ -2,7 +2,7 @@
 # on top of docker-compose.yml + docker-compose.matrix.yml with the scratch directory as the
 # project directory, so ./matrix is the harness's own matrix-init output.
 # Loopback without weakening the shipped configs: a TLS proxy with a throwaway CA answers for
-# the five https hosts (network aliases inside, 127.0.0.1:<ephemeral> outside). MAS and
+# the https hosts (network aliases inside, 127.0.0.1:<ephemeral> outside). MAS and
 # KyIdentity trust only that CA; the harness imports its throwaway CA into Chromium temporarily.
 services:
   kyidentity:
@@ -31,7 +31,7 @@ services:
       - ./nginx-extra:/etc/nginx/kymatrix-extra:ro
     networks:
       default:
-        aliases: [id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test, admin.kymatrix.test, sfu.kymatrix.test]
+        aliases: [kymatrix.test, id.kymatrix.test, auth.kymatrix.test, matrix.kymatrix.test, chat.kymatrix.test, admin.kymatrix.test, sfu.kymatrix.test, peer.kymatrix.test]
     # Only KyIdentity: the client is registered there before MAS has a config.
     depends_on: [kyidentity]
 
@@ -47,6 +47,25 @@ services:
   mas:
     volumes:
       - ./tls/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  # A third config file, test-only: federation trusts the throwaway CA, and the federation step
+  # appends the proxy's private address to ip_range_whitelist. The shipped files set neither.
+  synapse:
+    command: ["run", "--config-path", "/config/homeserver.yaml", "--config-path", "/federation.yaml", "--config-path", "/accept-federation.yaml"]
+    volumes:
+      - ./overrides/synapse-federation.yaml:/accept-federation.yaml:ro
+      - ./tls/ca.crt:/accept-ca.crt:ro
+
+  # The federation step's peer homeserver: the pinned Synapse, SQLite in tmpfs, started only
+  # by that step.
+  peer:
+    image: ghcr.io/element-hq/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    command: ["run", "--config-path", "/peer.yaml"]
+    tmpfs: [/data]
+    volumes:
+      - ./overrides/peer.yaml:/peer.yaml:ro
+      - ./tls/ca.crt:/accept-ca.crt:ro
 
 networks:
   default:

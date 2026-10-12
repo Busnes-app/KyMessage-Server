@@ -236,7 +236,14 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   and after `docker compose restart element` `/config.json`, the title and the API carry it; a PNG carrying a `tEXt` chunk is
   served at `/app-icon.png` re-encoded without it, `no-cache`; a `matrix-init` re-run is undone
   in the file within one maintenance tick and served after a restart; resets restore the
-  defaults; every change is audited.
+  defaults; every change is audited. Federation follows: closed, the server name serves no
+  `/.well-known/matrix/server`; a test-only peer Synapse (`peer.kymatrix.test`; both Synapses
+  trust the harness CA and the proxy's address through harness-only config files, a third
+  `--config-path` on ours) is listed at level manual, and after `docker compose restart synapse` the
+  delegation answers, status shows it `connected` and plain messages cross both ways; removed,
+  our Synapse refuses its requests and transactions; level closed restores the closed file and
+  the 404s. A peer's call token is refused with 502 while allowed (the app's client refuses the
+  private address, so a cross-server call stays unproven) and 403 once removed.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.

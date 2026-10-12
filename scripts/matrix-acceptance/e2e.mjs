@@ -1,5 +1,5 @@
 // usage: node e2e.mjs prove|refused|compat|noclaim|media|restored
-//        node e2e.mjs room|token|disabled|reread|reads USER
+//        node e2e.mjs room|token|fedtoken|disabled|reread|reads USER
 //        node e2e.mjs title BRAND
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
@@ -353,7 +353,8 @@ async function room() {
 }
 
 // A second Element session for USER: the access token of its first client-server request,
-// written 0600 for the harness to probe. The browser closes once it has it.
+// written 0600 for the harness to probe. The browser closes once it has it. fedtoken is the
+// same in a fresh profile, for a user whose token profile the console already signed out.
 async function token() {
   const page = await launch(user);
   const authorized = page.waitForRequest(
@@ -570,7 +571,7 @@ async function calls(restored = false) {
   out({group:rooms.group, dm:rooms.dm, video, voice});
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, disabled, reread, reads, media, restored, title };
+const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);
