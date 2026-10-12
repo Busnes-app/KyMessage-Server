@@ -395,9 +395,13 @@ const (
 // fedProbeTimeout covers Synapse's slowest observed failure (6 s to an absent host).
 const fedProbeTimeout = 10 * time.Second
 
-// fedStatusWriteTimeout outlasts the listener's 15 s: the console session's mint and revoke
-// (each up to matrixsync.ConsoleCallTimeout), the parallel probes and writing the answer.
-const fedStatusWriteTimeout = 2*matrixsync.ConsoleCallTimeout + fedProbeTimeout + 5*time.Second
+// fedStatusBudget bounds the console account checks and the parallel probes together. The
+// session's mint and revoke run detached, each up to matrixsync.ConsoleCallTimeout, so the
+// write deadline adds both and time to write the answer; it outlasts the listener's 15 s.
+const (
+	fedStatusBudget       = 20 * time.Second
+	fedStatusWriteTimeout = fedStatusBudget + 2*matrixsync.ConsoleCallTimeout + 5*time.Second
+)
 
 // fedProbeUser is looked up on each peer; it need not exist there.
 const fedProbeUser = "@kymessages-federation-check:"
@@ -417,7 +421,9 @@ func (s *Server) handleFederationStatus(w http.ResponseWriter, r *http.Request) 
 	out := map[string]string{}
 	if allow := st.allow(); len(allow) > 0 {
 		var mu sync.Mutex
-		err = s.mas.AsConsole(r.Context(), func(ctx context.Context, token string) error {
+		ctx, cancel := context.WithTimeout(r.Context(), fedStatusBudget)
+		defer cancel()
+		err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
 			var wg sync.WaitGroup
 			for _, name := range allow {
 				wg.Go(func() {
