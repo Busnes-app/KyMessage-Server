@@ -380,3 +380,22 @@ func TestFederationStatusOutlivesTheWriteTimeout(t *testing.T) {
 		t.Fatalf("status %d %v %v", resp.StatusCode, body, err)
 	}
 }
+
+// Slow console setup must not eat the probes' time: they run on their own fresh context.
+func TestFederationStatusProbesAfterSlowSetup(t *testing.T) {
+	srv, st, _, f, _ := setupFederation(t)
+	syn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"errcode":"M_NOT_FOUND"}`))
+	}))
+	defer syn.Close()
+	api.SetHealthTargetsForTest(srv, health.Targets{Synapse: syn.URL})
+	admin := loginAs(t, srv, st, "root", "admin")
+	decode[fedView](t, adminDo(t, srv, admin, "PUT", "/api/admin/federation/level", map[string]string{"level": "manual"}))
+	decode[fedView](t, adminDo(t, srv, admin, "POST", "/api/admin/federation/servers", map[string]string{"name": "partner.example"}))
+	f.consoleLate = true
+	got := decode[struct{ Statuses map[string]string }](t, adminDo(t, srv, admin, "GET", "/api/admin/federation/status", nil)).Statuses
+	if got["partner.example"] != "connected" {
+		t.Errorf("after a slow setup: %v", got)
+	}
+}
