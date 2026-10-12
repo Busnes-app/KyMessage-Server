@@ -34,7 +34,7 @@ describe('parsing', () => {
     expect(wideningWarnings('closed')).toEqual([]);
     expect(wideningWarnings('manual').some((w) => w.includes('public servers'))).toBe(false);
     expect(wideningWarnings('curated').some((w) => w.includes('public servers'))).toBe(true);
-    expect(wideningWarnings('manual').some((w) => w.includes('not been independently tested'))).toBe(true);
+    expect(wideningWarnings('manual').some((w) => w.includes('End-to-end encrypted in Element (not independently audited)') && w.includes('does not enforce encryption'))).toBe(true);
   });
 });
 

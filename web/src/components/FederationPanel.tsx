@@ -49,7 +49,8 @@ const LEVEL_TEXT: Record<Level, { label: string; help: string }> = {
 export function wideningWarnings(to: Level): string[] {
   if (to === 'closed') return [];
   const w = [
-    'Allowed servers see room names, topics, membership, display names and timestamps of rooms their users join. Messages stay end-to-end encrypted in Element; encryption across servers has not been independently tested.',
+    'Allowed servers see room names, topics, membership, display names and timestamps of rooms their users join.',
+    'Chat stays “End-to-end encrypted in Element (not independently audited)”, but Synapse does not enforce encryption: a client that does not encrypt can post plaintext. Encryption across servers is not covered by our acceptance tests.',
     'Offboarding someone here does not remove what was already sent to other servers.',
     'Closing a room removes this server from it; other servers keep it. Deleting a room deletes only this server’s copy.',
     'People on allowed servers can join calls in rooms they share with your users; only your users start calls, and their media uses your bandwidth.',
