@@ -57,8 +57,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   allow-list (owner decision D3, 2026-10-11), against that server's
   `/_matrix/federation/v1/openid/userinfo` found through its `/.well-known/matrix/server`
   (else `<name>:8448`; no SRV), with `fedHTTP`: dial-time refusal of Synapse's default
-  blocklist ranges (`blockedPeerRanges`, plus unspecified and IPv4-mapped), no proxy, no
-  redirects, 8 s, 4 KiB. Any other server is refused before any network call; the token's
+  blocklist ranges (`blockedPeerRanges`, plus unspecified and IPv4-mapped), no proxy, 8 s,
+  4 KiB, no redirects except up to three https ones for the well-known (the spec says to
+  follow them; mozilla.org answers 301). Any other server is refused before any network call; the token's
   `sub` must belong to the server that verified it. A local caller must be active in the
   directory and MAS, and gets the LiveKit room created; a remote caller only joins a room that
   already exists (a local user started the call; 403 otherwise, never `Create`). Both need
