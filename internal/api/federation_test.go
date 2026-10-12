@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -328,5 +330,53 @@ func TestFederationRoutesAre404WithoutMatrix(t *testing.T) {
 	}
 	if w := wellKnownServer(srv); w.Code != http.StatusNotFound {
 		t.Errorf("well-known without Matrix: %d", w.Code)
+	}
+}
+
+// The server file is public discovery, like the client file: any origin, no credentials, no HSTS.
+func TestServerWellKnownIsPublicDiscovery(t *testing.T) {
+	srv, st, _, _, _ := setupFederation(t)
+	admin := loginAs(t, srv, st, "root", "admin")
+	decode[fedView](t, adminDo(t, srv, admin, "PUT", "/api/admin/federation/level", map[string]string{"level": "manual"}))
+	for _, method := range []string{"GET", "OPTIONS"} {
+		req := httptest.NewRequest(method, "/.well-known/matrix/server", nil)
+		req.Header.Set("Origin", "https://client.example")
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusOK || w.Header().Get("Access-Control-Allow-Origin") != "*" ||
+			w.Header().Get("Access-Control-Allow-Credentials") != "" || w.Header().Get("Strict-Transport-Security") != "" {
+			t.Errorf("%s: %d %v", method, w.Code, w.Header())
+		}
+	}
+}
+
+// A slow probe and console session must not lose the answer to the listener's write timeout.
+func TestFederationStatusOutlivesTheWriteTimeout(t *testing.T) {
+	srv, st, _, _, _ := setupFederation(t)
+	syn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"errcode":"M_NOT_FOUND"}`))
+	}))
+	defer syn.Close()
+	api.SetHealthTargetsForTest(srv, health.Targets{Synapse: syn.URL})
+	admin := loginAs(t, srv, st, "root", "admin")
+	decode[fedView](t, adminDo(t, srv, admin, "PUT", "/api/admin/federation/level", map[string]string{"level": "manual"}))
+	decode[fedView](t, adminDo(t, srv, admin, "POST", "/api/admin/federation/servers", map[string]string{"name": "partner.example"}))
+	hs := httptest.NewUnstartedServer(srv)
+	hs.Config.WriteTimeout = 100 * time.Millisecond
+	hs.Start()
+	defer hs.Close()
+	req, _ := http.NewRequest("GET", hs.URL+"/api/admin/federation/status", nil)
+	req.AddCookie(admin)
+	resp, err := hs.Client().Do(req)
+	if err != nil {
+		t.Fatalf("status lost to the write timeout: %v", err)
+	}
+	defer resp.Body.Close()
+	var body struct{ Statuses map[string]string }
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body.Statuses["partner.example"] != "connected" {
+		t.Fatalf("status %d %v %v", resp.StatusCode, body, err)
 	}
 }
