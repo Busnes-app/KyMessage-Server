@@ -138,8 +138,10 @@ restart") instead of matching message text.
   Refuse IP literals, our own server name and wildcards. List capped at 100. Server names with
   an explicit port are valid Matrix but rare; they are refused with a clear message until
   someone needs one (YAGNI).
-- `homeserver.yaml.tmpl`: drop `listeners` and `federation_domain_whitelist` (now owned by the
-  second file); keep `trusted_key_servers: []` (keys come straight from each origin).
+- `homeserver.yaml.tmpl`: keep the closed `listeners` and `federation_domain_whitelist: []`,
+  pinned equal to `FederationYAML(nil)`; the second file replaces both. A Synapse started
+  without the second file (a cluster manifest not yet updated) then still runs, closed. Keep
+  `trusted_key_servers: []` (keys come straight from each origin).
 - `matrix-init` creates `matrix/federation/federation.yaml` (closed) **only if missing**, owned
   by `KY_MATRIX_UID`, mode 0644.
 - Tests: parse the output YAML; assert the closed form equals today's listener and allow-list

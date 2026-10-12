@@ -56,7 +56,9 @@ func newFederationHTTP() *http.Client {
 }
 
 // federationBase finds where a server takes federation requests: its
-// /.well-known/matrix/server delegation, else <name>:8448. SRV records are not consulted.
+// /.well-known/matrix/server delegation, else <name>:8448. SRV records are not consulted. The
+// spec says to follow the well-known's redirects (mozilla.org answers 301 to www): up to
+// three, https only; every hop still dials through publicOnly.
 func (s *Server) federationBase(ctx context.Context, name string) (string, error) {
 	if s.fedBaseForTest != nil {
 		return s.fedBaseForTest(name), nil
@@ -66,7 +68,14 @@ func (s *Server) federationBase(ctx context.Context, name string) (string, error
 		return "", err
 	}
 	host := name + ":8448"
-	if resp, err := s.fedHTTP.Do(req); err == nil {
+	follow := *s.fedHTTP
+	follow.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) > 3 || next.URL.Scheme != "https" {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	if resp, err := follow.Do(req); err == nil {
 		var wk struct {
 			Server string `json:"m.server"`
 		}
