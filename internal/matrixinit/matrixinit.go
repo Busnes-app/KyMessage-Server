@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -146,9 +147,10 @@ func cleanValue(v string) bool {
 	return v != "" && !strings.ContainsFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
-// ValidServerName refuses anything but a lowercase DNS name of at least two labels.
+// ValidServerName refuses anything but a lowercase DNS name of at least two labels, each at
+// most 63 bytes.
 func ValidServerName(name string) error {
-	if len(name) > 253 || !serverNameRE.MatchString(name) {
+	if len(name) > 253 || !serverNameRE.MatchString(name) || slices.ContainsFunc(strings.Split(name, "."), func(l string) bool { return len(l) > 63 }) {
 		return fmt.Errorf("server name %q is not a lowercase DNS name", name)
 	}
 	return nil
@@ -214,7 +216,7 @@ func Run(in Input, dir string) (Result, error) {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return Result{}, err
 	}
-	for _, sub := range []string{".", "secrets", "synapse", "mas", "element", "postgres", "livekit"} {
+	for _, sub := range []string{".", "secrets", "synapse", "federation", "mas", "element", "postgres", "livekit"} {
 		if err := privateDir(filepath.Join(dir, sub)); err != nil {
 			return Result{}, err
 		}
@@ -256,6 +258,11 @@ func Run(in Input, dir string) (Result, error) {
 	}
 	if _, err := ensure(filepath.Join("synapse", "signing.key"), synapseSigningKey); err != nil {
 		return Result{}, err
+	}
+	if created, err := ensureFederation(filepath.Join(dir, FederationFile)); err != nil {
+		return Result{}, fmt.Errorf("%s: %w", FederationFile, err)
+	} else if created {
+		res.Rendered = append(res.Rendered, FederationFile)
 	}
 
 	data := map[string]any{"In": in, "S": s,

@@ -3,6 +3,7 @@ import { Settings as SettingsIcon, Database, Palette } from 'lucide-react';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
+import { FederationPanel } from '../components/FederationPanel';
 
 interface SettingsProps {
   settings: any;
@@ -66,6 +67,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged 
       <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
         <BrandingPanel onChanged={onBrandingChanged} />
         <SyncPanel />
+        <FederationPanel />
       </div>
     </div>
   );

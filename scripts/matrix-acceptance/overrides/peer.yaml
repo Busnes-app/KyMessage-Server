@@ -1,0 +1,14 @@
+# Acceptance harness only: the federation step's peer homeserver. The step appends
+# ip_range_whitelist (the proxy's address) and a per-run registration_shared_secret.
+server_name: peer.kymatrix.test
+public_baseurl: https://peer.kymatrix.test/
+listeners:
+  - {port: 8008, type: http, x_forwarded: true, resources: [{names: [client, federation, openid]}]}
+database: {name: sqlite3, args: {database: /data/homeserver.db}}
+media_store_path: /data/media
+signing_key_path: /data/signing.key
+report_stats: false
+enable_registration: false
+trusted_key_servers: []
+federation_domain_whitelist: [kymatrix.test]
+federation_custom_ca_list: [/accept-ca.crt]

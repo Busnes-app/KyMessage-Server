@@ -149,9 +149,11 @@ When the user requests a durable behavior change, record it here or in the relev
   until `matrix-init`'s second pass has the KyIdentity client secret. Synapse and
   `restore-matrix` mount `matrix-media` with `nocopy`: otherwise Docker re-copies the image's
   root-owned `/media` onto the empty volume at each mount and undoes `synapse-media-owner`.
-  The app's one read-write path under `./matrix` is `./matrix/element/config.json`, its only
-  mount of `./matrix/element`: the console sets Element's `brand` there in place, and the
-  check holds the app to that one file (with the static-IP overlay too) and to no mount nested
+  The app's read-write paths under `./matrix` are `./matrix/element/config.json`, its only
+  mount of `./matrix/element`, where the console sets Element's `brand` in place, and
+  `./matrix/federation/federation.yaml` (Synapse's listeners and allow-list, see
+  `internal/matrixinit/AGENTS.md`); the check holds the app to those two files (with the
+  static-IP overlay too) and to no mount nested
   in another (a nested mountpoint inside a read-only bind breaks `docker cp`). Element stays
   stock (owner decision 2026-10-02): exactly that file at `/app/config.json:ro`, which its image
   copies at start, so a rename shows after `docker compose restart element`; the check refuses
@@ -163,7 +165,9 @@ When the user requests a durable behavior change, record it here or in the relev
 
 - Voice and video calls are enabled by default (owner decision 2026-10-03): stock Element Call
   with stock LiveKit, authorized by KyMessages after local Matrix OpenID verification, active
-  KyIdentity directory/MAS checks and room membership checks. No public or guest callers.
+  KyIdentity directory/MAS checks and room membership checks. No public or guest callers;
+  users of servers on the federation allow-list may join a call a local user started (owner
+  decision 2026-10-11, `internal/api/AGENTS.md`).
   Setup needs `KY_MATRIX_RTC_HOST` and a directly reachable IPv4 `KY_MATRIX_MEDIA_IP`; cloudflared
   carries signalling only. Optional TURN/TLS is configured by the complete `KY_MATRIX_TURN_*`
   hostname/certificate/key setup block; validate before writes, renew through `matrix-init`
@@ -244,7 +248,14 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   and after `docker compose restart element` `/config.json`, the title and the API carry it; a PNG carrying a `tEXt` chunk is
   served at `/app-icon.png` re-encoded without it, `no-cache`; a `matrix-init` re-run is undone
   in the file within one maintenance tick and served after a restart; resets restore the
-  defaults; every change is audited.
+  defaults; every change is audited. Federation follows: closed, the server name serves no
+  `/.well-known/matrix/server`; a test-only peer Synapse (`peer.kymatrix.test`; both Synapses
+  trust the harness CA and the proxy's address through harness-only config files, a third
+  `--config-path` on ours) is listed at level manual, and after `docker compose restart synapse` the
+  delegation answers, status shows it `connected` and plain messages cross both ways; removed,
+  our Synapse refuses its requests and transactions; level closed restores the closed file and
+  the 404s. A peer's call token is refused with 502 while allowed (the app's client refuses the
+  private address, so a cross-server call stays unproven) and 403 once removed.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.
