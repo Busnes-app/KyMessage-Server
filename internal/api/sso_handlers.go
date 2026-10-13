@@ -72,6 +72,11 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	managed, allowed, err := s.store.InstallerIdentity(r.Context(), claims.Issuer, claims.Subject)
+	if err != nil || (managed && !allowed) {
+		s.writeError(w, http.StatusForbidden, "Identity is not assigned")
+		return
+	}
 	// Accounts are matched by subject only; a username never links to an existing account.
 	user, err := s.store.Users().GetUserBySSO(r.Context(), "kyidentity", claims.Subject)
 	if errors.Is(err, store.ErrNotFound) {
@@ -121,6 +126,13 @@ func (s *Server) handleKyIdentitySyncWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if _, err := s.store.Settings().GetSetting(r.Context(), store.InstallerConfigKey); err == nil {
+		s.handleInstallerDirectory(w, r)
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.writeError(w, 503, "Directory unavailable")
+		return
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "Failed to read request body")

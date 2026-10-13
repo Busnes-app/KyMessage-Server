@@ -362,3 +362,9 @@ disposable test of actual scheduler ticks, local-copy failures and live schedule
 changes.
 CI builds/runs the container, checks dependencies and verifies committed frontend
 assets. It publishes no image while release gates remain open (see `docs/superpowers/specs/2026-10-01-matrix-platform-design.md`).
+
+## Container-local installer integration
+
+KyQuickStart configures the console through `kymessages apply-setup`; protected inputs,
+inspection, graceful activation and Matrix/recovery gates are in
+[INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md).

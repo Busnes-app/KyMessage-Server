@@ -289,6 +289,9 @@ func (s *Server) requestIP(r *http.Request) string {
 }
 
 func (s *Server) routes() {
+	// Deliberate public, narrow forwarded-header self-check. Directory verifies HMAC itself.
+	s.mux.HandleFunc("GET /api/installer/network", s.handleInstallerNetwork)
+	s.mux.HandleFunc("POST /api/installer/directory", s.handleInstallerDirectory)
 	// Auth
 	s.mux.HandleFunc("/api/auth/pow-challenge", s.handlePoWChallenge)
 	s.mux.HandleFunc("/api/auth/login", s.handleLogin)

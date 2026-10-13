@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Busnes-app/ky-primitives/applysetup"
 )
 
 var (
@@ -17,6 +18,11 @@ var (
 
 // Store defines the unified storage contract implemented across SQLite, PostgreSQL, and MySQL.
 type Store interface {
+	ApplyInstaller(context.Context, applysetup.Common, bool) (applysetup.Report, error)
+	InstallerIdentity(context.Context, string, string) (bool, bool, error)
+	InstallerUserAllowed(context.Context, *User) (bool, error)
+	ApplyInstallerDirectory(context.Context, string, string, string, string, string, bool, bool) error
+
 	Users() UserStore
 	Sessions() SessionStore
 	Devices() DeviceStore

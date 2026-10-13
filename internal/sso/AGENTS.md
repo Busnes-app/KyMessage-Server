@@ -22,6 +22,13 @@ Owns the application adapters around OAuth/OIDC login, KyIdentity HMAC-SHA256 si
 - SAML assertion parsing is not implemented locally; metadata XML uses `encoding/xml` and no ACS route is exposed until a maintained SAML service-provider library is configured.
 - Directory events are ordered by KyIdentity's per-user revision (`meta.version` `W/"n"`), never by timestamp or arrival. Updates apply one at a time and only through `ApplyDirectoryProfile`/`CreateDirectoryUser`/`DeleteDirectoryUser`, which apply only a revision newer than the subject's persisted one; equal or older revisions (outbox retries, delayed deliveries) succeed without effect, across restarts and after deletion. Deletions of subjects with no local account still record their revision. `-1` is KyIdentity's post-restore resend and resets the order. Because a reset lowers the stored revision, every delivered event ID is also spent permanently in `directory_sync_events`, applied or refused, atomically with the write; a redelivered event is acknowledged without effect even across a reset. Status or role changes revoke the user's sessions.
 
+- Managed setup requires verified issuer/sub ownership and reads the client credential
+  from its protected reference per flow. Native global roles, email and usernames do not
+  authorize managed account creation or administration.
+- In managed mode the suite sync route uses the installer directory handler: positive
+  canonical revisions, exact duplicate digest acceptance, stale/conflicting refusal and
+  app claim `kymessage.admin`. Native unmanaged webhook behavior remains independent.
+
 ## Verification
 - `go test -v ./internal/sso/...`
 

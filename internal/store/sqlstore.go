@@ -137,7 +137,7 @@ INSERT INTO users (
     sso_provider, sso_subject, totp_secret_enc, totp_enabled,
     recovery_codes_hash, push_device_id, must_change_password,
     created_at, updated_at, last_login_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (? <> 'kyidentity' OR NOT EXISTS (SELECT 1 FROM server_settings WHERE key='installer.config'))
 `)
 
 	var lastLogin sql.NullTime
@@ -145,14 +145,24 @@ INSERT INTO users (
 		lastLogin = sql.NullTime{Time: *user.LastLoginAt, Valid: true}
 	}
 
-	_, err := db.ExecContext(ctx, q,
+	result, err := db.ExecContext(ctx, q,
 		user.ID, user.Username, user.Email, user.DisplayName, user.PasswordHash,
 		user.Role, user.Status, user.SSOProvider, user.SSOSubject,
 		user.TOTPSecretEnc, user.TOTPEnabled, user.RecoveryCodesHash,
 		user.PushDeviceID, user.MustChangePassword,
-		user.CreatedAt, user.UpdatedAt, lastLogin,
+		user.CreatedAt, user.UpdatedAt, lastLogin, user.SSOProvider,
 	)
-	return uniqueError(err)
+	if err != nil {
+		return uniqueError(err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errors.New("managed identity requires installer directory")
+	}
+	return nil
 }
 
 // uniqueError types a users-table unique violation: on username (a write that lost a race after
@@ -256,7 +266,7 @@ UPDATE users SET
     totp_secret_enc = ?, totp_enabled = ?, recovery_codes_hash = ?,
     push_device_id = ?, must_change_password = ?, updated_at = ?,
     last_login_at = ?
-WHERE id = ?
+WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)
 `)
 
 	res, err := u.store.db.ExecContext(ctx, q,
@@ -281,7 +291,7 @@ WHERE id = ?
 // password change or recovery-code redemption.
 func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 	user.UpdatedAt = time.Now().UTC()
-	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`)
+	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`)
 	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)
 	if err != nil {
 		return err
@@ -300,6 +310,14 @@ func (u *userStore) directoryWrite(ctx context.Context, user *User, ev Directory
 		return false, err
 	}
 	defer tx.Rollback()
+	var managed int
+	if err = tx.QueryRowContext(ctx, u.store.rebind("SELECT COUNT(*) FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = ?"), user.ID).Scan(&managed); err != nil {
+		return false, err
+	}
+	if managed != 0 {
+		return false, errors.New("managed directory requires installer authority")
+	}
+
 	// Every delivered event ID is kept, applied or not. A -1 resend resets the revision
 	// order, which would otherwise make an earlier event eligible to apply again.
 	res, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_events (provider, event_id) VALUES (?, ?) ON CONFLICT (provider, event_id) DO NOTHING`), user.SSOProvider, ev.ID)
@@ -381,7 +399,7 @@ func (u *userStore) SpendTOTPCounter(ctx context.Context, userID string, counter
 }
 
 func (u *userStore) DeleteUser(ctx context.Context, id string) error {
-	q := u.store.rebind("DELETE FROM users WHERE id = ?")
+	q := u.store.rebind("DELETE FROM users WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)")
 	res, err := u.store.db.ExecContext(ctx, q, id)
 	if err != nil {
 		return err
@@ -987,6 +1005,9 @@ func (s *settingsStore) GetSetting(ctx context.Context, key string) (string, err
 }
 
 func (s *settingsStore) SetSetting(ctx context.Context, key, val string) error {
+	if strings.HasPrefix(key, "installer.") {
+		return errors.New("installer-owned setting")
+	}
 	now := time.Now().UTC()
 	q := s.store.rebind(`
 INSERT INTO server_settings (key, value, updated_at)
@@ -998,6 +1019,9 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 }
 
 func (s *settingsStore) DeleteSetting(ctx context.Context, key string) error {
+	if strings.HasPrefix(key, "installer.") {
+		return errors.New("installer-owned setting")
+	}
 	_, err := s.store.db.ExecContext(ctx, s.store.rebind(`DELETE FROM server_settings WHERE key = ?`), key)
 	return err
 }
@@ -1027,7 +1051,7 @@ func errorsIs(err, target error) bool {
 }
 
 func (u *userStore) DirectoryStatuses(ctx context.Context, provider string) (map[string]string, error) {
-	rows, err := u.store.db.QueryContext(ctx, u.store.rebind(`SELECT sso_subject, status FROM users WHERE sso_provider = ? AND sso_subject <> ''
+	rows, err := u.store.db.QueryContext(ctx, u.store.rebind(`SELECT sso_subject, CASE WHEN role='admin' AND EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id) THEN 'inactive' ELSE status END FROM users WHERE sso_provider = ? AND sso_subject <> ''
 UNION ALL SELECT s.subject, 'deleted' FROM directory_sync_state s
 WHERE s.provider = ? AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`), provider, provider)
 	if err != nil {

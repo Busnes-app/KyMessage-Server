@@ -15,20 +15,22 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky-primitives/keyfile"
 	"github.com/Busnes-app/ky_server_base/internal/matrixinit"
 )
 
 // Config encapsulates all runtime configuration for KyMessages.
 type Config struct {
-	Server   ServerConfig   `json:"server"`
-	Database DatabaseConfig `json:"database"`
-	Security SecurityConfig `json:"security"`
-	SSO      SSOConfig      `json:"sso"`
-	SCIM     SCIMConfig     `json:"scim"`
-	Backup   BackupConfig   `json:"backup"`
-	Captcha  CaptchaConfig  `json:"captcha"`
-	Matrix   MatrixConfig   `json:"matrix"`
+	InstallerSSO *applysetup.SSO `json:"-"`
+	Server       ServerConfig    `json:"server"`
+	Database     DatabaseConfig  `json:"database"`
+	Security     SecurityConfig  `json:"security"`
+	SSO          SSOConfig       `json:"sso"`
+	SCIM         SCIMConfig      `json:"scim"`
+	Backup       BackupConfig    `json:"backup"`
+	Captcha      CaptchaConfig   `json:"captcha"`
+	Matrix       MatrixConfig    `json:"matrix"`
 }
 
 // MatrixConfig locates the optional Matrix stack: all set, or none. Hosts are https origins
@@ -100,17 +102,18 @@ func ValidUsername(s string) bool { return usernamePattern.MatchString(s) }
 
 // SSOConfig holds identity provider and federation parameters.
 type SSOConfig struct {
-	Enabled              bool   `json:"enabled"`
-	KyIdentityIssuer     string `json:"kyidentity_issuer"`
-	KyIdentityClientID   string `json:"kyidentity_client_id"`
-	KyIdentitySecret     string `json:"kyidentity_secret"`
-	KyIdentityHMACSecret string `json:"kyidentity_hmac_secret"`
-	GenericOIDCIssuer    string `json:"generic_oidc_issuer"`
-	GenericOIDCClientID  string `json:"generic_oidc_client_id"`
-	GenericOIDCSecret    string `json:"generic_oidc_secret"`
-	SAMLEntityID         string `json:"saml_entity_id"`
-	SAMLMetadataURL      string `json:"saml_metadata_url"`
-	AutoProvision        bool   `json:"auto_provision"`
+	Installer            *applysetup.SSO `json:"-"`
+	Enabled              bool            `json:"enabled"`
+	KyIdentityIssuer     string          `json:"kyidentity_issuer"`
+	KyIdentityClientID   string          `json:"kyidentity_client_id"`
+	KyIdentitySecret     string          `json:"kyidentity_secret"`
+	KyIdentityHMACSecret string          `json:"kyidentity_hmac_secret"`
+	GenericOIDCIssuer    string          `json:"generic_oidc_issuer"`
+	GenericOIDCClientID  string          `json:"generic_oidc_client_id"`
+	GenericOIDCSecret    string          `json:"generic_oidc_secret"`
+	SAMLEntityID         string          `json:"saml_entity_id"`
+	SAMLMetadataURL      string          `json:"saml_metadata_url"`
+	AutoProvision        bool            `json:"auto_provision"`
 }
 
 // SCIMConfig holds settings for RFC 7643/7644 inbound user provisioning.

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/api"
@@ -30,6 +31,12 @@ const appVersion = config.AppVersion
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "apply-setup":
+			if err := runInstaller(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
 		case "init-admin":
 			runInitAdmin(os.Args[2:])
 			return
@@ -92,6 +99,9 @@ func runServer() {
 		log.Fatalf("Failed to initialize database (%s): %v", cfg.Database.Driver, err)
 	}
 	defer st.Close()
+	if err := loadInstallerConfiguration(ctx, cfg, st); err != nil {
+		log.Fatalf("Installer configuration unavailable: %v", err)
+	}
 
 	if err := bootstrapAdmin(ctx, st, cfg.Security.AdminUsername, os.Getenv("KY_ADMIN_PASSWORD")); err != nil {
 		log.Fatalf("Failed to create bootstrap admin: %v", err)
@@ -133,6 +143,21 @@ func runServer() {
 	// Graceful shutdown channel
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+	socket, err := config.InstallerSocket(cfg.Database.DataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	closeInstaller, err := applysetup.StartLocal(ctx, socket, srv.ApplyInstaller, func() {
+		select {
+		case stop <- syscall.SIGTERM:
+		default:
+		}
+	})
+	if err != nil {
+		log.Fatalf("Installer IPC: %v", err)
+	}
+	defer closeInstaller()
 
 	go func() {
 		log.Printf("[KYMESSAGES] %s listening on http://%s (DB: %s)", cfg.Server.AppName, addr, cfg.Database.Driver)

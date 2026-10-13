@@ -78,6 +78,12 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   package's wiring buys: `KY_BACKUP_ALLOW_PRIVATE_RECOVERY` admits RFC1918 and CGNAT and
   nothing else.
 
+- Managed capsules require `installer/client.secret`, `installer/directory.secret` and
+  `installer/credential-paths.json` (original destination mapping). Missing/unsafe credentials
+  fail collection. Drills inspect the restored database read-only and require these members
+  for a retained installer config, independent of a supplied recipe. Restore places their
+  protected copies at the recorded paths before restart; no credential goes to CLI output.
+
 ## Verification
 - The decrypt guard allows only `restore` in `cmd/server/restore.go` to invoke
   suite-key capsule opening. HTTP/scheduled product code never receives shares.

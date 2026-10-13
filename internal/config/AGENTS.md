@@ -35,6 +35,11 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
   32-256 bytes without controls; credentials are `json:"-"`. A partial block fails startup.
   All unset supports older Matrix deployments without calling; Compose requires the host.
 
+- `ApplyInstallerConfiguration` narrows `ky.product-setup/1` (`kymessage`) into a startup
+  snapshot with protected OIDC/directory file references. Explicit conflicting SSO, SCIM,
+  automatic provisioning and unsupported recovery pairing are refused before writes.
+  Restart applies committed config through the existing graceful shutdown/drain path.
+
 ## Verification
 - `go test -v ./internal/config/...`
 - `go test -v ./internal/auth/ -run TestClientIP` (the helper that consumes the allowlist)
