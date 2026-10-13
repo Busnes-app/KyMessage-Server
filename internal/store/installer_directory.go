@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -98,6 +99,10 @@ func (s *SQLStore) ApplyInstallerDirectory(ctx context.Context, issuer, subject,
 		return errors.New("directory identity drifted")
 	}
 	if status != "active" || event == "user.mfa_reset" {
+		// Managed rows hold no password; a fresh snapshot fails grants fenced on the old one.
+		if _, err = tx.ExecContext(ctx, s.rebind("UPDATE users SET password_hash=? WHERE id=?"), "revoked:"+rand.Text(), owned.UserID); err != nil {
+			return err
+		}
 		for _, table := range []string{"sessions", "device_pairings", "mfa_challenges"} {
 			if _, err = tx.ExecContext(ctx, s.rebind("DELETE FROM "+table+" WHERE user_id=?"), owned.UserID); err != nil {
 				return err

@@ -19,9 +19,12 @@ func TestSweepPairingsDropsOnlyExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "u", Username: "u", PasswordHash: "h", Role: "user", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	for secret, expires := range map[string]time.Time{"old": now.Add(-time.Minute), "live": now.Add(time.Minute)} {
-		if err := st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: secret, Status: "pending", CreatedAt: now, ExpiresAt: expires}); err != nil {
+		if err := st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: secret, UserID: "u", Status: "pending", CreatedAt: now, ExpiresAt: expires}, "h"); err != nil {
 			t.Fatal(err)
 		}
 	}

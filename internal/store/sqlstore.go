@@ -651,7 +651,7 @@ type deviceStore struct {
 	store *SQLStore
 }
 
-func (d *deviceStore) CreatePairing(ctx context.Context, p *DevicePairing) error {
+func (d *deviceStore) CreatePairing(ctx context.Context, p *DevicePairing, expectedPasswordHash string) error {
 	now := time.Now().UTC()
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = now
@@ -664,11 +664,13 @@ func (d *deviceStore) CreatePairing(ctx context.Context, p *DevicePairing) error
 INSERT INTO device_pairings (secret, user_id, device_name, platform, push_token, status, created_at, expires_at, authenticated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
-	_, err := d.store.db.ExecContext(ctx, q,
-		p.Secret, p.UserID, p.DeviceName, p.Platform, p.PushToken,
-		p.Status, p.CreatedAt, p.ExpiresAt, p.AuthenticatedAt,
-	)
-	return err
+	return d.store.withPassword(ctx, p.UserID, expectedPasswordHash, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, q,
+			p.Secret, p.UserID, p.DeviceName, p.Platform, p.PushToken,
+			p.Status, p.CreatedAt, p.ExpiresAt, p.AuthenticatedAt,
+		)
+		return err
+	})
 }
 
 func (d *deviceStore) GetPairingBySecret(ctx context.Context, secret string) (*DevicePairing, error) {

@@ -26,7 +26,7 @@ func TestPairingLifecycle(t *testing.T) {
 	svc := devices.NewPairingService(st, "BusnesApp", "http://localhost:8080")
 
 	// 1. Init
-	initRes, err := svc.InitPairing(ctx, "usr_alice", time.Now())
+	initRes, err := svc.InitPairing(ctx, &store.User{ID: "usr_alice"}, time.Now())
 	if err != nil {
 		t.Fatalf("InitPairing failed: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestPairingRejectsAnythingButTheSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := devices.NewPairingService(st, "BusnesApp", "http://localhost:8080")
-	initRes, err := svc.InitPairing(ctx, "usr_alice", time.Now())
+	initRes, err := svc.InitPairing(ctx, &store.User{ID: "usr_alice"}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

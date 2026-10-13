@@ -41,6 +41,9 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - Installer config, owned identities, authority changes, durable revision/digest fences and
   native SQL audit commit together. Common setup retains the full immutable envelope;
   checks and reruns do not write or reactivate revoked accounts.
+- Directory offboarding and `user.mfa_reset` replace a managed row's `password_hash` (it holds
+  no password) with a random value in the revoking transaction, so session, MFA-challenge and
+  pairing creation fenced on an earlier snapshot fail. `CreatePairing` takes that snapshot too.
 - Native user/settings writers cannot change installer-owned authority. Managed browser
   sessions require the exact retained issuer/subject/user/role binding. Directory deletion
   retains the row as `deleted` for MAS deactivation; it cannot be reactivated.

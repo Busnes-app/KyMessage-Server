@@ -103,7 +103,7 @@ type SessionStore interface {
 
 // DeviceStore handles 90s ephemeral QR pairing sessions and paired push clients.
 type DeviceStore interface {
-	CreatePairing(ctx context.Context, p *DevicePairing) error
+	CreatePairing(ctx context.Context, p *DevicePairing, expectedPasswordHash string) error
 	GetPairingBySecret(ctx context.Context, secret string) (*DevicePairing, error)
 	ConsumePairing(ctx context.Context, secret, deviceName, platform, pushToken string) error
 	CleanExpiredPairings(ctx context.Context) error

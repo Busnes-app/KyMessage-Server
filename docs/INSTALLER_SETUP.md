@@ -35,8 +35,10 @@ sign-in revocation. Existing mixed-use identities are refused rather than migrat
 `POST /api/installer/directory` (also managed `/api/sso/kyidentity/sync`) accepts signed SCIM
 User desired state. Canonical positive `meta.version` revisions and body/event digests are
 retained transactionally. Exact retries succeed without mutation; stale/conflicting revisions
-fail. Offboarding revokes sessions, MFA challenges and device pairings with its audit and
-wakes the native Matrix sweep. Deletion retains `deleted` status so MAS deactivates without
+fail. Offboarding and `user.mfa_reset` revoke sessions, MFA challenges and device pairings with
+their audit, and replace the account's credential snapshot in the same transaction, so a sign-in
+or pairing already in flight cannot issue a grant afterwards. Offboarding also wakes the native
+Matrix sweep. Deletion retains `deleted` status so MAS deactivates without
 erasing messages; later activation is refused. The native console service account is separate.
 
 `GET /api/installer/network` exposes only client address, header trust and scheme, with

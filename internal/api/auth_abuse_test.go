@@ -71,11 +71,15 @@ func TestSessionMintingRoutesRefuseFormPosts(t *testing.T) {
 func TestPairVerifyAcceptsOnlyTheSecret(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	createLocalUser(t, st, "usr_boss", "boss", "admin", "BossPassword123!")
+	boss, err := st.Users().GetUserByID(context.Background(), "usr_boss")
+	if err != nil {
+		t.Fatal(err)
+	}
 	secret := crypto.RandomHex(24)
 	if err := st.Devices().CreatePairing(context.Background(), &store.DevicePairing{
 		Secret: secret, UserID: "usr_boss", Status: "pending",
 		CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(90 * time.Second),
-	}); err != nil {
+	}, boss.PasswordHash); err != nil {
 		t.Fatal(err)
 	}
 

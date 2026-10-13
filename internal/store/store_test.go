@@ -157,8 +157,12 @@ func TestDevicePairingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "u", Username: "u", PasswordHash: "h", Role: "user", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
 	pairing := &store.DevicePairing{
 		Secret:     "secret-pairing-token-abc",
+		UserID:     "u",
 		DeviceName: "Yoshi's Pixel 9",
 		Platform:   "android",
 		Status:     "pending",
@@ -166,7 +170,7 @@ func TestDevicePairingLifecycle(t *testing.T) {
 		ExpiresAt:  time.Now().UTC().Add(90 * time.Second),
 	}
 
-	if err := st.Devices().CreatePairing(ctx, pairing); err != nil {
+	if err := st.Devices().CreatePairing(ctx, pairing, "h"); err != nil {
 		t.Fatalf("CreatePairing error: %v", err)
 	}
 

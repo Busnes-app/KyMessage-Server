@@ -37,21 +37,22 @@ type InitPairingResult struct {
 // InitPairing creates a 90-second pairing carried by a QR code. The anonymous verify route
 // accepts only the 24-byte secret: a short typed code could be guessed within the window.
 // authenticatedAt is the initiating session's credential time; the paired session inherits it.
-func (s *PairingService) InitPairing(ctx context.Context, userID string, authenticatedAt time.Time) (*InitPairingResult, error) {
+// The pairing is refused if user's credential snapshot was revoked since it was read.
+func (s *PairingService) InitPairing(ctx context.Context, user *store.User, authenticatedAt time.Time) (*InitPairingResult, error) {
 	secret := crypto.RandomHex(24)
 	now := time.Now().UTC()
 	expiresAt := now.Add(90 * time.Second)
 
 	pairing := &store.DevicePairing{
 		Secret:          secret,
-		UserID:          userID,
+		UserID:          user.ID,
 		Status:          "pending",
 		CreatedAt:       now,
 		ExpiresAt:       expiresAt,
 		AuthenticatedAt: authenticatedAt,
 	}
 
-	if err := s.store.Devices().CreatePairing(ctx, pairing); err != nil {
+	if err := s.store.Devices().CreatePairing(ctx, pairing, user.PasswordHash); err != nil {
 		return nil, err
 	}
 

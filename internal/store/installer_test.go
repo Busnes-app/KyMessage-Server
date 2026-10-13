@@ -5,6 +5,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"testing"
+	"time"
 )
 
 func messageBundle() applysetup.Common {
@@ -136,5 +137,44 @@ func TestInstallerDirectoryPreservesMatrixDelete(t *testing.T) {
 	}
 	if err = st.ApplyInstallerDirectory(ctx, b.SSO.IssuerURL, "daily", "user.created", "2", "recreate", true, false); err == nil {
 		t.Fatal("deleted Matrix account reactivated")
+	}
+}
+
+func TestInstallerMFAResetFencesInFlightPairing(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	b := messageBundle()
+	if _, err := st.ApplyInstaller(ctx, b, false); err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.Users().GetUserBySSO(ctx, "kyidentity", "daily")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err = st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "in-flight", UserID: u.ID, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute), AuthenticatedAt: now}, u.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	// Pairing is authorized: the user snapshot is read and the pairing consumed.
+	snapshot, err := st.Users().GetUserByID(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = st.Devices().ConsumePairing(ctx, "in-flight", "phone", "android", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.ApplyInstallerDirectory(ctx, b.SSO.IssuerURL, "daily", "user.mfa_reset", "1", "reset", true, false); err != nil {
+		t.Fatal(err)
+	}
+	sess := &store.Session{TokenHash: "derived", UserID: u.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err = st.Sessions().CreateSession(ctx, sess, snapshot.PasswordHash); err == nil {
+		t.Fatal("session issued after MFA reset")
+	}
+	if _, err = st.Sessions().GetSession(ctx, "derived"); err != store.ErrNotFound {
+		t.Fatalf("usable session after MFA reset: %v", err)
+	}
+	// A pairing initiated from a pre-reset snapshot is refused.
+	if err = st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "late", UserID: u.ID, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}, snapshot.PasswordHash); err == nil {
+		t.Fatal("pairing created after MFA reset")
 	}
 }
