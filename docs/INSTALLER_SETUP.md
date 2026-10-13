@@ -49,5 +49,5 @@ Restore drills inspect the retained database and cannot omit credentials through
 Matrix stack generation/deployment, MAS client/assignment composition, per-part domains and
 media prerequisites, installer recovery enrollment, existing mixed-use migration, complete
 Matrix acceptance and image/library provenance remain release/deployment gates. The common
-setup package is unpublished; source verification uses `/tmp/kyq-adapters.work`. This adapter
+setup package comes from ky-primitives v0.10.0. This adapter
 has changed no live deployment and does not claim a complete installed chat stack.
