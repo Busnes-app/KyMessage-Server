@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
@@ -44,15 +45,27 @@ func NewKyIdentityClient(cfg config.SSOConfig, st store.Store) *KyIdentityClient
 // fresh asks the IdP for a new credential interaction instead of reusing its own session.
 func (k *KyIdentityClient) BuildAuthURL(ctx context.Context, redirectURI, state, verifier, nonce string, fresh bool) (string, error) {
 	if fresh {
-		return k.flow.authCodeURL(ctx, redirectURI, state, verifier, nonce,
+		flow, err := k.currentFlow(ctx)
+		if err != nil {
+			return "", err
+		}
+		return flow.authCodeURL(ctx, redirectURI, state, verifier, nonce,
 			oauth2.SetAuthURLParam("prompt", "login"), oauth2.SetAuthURLParam("max_age", "0"))
 	}
-	return k.flow.authCodeURL(ctx, redirectURI, state, verifier, nonce)
+	flow, err := k.currentFlow(ctx)
+	if err != nil {
+		return "", err
+	}
+	return flow.authCodeURL(ctx, redirectURI, state, verifier, nonce)
 }
 
 // ExchangeCode exchanges the authorization code and verifier for identity claims.
 func (k *KyIdentityClient) ExchangeCode(ctx context.Context, code, verifier, redirectURI, expectedNonce string) (*IdentityClaims, error) {
-	claims, err := k.flow.exchange(ctx, code, verifier, redirectURI, expectedNonce)
+	flow, err := k.currentFlow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	claims, err := flow.exchange(ctx, code, verifier, redirectURI, expectedNonce)
 	if err != nil {
 		return nil, err
 	}
@@ -235,4 +248,17 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
 	}
 	return nil
+}
+
+// Owned runtime credentials are private target references; missing files fail closed.
+func (k *KyIdentityClient) currentFlow(ctx context.Context) (*oauthFlow, error) {
+	if k.config.Installer == nil {
+		return k.flow, nil
+	}
+	managed := k.config.Installer
+	secret, err := applysetup.Secret(managed.ClientSecretFile)
+	if err != nil {
+		return nil, err
+	}
+	return newOAuthFlow(managed.IssuerURL, managed.ClientID, secret), nil
 }

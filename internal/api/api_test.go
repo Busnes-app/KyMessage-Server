@@ -489,6 +489,9 @@ func TestMFALimiterKeyIsBounded(t *testing.T) {
 // it or the device's push token.
 func TestPairPollProjectsTheRecord(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
+	if err := st.Users().CreateUser(context.Background(), &store.User{ID: "usr_alice", Username: "alice", PasswordHash: "h", Role: "user", Status: "active", SSOProvider: "local"}); err != nil {
+		t.Fatal(err)
+	}
 
 	pairing := &store.DevicePairing{
 		Secret:     "s3cr3t-pairing-secret",
@@ -500,7 +503,7 @@ func TestPairPollProjectsTheRecord(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		ExpiresAt:  time.Now().UTC().Add(90 * time.Second),
 	}
-	if err := st.Devices().CreatePairing(context.Background(), pairing); err != nil {
+	if err := st.Devices().CreatePairing(context.Background(), pairing, "h"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -33,7 +33,7 @@ func (s *Server) handlePairInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.pairing.InitPairing(r.Context(), user.ID, sess.CreatedAt)
+	res, err := s.pairing.InitPairing(r.Context(), user, sess.CreatedAt)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to initialize pairing")
 		return

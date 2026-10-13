@@ -68,6 +68,11 @@ published.
   email cannot sign in, and a second user whose email has the same local part on another domain
   is refused. Accounts link by KyIdentity `sub` and keep their localpart, so later renames or
   email changes do not orphan them.
+- The console also supports installer-owned dedicated KyIdentity administrators through
+  container-local `apply-setup` ([contract](INSTALLER_SETUP.md)). These subjects are denied
+  ordinary Matrix access by the directory projection; central MAS assignment exclusion remains
+  an installer composition gate. The existing Matrix acceptance has not been rerun for this
+  setup path.
 - The KyMessages console keeps a local operator login (bootstrap password must be replaced
   before privileged use); members reach chat only through KyIdentity.
 

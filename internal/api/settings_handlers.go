@@ -44,6 +44,9 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.Role == "admin" && s.config.InstallerSSO != nil {
+		out["chat_url"] = ""
+	}
 	out["scim_enabled"] = s.config.SCIM.Enabled
 	out["db_driver"] = s.config.Database.Driver
 
@@ -59,7 +62,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		// By prefix, not by literal: the lib owns the token's key name, and a future
 		// spelling must not leak by default.
 		for k := range settings {
-			if strings.HasPrefix(k, "kyrecovery_token") || notExtra[k] {
+			if strings.HasPrefix(k, "installer.") || strings.HasPrefix(k, "kyrecovery_token") || notExtra[k] {
 				delete(settings, k)
 			}
 		}

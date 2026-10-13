@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Busnes-app/ky-primitives/applysetup"
 )
 
 var (
@@ -17,6 +18,11 @@ var (
 
 // Store defines the unified storage contract implemented across SQLite, PostgreSQL, and MySQL.
 type Store interface {
+	ApplyInstaller(context.Context, applysetup.Common, bool) (applysetup.Report, error)
+	InstallerIdentity(context.Context, string, string) (bool, bool, error)
+	InstallerUserAllowed(context.Context, *User) (bool, error)
+	ApplyInstallerDirectory(context.Context, string, string, string, string, string, bool, bool) error
+
 	Users() UserStore
 	Sessions() SessionStore
 	Devices() DeviceStore
@@ -97,7 +103,7 @@ type SessionStore interface {
 
 // DeviceStore handles 90s ephemeral QR pairing sessions and paired push clients.
 type DeviceStore interface {
-	CreatePairing(ctx context.Context, p *DevicePairing) error
+	CreatePairing(ctx context.Context, p *DevicePairing, expectedPasswordHash string) error
 	GetPairingBySecret(ctx context.Context, secret string) (*DevicePairing, error)
 	ConsumePairing(ctx context.Context, secret, deviceName, platform, pushToken string) error
 	CleanExpiredPairings(ctx context.Context) error

@@ -38,6 +38,18 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - MFA challenges and device pairings are consumed with database state transitions that permit exactly one successful use.
 - Recovery-code hash updates use optimistic concurrency so simultaneous redemption cannot reuse a code.
 
+- Installer config, owned identities, authority changes, durable revision/digest fences and
+  native SQL audit commit together. Common setup retains the full immutable envelope;
+  checks and reruns do not write or reactivate revoked accounts.
+- Directory offboarding and `user.mfa_reset` replace a managed row's `password_hash` (it holds
+  no password) with a random value in the revoking transaction, so session, MFA-challenge and
+  pairing creation fenced on an earlier snapshot fail. `CreatePairing` takes that snapshot too.
+- Native user/settings writers cannot change installer-owned authority. Managed browser
+  sessions require the exact retained issuer/subject/user/role binding. Directory deletion
+  retains the row as `deleted` for MAS deactivation; it cannot be reactivated.
+- `DirectoryStatuses` projects owned dedicated administrators as inactive for ordinary
+  Matrix chat/calls, without changing their console role or independent local operators.
+
 ## Verification
 - `go test -v ./internal/store/...`
 - `migrations/migrations_test.go` builds a v16 database through the test-only

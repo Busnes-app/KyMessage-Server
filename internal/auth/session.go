@@ -122,7 +122,8 @@ func (sm *SessionManager) AuthenticateRequest(r *http.Request) (*store.User, *st
 	if err != nil {
 		return nil, nil, err
 	}
-	if user.Status != "active" {
+	allowed, ownershipErr := sm.store.InstallerUserAllowed(r.Context(), user)
+	if ownershipErr != nil || !allowed || user.Status != "active" {
 		_ = sm.store.Sessions().DeleteSession(r.Context(), tokenHash)
 		return nil, nil, store.ErrNotFound
 	}

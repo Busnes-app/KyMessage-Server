@@ -23,6 +23,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"github.com/coreos/go-oidc/v3/oidc"
 )
 
 // An IdP may silently reuse an old login, so an SSO session is only as fresh as the signed
@@ -83,21 +84,23 @@ func sessionCookie(w *httptest.ResponseRecorder) *http.Cookie {
 // fakeIdP is a KyIdentity issuer for callback tests: discovery, JWKS and a token endpoint that
 // returns the ID token signIn minted.
 type fakeIdP struct {
-	issuer string
-	key    *rsa.PrivateKey
-	mu     sync.Mutex
-	tokens map[string]string
+	httpClient *http.Client
+	issuer     string
+	key        *rsa.PrivateKey
+	mu         sync.Mutex
+	tokens     map[string]string
 }
 
 // newFakeIdP starts the issuer and points cfg's KyIdentity settings at it.
-func newFakeIdP(t *testing.T, cfg *config.Config) *fakeIdP {
+func newFakeIdP(t *testing.T, cfg *config.Config) *fakeIdP { return makeFakeIdP(t, cfg, false) }
+func makeFakeIdP(t *testing.T, cfg *config.Config, tls bool) *fakeIdP {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := &fakeIdP{key: key, tokens: map[string]string{}}
-	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
@@ -113,7 +116,14 @@ func newFakeIdP(t *testing.T, cfg *config.Config) *fakeIdP {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})
+	var idp *httptest.Server
+	if tls {
+		idp = httptest.NewTLSServer(handler)
+		f.httpClient = idp.Client()
+	} else {
+		idp = httptest.NewServer(handler)
+	}
 	t.Cleanup(idp.Close)
 	f.issuer = idp.URL
 	cfg.SSO.KyIdentityIssuer = f.issuer
@@ -125,7 +135,11 @@ func newFakeIdP(t *testing.T, cfg *config.Config) *fakeIdP {
 // iat and nonce are filled in) and returns the callback's response.
 func (f *fakeIdP) signIn(srv *api.Server, claims map[string]any) *httptest.ResponseRecorder {
 	login := httptest.NewRecorder()
-	srv.ServeHTTP(login, httptest.NewRequest("GET", "/api/sso/kyidentity/login", nil))
+	loginRequest := httptest.NewRequest("GET", "/api/sso/kyidentity/login", nil)
+	if f.httpClient != nil {
+		loginRequest = loginRequest.WithContext(oidc.ClientContext(loginRequest.Context(), f.httpClient))
+	}
+	srv.ServeHTTP(login, loginRequest)
 	authorize, _ := url.Parse(login.Header().Get("Location"))
 	full := map[string]any{"iss": f.issuer, "aud": "client", "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": authorize.Query().Get("nonce")}
 	maps.Copy(full, claims)
@@ -142,6 +156,9 @@ func (f *fakeIdP) signIn(srv *api.Server, claims map[string]any) *httptest.Respo
 		callback.AddCookie(c)
 	}
 	w := httptest.NewRecorder()
+	if f.httpClient != nil {
+		callback = callback.WithContext(oidc.ClientContext(callback.Context(), f.httpClient))
+	}
 	srv.ServeHTTP(w, callback)
 	return w
 }

@@ -142,6 +142,14 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - `GET /app-icon.png` (public: the login page and Element's sign-in page) serves the stored logo as `image/png` with `Cache-Control: no-cache` and an `ETag` of the quoted SHA-256 (304 on `If-None-Match`, via `http.ServeContent`), else the embedded stamp, also `no-cache`, so a new logo or a reset shows on the next load.
 - `GET /api/admin/matrix/sync-status` (`sync_handlers.go`; admin, `no-store`; 404 `matrix_disabled` without Matrix) answers `{webhook: sso.WebhookRecord|null, rejected: sso.Rejections, sweep: matrixsync.SweepRecord|null, kyidentity_url}`. It only reads the records; their only writers are `internal/sso` and `internal/matrixsync`. An unreadable record shows as null. `kyidentity_url` is `KY_KYIDENTITY_ISSUER`. Hints are the page's.
 
+- Private installer IPC validates the live snapshot and reports pending graceful activation;
+  it is separate from public HTTP. `GET /api/installer/network` deliberately exposes only
+  `clientIp`, `proxyHeadersTrusted`, `scheme`, with `no-store`, using native peer trust.
+- `POST /api/installer/directory` and the managed suite sync alias verify the protected
+  HMAC credential before owned, revision-fenced authority updates and wake the MAS sweep.
+- Managed owner settings omit ordinary `chat_url`; installer ownership is omitted from
+  `extra_settings`. MAS assignment separation remains a central composition gate.
+
 ## Verification
 - `go test -v ./internal/api/...` (`authz_test.go` pins the per-role exposure of every privileged route; `backup_test.go` the backup routes, on SQLite only because a run snapshots the database)
 - `console_test.go` covers the console routes, the shared `staleAdmin` step-up helper and the audit outcome parser

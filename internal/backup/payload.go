@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/keyfile"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
@@ -65,6 +66,19 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 
 	if pub, err := os.ReadFile(recoveryclient.RecoveryKeyPath(cfg.Database.DataDir)); err == nil {
 		files = append(files, recoveryclient.File{Path: recoveryPubPath, Data: pub, Mode: 0600})
+	}
+	if managed := cfg.InstallerSSO; managed != nil {
+		paths := map[string]string{}
+		for name, path := range map[string]string{"installer/client.secret": managed.ClientSecretFile, "installer/directory.secret": managed.DirectorySecretFile} {
+			secret, err := applysetup.Secret(path)
+			if err != nil {
+				return recoveryclient.Payload{}, errors.New("backup: required installer credential unavailable")
+			}
+			files = append(files, recoveryclient.File{Path: name, Data: []byte(secret), Mode: 0600})
+			paths[name] = path
+		}
+		raw, _ := json.Marshal(paths)
+		files = append(files, recoveryclient.File{Path: "installer/credential-paths.json", Data: raw, Mode: 0600})
 	}
 	var b budget
 	for _, f := range files {
@@ -167,6 +181,9 @@ func Members(cfg *config.Config) []string {
 	m := []string{"data/ky_server.db", "config/settings.json", encryptionKeyPath}
 	if _, err := os.Stat(recoveryclient.RecoveryKeyPath(cfg.Database.DataDir)); err == nil {
 		m = append(m, recoveryPubPath)
+	}
+	if cfg.InstallerSSO != nil {
+		m = append(m, "installer/client.secret", "installer/directory.secret", "installer/credential-paths.json")
 	}
 	if cfg.Matrix.Enabled() {
 		m = append(m, mediaKeyPath, "matrix/secrets/", "matrix/synapse/", "matrix/federation/", "matrix/mas/", "matrix/element/", "matrix/postgres/",

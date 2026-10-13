@@ -183,3 +183,10 @@ actual cards, and the deployed identity checks, remain operator acceptance work.
 The Matrix dump split, size limit, media mirror and the `restore-matrix` refusals are
 covered by `go test`. `make matrix-acceptance` proves the full cycle: back up, lose the
 host, restore from custodian shares on stdin, then read old history.
+
+## Installer-managed console
+
+When the restored database retains installer configuration, restore the sealed
+`installer/client.secret` and `installer/directory.secret` to their original protected paths
+from `installer/credential-paths.json` before restart. Keep process ownership and 0600 modes.
+The managed restore drill requires these members. See [INSTALLER_SETUP.md](INSTALLER_SETUP.md).

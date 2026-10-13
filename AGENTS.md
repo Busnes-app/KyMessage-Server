@@ -178,6 +178,18 @@ When the user requests a durable behavior change, record it here or in the relev
   maintenance drain before the store closes. Previously issued LiveKit tokens can reconnect
   between sweeps; this is not instantaneous media revocation. Call acceptance is a release gate.
 
+## Installer setup
+
+- `kymessages apply-setup` is the container-local installer boundary; see
+  [docs/INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md) for protected inputs and deployment gates.
+- Common envelope service `kymessage` owns new exact KyIdentity subjects and immutable
+  configuration; it preserves the native product/capsule name `KyMessages`.
+- Dedicated owned console administrators have no ordinary Matrix access. The directory
+  status projection keeps them inactive for MAS sweeps/call grants. KyIdentity must also
+  exclude them from MAS assignments; complete assignment composition is a release gate.
+- Matrix generation/deployment, existing mixed-use migration and installer recovery pairing
+  remain separate gates. Setup preserves existing Matrix configs and content.
+
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
