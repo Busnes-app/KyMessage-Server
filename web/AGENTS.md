@@ -16,7 +16,8 @@ Owns user interface components, service worker caching, PWA installation manifes
 - Strict TypeScript type safety without unused imports.
 - The authenticated shell uses a persistent sidebar; the selected page is marked by a quiet surface and slim accent rail, with a horizontal overflow navigation on small screens.
 - Dynamic theme selection applies `data-theme` attribute to the root HTML document and persists to `localStorage`.
-- Authenticated state-changing requests use `secureFetch` so the `ky_csrf` cookie is mirrored into `X-CSRF-Token`.
+- Authenticated state-changing requests use `secureFetch` so the CSRF cookie (`__Host-ky_csrf` on secure deployments without `KY_COOKIE_DOMAIN`, else `ky_csrf`) is mirrored into `X-CSRF-Token`.
+- `TwoFactorSetup.tsx` ("Account security", mounted under the Settings page) reads `/api/auth/me` and renders nothing for non-local accounts. Off: set up shows the QR (`qrcode` `toDataURL`, a `data:` image the CSP allows) and the key, then confirms one code. The recovery codes from confirm are shown once, until "I have saved them". On: turning off takes a code or a recovery code. All calls use `adminFetch`; refused codes stay on the form (`TwoFactorSetup.test.tsx`).
 - Register the service worker from the production JS bundle; keep `script-src 'self'` intact. Pairing uses a native modal dialog for focus containment, Escape and focus restoration. It shows only the QR code (no typed PIN) and treats poll status `consumed` as linked.
 - Worker caching is limited to the same-origin public shell, manifest and assets. HTML is network-first with offline fallback so deployments refresh; dynamic/auth routes stay uncached.
 - `Backup.tsx` validates the latest-run and media-run DTOs at the HTTP boundary and displays the

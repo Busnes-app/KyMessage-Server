@@ -3,6 +3,7 @@ package sso
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +11,18 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
+
+// idpTimeout bounds each call to the IdP (discovery, keys, code exchange). Discovery runs
+// under the flow's mutex, so an unbounded call to a hung IdP would queue every sign-in.
+var idpTimeout = 10 * time.Second
+
+// idpContext carries the bounded client unless the caller supplied one (oidc.ClientContext).
+func idpContext(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok {
+		return ctx
+	}
+	return oidc.ClientContext(ctx, &http.Client{Timeout: idpTimeout})
+}
 
 type oauthFlow struct {
 	issuer       string
@@ -29,7 +42,9 @@ func (f *oauthFlow) getProvider(ctx context.Context) (*oidc.Provider, error) {
 	if f.provider != nil {
 		return f.provider, nil
 	}
-	provider, err := oidc.NewProvider(ctx, f.issuer)
+	ctx, cancel := context.WithTimeout(ctx, idpTimeout)
+	defer cancel()
+	provider, err := oidc.NewProvider(idpContext(ctx), f.issuer)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +81,7 @@ func (f *oauthFlow) exchange(ctx context.Context, code, verifier, redirectURI, e
 }
 
 func (f *oauthFlow) exchangeIDToken(ctx context.Context, code, verifier, redirectURI, expectedNonce string) (*oidc.IDToken, error) {
+	ctx = idpContext(ctx)
 	config, provider, err := f.config(ctx, redirectURI)
 	if err != nil {
 		return nil, err

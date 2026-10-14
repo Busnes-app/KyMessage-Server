@@ -50,7 +50,7 @@ func ApplyInstallerConfiguration(cfg *Config, b applysetup.Common) error {
 		if err != nil {
 			return err
 		}
-		if cfg.SSO.AutoProvision && (cfg.SSO.KyIdentityIssuer != "" || os.Getenv("KY_SSO_AUTO_PROVISION") != "") || cfg.SSO.GenericOIDCIssuer != "" || cfg.SSO.SAMLMetadataURL != "" {
+		if cfg.SSO.AutoProvision && (cfg.SSO.KyIdentityIssuer != "" || os.Getenv("KY_SSO_AUTO_PROVISION") != "") {
 			return errors.New("installer refuses conflicting authentication or automatic provisioning")
 		}
 		for _, pair := range [][2]string{{cfg.SSO.KyIdentityIssuer, s.IssuerURL}, {cfg.SSO.KyIdentityClientID, s.ClientID}, {cfg.SSO.KyIdentitySecret, secret}, {cfg.SSO.KyIdentityHMACSecret, directorySecret}} {

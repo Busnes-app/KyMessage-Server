@@ -89,6 +89,9 @@ func (h *userResourceHandler) Create(r *http.Request, attrs protocol.ResourceAtt
 	if user.Role == "" {
 		user.Role = "user"
 	}
+	if !validRole(user.Role) {
+		return protocol.Resource{}, errRole
+	}
 	if err := h.store.Users().CreateUser(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, user.ID)
 	}
@@ -97,9 +100,9 @@ func (h *userResourceHandler) Create(r *http.Request, attrs protocol.ResourceAtt
 }
 
 func (h *userResourceHandler) Get(r *http.Request, id string) (protocol.Resource, error) {
-	user, err := h.store.Users().GetUserByID(r.Context(), id)
+	user, err := h.ownedUser(r, id)
 	if err != nil {
-		return protocol.Resource{}, scimStoreError(err, id)
+		return protocol.Resource{}, err
 	}
 	return userResource(user), nil
 }
@@ -116,13 +119,13 @@ var filterFields = map[string]store.UserField{
 }
 
 func (h *userResourceHandler) GetAll(r *http.Request, params protocol.ListRequestParams) (protocol.Page, error) {
-	var filter store.UserFilter
+	filter := store.UserFilter{Provider: "scim"}
 	if raw := strings.TrimSpace(r.URL.Query().Get("filter")); raw != "" {
 		match := equalityFilter.FindStringSubmatch(raw)
 		if len(match) != 3 {
 			return protocol.Page{}, protocolErrors.ScimErrorInvalidFilter
 		}
-		filter = store.UserFilter{Field: filterFields[strings.ToLower(match[1])], Value: match[2]}
+		filter.Field, filter.Value = filterFields[strings.ToLower(match[1])], match[2]
 	}
 	users, total, err := h.store.Users().ListUsers(r.Context(), params.StartIndex-1, params.Count, filter)
 	if err != nil {
@@ -136,7 +139,7 @@ func (h *userResourceHandler) GetAll(r *http.Request, params protocol.ListReques
 }
 
 // ownedUser returns a row SCIM created. Other providers' rows (KyIdentity, local) answer as
-// absent: writing them here would override their own directory.
+// absent: reading them leaks other directories, writing them overrides them.
 func (h *userResourceHandler) ownedUser(r *http.Request, id string) (*store.User, error) {
 	user, err := h.store.Users().GetUserByID(r.Context(), id)
 	if err == nil && user.SSOProvider != "scim" {
@@ -158,6 +161,9 @@ func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol
 		user.Role = role
 	}
 	user.Status = statusFromActive(attrs)
+	if !validRole(user.Role) {
+		return protocol.Resource{}, errRole
+	}
 	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
@@ -180,6 +186,16 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 	oldRole, oldStatus := user.Role, user.Status
 	for _, op := range operations {
 		if op.Op == protocol.PatchOperationRemove {
+			if op.Path == nil {
+				continue // the library refuses a remove without a path
+			}
+			// Removing a grant leaves the least privilege, never the old value.
+			switch strings.ToLower(op.Path.AttributePath.AttributeName) {
+			case "roles", "role":
+				user.Role = "user"
+			case "active":
+				user.Status = "inactive"
+			}
 			continue
 		}
 		if op.Path == nil {
@@ -189,6 +205,9 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 			continue
 		}
 		applyUserValue(user, strings.ToLower(op.Path.String()), op.Value)
+	}
+	if !validRole(user.Role) {
+		return protocol.Resource{}, errRole
 	}
 	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
@@ -202,6 +221,11 @@ func (h *userResourceHandler) revokeIfPrivilegesChanged(r *http.Request, user *s
 		_ = h.store.Sessions().DeleteUserSessions(r.Context(), user.ID)
 	}
 }
+
+// Roles are the console's two; anything else would be stored and never mean anything.
+func validRole(role string) bool { return role == "admin" || role == "user" }
+
+var errRole = protocolErrors.ScimError{ScimType: protocolErrors.ScimTypeInvalidValue, Detail: `roles must be "admin" or "user"`, Status: http.StatusBadRequest}
 
 func applyUserValues(user *store.User, values map[string]interface{}) {
 	for key, value := range values {
@@ -249,6 +273,9 @@ func userResource(user *store.User) protocol.Resource {
 type groupResourceHandler struct{ store store.Store }
 
 func (h *groupResourceHandler) Create(r *http.Request, attrs protocol.ResourceAttributes) (protocol.Resource, error) {
+	if err := h.checkMembers(r, memberValues(attrs["members"])); err != nil {
+		return protocol.Resource{}, err
+	}
 	group := &store.Group{ID: "grp_" + crypto.RandomHex(12), DisplayName: stringValue(attrs, "displayName", ""), ExternalID: stringValue(attrs, "externalId", "")}
 	if err := h.store.Groups().CreateGroup(r.Context(), group); err != nil {
 		return protocol.Resource{}, scimStoreError(err, group.ID)
@@ -283,6 +310,9 @@ func (h *groupResourceHandler) Replace(r *http.Request, id string, attrs protoco
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
 	old := group.Members
+	if err := h.checkMembers(r, memberValues(attrs["members"])); err != nil {
+		return protocol.Resource{}, err
+	}
 	group.DisplayName = stringValue(attrs, "displayName", group.DisplayName)
 	group.ExternalID = stringValue(attrs, "externalId", group.ExternalID)
 	group.Members = memberValues(attrs["members"])
@@ -310,6 +340,22 @@ func (h *groupResourceHandler) Patch(r *http.Request, id string, operations []pr
 	}
 	return h.Replace(r, id, attrs)
 }
+
+// checkMembers refuses any member SCIM does not own, so a group cannot reach into another
+// directory's accounts.
+func (h *groupResourceHandler) checkMembers(r *http.Request, ids []string) error {
+	for _, id := range ids {
+		user, err := h.store.Users().GetUserByID(r.Context(), id)
+		if errors.Is(err, store.ErrNotFound) || (err == nil && user.SSOProvider != "scim") {
+			return protocolErrors.ScimError{ScimType: protocolErrors.ScimTypeInvalidValue, Detail: "member " + id + " is not a SCIM-provisioned user", Status: http.StatusBadRequest}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *groupResourceHandler) replaceMembers(r *http.Request, groupID string, old, next []string) error {
 	for _, id := range old {
 		if err := h.store.Groups().RemoveGroupMember(r.Context(), groupID, id); err != nil {

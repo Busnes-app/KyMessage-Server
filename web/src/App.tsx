@@ -11,6 +11,7 @@ import { Rooms } from './pages/Rooms';
 import { Health } from './pages/Health';
 import { Audit } from './pages/Audit';
 import { ConfirmItsYou } from './components/ConfirmItsYou';
+import { TwoFactorSetup } from './components/TwoFactorSetup';
 import { MemberHome } from './pages/MemberHome';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
@@ -122,6 +123,7 @@ export const App: React.FC = () => {
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}
         {isAdmin && activeTab === 'backup' && <Backup />}
         {isAdmin && activeTab === 'settings' && <Settings settings={settings} onBrandingChanged={() => void loadSettings()} />}
+        {isAdmin && activeTab === 'settings' && <TwoFactorSetup />}
       </main>
     </div>
   );

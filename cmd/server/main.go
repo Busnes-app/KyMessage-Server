@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"golang.org/x/term"
 )
 
 // appVersion is what the capsule manifest records for this build.
@@ -400,7 +403,13 @@ func runDeposit(args []string) {
 // bootstrapAdmin creates the local admin on an empty database, named by KY_ADMIN_USERNAME. A
 // blank password is generated and logged once; either way it must be replaced at first sign-in.
 func bootstrapAdmin(ctx context.Context, st store.Store, username, adminPass string) error {
-	if count, _ := st.Users().CountUsers(ctx); count != 0 {
+	// A failed count is not an empty database: bootstrapping on it would add a second admin
+	// and log its password.
+	count, err := st.Users().CountUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("count users: %w", err)
+	}
+	if count != 0 {
 		return nil
 	}
 	if adminPass == "" {
@@ -430,11 +439,24 @@ func runInitAdmin(args []string) {
 	}
 	fs := flag.NewFlagSet("init-admin", flag.ExitOnError)
 	username := fs.String("username", cfg.Security.AdminUsername, "Admin username (default KY_ADMIN_USERNAME)")
-	passwordFlag := fs.String("password", "", "Admin password (minimum 12 characters)")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: kymessages init-admin [-username <name>]\n\n"+
+			"The password (at least 12 characters) is read from stdin, never from the command\n"+
+			"line: argv is world-readable and lands in shell history.\n\n")
+		fs.PrintDefaults()
+	}
 	_ = fs.Parse(args)
+	if fs.NArg() > 0 {
+		fs.Usage()
+		os.Exit(2)
+	}
 
-	if *passwordFlag == "" || len(*passwordFlag) < 12 {
-		log.Fatal("Error: -password is required and must be at least 12 characters")
+	adminPassword, err := readAdminPassword(os.Stdin)
+	if err != nil {
+		log.Fatalf("Reading password: %v", err)
+	}
+	if len(adminPassword) < 12 {
+		log.Fatal("Error: the password must be at least 12 characters")
 	}
 	ctx := context.Background()
 	st, err := store.Open(ctx, cfg.Database)
@@ -443,7 +465,7 @@ func runInitAdmin(args []string) {
 	}
 	defer st.Close()
 
-	hash, err := password.Hash(*passwordFlag)
+	hash, err := password.Hash(adminPassword)
 	if err != nil {
 		log.Fatalf("Password hashing error: %v", err)
 	}
@@ -550,6 +572,26 @@ func runExportCapsule(args []string) {
 		log.Fatalf("Write: %v", err)
 	}
 	log.Printf("✓ Capsule %s sealed to recovery key %s, written to %s (%d bytes)", m.CapsuleID, m.RecoveryKeyID, path, len(raw))
+}
+
+// readAdminPassword reads one line from in. A terminal gets a prompt and no echo.
+func readAdminPassword(in *os.File) (string, error) {
+	if fd := int(in.Fd()); term.IsTerminal(fd) {
+		fmt.Fprint(os.Stderr, "New admin password: ")
+		b, err := term.ReadPassword(fd)
+		fmt.Fprintln(os.Stderr)
+		return string(b), err
+	}
+	return readPasswordLine(in)
+}
+
+// readPasswordLine is the first line of r without its line ending.
+func readPasswordLine(r io.Reader) (string, error) {
+	line, err := bufio.NewReader(r).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }
 
 // stdinIsTerminal reports whether a human is typing, so a pipeline gets no stray prompt.
