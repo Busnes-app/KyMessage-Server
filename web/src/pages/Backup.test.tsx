@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import fixture from '../../../internal/backup/testdata/pairing-v050.json';
+import { createHash, randomBytes } from 'node:crypto';
 import { Backup, recoveryKeyID } from './Backup';
 import { ConfirmItsYou } from '../components/ConfirmItsYou';
 
@@ -147,7 +147,10 @@ describe('Backup', () => {
   });
 });
 
-// The repository's synthetic recovery key: its KeyID is what the server derives.
+// A random 1216-byte "key": the server's ID is hex SHA-256 of the decoded bytes (pinned against
+// internal/backup/testdata/pairing-v050.json, which the web-only Docker build cannot read).
+const keyBytes = randomBytes(1216);
+const fixture = { PublicKey: keyBytes.toString('base64'), KeyID: createHash('sha256').update(keyBytes).digest('hex') };
 const UNPINNED = { key_pinned: false, paired: false, interval_sec: 86400, database_driver: 'sqlite', members: [], local_dir: '/backups', local_keep: 7, local_copies: [] };
 
 function mockRoutes(status: Record<string, unknown>, writes: { url: string; body: unknown }[], reply: unknown) {
