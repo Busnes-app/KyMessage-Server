@@ -1,32 +1,45 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
+import { count, obj, str } from '../dto';
 
 interface CaptchaProps {
   onToken: (token: string) => void;
+  /** Change it after each sign-in attempt: the server spends the token before checking the password. */
+  round: number;
 }
 
-interface Challenge {
-  algorithm: string;
-  salt: string;
-  challenge: string;
-  maxnumber: number;
-  expires_at: number;
-  signature: string;
+function parseChallenge(v: unknown) {
+  const o = obj(v);
+  return {
+    algorithm: str(o.algorithm, 32), salt: str(o.salt, 128), challenge: str(o.challenge, 128),
+    maxnumber: count(o.maxnumber), expires_at: count(o.expires_at), signature: str(o.signature, 256),
+  };
 }
 
-export const CaptchaWidget: React.FC<CaptchaProps> = ({ onToken }) => {
+// A new challenge shortly before the old one expires; never sooner than a minute, so a client
+// clock far ahead of the server cannot turn expiry into a fetch loop.
+const refreshDelay = (expiresAt: number) => Math.max(60_000, expiresAt * 1000 - Date.now() - 10_000);
+
+/** Fetches and solves one challenge per mount, per `round`, and on expiry; never per render. */
+export const CaptchaWidget: React.FC<CaptchaProps> = ({ onToken, round }) => {
   const [status, setStatus] = useState<'working' | 'done' | 'failed'>('working');
   const [progress, setProgress] = useState<number>(0);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [expired, setExpired] = useState<number>(0);
+  const onTokenRef = useRef(onToken);
+  useEffect(() => { onTokenRef.current = onToken; });
 
   useEffect(() => {
     let cancelled = false;
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    setStatus('working');
+    setProgress(0);
 
     const runPoW = async () => {
       try {
         const resp = await fetch('/api/auth/pow-challenge');
         if (!resp.ok) throw new Error('Failed to fetch security challenge');
-        const chal: Challenge = await resp.json();
+        const chal = parseChallenge(await resp.json());
 
         const enc = new TextEncoder();
         const max = chal.maxnumber;
@@ -51,8 +64,13 @@ export const CaptchaWidget: React.FC<CaptchaProps> = ({ onToken }) => {
               signature: chal.signature,
             };
             const token = btoa(JSON.stringify(sol));
+            if (cancelled) return;
             setStatus('done');
-            onToken(token);
+            onTokenRef.current(token);
+            expiry = setTimeout(() => {
+              onTokenRef.current('');
+              setExpired((n) => n + 1);
+            }, refreshDelay(chal.expires_at));
             solved = true;
             break;
           }
@@ -74,11 +92,12 @@ export const CaptchaWidget: React.FC<CaptchaProps> = ({ onToken }) => {
       }
     };
 
-    runPoW();
+    void runPoW();
     return () => {
       cancelled = true;
+      clearTimeout(expiry);
     };
-  }, [onToken]);
+  }, [round, expired]);
 
   return (
     <div

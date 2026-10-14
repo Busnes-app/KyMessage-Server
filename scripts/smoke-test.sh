@@ -189,10 +189,11 @@ check "unpair refuses while unpaired" "$(status -b "$WORK/cookies" -H "X-CSRF-To
 check "cookie write rejects missing CSRF" "$(status -b "$WORK/cookies" -X POST "$BASE/api/devices/pair/init")" "403"
 check "device pairing init" "$(status -b "$WORK/cookies" -H "X-CSRF-Token: $CSRF" -X POST "$BASE/api/devices/pair/init")" "200"
 # pair/poll is unauthenticated: holding the secret must not hand over the code, the user or
-# the push token. Poll with a real secret and assert the projection.
+# the push token. Poll with a real secret in a POST body and assert the projection.
 PAIR_INIT="$(curl -s -b "$WORK/cookies" -H "X-CSRF-Token: $CSRF" -X POST "$BASE/api/devices/pair/init")"
 PAIR_SECRET="$(printf '%s' "$PAIR_INIT" | sed -n 's/.*"secret":"\([^"]*\)".*/\1/p')"
-PAIR_POLL="$(curl -s "$BASE/api/devices/pair/poll?secret=$PAIR_SECRET")"
+PAIR_POLL="$(curl -s -H 'Content-Type: application/json' -d "{\"secret\":\"$PAIR_SECRET\"}" "$BASE/api/devices/pair/poll")"
+check "pairing poll refuses the secret in a URL" "$(status "$BASE/api/devices/pair/poll?secret=$PAIR_SECRET")" "405"
 contains "pairing poll reports status" "$PAIR_POLL" '"status"'
 check "pairing poll hides the secret" \
   "$(if printf '%s' "$PAIR_POLL" | grep -q '"secret"'; then echo leaked; else echo hidden; fi)" "hidden"

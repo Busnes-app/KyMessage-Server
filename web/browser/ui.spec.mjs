@@ -22,16 +22,16 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   });
   // Online navigation must refresh the shell rather than pinning a previous deploy.
   await page.reload();
-  await page.getByPlaceholder('admin', { exact: true }).fill('admin');
+  await page.getByLabel('Username').fill('admin');
   // The server allows 10 attempts per account per 15 minutes; setup plus one login per
   // project leaves room for only two wrong passwords, one per theme, width and browser.
   if (['dark-390', 'firefox-light-1280'].includes(testInfo.project.name)) {
-    await page.locator('input[type=password]').fill('IncorrectPassword123!');
+    await page.getByLabel('Password').fill('IncorrectPassword123!');
     await page.getByRole('button', { name: 'Sign In', exact: true }).click();
-    await expect(page.locator('form').locator('..')).toContainText(/invalid|incorrect|failed/i);
+    await expect(page.getByRole('alert')).toContainText('Invalid credentials');
     await fits(page);
   }
-  await page.locator('input[type=password]').fill('BrowserUpdated456!');
+  await page.getByLabel('Password').fill('BrowserUpdated456!');
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav).toBeVisible();
@@ -63,6 +63,11 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(page.getByRole('heading', { name: 'System Settings & Architecture' })).toBeVisible();
   await fits(page);
   const pair = page.getByRole('button', { name: 'Pair Device' });
+  // The poll carries the session-redeemable secret in a POST body, never in the URL.
+  const polls = [];
+  page.on('response', response => {
+    if (new URL(response.url()).pathname === '/api/devices/pair/poll') polls.push(response);
+  });
   await pair.click();
   const dialog = page.getByRole('dialog', { name: 'Link Mobile Device' });
   await expect(dialog).toBeVisible();
@@ -73,6 +78,10 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await expect(dialog.getByText('Pairing PIN')).toHaveCount(0);
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('dialog.png'), fullPage: true });
+  await expect.poll(() => polls.length).toBeGreaterThan(0);
+  expect(polls[0].request().method()).toBe('POST');
+  expect(polls[0].url()).not.toContain('?');
+  expect(polls[0].status()).toBe(200);
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
   await expect(pair).toBeFocused();

@@ -16,6 +16,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { adminFetch, errorMessage } from '../api';
+import { arr, bool, count, iso, obj, opt, str } from '../dto';
 
 export interface DepositReceipt {
   capsule_id: string;
@@ -81,9 +82,6 @@ function mib(n: number): string {
 export interface BackupStatus {
   paired: boolean;
   key_pinned: boolean;
-  app_name: string;
-  app_version: string;
-  allow_private_recovery: boolean;
   database_driver: string;
   members: string[];
   recovery_url?: string;
@@ -97,6 +95,7 @@ export interface BackupStatus {
   capsule_size?: CapsuleSize;
   media_last_run?: MediaRun;
   media_last_run_error?: string;
+  scheduler_error?: string;
   local_dir?: string;
   local_keep?: number;
   local_copies?: LocalCopy[];
@@ -157,10 +156,93 @@ function bytes(n: number): string {
   return `${n} B`;
 }
 
-async function call<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
+async function call(path: string, init: RequestInit, fallback: string): Promise<unknown> {
   const res = await adminFetch(path, init);
   if (!res.ok) throw new Error(await errorMessage(res, fallback));
-  return (await res.json()) as T;
+  return res.json();
+}
+
+const optStr = (v: unknown) => opt(v, str);
+
+function receipt(v: unknown): DepositReceipt {
+  const o = obj(v);
+  return { capsule_id: str(o.capsule_id, 128), digest: str(o.digest, 256), size_bytes: count(o.size_bytes), deposited_at: iso(o.deposited_at) };
+}
+
+function localCopy(v: unknown): LocalCopy {
+  const o = obj(v);
+  return { name: str(o.name, 255), size_bytes: count(o.size_bytes), created_at: iso(o.created_at) };
+}
+
+export function parseBackupStatus(v: unknown): BackupStatus {
+  const o = obj(v);
+  return {
+    paired: bool(o.paired),
+    key_pinned: bool(o.key_pinned),
+    database_driver: str(o.database_driver, 32),
+    members: (opt(o.members, arr) ?? []).map((m) => str(m)),
+    recovery_url: optStr(o.recovery_url),
+    recovery_key_id: opt(o.recovery_key_id, (k) => str(k, 128)),
+    recovery_key_error: optStr(o.recovery_key_error),
+    threshold: opt(o.threshold, count),
+    total_shares: opt(o.total_shares, count),
+    last_deposit: opt(o.last_deposit, receipt),
+    last_run: backupAttempt(o.last_run),
+    last_run_error: optStr(o.last_run_error),
+    capsule_size: opt(o.capsule_size, (c) => {
+      const r = obj(c);
+      return { bytes: count(r.bytes), limit: count(r.limit), percent: count(r.percent), warning: bool(r.warning) };
+    }),
+    media_last_run: mediaRun(o.media_last_run),
+    media_last_run_error: optStr(o.media_last_run_error),
+    scheduler_error: optStr(o.scheduler_error),
+    local_dir: opt(o.local_dir, (d) => str(d, 4096)),
+    local_keep: opt(o.local_keep, count),
+    local_copies: opt(o.local_copies, (c) => arr(c).map(localCopy)),
+    local_error: optStr(o.local_error),
+    interval_sec: opt(o.interval_sec, count),
+    min_interval_sec: opt(o.min_interval_sec, count),
+    next_run_at: opt(o.next_run_at, iso),
+  };
+}
+
+function parseRunResult(v: unknown): RunResult {
+  const o = obj(v);
+  return {
+    manifest: { capsule_id: str(obj(o.manifest).capsule_id, 128) },
+    size_bytes: count(o.size_bytes),
+    local_path: opt(o.local_path, (p) => str(p, 4096)),
+    local_error: optStr(o.local_error),
+    receipt: opt(o.receipt, receipt),
+    receipt_unrecorded: opt(o.receipt_unrecorded, bool),
+  };
+}
+
+function parseDrillResult(v: unknown): DrillResult {
+  const o = obj(v);
+  return {
+    passed: bool(o.passed),
+    checks: (opt(o.checks, arr) ?? []).map((c) => {
+      const r = obj(c);
+      return { name: str(r.name, 255), passed: bool(r.passed), message: optStr(r.message) };
+    }),
+    error_message: optStr(o.error_message),
+    duration_ms: count(o.duration_ms),
+  };
+}
+
+/** The key's ID as the server derives it: hex SHA-256 of the decoded public key. Null when
+ * the text is not base64 or WebCrypto is unavailable (a page not served over https). */
+export async function recoveryKeyID(publicKey: string): Promise<string | null> {
+  let raw: Uint8Array;
+  try {
+    raw = Uint8Array.from(atob(publicKey.replace(/\s+/g, '')), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  if (!globalThis.crypto?.subtle) return null;
+  const sum = new Uint8Array(await crypto.subtle.digest('SHA-256', raw));
+  return Array.from(sum, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
@@ -210,9 +292,8 @@ export const Backup: React.FC = () => {
     setLoadingStatus(true);
     setStatusError('');
     try {
-      const data = await call<BackupStatus>('/api/backup/status', { method: 'GET' }, 'Could not load backup status');
-      if (data.last_run_error !== undefined && typeof data.last_run_error !== 'string') throw new Error('Invalid backup result error');
-      setStatus({ ...data, last_run: backupAttempt(data.last_run), media_last_run: mediaRun(data.media_last_run) });
+      const data = parseBackupStatus(await call('/api/backup/status', { method: 'GET' }, 'Could not load backup status'));
+      setStatus(data);
       if (data.recovery_url) setRemoteUrl(data.recovery_url);
       if (typeof data.interval_sec === 'number') setScheduleSec(data.interval_sec);
     } catch (err) {
@@ -231,7 +312,7 @@ export const Backup: React.FC = () => {
     setRunMessage('');
     setRunError('');
     try {
-      const res = await call<RunResult>('/api/backup/deposit', { method: 'POST' }, 'Backup failed');
+      const res = parseRunResult(await call('/api/backup/deposit', { method: 'POST' }, 'Backup failed'));
       const went: string[] = [];
       if (res.local_path) went.push(`written to ${res.local_path}`);
       if (res.receipt) went.push(`deposited with KyRecovery at ${when(res.receipt.deposited_at)}`);
@@ -269,7 +350,7 @@ export const Backup: React.FC = () => {
     setRunningDrill(true);
     setDrillResult(null);
     try {
-      setDrillResult(await call<DrillResult>('/api/backup/drill', { method: 'POST' }, 'Restore drill failed to run'));
+      setDrillResult(parseDrillResult(await call('/api/backup/drill', { method: 'POST' }, 'Restore drill failed to run')));
     } catch (err) {
       const message = errorText(err, 'Restore drill failed to run');
       setDrillResult({ passed: false, duration_ms: 0, error_message: message, checks: [{ name: 'Execution', passed: false, message }] });
@@ -284,12 +365,12 @@ export const Backup: React.FC = () => {
     setScheduleMessage('');
     setScheduleError('');
     try {
-      const saved = await call<{ interval_sec: number }>(
+      const saved = count(obj(await call(
         '/api/backup/schedule',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interval_sec: scheduleSec }) },
         'Could not save the schedule',
-      );
-      setScheduleMessage(saved.interval_sec === 0 ? 'Automatic backups are off.' : `Backing up ${every(saved.interval_sec).toLowerCase()}.`);
+      )).interval_sec);
+      setScheduleMessage(saved === 0 ? 'Automatic backups are off.' : `Backing up ${every(saved).toLowerCase()}.`);
       await fetchStatus();
     } catch (err) {
       setScheduleError(errorText(err, 'Could not save the schedule'));
@@ -300,20 +381,31 @@ export const Backup: React.FC = () => {
 
   const pair = async (e: React.FormEvent) => {
     e.preventDefault();
+    const url = remoteUrl.trim();
+    // A first pairing pins the key KyRecovery hands over, for good.
+    if (
+      !keyPinned &&
+      !window.confirm(
+        `Pair with ${url}?\n\nKyRecovery hands this server its suite recovery key, and the key is pinned for good: every capsule is sealed to it and this server never accepts another. Pair only with a KyRecovery you run or trust.`,
+      )
+    )
+      return;
     setPairing(true);
     setPairMessage('');
     setPairError('');
     try {
-      await call(
+      const res = obj(await call(
         '/api/backup/pair-remote',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recovery_url: remoteUrl.trim(), pairing_code: pairCode.trim() }),
+          body: JSON.stringify({ recovery_url: url, pairing_code: pairCode.trim() }),
         },
         'Pairing failed',
+      ));
+      setPairMessage(
+        `Paired with ${url}. Recovery key ${str(res.recovery_key_id, 128)} (${count(res.threshold)} of ${count(res.total_shares)} custodian cards) is pinned.`,
       );
-      setPairMessage(`Paired with ${remoteUrl.trim()}.`);
       setPairCode('');
       await fetchStatus();
     } catch (err) {
@@ -346,8 +438,15 @@ export const Backup: React.FC = () => {
 
   const pin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPinning(true);
     setPinError('');
+    const id = await recoveryKeyID(pinKey);
+    if (
+      !window.confirm(
+        `Pin this recovery key? This cannot be undone.\n\nKey ID: ${id ?? 'unavailable (not valid base64, or this page is not served over https)'}\nCustodian split: ${pinK} of ${pinN} cards\n\nEvery capsule from now on is sealed to this key, and this server never accepts another. Make sure it is the key from your ceremony.`,
+      )
+    )
+      return;
+    setPinning(true);
     try {
       await call(
         '/api/backup/pin-key',
@@ -386,6 +485,7 @@ export const Backup: React.FC = () => {
       </div>
 
       {statusError && <Alert kind="error">{statusError}</Alert>}
+      {status?.scheduler_error && <Alert kind="error">Automatic backups are not running: {status.scheduler_error}</Alert>}
       {status?.last_run_error && <Alert kind="error">{status.last_run_error}</Alert>}
       {status?.recovery_key_error && <Alert kind="error">{status.recovery_key_error}</Alert>}
       {status && status.database_driver !== 'sqlite' && (

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { Backup } from './Backup';
+import fixture from '../../../internal/backup/testdata/pairing-v050.json';
+import { Backup, recoveryKeyID } from './Backup';
 import { ConfirmItsYou } from '../components/ConfirmItsYou';
 
 function mockStatus(body: Record<string, unknown>) {
@@ -143,5 +144,75 @@ describe('Backup', () => {
     const run = await screen.findByText(/Last media backup: Failed/);
     expect(run.textContent).toContain('full-2026-10.tar');
     expect(screen.getByText('Could not read the latest media backup result')).toBeTruthy();
+  });
+});
+
+// The repository's synthetic recovery key: its KeyID is what the server derives.
+const UNPINNED = { key_pinned: false, paired: false, interval_sec: 86400, database_driver: 'sqlite', members: [], local_dir: '/backups', local_keep: 7, local_copies: [] };
+
+function mockRoutes(status: Record<string, unknown>, writes: { url: string; body: unknown }[], reply: unknown) {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/api/backup/status')) return new Response(JSON.stringify(status), { status: 200 });
+    writes.push({ url, body: JSON.parse(String(init?.body)) });
+    return new Response(JSON.stringify(reply), { status: 200 });
+  }));
+}
+
+describe('Backup trust-root changes and malformed answers', () => {
+  it('derives the key ID the server uses', async () => {
+    expect(await recoveryKeyID(fixture.PublicKey)).toBe(fixture.KeyID);
+    expect(await recoveryKeyID('not base64!')).toBeNull();
+  });
+
+  it('shows the key ID and split, and pins nothing unless the admin confirms', async () => {
+    const writes: { url: string; body: unknown }[] = [];
+    mockRoutes(UNPINNED, writes, { recovery_key_id: fixture.KeyID, threshold: 2, total_shares: 3 });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<Backup />);
+    fireEvent.change(await screen.findByLabelText('Suite recovery public key'), { target: { value: fixture.PublicKey } });
+    fireEvent.click(screen.getByRole('button', { name: 'Pin key' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(confirm.mock.calls[0][0]).toContain(`Key ID: ${fixture.KeyID}`);
+    expect(confirm.mock.calls[0][0]).toContain('2 of 3');
+    expect(writes).toHaveLength(0);
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Pin key' }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toEqual({ url: '/api/backup/pin-key', body: { public_key: fixture.PublicKey, threshold: 2, total_shares: 3 } });
+    confirm.mockRestore();
+  });
+
+  it('asks before a first pairing pins the key, then names the pinned key', async () => {
+    const writes: { url: string; body: unknown }[] = [];
+    mockRoutes(UNPINNED, writes, { recovery_key_id: fixture.KeyID, threshold: 2, total_shares: 3 });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<Backup />);
+    fireEvent.change(await screen.findByLabelText('Server URL'), { target: { value: 'https://recovery.example' } });
+    fireEvent.change(screen.getByLabelText('Pairing code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm.mock.calls[0][0]).toContain('pinned for good');
+    expect(writes).toHaveLength(0);
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }));
+    expect(await screen.findByText(new RegExp(`Recovery key ${fixture.KeyID} \\(2 of 3 custodian cards\\) is pinned`))).toBeTruthy();
+    expect(writes.map((w) => w.url)).toEqual(['/api/backup/pair-remote']);
+    confirm.mockRestore();
+  });
+
+  it('shows a malformed status as an error and keeps the page', async () => {
+    mockStatus({ ...PAIRED, key_pinned: 'yes' });
+    render(<Backup />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Invalid response from the server');
+    expect(screen.getByRole('heading', { name: 'Backup & recovery' })).toBeTruthy();
+  });
+
+  it('shows the scheduler error as a banner', async () => {
+    mockStatus({ ...PAIRED, scheduler_error: 'scheduler disabled: no recovery key' });
+    render(<Backup />);
+    expect((await screen.findByText(/Automatic backups are not running: scheduler disabled: no recovery key/))).toBeTruthy();
   });
 });

@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Key, AlertCircle, LogIn } from 'lucide-react';
 import { CaptchaWidget } from '../components/CaptchaWidget';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
+import { parseUser, type SessionUser } from '../dto';
 
 interface LoginProps {
-  onSuccess: (user: any) => void;
+  onSuccess: (user: SessionUser) => void;
   appName: string;
 }
 
@@ -16,6 +17,7 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [captchaToken, setCaptchaToken] = useState<string>('');
+  const [captchaRound, setCaptchaRound] = useState<number>(0);
   const [mfaChallenge, setMfaChallenge] = useState<MFAChallenge | null>(null);
   const [mfaCode, setMfaCode] = useState<string>('');
   const [isRecoveryCode, setIsRecoveryCode] = useState<boolean>(false);
@@ -49,12 +51,15 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
       }
 
       if (data.authenticated) {
-        onSuccess(data.user);
+        onSuccess(parseUser(data.user));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
+      // The attempt spent the token, whatever the answer: solve a fresh challenge.
+      setCaptchaToken('');
+      setCaptchaRound((r) => r + 1);
     }
   };
 
@@ -81,7 +86,7 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
       }
 
       if (data.authenticated) {
-        onSuccess(data.user);
+        onSuccess(parseUser(data.user));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid verification code');
@@ -121,12 +126,12 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
             <img src="/app-icon.png" width={56} height={56} alt="" />
           </div>
           <h1 style={{ fontSize: '24px', fontWeight: 'bold', overflowWrap: 'anywhere' }}>{appName || 'KyMessages'}</h1>
-          <p style={{ color: 'var(--ink)', fontSize: '14px', marginTop: '4px' }}>Cloud Mobile First Base Platform</p>
         </div>
 
         <div className="panel">
           {error && (
             <div
+              role="alert"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -153,11 +158,13 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
               </p>
 
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '13px', color: 'var(--ink)', marginBottom: '6px' }}>
+                <label htmlFor="login-mfa-code" style={{ display: 'block', fontSize: '13px', color: 'var(--ink)', marginBottom: '6px' }}>
                   {isRecoveryCode ? 'Recovery Code' : 'Authenticator Code'}
                 </label>
                 <input
+                  id="login-mfa-code"
                   type="text"
+                  autoComplete="one-time-code"
                   autoFocus
                   value={mfaCode}
                   onChange={(e) => setMfaCode(e.target.value)}
@@ -185,9 +192,11 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
           ) : (
             <form onSubmit={handleLogin}>
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '13px', color: 'var(--ink)', marginBottom: '6px' }}>Username</label>
+                <label htmlFor="login-username" style={{ display: 'block', fontSize: '13px', color: 'var(--ink)', marginBottom: '6px' }}>Username</label>
                 <input
+                  id="login-username"
                   type="text"
+                  autoComplete="username"
                   autoFocus
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -197,9 +206,11 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
               </div>
 
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '13px', color: 'var(--ink)', marginBottom: '6px' }}>Password</label>
+                <label htmlFor="login-password" style={{ display: 'block', fontSize: '13px', color: 'var(--ink)', marginBottom: '6px' }}>Password</label>
                 <input
+                  id="login-password"
                   type="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
@@ -207,7 +218,7 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
                 />
               </div>
 
-              <CaptchaWidget onToken={(tok) => setCaptchaToken(tok)} />
+              <CaptchaWidget onToken={setCaptchaToken} round={captchaRound} />
 
               <button type="submit" style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }} disabled={loading}>
                 <LogIn size={16} />

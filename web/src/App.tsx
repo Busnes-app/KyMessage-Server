@@ -15,14 +15,17 @@ import { MemberHome } from './pages/MemberHome';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
 import './ky-ui/navigation.css';
-import { secureFetch } from './api';
+import { errorMessage, secureFetch } from './api';
+import { parseSettings, parseUser, type SessionUser, type SiteSettings } from './dto';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export const App: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [settings, setSettings] = useState<any>(null);
+  const [settings, setSettings] = useState<SiteSettings | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -32,19 +35,16 @@ export const App: React.FC = () => {
           await fetch('/api/settings')
         );
 
-        if (setResp.ok) {
-          const s = await setResp.json();
-          setSettings(s);
-        }
+        if (setResp.ok) setSettings(parseSettings(await setResp.json()));
 
         if (authResp.ok) {
-          const a = await authResp.json();
-          if (a.authenticated) {
-            setUser(a.user);
+          const a: unknown = await authResp.json();
+          if (typeof a === 'object' && a !== null && 'authenticated' in a && a.authenticated === true) {
+            setUser(parseUser('user' in a ? a.user : undefined));
           }
         }
       } catch (err) {
-        console.error('Initialization error:', err);
+        setError(`Could not load the console: ${err instanceof Error ? err.message : 'unknown error'}`);
       } finally {
         setLoading(false);
       }
@@ -55,17 +55,26 @@ export const App: React.FC = () => {
 
   // /api/settings returns more fields once authenticated, so re-read it after login.
   const loadSettings = async () => {
-    const resp = await fetch('/api/settings');
-    if (resp.ok) {
-      const s = await resp.json();
-      setSettings(s);
+    try {
+      const resp = await fetch('/api/settings');
+      if (resp.ok) setSettings(parseSettings(await resp.json()));
+    } catch (err) {
+      setError(`Could not load settings: ${err instanceof Error ? err.message : 'unknown error'}`);
     }
   };
 
+  // Only a confirmed sign-out leaves the console; otherwise the session may still be live.
   const handleLogout = async () => {
-    await secureFetch('/api/auth/logout', { method: 'POST' });
-    setUser(null);
+    setError('');
+    try {
+      const res = await secureFetch('/api/auth/logout', { method: 'POST' });
+      if (!res.ok) throw new Error(await errorMessage(res, 'Sign-out failed'));
+      setUser(null);
+    } catch (err) {
+      setError(`You are still signed in: ${err instanceof Error ? err.message : 'sign-out failed'}`);
+    }
   };
+  const errorAlert = error && <div className="dr-alert dr-alert-error" role="alert" style={{ margin: 16 }}><span>{error}</span></div>;
 
   if (loading) {
     return (
@@ -79,10 +88,12 @@ export const App: React.FC = () => {
     return (
       <>
       {notice && <p role="status" style={{ padding: 16 }}>{notice}</p>}
+      {errorAlert}
       <Login
         appName={settings?.app_name || 'KyMessages'}
         onSuccess={(u) => {
           setNotice('');
+          setError('');
           setUser(u);
           void loadSettings();
         }}
@@ -92,10 +103,10 @@ export const App: React.FC = () => {
   }
 
   if (user.must_change_password) {
-    return <ChangePassword onLogout={handleLogout} onComplete={() => {
+    return <>{errorAlert}<ChangePassword onLogout={handleLogout} onComplete={() => {
       setUser(null);
       setNotice('Password changed. Sign in with your new password.');
-    }} />;
+    }} /></>;
   }
 
   const isAdmin = user.role === 'admin';
@@ -112,8 +123,11 @@ export const App: React.FC = () => {
 
       {isAdmin && <ConfirmItsYou />}
 
+      {errorAlert}
+
       <main className="app-main">
-        {!isAdmin && <MemberHome user={user} chatUrl={typeof settings?.chat_url === 'string' ? settings.chat_url : ''} onLogout={handleLogout} />}
+        <ErrorBoundary key={activeTab}>
+        {!isAdmin && <MemberHome user={user} chatUrl={settings?.chat_url ?? ''} onLogout={handleLogout} />}
         {isAdmin && activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
         {isAdmin && activeTab === 'users' && <Users />}
         {isAdmin && activeTab === 'rooms' && <Rooms />}
@@ -122,6 +136,7 @@ export const App: React.FC = () => {
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}
         {isAdmin && activeTab === 'backup' && <Backup />}
         {isAdmin && activeTab === 'settings' && <Settings settings={settings} onBrandingChanged={() => void loadSettings()} />}
+        </ErrorBoundary>
       </main>
     </div>
   );
