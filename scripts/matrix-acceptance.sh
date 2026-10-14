@@ -1040,7 +1040,12 @@ matrix_init >"$state/rotate.out"
 grep -qF -- '-f /docker-entrypoint-initdb.d/role-passwords.sql' "$state/rotate.out" ||
 	{ echo "  FAILED: matrix-init did not print the rotation step: $(cat "$state/rotate.out")" >&2; false; }
 ok "matrix-init created both passwords and printed how to apply them"
-role_login() { dc exec -T -e PGPASSWORD="$(cat "$scratch/matrix/secrets/$1_db_password")" postgres psql -h 127.0.0.1 -U "$1" -d "$1" -Atc 'SELECT 1'; }
+# Over matrix-db, as Synapse and MAS connect: the image trusts loopback, so a login from inside
+# the postgres container proves nothing about the password.
+role_login() {
+	dc run --rm --no-deps -T -e PGPASSWORD="$(cat "$scratch/matrix/secrets/$1_db_password")" -e PGCONNECT_TIMEOUT=10 \
+		--entrypoint psql restore-matrix -h postgres -U "$1" -d "$1" -Atc 'SELECT 1'
+}
 if role_login mas >/dev/null 2>&1; then echo "  FAILED: the new mas password worked before role-passwords.sql" >&2; false; fi
 ok "the new password is refused until applied"
 dc exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/role-passwords.sql >/dev/null
