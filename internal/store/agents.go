@@ -69,13 +69,15 @@ func (s *agentStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	return out, rows.Err()
 }
 
-func (s *agentStore) SetAgentToken(ctx context.Context, id, sessionID, state string) error {
+func (s *agentStore) SetAgentToken(ctx context.Context, id, deviceID, sessionID, state string) error {
 	if err := validAgentToken(sessionID, state); err != nil {
 		return err
 	}
-	res, err := s.store.db.ExecContext(ctx, s.store.rebind(`UPDATE agents SET session_id = ?, token_state = ? WHERE id = ?`), sessionID, state, id)
-	return oneRow(res, err)
+	res, err := s.store.db.ExecContext(ctx, s.store.rebind(`UPDATE agents SET device_id = ?, session_id = ?, token_state = ? WHERE id = ?`), deviceID, sessionID, state, id)
+	return oneRow(uniqueResult(res, err))
 }
+
+func uniqueResult(res sql.Result, err error) (sql.Result, error) { return res, uniqueError(err) }
 
 func (s *agentStore) DeleteAgent(ctx context.Context, id string) error {
 	res, err := s.store.db.ExecContext(ctx, s.store.rebind(`DELETE FROM agents WHERE id = ?`), id)

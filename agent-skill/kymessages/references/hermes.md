@@ -15,9 +15,10 @@ MATRIX_ALLOWED_USERS=<OWNER>
 MATRIX_E2EE_MODE=required
 ```
 
-- `MATRIX_ALLOWED_USERS` is required here: unset, Hermes answers anyone who can reach it.
-- Hermes accepts every room invite, and treats a room of two members as a direct message,
-  outside `MATRIX_ALLOWED_ROOMS`. `MATRIX_ALLOWED_USERS` is what keeps it to your owner.
+- `MATRIX_ALLOWED_USERS` is what lets your owner in: Hermes joins rooms only on invites from
+  allowed users and answers only them. Keep `MATRIX_ALLOW_ALL_USERS` and
+  `GATEWAY_ALLOW_ALL_USERS` unset.
+- A room of two members counts as a direct message and skips `MATRIX_ALLOWED_ROOMS`.
 - `MATRIX_E2EE_MODE=required` fails closed when encryption cannot start; it needs the
   `matrix` extra and `libolm` (Linux).
 

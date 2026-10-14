@@ -32,21 +32,21 @@ func TestAgentStoreLifecycle(t *testing.T) {
 		}
 	}
 
-	if err := st.SetAgentToken(ctx, "agt_1", "", store.AgentTokenExpired); err != nil {
+	if err := st.SetAgentToken(ctx, "agt_1", "DEVICE0000000001", "", store.AgentTokenExpired); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := st.GetAgent(ctx, "agt_1"); got.SessionID != "" || got.TokenState != store.AgentTokenExpired {
 		t.Fatalf("after expiry: %+v", got)
 	}
-	if err := st.SetAgentToken(ctx, "agt_1", "01SESS3", store.AgentTokenActive); err != nil {
+	if err := st.SetAgentToken(ctx, "agt_1", "DEVICE0000000009", "01SESS3", store.AgentTokenActive); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAgentToken(ctx, "missing", "", store.AgentTokenRevoked); !errors.Is(err, store.ErrNotFound) {
+	if err := st.SetAgentToken(ctx, "missing", "D", "", store.AgentTokenRevoked); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("SetAgentToken missing: %v", err)
 	}
 
 	list, err := st.ListAgents(ctx)
-	if err != nil || len(list) != 1 || list[0].SessionID != "01SESS3" {
+	if err != nil || len(list) != 1 || list[0].SessionID != "01SESS3" || list[0].DeviceID != "DEVICE0000000009" {
 		t.Fatalf("ListAgents: %+v %v", list, err)
 	}
 	if err := st.DeleteAgent(ctx, "agt_1"); err != nil {
@@ -81,7 +81,7 @@ func TestAgentTokenStateIsConsistent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, b := range bad {
-		if err := st.SetAgentToken(ctx, "agt", b.session, b.state); err == nil {
+		if err := st.SetAgentToken(ctx, "agt", "d", b.session, b.state); err == nil {
 			t.Fatalf("SetAgentToken accepted %+v", b)
 		}
 	}

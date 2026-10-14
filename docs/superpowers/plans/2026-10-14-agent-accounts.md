@@ -6,8 +6,8 @@ KyMessages skill, joins only the rooms it is invited to, and talks in encrypted 
 any other member. Offboarding the owner locks the agent. Off by default: no agents exist
 until an admin creates one.
 
-**Status:** draft plan, not yet a code-level task list. D1, D3 and D7 decided 2026-10-14;
-D2, D4–D6 proposed. Facts marked **unproven** are gated by Task 0 or the acceptance task.
+**Status:** building on `feat/agent-accounts`. D1, D3 and D7 decided 2026-10-14; D2, D4–D6
+proposed; D8 open. Task 0 done 2026-10-14 (`scripts/agent-probe/probe.sh`, pinned images).
 
 ## Shape
 
@@ -57,16 +57,18 @@ D2, D4–D6 proposed. Facts marked **unproven** are gated by Task 0 or the accep
 | New rooms are encrypted | `internal/matrixinit/templates/homeserver.yaml.tmpl:34` | read |
 | People's localparts are the email local part, sanitized to `[a-z0-9._=-]`, `on_conflict: fail` | `mas.yaml.tmpl` `claims_imports.localpart` | read |
 | OpenClaw: token or password auth, `encryption` default false, `autoJoin` default off, `dm.policy`, `groupAllowFrom` | [docs.openclaw.ai/channels/matrix/setup](https://docs.openclaw.ai/channels/matrix/setup) | read (docs) |
-| Hermes: token or password auth, `MATRIX_E2EE_MODE` off/optional/required, `MATRIX_RECOVERY_KEY`, auto-accepts every invite, rooms of ≤2 members bypass `MATRIX_ALLOWED_ROOMS` | [hermes-agent docs: Matrix](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/matrix) | read (docs) |
+| Hermes: token or password auth, `MATRIX_E2EE_MODE` off/optional/required, `MATRIX_RECOVERY_KEY`, rooms of ≤2 members bypass `MATRIX_ALLOWED_ROOMS` | [hermes-agent docs: Matrix](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/matrix) | read (docs) |
 | Both runtimes load `<dir>/SKILL.md` with `name`/`description` frontmatter; Hermes skips a skill whose `name` differs from its folder | [OpenClaw skills](https://docs.openclaw.ai/tools/skills), [Hermes skills](https://hermesagent.org.cn/en/docs/user-guide/features/skills) | read (docs) |
-| A device scope makes MAS provision that device on Synapse | MAS scopes reference; third-party summary of the admin API | **unproven** |
-| A personal session can be regenerated keeping its device; maximum `expires_in`; whether "no expiry" is allowed | MAS 1.26 `/api/spec.json`; MAS issue #4492 | **unproven** |
-| Last activity of an agent's token is readable: MAS personal session `last_active_at`, else Synapse's per-device `last_seen_ts` (admin devices API, already reachable through `internal/synapseadmin`) | MAS 1.26 / Synapse 1.162 admin APIs | **unproven** |
-| An agent can upload cross-signing keys for the first time without interactive auth (both runtimes' recovery-key bootstrap needs it); resetting them later needs MAS approval | Synapse 1.162 + MAS 1.26 | **unproven** |
-| Locking a MAS user rejects its token on Synapse at once (no introspection cache window) | Synapse 1.162 + MAS 1.26 | **unproven** |
-| Whether the agent can change its own display name to impersonate a person | Synapse profile API config | **unproven** |
-| Whether an agent account can get a LiveKit call grant | `internal/api/rtc_handlers.go` | **unchecked** |
-| Hermes with `MATRIX_ALLOWED_USERS` unset: everyone allowed or no one (its docs disagree) | Hermes docs | **unproven** |
+| A device scope makes MAS create that device on Synapse at mint, before first use; `whoami` returns user and device | probe F1c-F1e | measured |
+| No expiry: `expires_in` omitted or null → `expires_at: null`; maximum 4294967295 (uint32) | probe F1a-F1b | measured |
+| `POST personal-sessions/{id}/regenerate` keeps session ID, scope and device; no `expires_in` = no expiry. Synapse accepts the old token up to 2 minutes (its token cache, no invalidation) | probe F2; Synapse `synapse/api/auth/mas.py:128-144` | measured |
+| Last use: MAS `last_active_at` (first set ~56 s after use, then moves ~every 120 s); Synapse `last_seen_ts` within ~250 ms. Either suits a 90-day check | probe F3 | measured |
+| Lock: a recently used token works up to 120 s after the lock (same cache); a never-used one is refused at once. Error `401 M_UNKNOWN_TOKEN`, not `M_USER_LOCKED`; the session stays; unlock restores it | probe F4 | measured |
+| Revoke: token refused within ms (`M_UNKNOWN_TOKEN`); **Synapse deletes the device**, and its keys, at once | probe F5; `mas.py:397-405` | measured |
+| First cross-signing upload needs no interactive auth; replacing the keys needs MAS approval (`org.matrix.cross_signing_reset`) | probe F6 (raw HTTP) | measured; real clients in Task 6 |
+| An agent can set any display name (shipped Synapse config has no `enable_set_displayname`) | probe F7 | measured |
+| An agent gets no LiveKit grant: local callers must be linked and active in the directory (`activeCallUsers`); an agent has no link | `internal/api/rtc_handlers.go:120-129`; `TestRTCCallGrantsAndRevocation` | read + tested |
+| Hermes joins only invites from allowed users (no setting turns auto-join off; others are ignored, not declined). With `MATRIX_ALLOWED_USERS` unset nobody is allowed unless `MATRIX_ALLOW_ALL_USERS`/`GATEWAY_ALLOW_ALL_USERS` is set; a stranger's DM gets a pairing code | hermes-agent `main` `5575a085`: `gateway/authz_mixin.py:657-681`, `plugins/platforms/matrix/adapter.py:2312-2323` | read (source) |
 
 ## Decisions
 
@@ -77,13 +79,12 @@ D2, D4–D6 proposed. Facts marked **unproven** are gated by Task 0 or the accep
   password sign-in for everyone and bypass KyIdentity.
 - **D3 — Unused tokens expire after 90 days.** (Decided 2026-10-14.) A working agent is never
   cut off; an abandoned token (Hermes keeps it in plaintext `~/.hermes/.env`) dies on its own.
-  KyMessages enforces it, not MAS: the token is minted with no expiry. If Task 0 shows MAS
-  refuses that, the token carries MAS's maximum as a hard cap the console warns about; it
-  cannot be rotated automatically, since a regenerated token never reaches the agent, so D3
-  then holds only up to that cap and goes back to Yoshi. The loop revokes a token whose last
-  activity is 90 days old and audits `agent.expire`. The console shows "last used" and flags agents idle for 76+ days. If Task 0
-  shows regeneration cannot keep the device, rotation creates a new device and the skill tells
-  the agent to re-bootstrap encryption.
+  KyMessages enforces it, not MAS: the token is minted with no expiry (measured). The loop
+  revokes a token whose last use (MAS `last_active_at`, else the session's creation) is 90 days
+  old and audits `agent.expire`; an unreadable last use never revokes. The console shows "last
+  used" and flags agents idle for 76+ days. Rotate regenerates a live token on the same device
+  (keys kept; the old token works up to 2 more minutes). Revoking or expiring deletes the
+  device, so the next token comes on a new device and the agent sets up encryption again.
 - **D4 — Encryption required.** The config blocks set OpenClaw `encryption: true` and Hermes
   `MATRIX_E2EE_MODE=required` plus a recovery key. Docs say plainly: an agent decrypts, like a
   bridge, and sends room content to whatever model it runs; Synapse does not stop a
@@ -93,14 +94,22 @@ D2, D4–D6 proposed. Facts marked **unproven** are gated by Task 0 or the accep
   later produces the same localpart cannot sign in until the agent is renamed (deleted and
   re-created); docs say so. The prefix also marks agents in every MXID.
 - **D6 — Owner offboarding locks, never deletes.** Owner inactive or deleted → agent locked.
-  Deleting the agent stays an admin action (`skip_erase: true`, as for people).
+  Deleting the agent stays an admin action (`skip_erase: true`, as for people). Measured: a
+  recently used token keeps working up to 120 s after the lock (Synapse's token cache). Lock
+  keeps the device, so re-enabling the owner brings the agent back with its keys; an admin who
+  needs an instant cut-off revokes, which deletes the device.
 - **D7 — No calls, until a Meeting Recording Agent.** (Decided 2026-10-14.) Agents are text
-  participants. If Task 0 shows an agent can get a LiveKit grant, refuse grants to registered
-  agents. A Meeting Recording Agent is its own later plan; it reopens this decision.
-
+  participants. Already true: an agent has no KyIdentity link, so the call authorizer refuses
+  it (`Chat access is disabled`); the RTC test pins it. The sweep's owner rule must never reach
+  `activeCallUsers`. A Meeting Recording Agent is its own later plan; it reopens this decision.
+- **D8 — Display names.** *Open; needs Yoshi.* An agent can rename itself to anything ("Alice
+  Admin"). Its MXID always starts with `@agent-`, and the skill asks it to keep its name, but
+  nothing enforces that. Options: accept and warn (current); Synapse
+  `enable_set_displayname: false` (affects people too; effect on MAS's forced KyIdentity names
+  unproven); or a reconcile that resets agent names.
 ## Tasks
 
-### Task 0 — Prove the unproven facts (gate)
+### Task 0 — Prove the unproven facts (gate) — done 2026-10-14, results in the facts table
 Scratch stack from `scripts/matrix-acceptance` (Synapse 1.162.0, MAS 1.26.0). Record in the
 facts table: personal-session request/response for a device scope, `/whoami` and `/sync` with
 the token, regenerate behaviour and `expires_in` limits (is "no expiry" accepted), where the
@@ -130,7 +139,8 @@ Tests for both SQLite and Postgres via `internal/testdb`.
 
 ### Task 3 — `internal/api`: agent routes
 - `GET /api/admin/agents` (admin), `POST /api/admin/agents`, `POST .../{id}/rotate`,
-  `POST .../{id}/revoke`, `DELETE .../{id}` (all `requireFreshAdmin`, `tracked`).
+  `DELETE .../{id}` (`requireFreshAdmin`, `tracked`); `POST .../{id}/revoke` is
+  `requireAdmin`: cutting access is one click, like narrowing federation.
 - Create/rotate respond with the token once, `Cache-Control: no-store`; nothing else ever
   returns it.
 - Validation: name `agent-[a-z0-9-]{1,32}`, owner is an active directory member, conflict
@@ -202,8 +212,10 @@ downloaded skill, recorded in `UI-VERIFICATION.md`.
   Rotate on any doubt; revoke from here.
 - Anyone in a room with the agent can try to steer it. Keep its tools as limited as you would
   trust every room member with.
-- With federation on, users of allowed servers can message the agent if it accepts their
-  invites; the config blocks restrict it to its owner, and Hermes accepts every invite.
+- With federation on, users of allowed servers can invite and message the agent; the config
+  blocks make it join and answer only for its owner.
+- An agent can change its display name to anything; its Matrix ID always starts with
+  `@agent-`. Offboarding the owner locks the agent within 2 minutes.
 
 ## Out of scope
 Password or compat login (D2), member self-service (D1, later), agents in calls and the Meeting Recording Agent (D7, its

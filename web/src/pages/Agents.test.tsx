@@ -92,7 +92,8 @@ describe('Agents', () => {
     fireEvent.change(name, { target: { value: 'agent-notes' } });
     fireEvent.click(submit);
     expect(screen.getByRole('alert').textContent).toContain('room content leaves your infrastructure');
-    expect(screen.getByText(/Hermes accepts every invite/)).toBeTruthy();
+    expect(screen.getByText(/join and answer only for its owner/)).toBeTruthy();
+    expect(screen.getByText(/always starts with @agent-/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('button', { name: 'Create agent-notes' })).toBeNull();
     expect(posts(calls)).toEqual([]);

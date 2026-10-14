@@ -47,7 +47,8 @@ export const AGENT_WARNINGS = [
   'The agent reads every message in rooms it joins and sends them to its model. If that model is hosted, room content leaves your infrastructure. The room keeps Element’s encryption label, but the agent’s machine and model see plaintext.',
   'The token gives full chat access as the agent. OpenClaw and Hermes store it on disk; Hermes in plaintext. A token in use does not expire; one unused for 90 days is revoked. Rotate on any doubt; revoke from here.',
   'Anyone in a room with the agent can try to steer it. Keep its tools as limited as you would trust every room member with.',
-  'With federation on, users of allowed servers can message the agent if it accepts their invites; the config blocks restrict it to its owner, and Hermes accepts every invite.',
+  'With federation on, users of allowed servers can invite and message the agent; the config blocks make it join and answer only for its owner.',
+  'An agent can change its display name to anything; its Matrix ID always starts with @agent-. Offboarding the owner locks the agent within 2 minutes.',
 ];
 
 const STATE_BADGE: Record<Agent['token_state'], { label: string; badge: string }> = {

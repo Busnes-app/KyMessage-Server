@@ -40,7 +40,10 @@ supplies subject → status.
   session with scope exactly `urn:matrix:client:api:* urn:matrix:client:device:<device>`,
   `human_name` `KyMessages agent` and no `expires_in` (KyMessages expires it after 90 days
   unused), on a detached `ConsoleCallTimeout` context; a session returned without a token is
-  revoked. `RevokeAgentSession` treats 409 (already revoked) as done. `AgentActivity` reads the
+  revoked. `RotateAgentToken` regenerates a live session (`POST personal-sessions/{id}/regenerate`, same
+  session and device, no expiry; Synapse may accept the old token up to 2 minutes) and refuses
+  a reply naming another session; with no session it mints one. `RevokeAgentSession` (detached)
+  treats 409 (already revoked) as done; Synapse then deletes the device. `AgentActivity` reads the
   session's `created_at` and `last_active_at`; `Activity.Since` is the last use, else creation.
 - Deactivate always sends `{"skip_erase":true}`; messages are never erased.
 - A deactivated MAS user is never reactivated or otherwise touched.

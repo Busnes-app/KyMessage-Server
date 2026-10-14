@@ -17,12 +17,14 @@ import (
 
 // agentFake is MAS's admin API for agent accounts: user creation and personal sessions.
 type agentFake struct {
-	mu        sync.Mutex
-	bodies    []map[string]any // personal-session mints
-	revoked   []string
-	status    map[string]int // path → forced status
-	noToken   bool
-	sessionAt string // JSON attributes for GET personal-sessions/{id}
+	mu          sync.Mutex
+	bodies      []map[string]any // personal-session mints
+	revoked     []string
+	status      map[string]int // path → forced status
+	noToken     bool
+	regenID     string // the session ID regenerate answers with
+	regenerated []string
+	sessionAt   string // JSON attributes for GET personal-sessions/{id}
 }
 
 func newAgentFake(t *testing.T) (*agentFake, *Client) {
@@ -54,6 +56,9 @@ func newAgentFake(t *testing.T) (*agentFake, *Client) {
 				tok = `null`
 			}
 			fmt.Fprintf(w, `{"data":{"id":"01SESSION000000000000000001","attributes":{"access_token":%s}}}`, tok)
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/regenerate"):
+			f.regenerated = append(f.regenerated, string(body))
+			fmt.Fprintf(w, `{"data":{"id":%q,"attributes":{"access_token":"mpt_new"}}}`, f.regenID)
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/revoke"):
 			f.revoked = append(f.revoked, strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/admin/v1/personal-sessions/"), "/revoke"))
 		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/admin/v1/personal-sessions/"):
@@ -139,5 +144,23 @@ func TestAgentActivity(t *testing.T) {
 	f.sessionAt = `{"created_at":"2026-07-01T00:00:00Z","last_active_at":null}`
 	if a, _ := c.AgentActivity(context.Background(), "01S"); a.LastActive != nil || a.Since() != time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC) {
 		t.Fatalf("never used: %+v", a)
+	}
+}
+
+// Regenerating keeps the session and device, with no expiry; no session means a fresh mint.
+func TestRotateAgentToken(t *testing.T) {
+	f, c := newAgentFake(t)
+	f.regenID = "01LIVE"
+	id, tok, err := c.RotateAgentToken(context.Background(), "01USER", "DEVICE0123456789", "01LIVE")
+	if err != nil || id != "01LIVE" || tok != "mpt_new" || strings.Join(f.regenerated, ",") != "{}" || len(f.bodies) != 0 {
+		t.Fatalf("%q %q %v regenerated %v minted %v", id, tok, err, f.regenerated, f.bodies)
+	}
+	f.regenID = "01OTHER"
+	if _, _, err := c.RotateAgentToken(context.Background(), "01USER", "DEVICE0123456789", "01LIVE"); err == nil {
+		t.Fatal("accepted another session from regenerate")
+	}
+	id, _, err = c.RotateAgentToken(context.Background(), "01USER", "NEWDEVICE0123456", "")
+	if err != nil || id != "01SESSION000000000000000001" || f.bodies[0]["scope"] != "urn:matrix:client:api:* urn:matrix:client:device:NEWDEVICE0123456" {
+		t.Fatalf("reissue %q %v %v", id, err, f.bodies)
 	}
 }

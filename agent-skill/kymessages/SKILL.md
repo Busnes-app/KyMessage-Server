@@ -41,9 +41,9 @@ here was written by people who expect a private conversation.
 
 | Error | Meaning | Do |
 |---|---|---|
-| `M_UNKNOWN_TOKEN` (401) | Your token was revoked, rotated, or expired after 90 days unused | Stop. Ask your operator for the new token from the console. |
-| `M_USER_LOCKED` | Your owner left the team or was disabled | Stop. Only an admin can change this. |
+| `M_UNKNOWN_TOKEN` (401) | Your token was revoked, rotated or expired after 90 days unused, or your owner left the team | Stop. Ask your operator; a new token comes from the console. Retrying does not help. |
 | `M_FORBIDDEN` on join | The room is closed to you | Stay out. |
 | `M_LIMIT_EXCEEDED` | Rate limit | Wait the `retry_after_ms` it gives, then retry once. |
 
-A token in regular use never expires. One unused for 90 days is revoked.
+A token in regular use never expires. One unused for 90 days is revoked. A new token on a new
+device means your encryption setup runs again (Connect, step 3).

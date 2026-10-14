@@ -71,7 +71,7 @@ type personalSession struct {
 }
 
 // MintAgentToken creates the agent's personal session with no expiry: KyMessages expires it
-// after 90 days unused (ExpireIdleAgents). Detached, as in AsConsole: a session MAS creates
+// after 90 days unused (ExpireIdleAgents). MAS creates the device on Synapse at once. Detached, as in AsConsole: a session MAS creates
 // while ctx ends is still known, and one returned without a token is revoked.
 func (c *Client) MintAgentToken(ctx context.Context, userID, deviceID string) (string, string, error) {
 	body, err := json.Marshal(map[string]any{"actor_user_id": userID, "human_name": "KyMessages agent", "scope": agentScope(deviceID)})
@@ -100,12 +100,28 @@ func (c *Client) tokenOrRevoke(ctx context.Context, doc personalSession) (string
 	return doc.Data.ID, doc.Data.Attributes.AccessToken, nil
 }
 
-// RotateAgentToken replaces sessionID's token, keeping the device.
+// RotateAgentToken gives the agent a new token. With a live session it regenerates it: same
+// session and device (so the agent keeps its encryption keys), no expiry; Synapse may accept
+// the old token for up to 2 minutes, its token cache. Without one (revoked or expired, which
+// deleted the device) it mints a new session; the caller passes a new device ID then.
 func (c *Client) RotateAgentToken(ctx context.Context, userID, deviceID, sessionID string) (string, string, error) {
-	return "", "", errors.New("agent token rotation: not implemented until plan Task 0")
+	if sessionID == "" {
+		return c.MintAgentToken(ctx, userID, deviceID)
+	}
+	var doc personalSession
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ConsoleCallTimeout)
+	defer cancel()
+	if err := c.call(rctx, http.MethodPost, adminPrefix+"personal-sessions/"+url.PathEscape(sessionID)+"/regenerate", []byte(`{}`), &doc); err != nil {
+		return "", "", fmt.Errorf("agent token: %w", err)
+	}
+	if doc.Data.ID != sessionID {
+		return "", "", errors.New("agent token: MAS regenerated another session")
+	}
+	return c.tokenOrRevoke(ctx, doc)
 }
 
-// RevokeAgentSession ends a personal session; one already revoked counts as done.
+// RevokeAgentSession ends a personal session at once; one already revoked counts as done.
+// Synapse then deletes the device and its encryption keys.
 func (c *Client) RevokeAgentSession(ctx context.Context, sessionID string) error {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ConsoleCallTimeout)
 	defer cancel()

@@ -283,7 +283,8 @@ func (s *Server) agentFor(w http.ResponseWriter, r *http.Request, ctx context.Co
 	return a, true
 }
 
-// handleAgentRotate replaces the token on the same device; the old one stops working.
+// handleAgentRotate replaces a live token on the same device (the old one stops within 2
+// minutes), or issues one on a new device for an agent whose token was revoked or expired.
 func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) {
 	if !s.matrixOn(w) {
 		return
@@ -295,13 +296,17 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mxid := s.mxid(a.Username)
-	sessionID, token, err := s.mas.RotateAgentToken(ctx, a.MASUserID, a.DeviceID, a.SessionID)
+	device := a.DeviceID
+	if a.SessionID == "" {
+		device = newDeviceID() // revoking deleted the old device and its keys
+	}
+	sessionID, token, err := s.mas.RotateAgentToken(ctx, a.MASUserID, device, a.SessionID)
 	if err != nil {
 		record(mxid, "error: "+err.Error())
 		s.matrixError(w, err)
 		return
 	}
-	if err := s.store.Agents().SetAgentToken(ctx, a.ID, sessionID, store.AgentTokenActive); err != nil {
+	if err := s.store.Agents().SetAgentToken(ctx, a.ID, device, sessionID, store.AgentTokenActive); err != nil {
 		if rerr := s.mas.RevokeAgentSession(ctx, sessionID); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
@@ -309,8 +314,12 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Could not record the new token; it was revoked")
 		return
 	}
-	a.SessionID, a.TokenState = sessionID, store.AgentTokenActive
-	record(mxid, "rotated")
+	outcome := "rotated"
+	if device != a.DeviceID {
+		outcome = "reissued on a new device"
+	}
+	a.DeviceID, a.SessionID, a.TokenState = device, sessionID, store.AgentTokenActive
+	record(mxid, outcome)
 	o, mas, err := s.loadAgentOwners(ctx)
 	if err != nil {
 		o = agentOwners{}
@@ -326,7 +335,7 @@ func (s *Server) endAgentToken(ctx context.Context, a *store.Agent, state string
 			return err
 		}
 	}
-	if err := s.store.Agents().SetAgentToken(ctx, a.ID, "", state); err != nil {
+	if err := s.store.Agents().SetAgentToken(ctx, a.ID, a.DeviceID, "", state); err != nil {
 		return err
 	}
 	a.SessionID, a.TokenState = "", state

@@ -24,6 +24,7 @@ type agentMAS struct {
 	n           int
 	minted      []string // "user device"
 	revoked     []string
+	regenerated []string
 	deactivated []string
 	activity    map[string]matrixsync.Activity
 	activityErr error
@@ -55,12 +56,16 @@ func (f *fakeMAS) MintAgentToken(_ context.Context, userID, deviceID string) (st
 	return fmt.Sprintf("SESS%02d", f.ag.n), fmt.Sprintf("mpt_secret%02d", f.ag.n), nil
 }
 
+// RotateAgentToken: MAS regenerates a live session in place; without one it mints.
 func (f *fakeMAS) RotateAgentToken(ctx context.Context, userID, deviceID, sessionID string) (string, string, error) {
-	id, tok, err := f.MintAgentToken(ctx, userID, deviceID)
-	if err == nil {
-		err = f.RevokeAgentSession(ctx, sessionID)
+	if sessionID == "" {
+		return f.MintAgentToken(ctx, userID, deviceID)
 	}
-	return id, tok, err
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ag.n++
+	f.ag.regenerated = append(f.ag.regenerated, sessionID)
+	return sessionID, fmt.Sprintf("mpt_secret%02d", f.ag.n), nil
 }
 
 func (f *fakeMAS) RevokeAgentSession(_ context.Context, sessionID string) error {
@@ -148,9 +153,10 @@ func TestAgentLifecycle(t *testing.T) {
 		t.Fatalf("owners missing alice: %s", list.Body.String())
 	}
 
+	// A live token is regenerated in place: same session, same device, so the keys survive.
 	r := decode[agentReply](t, adminDo(t, srv, admin, "POST", "/api/admin/agents/"+c.Agent.ID+"/rotate", nil))
-	if r.Token == c.Token || r.Token == "" || strings.Join(f.ag.revoked, ",") != "SESS02" {
-		t.Fatalf("rotate %+v revoked %v", r, f.ag.revoked)
+	if r.Token == c.Token || r.Token == "" || r.Agent.DeviceID != c.Agent.DeviceID || strings.Join(f.ag.regenerated, ",") != "SESS02" || len(f.ag.revoked) != 0 {
+		t.Fatalf("rotate %+v regenerated %v revoked %v", r, f.ag.regenerated, f.ag.revoked)
 	}
 
 	if w := adminDo(t, srv, admin, "POST", "/api/admin/agents/"+c.Agent.ID+"/revoke", nil); w.Code != http.StatusOK {
@@ -160,10 +166,17 @@ func TestAgentLifecycle(t *testing.T) {
 		t.Fatalf("after revoke %+v", row)
 	}
 
+	// Revoking deleted the device, so a new token comes on a new one.
+	r2 := decode[agentReply](t, adminDo(t, srv, admin, "POST", "/api/admin/agents/"+c.Agent.ID+"/rotate", nil))
+	row, _ = st.Agents().GetAgent(ctx, c.Agent.ID)
+	if r2.Agent.DeviceID == c.Agent.DeviceID || row.DeviceID != r2.Agent.DeviceID || row.TokenState != store.AgentTokenActive || row.SessionID != "SESS04" {
+		t.Fatalf("reissue %+v row %+v", r2.Agent, row)
+	}
+
 	if w := adminDo(t, srv, admin, "DELETE", "/api/admin/agents/"+c.Agent.ID, nil); w.Code != http.StatusOK {
 		t.Fatalf("delete %d %s", w.Code, w.Body.String())
 	}
-	if _, err := st.Agents().GetAgent(ctx, c.Agent.ID); !errors.Is(err, store.ErrNotFound) || strings.Join(f.ag.deactivated, ",") != "01J9ZK8V6N3W4X5Y6Z7A8BAG01" {
+	if _, err := st.Agents().GetAgent(ctx, c.Agent.ID); !errors.Is(err, store.ErrNotFound) || strings.Join(f.ag.deactivated, ",") != "01J9ZK8V6N3W4X5Y6Z7A8BAG01" || strings.Join(f.ag.revoked, ",") != "SESS02,SESS04" {
 		t.Fatalf("after delete %v deactivated %v", err, f.ag.deactivated)
 	}
 
@@ -174,12 +187,15 @@ func TestAgentLifecycle(t *testing.T) {
 			t.Errorf("token in audit: %+v", rec)
 		}
 	}
-	want := `agent.delete outcome="deleted"|agent.revoke outcome="revoked"|agent.rotate outcome="rotated"|agent.create outcome="created"`
+	want := `agent.delete outcome="deleted"|agent.rotate outcome="reissued on a new device"|agent.revoke outcome="revoked"|agent.rotate outcome="rotated"|agent.create outcome="created"`
 	if strings.Join(actions, "|") != want {
 		t.Fatalf("audit %q", actions)
 	}
 	if strings.Contains(adminDo(t, srv, admin, "GET", "/api/admin/agents", nil).Body.String(), "mpt_") {
 		t.Fatal("token in list")
+	}
+	if w := adminDo(t, srv, admin, "GET", "/api/admin/audit?kind=matrix", nil); !strings.Contains(w.Body.String(), `"agent.create"`) {
+		t.Fatalf("agent rows missing from the matrix audit kind: %s", w.Body.String())
 	}
 }
 
