@@ -1,5 +1,5 @@
 // usage: node e2e.mjs prove|refused|compat|noclaim|media|restored
-//        node e2e.mjs room|token|fedtoken|disabled|reread|reads USER
+//        node e2e.mjs room|token|fedtoken|disabled|reread|reads|noclaim USER
 //        node e2e.mjs title BRAND
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
@@ -261,20 +261,22 @@ async function compat() {
   out({ users: [mxid], device: session.device, oidcKeys: session.oidc, rooms: { room }, element: body, raw });
 }
 
-// An assigned user whose ID token carries no email (the client's scopes were narrowed to drop
-// email): the localpart template renders empty and MAS's required import refuses the sign-in.
+// An assigned user (USER, default nadia) whose ID token carries no verified email (the
+// client's scopes were narrowed to drop email, or KyIdentity never verified it): the localpart
+// template renders empty and MAS's required import refuses the sign-in.
 async function noclaim() {
-  const page = await launch('nadia');
+  const who = user || 'nadia';
+  const page = await launch(who);
   await page.goto(`${CHAT}/#/login`);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
-  await fillLogin(page, 'nadia');
+  await fillLogin(page, who);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL(/^https:\/\/auth\.kymatrix\.test\//);
   await page.waitForLoadState('networkidle');
   const body = await page.locator('body').innerText();
   check(/rendered to an empty string/.test(body) && body.includes('user.email | split'), 'MAS refused: the email localpart template rendered empty');
-  check(!page.url().startsWith(CHAT), 'nadia never reached Element');
+  check(!page.url().startsWith(CHAT), `${who} never reached Element`);
   out({ url: page.url().replace(/[?#].*/, ''), page: body.slice(0, 500) });
 }
 

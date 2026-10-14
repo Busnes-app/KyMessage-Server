@@ -27,6 +27,8 @@ x-matrix-ro: &matrix-ro {type: bind, read_only: true, bind: {create_host_path: f
 services:
   # Serves /.well-known/matrix/{client,server} and the members' Open chat link.
   app:
+    # The owner of ./matrix, so it writes its two files there without any capability.
+    user: "${KY_MATRIX_UID:?Set KY_MATRIX_UID (printed by matrix-init)}:${KY_MATRIX_GID:?Set KY_MATRIX_GID (printed by matrix-init)}"
     environment:
       - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}
       - KY_MATRIX_HOST=${KY_MATRIX_HOST:?Set KY_MATRIX_HOST}
@@ -61,12 +63,10 @@ services:
     volumes:
       - {<<: *matrix-ro, source: ./matrix/synapse, target: /matrix/synapse}
       - {<<: *matrix-ro, source: ./matrix/mas, target: /matrix/mas}
-      # The one writable file under ./matrix, and all of ./matrix/element: the console sets
-      # Element's "brand" in it, in place (same inode, so Element's bind keeps it; Element shows
-      # it after a restart). It belongs to KY_MATRIX_UID; the root app writes it through Docker's
-      # default CAP_DAC_OVERRIDE, as this service drops no capability. Not nested in a read-only
-      # ./matrix/element bind: Docker cannot recreate a mountpoint inside one, which breaks
-      # `docker cp` from the app.
+      # Writable, and all of ./matrix/element: the console sets Element's "brand" in it, in place
+      # (same inode, so Element's bind keeps it; Element shows it after a restart). Not nested in
+      # a read-only ./matrix/element bind: Docker cannot recreate a mountpoint inside one, which
+      # breaks `docker cp` from the app.
       - {type: bind, source: ./matrix/element/config.json, target: /matrix/element/config.json, read_only: false, bind: {create_host_path: false}}
       # Same pattern: the whole of ./matrix/federation, rewritten in place by Settings > Federation.
       - {type: bind, source: ./matrix/federation/federation.yaml, target: /matrix/federation/federation.yaml, read_only: false, bind: {create_host_path: false}}

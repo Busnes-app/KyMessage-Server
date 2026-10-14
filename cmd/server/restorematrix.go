@@ -29,13 +29,11 @@ Loads the restored Matrix databases and media into a fresh stack, once:
   2. As that user, with the KY_MATRIX_* environment from setup, run kymessages matrix-init.
      It keeps every restored secret and creates secrets/postgres_password, which the capsule
      leaves out; Compose needs it to start postgres.
-  3. Copy the local backup directory to ./backups; ./backups/media must be readable by
-     KY_MATRIX_UID (the app writes it as root, owner-only).
+  3. Copy the local backup directory to ./backups, owned by KY_MATRIX_UID.
   4. Only if this stack is meant to be replaced: docker compose down -v, which deletes its
      Matrix database and media. Then docker compose up -d postgres.
   5. docker compose run --rm restore-matrix
-  6. In the deployment directory, sudo chown -R root:root ./data ./backups: the app runs as
-     root and refuses key files it does not own. Then docker compose up -d.
+  6. docker compose up -d. The app runs as KY_MATRIX_UID, which owns ./data and ./backups.
 It refuses, changing nothing, if a database is not empty, the media store is not empty, or a
 dump or media file does not check out.`
 

@@ -91,8 +91,8 @@ restoring her keys from key backup; the server name and signing key were unchang
 
 1. Restore as the unprivileged user that owns `./matrix` (`KY_MATRIX_UID`, the user who ran
    `matrix-init`), as above. Move `restored/data` to `./data` and `restored/matrix` to
-   `./matrix`. Copy the backup directory (with `media/`) to `./backups`; `./backups/media`
-   must be readable by `KY_MATRIX_UID`, because the app writes it as root, owner-only.
+   `./matrix`. Copy the backup directory (with `media/`) to `./backups`, owned by
+   `KY_MATRIX_UID`.
 2. As the same user, export the `matrix-init` environment from setup (README, Matrix step 1)
    with the exact values used there, and run `./kymessages matrix-init`. It re-renders every
    config from that environment, so a changed server name, host, issuer or client ID changes the
@@ -111,15 +111,15 @@ restoring her keys from key backup; the server name and signing key were unchang
    certificate is still valid before restarting LiveKit. For a
    capsule from before calling, `matrix-init` generates the new LiveKit keys once. Active calls
    and recordings are not restored; there is no recording service.
-3. Set `.env` as before, with `KY_MATRIX_UID` and `KY_MATRIX_GID` for that user. Build the
+3. Set `.env` as before, with `KY_MATRIX_UID`/`KY_MATRIX_GID` (and `KY_UID`/`KY_GID`) for that user. Build the
    image (build overlay).
 4. Only if this stack is meant to be replaced: `docker compose down -v`, which deletes its
    Matrix database and media. Then `docker compose up -d postgres`, nothing else.
 5. `docker compose run --rm restore-matrix`. Add `-skip-media` only if no media backup
    survived; uploads from before the backup are then missing. It runs as `KY_MATRIX_UID`
    with no capabilities and restores as the database owners, with no superuser.
-6. In the deployment directory, `sudo chown -R root:root ./data ./backups`: the app runs as
-   root and refuses key files it does not own. Then `docker compose up -d`. On start the app
+6. `docker compose up -d`. The app runs as `KY_MATRIX_UID`, which owns `./data` and
+   `./backups` (it refuses key files it does not own). On start the app
    sets Element's `brand` back to the restored console name (step 2's `matrix-init` rendered
    the default); if a custom name was restored, `docker compose restart element` once the app
    is up, as Element serves the copy it made at start. If Element's

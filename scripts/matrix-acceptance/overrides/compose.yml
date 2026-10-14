@@ -16,8 +16,11 @@ services:
       # Back-channel logout to MAS and the directory webhook to KyMessages both resolve to
       # the harness proxy's address on the project network.
       KYIDENTITY_ALLOW_PRIVATE_CALLBACKS: "true"
+    # As the harness user on a scratch bind, so the kyidentity step can mark test emails
+    # verified in its database (no mail server here; KyIdentity verifies by mailed link).
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
     volumes:
-      - kyidentity-data:/data
+      - ./kyidentity-data:/data
       - ./tls/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro
 
   tls:
@@ -70,6 +73,3 @@ services:
 networks:
   default:
     name: ${KY_NETWORK:?}
-
-volumes:
-  kyidentity-data:

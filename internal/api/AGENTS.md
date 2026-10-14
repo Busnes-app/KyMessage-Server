@@ -69,8 +69,14 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   shutdown drain covers their store reads. Caller URLs and delayed-delegation fields are not used.
   `ReconcileCalls` removes inactive accounts, users of servers no longer on the effective
   allow-list (at once, without waiting for Synapse to restart), removed room members and
-  everyone in a closed room's call through LiveKit. A missing
-  room has no members; other read failures remain failures. Errors and logs omit caller tokens.
+  everyone in a closed room's call through LiveKit. It fails closed: when MAS or the directory
+  cannot confirm local users, every local participant is removed, and with unreadable
+  federation settings every remote one. Access evictions run first for every room (no Synapse
+  call), then membership for the rooms with someone left, through one `AsConsole` session per
+  run. A room whose participants or membership cannot be read is skipped and its error joined;
+  one with invalid metadata keeps nobody. A missing room has no members; other read failures
+  remain failures (`rtc_reconcile_test.go`). `cmd/server` gives each run `callReconcileTimeout`
+  (30s). Errors and logs omit caller tokens.
 - `GET /.well-known/matrix/client` (unauthenticated, registered before the SPA catch-all) returns `{"m.homeserver":{"base_url":<KY_MATRIX_HOST>}}` plus `org.matrix.msc4143.rtc_foci` pointing at the console call-authorizer when calling is configured, with `Access-Control-Allow-Origin: *`, no credentials header and no HSTS; JSON 404 when Matrix is not configured. `ServeHTTP` answers its `OPTIONS` preflight from any origin, the app's own included (200, `*`, no credentials), before the app-origin preflight rule (`wellknown_test.go`).
 - `GET /api/settings` always carries `chat_url` (the Element origin, empty when Matrix is not configured) in the public tier; the members' "Open chat" link reads it.
 - `GET /api/settings` tiers its payload: public fields for the login screen, `db_driver`/`scim_enabled` for any session, and `extra_settings` for admins only; KyRecovery tokens are omitted in both sealed and legacy plaintext forms, dropped by the `kyrecovery_token` key prefix rather than by literal key name. `extra_settings` never carries the keys in `notExtra` (`brand_logo`, served at `/app-icon.png`; the sync records `kyidentity_webhook_last` and `matrix_sweep_last`, served by sync-status). `app_name` is the effective name (`brand_name`, else `KY_APP_NAME`; the default on a store error).
@@ -107,7 +113,16 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `fedMu`, only on change and never after a settings read error (a broken store neither opens
   nor closes federation); it runs after each change and from `cmd/server`'s maintenance loop at
   start and every minute, so hand edits are undone. Synapse applies the file at its next start:
-  the view's `restart_hint` is `KY_MATRIX_SYNAPSE_RESTART_HINT`. Routes are `requireAdmin`;
+  the view's `restart_hint` is `KY_MATRIX_SYNAPSE_RESTART_HINT`. Before each write the servers it
+  takes off (the old file's allow-list minus the new) join setting `federation_unapplied` (a
+  server allowed again leaves it); the view's `unapplied` lists them until the running Synapse is
+  seen refusing each one. `synapseRefuses` sends Synapse a federation request claiming that
+  origin with a bogus signature: Synapse checks its allow-list before the signature, so 403
+  `M_FORBIDDEN` (not allowed) or 404 `M_UNRECOGNIZED` (not federating) means applied; anything
+  else, a timeout or Synapse down keeps it listed. It runs (under `fedMu`, `probeTimeout` each, in
+  parallel) on `GET /api/admin/federation` and after each `ReconcileFederation`, never after a
+  change. While a server is still allowed, its probe makes Synapse fetch that server's keys
+  (`federation_pending_test.go`). Routes are `requireAdmin`;
   changes are `tracked`, detached (`fedTimeout`) and audited (`matrix.federation_level`
   resource the new level, `matrix.federation_server` and `matrix.federation_preset` resource
   the name, details `outcome=...`: `changed from <level>`, `added`, `removed`, `ticked`,
@@ -132,7 +147,7 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 
 | Method | Path | Handler | Guard | Response |
 |---|---|---|---|---|
-| GET | `/api/admin/federation` | `handleFederation` | admin | `{level, server_name, servers:[{name}], presets:[{name, operator, open_signup, source, checked, ticked}], restart_hint, file_error?}` |
+| GET | `/api/admin/federation` | `handleFederation` | admin | `{level, server_name, servers:[{name}], presets:[{name, operator, open_signup, source, checked, ticked}], restart_hint, file_error?, unapplied:[name]}` |
 | GET | `/api/admin/federation/status` | `handleFederationStatus` | admin | `{statuses: {name: connected\|not_allowed\|federation_off\|unreachable\|unknown}}` |
 | PUT | `/api/admin/federation/level` | `handleFederationLevel` | admin; fresh to widen | the view; body `{"level"}` |
 | POST | `/api/admin/federation/servers` | `handleFederationAddServer` | fresh | the view; body `{"name"}` |
