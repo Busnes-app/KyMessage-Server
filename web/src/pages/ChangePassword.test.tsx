@@ -37,7 +37,7 @@ it('routes a restricted signed-in user to replacement instead of the dashboard',
   const { App } = await import('../App');
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify(
     String(input) === '/api/auth/me'
-      ? { authenticated: true, user: { username: 'admin', must_change_password: true } }
+      ? { authenticated: true, user: { username: 'admin', role: 'admin', must_change_password: true } }
       : { app_name: 'Test Server', theme: 'patina' },
   ), { status: 200 })));
   render(<App />);

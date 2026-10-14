@@ -96,14 +96,18 @@ func (s *Server) handlePairVerify(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePairPoll takes the secret in a POST body: it is the credential pair/verify redeems for
+// a session, so it must never sit in a URL where proxy and access logs keep it.
 func (s *Server) handlePairPoll(w http.ResponseWriter, r *http.Request) {
-	secret := r.URL.Query().Get("secret")
-	if secret == "" {
-		s.writeError(w, http.StatusBadRequest, "secret query parameter required")
+	var req struct {
+		Secret string `json:"secret"`
+	}
+	if !decodeStrict(w, r, &req) || req.Secret == "" {
+		s.writeError(w, http.StatusBadRequest, "Request body must be {\"secret\": ...}")
 		return
 	}
 
-	pairing, err := s.pairing.PollPairingStatus(r.Context(), secret)
+	pairing, err := s.pairing.PollPairingStatus(r.Context(), req.Secret)
 	if err != nil {
 		s.writeError(w, http.StatusNotFound, "Pairing not found or expired")
 		return

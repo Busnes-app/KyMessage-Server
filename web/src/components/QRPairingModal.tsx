@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Smartphone, CheckCircle, X } from 'lucide-react';
-import { secureFetch } from '../api';
+import { errorMessage, secureFetch } from '../api';
+import { obj, opt, str } from '../dto';
 
 interface QRPairingModalProps {
   onClose: () => void;
@@ -18,58 +19,73 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
   const [secondsLeft, setSecondsLeft] = useState<number>(90);
   const [paired, setPaired] = useState<boolean>(false);
   const [deviceName, setDeviceName] = useState<string>('');
+  const [error, setError] = useState<string>('');
 
+  // Everything stops on unmount, at expiry, on a non-OK answer and once paired. Timers start
+  // only after init resolves, so the abort check right before them is what keeps a modal
+  // closed mid-init from leaking them.
   useEffect(() => {
-    let timer: any;
-    let pollInterval: any;
+    const ctrl = new AbortController();
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const stop = () => timers.forEach(clearInterval);
+    const fail = (err: unknown, fallback: string) => {
+      stop();
+      if (!ctrl.signal.aborted) setError(err instanceof Error && err.message ? err.message : fallback);
+    };
+
+    const poll = async (secret: string) => {
+      try {
+        const resp = await secureFetch('/api/devices/pair/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret }),
+          signal: ctrl.signal,
+        });
+        if (!resp.ok) throw new Error(await errorMessage(resp, 'Could not check the pairing'));
+        const p = obj(await resp.json());
+        if (p.status === 'consumed' && !ctrl.signal.aborted) {
+          stop();
+          setPaired(true);
+          setDeviceName(opt(p.device_name, str) || 'Mobile Device');
+        }
+      } catch (err) {
+        fail(err, 'Could not check the pairing');
+      }
+    };
 
     const init = async () => {
       try {
-        const resp = await secureFetch('/api/devices/pair/init', { method: 'POST' });
-        const data = await resp.json();
-
-        if (canvasRef.current && data.qr_payload) {
-          QRCode.toCanvas(canvasRef.current, data.qr_payload, {
+        const resp = await secureFetch('/api/devices/pair/init', { method: 'POST', signal: ctrl.signal });
+        if (!resp.ok) throw new Error(await errorMessage(resp, 'Could not start pairing'));
+        const data = obj(await resp.json());
+        const secret = str(data.secret, 256);
+        const payload = str(data.qr_payload, 2048);
+        if (ctrl.signal.aborted) return;
+        if (canvasRef.current) {
+          await QRCode.toCanvas(canvasRef.current, payload, {
             width: 200,
             margin: 1,
             color: { dark: '#4deeea', light: '#0d0f14' },
           });
         }
+        if (ctrl.signal.aborted) return;
 
-        // Start 90s timer
         const expiry = Date.now() + 90 * 1000;
-        timer = setInterval(() => {
+        timers.push(setInterval(() => {
           const remaining = Math.max(0, Math.round((expiry - Date.now()) / 1000));
           setSecondsLeft(remaining);
-          if (remaining <= 0) clearInterval(timer);
-        }, 1000);
-
-        // Start polling
-        pollInterval = setInterval(async () => {
-          if (!data.secret) return;
-          try {
-            const pollResp = await fetch(`/api/devices/pair/poll?secret=${data.secret}`);
-            if (pollResp.ok) {
-              const p = await pollResp.json();
-              if (p.status === 'consumed') {
-                setPaired(true);
-                setDeviceName(p.device_name || 'Mobile Device');
-                clearInterval(pollInterval);
-                clearInterval(timer);
-              }
-            }
-          } catch {}
-        }, 1500);
+          if (remaining <= 0) fail(null, 'This code has expired. Close and start again.');
+        }, 1000));
+        timers.push(setInterval(() => void poll(secret), 1500));
       } catch (err) {
-        console.error('Pairing init error:', err);
+        fail(err, 'Could not start pairing');
       }
     };
 
-    init();
-
+    void init();
     return () => {
-      clearInterval(timer);
-      clearInterval(pollInterval);
+      ctrl.abort();
+      stop();
     };
   }, []);
 
@@ -100,6 +116,8 @@ export const QRPairingModal: React.FC<QRPairingModalProps> = ({ onClose }) => {
               Done
             </button>
           </div>
+        ) : error ? (
+          <div className="dr-alert dr-alert-error" role="alert"><span>{error}</span></div>
         ) : (
           <div>
             <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
