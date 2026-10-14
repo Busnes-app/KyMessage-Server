@@ -176,12 +176,14 @@ func LoadFromEnv() (*Config, error) {
 
 	driver := strings.ToLower(getEnv("KY_DB_DRIVER", "sqlite"))
 	dataDir := getEnv("KY_DATA_DIR", "./data")
-	defaultDSN := fmt.Sprintf("%s/ky_server.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", dataDir)
+	dsn := getEnv("KY_DB_DSN", fmt.Sprintf("%s/ky_server.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", dataDir))
 	if driver == "postgres" || driver == "postgresql" {
 		driver = "postgres"
-		defaultDSN = "postgres://postgres:postgres@localhost:5432/ky_server?sslmode=disable"
+		// No default: a guessed postgres:postgres@localhost would connect to whatever answers.
+		if dsn = getEnv("KY_DB_DSN", ""); dsn == "" {
+			return nil, errors.New("KY_DB_DSN is required with KY_DB_DRIVER=postgres")
+		}
 	}
-	dsn := getEnv("KY_DB_DSN", defaultDSN)
 
 	sessionSecret := getEnv("KY_SESSION_SECRET", "")
 	if env == "production" && sessionSecret == "" {
