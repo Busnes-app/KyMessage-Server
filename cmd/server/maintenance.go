@@ -49,13 +49,17 @@ func sweepPairings(ctx context.Context, st store.Store) {
 	}
 }
 
+// callReconcileTimeout bounds one call reconcile: every room's LiveKit and Synapse reads under
+// one console session. Above the 5 s tick so many rooms finish; a slow run delays the next.
+const callReconcileTimeout = 30 * time.Second
+
 // callMaintenanceLoop is drained alongside branding and pairings before the store closes.
 func callMaintenanceLoop(ctx context.Context, reconcile func(context.Context) error, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
-		run, cancel := context.WithTimeout(ctx, 5*time.Second)
+		run, cancel := context.WithTimeout(ctx, callReconcileTimeout)
 		err := reconcile(run)
 		cancel()
 		if err != nil && ctx.Err() == nil {

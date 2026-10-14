@@ -36,10 +36,11 @@ type fakeRooms struct {
 	members   map[string][]string
 	blocked   map[string]bool
 	jobs      map[string][]synapseadmin.DeleteJob
-	err       error // every call
-	changeErr error // Close and Delete
-	lostReply error // Close and Delete: the job starts, then this is returned
-	slowJobs  bool  // DeleteJobs returns only when its context is done
+	err       error            // every call
+	roomErr   map[string]error // Blocked and Members, for one room
+	changeErr error            // Close and Delete
+	lostReply error            // Close and Delete: the job starts, then this is returned
+	slowJobs  bool             // DeleteJobs returns only when its context is done
 	tokens    []string
 	changes   []string // "close <room>", "delete <room>", in order
 }
@@ -102,6 +103,9 @@ func (f *fakeRooms) Members(_ context.Context, tok, id string) ([]string, error)
 	if err := f.use(tok); err != nil {
 		return nil, err
 	}
+	if err := f.roomErr[id]; err != nil {
+		return nil, err
+	}
 	if _, ok := f.rooms[id]; !ok {
 		return nil, roomNotFound(id)
 	}
@@ -111,7 +115,10 @@ func (f *fakeRooms) Members(_ context.Context, tok, id string) ([]string, error)
 func (f *fakeRooms) Blocked(_ context.Context, tok, id string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.blocked[id], f.use(tok)
+	if err := f.use(tok); err != nil {
+		return false, err
+	}
+	return f.blocked[id], f.roomErr[id]
 }
 
 func (f *fakeRooms) change(ctx context.Context, tok, kind, id string) (string, error) {

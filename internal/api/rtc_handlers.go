@@ -199,73 +199,104 @@ func (s *Server) activeCallUsers(ctx context.Context) (map[string]bool, error) {
 }
 
 // ReconcileCalls evicts offboarded users, users of servers no longer allowed and people removed
-// from a Matrix room. Metadata in
-// grants and rooms comes only from this server and cannot be changed by participants.
+// from a Matrix room. Metadata in grants and rooms comes only from this server and cannot be
+// changed by participants. One room's failure never stops the others; errors are joined.
 func (s *Server) ReconcileCalls(ctx context.Context) error {
 	if s.rtc == nil || s.mas == nil {
 		return nil
 	}
 	rooms, err := s.rtc.Rooms(ctx)
-	if err != nil {
+	if err != nil || len(rooms) == 0 {
 		return err
 	}
-	if len(rooms) == 0 {
-		return nil
-	}
-	active, err := s.activeCallUsers(ctx)
-	if err != nil {
-		return err
-	}
-	// Unreadable federation settings must not stop local evictions: no remote caller stays.
+	// Fail closed: a local user MAS and the directory cannot confirm leaves, and with unreadable
+	// federation settings no remote caller stays.
+	active, activeErr := s.activeCallUsers(ctx)
 	st, fedErr := s.fedState(ctx)
 	var allowed []string
 	if fedErr == nil {
 		allowed = st.allow()
 	}
-	// A local user must be active here; a remote one's server must still be allowed.
 	mayCall := func(mxid string) bool {
 		if server := mxidServer(mxid); server != s.config.Matrix.ServerName {
 			return slices.Contains(allowed, server)
 		}
 		return active[mxid]
 	}
-	var result error
-	for _, room := range rooms {
-		if !validRoomID(room.Metadata) {
-			return errors.New("LiveKit room has invalid Matrix metadata")
+	result := errors.Join(activeErr, fedErr)
+	remove := func(room string, p matrixrtc.Participant) {
+		if err := s.rtc.Remove(ctx, room, p.Identity); err != nil {
+			result = errors.Join(result, err)
+			return
 		}
+		log.Printf("[MATRIX RTC] removed participant from call")
+	}
+	// Access first, so a slow or failing Synapse never delays an offboarding eviction.
+	type call struct {
+		room string
+		id   string
+		stay []matrixrtc.Participant
+	}
+	var calls []call
+	for _, room := range rooms {
 		participants, err := s.rtc.Participants(ctx, room.Name)
 		if err != nil {
-			return err
+			result = errors.Join(result, err)
+			continue
 		}
-		var members []string
-		err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
-			// A closed room keeps its remote members; its call keeps nobody.
-			blocked, err := s.rooms.Blocked(ctx, token, room.Metadata)
-			if err != nil || blocked {
-				return err
-			}
-			members, err = s.rooms.Members(ctx, token, room.Metadata)
-			return err
-		})
-		// A deleted room has no members; other failures must not be interpreted as successful reads.
-		if err != nil {
-			var se *synapseadmin.Error
-			if !errors.As(err, &se) || se.Status != http.StatusNotFound {
-				return err
-			}
-			members = nil
+		// No membership to check against: the call keeps nobody.
+		valid := validRoomID(room.Metadata)
+		if !valid {
+			result = errors.Join(result, errors.New("LiveKit room has invalid Matrix metadata"))
 		}
+		c := call{room: room.Name, id: room.Metadata}
 		for _, p := range participants {
-			if mayCall(p.Metadata) && slices.Contains(members, p.Metadata) {
-				continue
+			if valid && mayCall(p.Metadata) {
+				c.stay = append(c.stay, p)
+			} else {
+				remove(room.Name, p)
 			}
-			if err := s.rtc.Remove(ctx, room.Name, p.Identity); err != nil {
+		}
+		if len(c.stay) > 0 {
+			calls = append(calls, c)
+		}
+	}
+	if len(calls) == 0 {
+		return result
+	}
+	// Then membership, through one console session for the whole run.
+	err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
+		for _, c := range calls {
+			members, err := s.callMembers(ctx, token, c.id)
+			if err != nil {
 				result = errors.Join(result, err)
 				continue
 			}
-			log.Printf("[MATRIX RTC] removed participant from call")
+			for _, p := range c.stay {
+				if !slices.Contains(members, p.Metadata) {
+					remove(c.room, p)
+				}
+			}
+		}
+		return nil
+	})
+	return errors.Join(result, err)
+}
+
+// callMembers returns who may stay in a room's call: nobody in a closed room (it keeps its
+// remote members) or a deleted one. Other failures are not read as an empty room.
+func (s *Server) callMembers(ctx context.Context, token, roomID string) ([]string, error) {
+	blocked, err := s.rooms.Blocked(ctx, token, roomID)
+	if err == nil && !blocked {
+		var members []string
+		members, err = s.rooms.Members(ctx, token, roomID)
+		if err == nil {
+			return members, nil
 		}
 	}
-	return errors.Join(result, fedErr)
+	var se *synapseadmin.Error
+	if err != nil && !(errors.As(err, &se) && se.Status == http.StatusNotFound) {
+		return nil, err
+	}
+	return nil, nil
 }
