@@ -20,6 +20,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/matrixinit"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"gopkg.in/yaml.v3"
 )
 
 // Settings behind Settings > Federation. Servers and presets are JSON arrays of server names.
@@ -27,6 +28,9 @@ const (
 	fedLevelKey   = "federation_level"
 	fedServersKey = "federation_servers"
 	fedPresetsKey = "federation_presets"
+	// Servers taken off the file that the running Synapse may still allow: it reads the file
+	// only at start.
+	fedUnappliedKey = "federation_unapplied"
 )
 
 // Federation levels, narrowest first. Approval always means the operator adds the server.
@@ -109,14 +113,104 @@ func (s *Server) federationFile() string {
 // ReconcileFederation writes Synapse's federation file from the settings. fedMu makes it the
 // file's only writer in this process. It writes only on change and never on a settings read
 // error, so a broken store cannot open or close federation. Synapse applies it at its next
-// start. No-op without Matrix.
+// start, so it then checks which removed servers Synapse still allows. No-op without Matrix.
 func (s *Server) ReconcileFederation(ctx context.Context) error {
 	if !s.config.Matrix.Enabled() {
 		return nil
 	}
 	s.fedMu.Lock()
 	defer s.fedMu.Unlock()
-	return s.reconcileFederationLocked(ctx)
+	return errors.Join(s.reconcileFederationLocked(ctx), s.confirmUnappliedLocked(ctx))
+}
+
+// fileAllowList is the allow-list in a federation file; nil when it cannot be read.
+func fileAllowList(b []byte) []string {
+	var f struct {
+		Allow []string `yaml:"federation_domain_whitelist"`
+	}
+	if yaml.Unmarshal(b, &f) != nil {
+		return nil
+	}
+	return f.Allow
+}
+
+func (s *Server) unapplied(ctx context.Context) ([]string, error) {
+	var names []string
+	v, err := s.store.Settings().GetSetting(ctx, fedUnappliedKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err == nil && v != "" {
+		err = json.Unmarshal([]byte(v), &names)
+	}
+	return names, err
+}
+
+// markUnapplied records the servers a rewrite from old to allow takes away, before the write:
+// the running Synapse keeps allowing them until it restarts. Servers allowed again leave the list.
+func (s *Server) markUnapplied(ctx context.Context, old, allow []string) error {
+	names, err := s.unapplied(ctx)
+	if err != nil {
+		return err
+	}
+	out := slices.DeleteFunc(append(slices.Clone(names), old...), func(n string) bool { return slices.Contains(allow, n) })
+	slices.Sort(out)
+	if out = slices.Compact(out); slices.Equal(out, names) {
+		return nil
+	}
+	return s.saveFedList(ctx, fedUnappliedKey, out)
+}
+
+// confirmUnappliedLocked drops each unapplied server the running Synapse now refuses.
+func (s *Server) confirmUnappliedLocked(ctx context.Context) error {
+	names, err := s.unapplied(ctx)
+	if err != nil || len(names) == 0 {
+		return err
+	}
+	refused := make([]bool, len(names))
+	var wg sync.WaitGroup
+	for i, n := range names {
+		wg.Go(func() { refused[i] = s.synapseRefuses(ctx, n) })
+	}
+	wg.Wait()
+	keep := []string{}
+	for i, n := range names {
+		if !refused[i] {
+			keep = append(keep, n)
+		}
+	}
+	if len(keep) == len(names) {
+		return nil
+	}
+	return s.saveFedList(ctx, fedUnappliedKey, keep)
+}
+
+// synapseRefuses reports whether the running Synapse refuses federation from name. It checks
+// its allow-list before any signature (synapse/federation/transport/server/_base.py), so a
+// request claiming to come from name is answered at once: 403 M_FORBIDDEN when name is not
+// allowed, 404 M_UNRECOGNIZED when Synapse does not federate. Anything else (a signature check,
+// a failure) means it may still allow name.
+func (s *Server) synapseRefuses(ctx context.Context, name string) bool {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	q := url.Values{"user_id": {"@kymessages-federation-check:" + s.config.Matrix.ServerName}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.matrixTargets.Synapse+"/_matrix/federation/v1/query/profile?"+q.Encode(), nil)
+	if err != nil {
+		return false
+	}
+	// name passed ValidServerName when it was saved: no quote can end the parameter.
+	req.Header.Set("Authorization", `X-Matrix origin="`+name+`",destination="`+s.config.Matrix.ServerName+`",key="ed25519:kymessages",sig="a3ltZXNzYWdlcw"`)
+	resp, err := s.probeHTTP.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var e struct {
+		Errcode string `json:"errcode"`
+	}
+	json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&e)
+	return (resp.StatusCode == http.StatusForbidden && e.Errcode == "M_FORBIDDEN") ||
+		(resp.StatusCode == http.StatusNotFound && e.Errcode == "M_UNRECOGNIZED")
 }
 
 func (s *Server) reconcileFederationLocked(ctx context.Context) error {
@@ -128,7 +222,10 @@ func (s *Server) reconcileFederationLocked(ctx context.Context) error {
 	if err == nil {
 		var have []byte
 		if have, err = os.ReadFile(s.federationFile()); err == nil && !bytes.Equal(have, want) {
-			if err = matrixinit.WriteFederation(s.federationFile(), s.config.Matrix.ServerName, st.allow()); err == nil {
+			if err = s.markUnapplied(ctx, fileAllowList(have), st.allow()); err == nil {
+				err = matrixinit.WriteFederation(s.federationFile(), s.config.Matrix.ServerName, st.allow())
+			}
+			if err == nil {
 				log.Printf("[FEDERATION] Synapse federation file written: level %s, %d servers; restart Synapse to apply", st.Level, len(st.allow()))
 			}
 		}
@@ -171,6 +268,8 @@ type federationView struct {
 	Presets     []fedPresetView `json:"presets"`
 	RestartHint string          `json:"restart_hint"`
 	FileError   string          `json:"file_error,omitempty"`
+	// Removed servers the running Synapse may still allow until it restarts.
+	Unapplied []string `json:"unapplied"`
 }
 
 func (s *Server) writeFederation(ctx context.Context, w http.ResponseWriter) {
@@ -189,7 +288,15 @@ func (s *Server) writeFederation(ctx context.Context, w http.ResponseWriter) {
 	}
 	s.fedMu.Lock()
 	v.FileError = s.fedErr
+	v.Unapplied, err = s.unapplied(ctx)
 	s.fedMu.Unlock()
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Could not read federation settings")
+		return
+	}
+	if v.Unapplied == nil {
+		v.Unapplied = []string{}
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, v)
 }
@@ -200,6 +307,12 @@ func (s *Server) handleFederation(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), fedTimeout)
 	defer cancel()
+	s.fedMu.Lock()
+	err := s.confirmUnappliedLocked(ctx) // a restarted Synapse clears the warning on reload
+	s.fedMu.Unlock()
+	if err != nil {
+		log.Printf("[FEDERATION] could not record what Synapse applies: %v", err)
+	}
 	s.writeFederation(ctx, w)
 }
 
