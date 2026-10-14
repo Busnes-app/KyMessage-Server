@@ -18,6 +18,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
+	"github.com/Busnes-app/ky_server_base/internal/store/migrations"
 )
 
 // testKit is a throwaway 2-of-3 recovery key and two of its shares.
@@ -98,6 +99,43 @@ func TestRestoreExtractsWithTwoShares(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "busnes_app") {
 		t.Fatalf("manifest not printed: %s", out.String())
+	}
+}
+
+// A capsule from a newer build holds a schema this build does not know: restore refuses it and
+// removes what it extracted, rather than handing over a database it would corrupt.
+func TestRestoreRefusesANewerSchema(t *testing.T) {
+	key, shares := testKit(t)
+	dbPath := filepath.Join(t.TempDir(), "source.db")
+	st, err := store.Open(context.Background(), config.DatabaseConfig{Driver: "sqlite", DSN: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (9999, 'from_the_future', ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dbBytes, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := sealTo(t, key, recoveryclient.Payload{ServiceName: "busnes_app", AppVersion: "9.0.0",
+		Files: []recoveryclient.File{{Path: "data/ky_server.db", Data: dbBytes, Mode: 0600}, {Path: "data/encryption.key", Data: []byte(strings.Repeat("01", 32)), Mode: 0600}}})
+	target := t.TempDir()
+	if err := restore(path, target, "busnes_app", shares, &bytes.Buffer{}); !errors.Is(err, migrations.ErrNewerSchema) {
+		t.Fatalf("restore of a newer schema: %v", err)
+	}
+	if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
+		t.Fatalf("refused restore left files: %v %v", entries, err)
 	}
 }
 

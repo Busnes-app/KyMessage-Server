@@ -37,7 +37,8 @@ Loads the restored Matrix databases and media into a fresh stack, once:
   6. In the deployment directory, sudo chown -R root:root ./data ./backups: the app runs as
      root and refuses key files it does not own. Then docker compose up -d.
 It refuses, changing nothing, if a database is not empty, the media store is not empty, or a
-dump or media file does not check out.`
+dump or media file does not check out. After a success it deletes the plaintext dumps, or says
+to delete ./matrix/dumps by hand when it cannot (./matrix is mounted read-only).`
 
 // parseRestoreMatrix takes the defaults the restore-matrix Compose service mounts.
 func parseRestoreMatrix(args []string, out io.Writer) (backup.MatrixRestore, error) {

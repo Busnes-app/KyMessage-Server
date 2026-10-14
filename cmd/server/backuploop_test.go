@@ -23,17 +23,25 @@ import (
 // next minute: the scheduler says so once and stops. Retrying would write a log line and an
 // audit row every tick forever, because a RunConfig failure never reaches the point where
 // recoveryclient.Run stamps the attempt that moves NextRun along.
+// It leaves one audit row, the trail behind status's scheduler_error.
 func TestBackupLoopStopsWhenTheSealerCannotBeBuilt(t *testing.T) {
-	cfg := &config.Config{}
+	st, cfg := tickFixture(t, time.Hour)
 	cfg.Security.EncryptionKey = []byte("too short")
 
 	done := make(chan struct{})
-	// A nil store is safe only because the loop must return before it reads one.
-	go backupLoop(context.Background(), cfg, nil, done)
+	go backupLoop(context.Background(), cfg, st, done)
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("backupLoop did not give up on an unbuildable RunConfig")
+	}
+	recs, _, err := st.Audit().ListAuditRecords(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Action != schedulerAction || recs[0].UserID != "system" ||
+		!strings.HasPrefix(recs[0].Details, `outcome="failure" `) || !strings.Contains(recs[0].Details, "scheduler disabled") {
+		t.Fatalf("audit rows: %+v", recs)
 	}
 }
 
@@ -125,6 +133,7 @@ func tickFixture(t *testing.T, every time.Duration) (store.Store, *config.Config
 	t.Cleanup(func() { _ = st.Close() })
 	cfg := &config.Config{}
 	cfg.Backup.DepositInterval = every
+	cfg.Database.DataDir = t.TempDir()
 	return st, cfg
 }
 
@@ -180,6 +189,31 @@ func TestBackupTickInProgressLeavesItDue(t *testing.T) {
 	}
 }
 
+// A `kymessages deposit` from cron holds backup.lock: the scheduler neither runs nor mirrors
+// media, and leaves the run unstamped so the next tick retries it.
+func TestBackupTickWaitsOutAnotherProcessRun(t *testing.T) {
+	st, cfg := tickFixture(t, time.Hour)
+	cfg.Matrix.ServerName = "example.com"
+	ran := stubRun(t, func() error { return nil })
+	mirrored := stubMedia(t, func() error { return nil })
+	unlock, err := backup.Lock(cfg.Database.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	if *ran != 0 || *mirrored != 0 {
+		t.Fatalf("ran %d capsule and %d media runs while another process held the lock", *ran, *mirrored)
+	}
+	if next, on, err := recoveryclient.NextRun(time.Hour, backup.Settings(context.Background(), st.Settings())); err != nil || !on || next.After(time.Now()) {
+		t.Fatalf("not due: %v %v %v", next, on, err)
+	}
+	unlock()
+	backupTick(context.Background(), cfg, st, recoveryclient.RunConfig{}, nil)
+	if *ran != 1 {
+		t.Fatalf("ran %d times once the lock was free", *ran)
+	}
+}
+
 // Nothing may start once shutdown has begun: the run uses a detached context, so a tick that
 // raced the ticker would seal a full capsule nobody waits for.
 func TestBackupTickDoesNothingAfterShutdown(t *testing.T) {
@@ -207,6 +241,27 @@ func TestCLIRefusesUnknownFlags(t *testing.T) {
 		if err := parseNoArgs(name, nil, io.Discard); err != nil {
 			t.Errorf("%s with no args: %v", name, err)
 		}
+	}
+}
+
+// export-capsule -out never replaces a file and never leaves a partial capsule or its temporary.
+func TestWriteNewRefusesAnExistingPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.kycap")
+	if err := writeNew(path, []byte("capsule")); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("written: %v %v", fi, err)
+	}
+	if err := writeNew(path, []byte("other")); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("existing path: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "capsule" {
+		t.Fatalf("existing file replaced: %q", b)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("temporary left behind: %v", entries)
 	}
 }
 

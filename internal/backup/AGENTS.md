@@ -10,7 +10,7 @@ deployment key, the payload the scaffold seals (`Collect`) and its drill checks 
 Owns the settings adapter (`settings.go`), payload collection (`payload.go`), Matrix dumps and
 config collection plus expanded-size accounting (`matrix.go`, `size.go`), loading a restored
 Matrix half into a fresh stack (`matrix_restore.go`),
-restore-drill checks (`drill.go`), serialized drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
+restore-drill checks (`drill.go`), the cross-process backup lock and drill entry point (`run_drill.go`). It holds no private key, no share, and no pairing state of its own — those
 live in `recoveryclient` and in the settings rows it reads and writes through the adapter.
 
 ## Local Contracts
@@ -34,20 +34,21 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   parts `matrix/dumps/{mas,synapse}.dump.NNN` (MAS first, 64 MiB parts) run as `kybackup`: the child
   gets only `PGPASSWORD` and `PGCONNECT_TIMEOUT`. The Synapse dump excludes `e2e_one_time_keys_json`
   data. A dump failure fails the run. Recipe key `pg_dumps` lists the bases; `Checks` requires
-  gapless parts, the `matrixRequired` members (media key, signing key, Synapse and MAS configs,
-  `init.sql`, `kybackup-role.sql`) and reads each joined dump in full (`pg_restore
-  --file=/dev/null`, `DumpCheckTimeout` each).
+  gapless parts, the `matrixRequired()` members (media key, signing key, Synapse and MAS configs,
+  `init.sql`, `kybackup-role.sql`, and each `restoreDBs` owner password under `matrix/secrets/`)
+  and runs `checkDump` on each joined dump (`DumpCheckTimeout` each), the same check
+  `MatrixRestore.Run` refuses on: the drill must never pass a capsule restore-matrix refuses.
 - The expanded limit counts tar framing (`Measure`) and holds back 1 MiB, because ky-primitives
   v0.8.0 `Seal` undercounts against `Open` (Busnes-app/ky-primitives#20). A payload past it fails
   with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`; its message rounds the size up and
   names the enforced 255 MiB) before sealing. `CollectForRun` records
   the measured size in `backup_last_expanded_bytes`; `LastSize` warns from 75% of 256 MiB.
 - `MatrixRestore.Run` (`kymessages restore-matrix`) checks everything before writing: both
-  owner passwords from `matrix/secrets`, gapless parts with no stray, `pg_restore --list` per
-  dump refusing every extension entry except MAS's trusted `pg_trgm` (`EXTENSION - pg_trgm` and
-  `COMMENT - EXTENSION pg_trgm`, which the owner restores; no superuser),
-  a full read of each dump (`pg_restore --file=/dev/null`; `--list` misses a truncated or
-  missing last part),
+  owner passwords from `matrix/secrets`, gapless parts with no stray, `checkDump` per dump
+  (`pg_restore --list` refusing every extension entry except MAS's trusted `pg_trgm`
+  (`EXTENSION - pg_trgm` and `COMMENT - EXTENSION pg_trgm`, which the owner restores; no
+  superuser), and a full read, `pg_restore --file=/dev/null`, since `--list` misses a truncated
+  or missing last part),
   zero user relations in `mas` and `synapse` (`CountRelations`, host or host:port), and unless
   `SkipMedia` an empty media store owned by the process's uid:gid, the media key
   (`keyfile.Load`, so the process must own it) and every media file (`media.Restore` with
@@ -55,15 +56,24 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   --single-transaction --exit-on-error`, child env only `PGPASSWORD` and `PGCONNECT_TIMEOUT`;
   then media. No owner password reaches argv or an error, and tool stderr in errors drops
   CONTEXT/DETAIL lines (row data). A refusal on a populated stack names what `down -v` deletes.
+  After a success (media restored, or `SkipMedia`) it removes `<MatrixDir>/dumps` and says so;
+  any failure keeps them for the retry. A removal that fails (Compose mounts `/matrix`
+  read-only) is printed for the operator and does not fail the restore.
 - `Checks(dir, opened)` reads the opened capsule's manifest, normalizes JSON lists and
   fails malformed or incomplete recipes. Required files include all capsule members and
   the database, settings and encryption key; SQLite integrity and required environment
   checks cannot be disabled. File checks accept only clean relative manifest members;
   SQLite opens read-only and missing/empty databases fail.
-- HTTP and CLI call `RunDrill` with `Checks`; it holds an OS advisory lock on `<data dir>/drill.lock`
-  across scratch preparation and the library drill. Contention returns `ErrDrillBusy`;
-  closing the descriptor or process exit releases ownership. Keep the lock file in place.
-  The Unix lock matches the Linux container deployment.
+- `Lock(dataDir)` takes a non-blocking OS advisory lock on `<data dir>/backup.lock`. Every
+  scheduled run, HTTP and CLI deposit, export and drill holds it from before `Collect` to the
+  end (the scheduler and `deposit` also across the media mirror): the lib's run lock is per
+  process, so a cron `deposit` would otherwise race the server, and each holder keeps a whole
+  payload in memory. Contention returns `ErrBusy`, which wraps `recoveryclient.ErrInProgress`.
+  Unlock or process exit releases it. Keep the lock file in place. The Unix lock matches the
+  Linux container deployment. `RunDrill` (scratch root plus library drill, with `Checks`)
+  expects the caller to hold it.
+- `Collect`'s snapshot step removes every `<data dir>/snapshot-*` before making its own: under
+  the lock, any other is plaintext left by a crashed run.
 - `DrillRoot` is under the data directory and forced to 0700; opened payloads stay in the
   library's private, disposable subdirectories. Drills use throwaway keys, not custodian shares.
 - `Members` names what `Collect` would seal now, for the status route and the screen; keep
