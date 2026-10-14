@@ -282,6 +282,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 - [internal/devices/AGENTS.md](internal/devices/AGENTS.md): 90-second ephemeral QR device pairing and push registration.
 - [internal/testdb/AGENTS.md](internal/testdb/AGENTS.md): Test-only isolated database provisioning (SQLite or PostgreSQL).
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
+- [agent-skill/AGENTS.md](agent-skill/AGENTS.md): The `kymessages` skill for chat agents (OpenClaw, Hermes Agent) and the console's config blocks.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
 `cmd/server` owns the scheduler: `backupLoop` builds the server capsule's `RunConfig` and the client once

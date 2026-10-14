@@ -37,8 +37,10 @@ type Action struct {
 }
 
 // Plan compares MAS with dir (subject → "active", "deleted" or another status) and returns
-// the actions, failing closed: anything not known to be active is locked.
-func Plan(users []User, dir map[string]string) []Action {
+// the actions, failing closed: anything not known to be active is locked. agents maps a
+// registered agent's MAS user ID to its owner's subject; an unlinked agent follows its owner,
+// but is only ever locked, never deactivated: deleting an agent is an admin's call.
+func Plan(users []User, dir map[string]string, agents map[string]string) []Action {
 	var out []Action
 	for _, u := range users {
 		if u.Deactivated {
@@ -46,6 +48,21 @@ func Plan(users []User, dir map[string]string) []Action {
 		}
 		if u.Username == ConsoleUsername && u.Subject == "" && !u.Ambiguous {
 			continue // the console's service account; linked, it is a person and judged as one
+		}
+		if owner, ok := agents[u.ID]; ok && u.Subject == "" && !u.Ambiguous {
+			switch status, known := dir[owner]; {
+			case status == "active":
+				if u.Locked {
+					out = append(out, Action{Unlock, u, "agent owner active in KyIdentity"})
+				}
+			case !u.Locked:
+				reason := "agent owner not known to KyMessages"
+				if known {
+					reason = "agent owner " + status + " in KyIdentity"
+				}
+				out = append(out, Action{Lock, u, reason})
+			}
+			continue
 		}
 		status, known := dir[u.Subject]
 		switch {
@@ -152,8 +169,16 @@ func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	registered, err := s.st.Agents().ListAgents(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	agents := make(map[string]string, len(registered))
+	for _, a := range registered {
+		agents[a.MASUserID] = a.OwnerSubject
+	}
 	var errs []error
-	for _, a := range Plan(users, dir) {
+	for _, a := range Plan(users, dir, agents) {
 		if err := ctx.Err(); err != nil {
 			errs = append(errs, err)
 			break

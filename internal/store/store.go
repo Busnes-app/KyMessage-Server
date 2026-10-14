@@ -29,6 +29,7 @@ type Store interface {
 	Groups() GroupStore
 	Audit() AuditStore
 	Settings() SettingsStore
+	Agents() AgentStore
 
 	InvalidateRestoredGrants(context.Context) error
 	Driver() string
@@ -137,4 +138,17 @@ type SettingsStore interface {
 	SetSetting(ctx context.Context, key, val string) error
 	DeleteSetting(ctx context.Context, key string) error
 	GetAllSettings(ctx context.Context) (map[string]string, error)
+}
+
+// AgentStore is the registry of chat agent accounts.
+type AgentStore interface {
+	// CreateAgent returns ErrAlreadyExists when the username, MAS user or device is taken.
+	CreateAgent(ctx context.Context, a *Agent) error
+	GetAgent(ctx context.Context, id string) (*Agent, error)
+	// ListAgents returns every agent, oldest first.
+	ListAgents(ctx context.Context) ([]*Agent, error)
+	// SetAgentToken records the agent's current session: a session ID with AgentTokenActive,
+	// or "" with AgentTokenRevoked or AgentTokenExpired.
+	SetAgentToken(ctx context.Context, id, sessionID, state string) error
+	DeleteAgent(ctx context.Context, id string) error
 }

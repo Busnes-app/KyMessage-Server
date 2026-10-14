@@ -47,6 +47,8 @@ type fakeMAS struct {
 	consoleRuns int
 	// consoleLate hands fn an already ended context, as after a slow console setup.
 	consoleLate bool
+
+	ag agentMAS // agent accounts (agents_test.go)
 }
 
 // AsConsole stands in for the console session: fn gets a fixed token unless consoleErr is set.
@@ -185,6 +187,11 @@ func TestMatrixRoutesAre404WithoutMatrix(t *testing.T) {
 		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/close"},
 		{"POST", "/api/admin/matrix/rooms/%21grp:example.com/delete"},
 		{"GET", "/api/admin/matrix/sync-status"},
+		{"GET", "/api/admin/agents"},
+		{"POST", "/api/admin/agents"},
+		{"POST", "/api/admin/agents/" + agentPathID + "/rotate"},
+		{"POST", "/api/admin/agents/" + agentPathID + "/revoke"},
+		{"DELETE", "/api/admin/agents/" + agentPathID},
 	} {
 		w := adminDo(t, srv, admin, rt.method, rt.path, nil)
 		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"matrix_disabled"`) {

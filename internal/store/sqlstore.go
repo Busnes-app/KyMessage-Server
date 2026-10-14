@@ -22,6 +22,7 @@ type SQLStore struct {
 	groups   *groupStore
 	audit    *auditStore
 	settings *settingsStore
+	agents   *agentStore
 }
 
 // newSQLStore creates and initializes a SQLStore, running migrations automatically.
@@ -47,6 +48,7 @@ func newSQLStore(ctx context.Context, db *sql.DB, driver string) (*SQLStore, err
 	s.groups = &groupStore{store: s}
 	s.audit = &auditStore{store: s}
 	s.settings = &settingsStore{store: s}
+	s.agents = &agentStore{store: s}
 
 	return s, nil
 }
@@ -57,6 +59,7 @@ func (s *SQLStore) Devices() DeviceStore    { return s.devices }
 func (s *SQLStore) Groups() GroupStore      { return s.groups }
 func (s *SQLStore) Audit() AuditStore       { return s.audit }
 func (s *SQLStore) Settings() SettingsStore { return s.settings }
+func (s *SQLStore) Agents() AgentStore      { return s.agents }
 
 func (s *SQLStore) Driver() string                 { return s.driver }
 func (s *SQLStore) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }

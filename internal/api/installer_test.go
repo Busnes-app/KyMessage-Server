@@ -168,7 +168,7 @@ func TestInstallerOIDCRejectsUnassignedAndKeepsAdminOutOfChat(t *testing.T) {
 	if err != nil || statuses["owner"] != "inactive" || statuses["daily"] != "active" {
 		t.Fatal(statuses, err)
 	}
-	actions := matrixsync.Plan([]matrixsync.User{{ID: "owner-mas", Username: "owner", Subject: "owner"}, {ID: "daily-mas", Username: "daily", Subject: "daily"}}, statuses)
+	actions := matrixsync.Plan([]matrixsync.User{{ID: "owner-mas", Username: "owner", Subject: "owner"}, {ID: "daily-mas", Username: "daily", Subject: "daily"}}, statuses, nil)
 	if len(actions) != 1 || actions[0].Kind != matrixsync.Lock || actions[0].User.ID != "owner-mas" {
 		t.Fatal("dedicated owner chat not locked", actions)
 	}

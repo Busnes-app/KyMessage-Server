@@ -161,6 +161,12 @@ func TestPrivilegedEndpointsRequireAdmin(t *testing.T) {
 		{"GET", "/api/admin/health"},
 		{"GET", "/api/admin/audit"},
 		{"GET", "/api/admin/matrix/sync-status"},
+		{"GET", "/api/admin/agents"},
+		{"GET", "/api/admin/agents/skill"},
+		{"POST", "/api/admin/agents"},
+		{"POST", "/api/admin/agents/" + agentPathID + "/rotate"},
+		{"POST", "/api/admin/agents/" + agentPathID + "/revoke"},
+		{"DELETE", "/api/admin/agents/" + agentPathID},
 	}
 
 	for _, tc := range cases {
