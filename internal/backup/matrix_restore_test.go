@@ -91,6 +91,46 @@ func TestMatrixRestoreRestoresDumpsThenMedia(t *testing.T) {
 	if !strings.Contains(out.String(), "Restored database synapse") || !strings.Contains(out.String(), "Restored 1 media files") {
 		t.Errorf("output %q", out.String())
 	}
+	dumps := filepath.Join(r.MatrixDir, "dumps")
+	if _, err := os.Stat(dumps); !os.IsNotExist(err) || !strings.Contains(out.String(), "Deleted the plaintext dumps in "+dumps) {
+		t.Errorf("plaintext dumps not deleted after success: %v, output %q", err, out.String())
+	}
+}
+
+// A restore that fails after its checks keeps the dumps for the retry from a fresh stack.
+func TestMatrixRestoreKeepsDumpsWhenItFails(t *testing.T) {
+	r, _ := restoreFixture(t, "")
+	fakeTool(t, "pg_restore", `case $1 in --list) exec /bin/cat ;; --file=/dev/null) exit 0 ;; esac
+echo 'pg_restore: error: connection failed' >&2
+exit 1
+`)
+	if err := r.Run(context.Background(), io.Discard); err == nil {
+		t.Fatal("Run with a failing pg_restore succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(r.MatrixDir, "dumps", "mas.dump.000")); err != nil {
+		t.Fatalf("dumps removed after a failed restore: %v", err)
+	}
+}
+
+// Compose mounts the restored matrix/ read-only: a dump that cannot be deleted is reported for
+// the operator to delete, and the restore still succeeds.
+func TestMatrixRestoreReportsDumpsItCannotDelete(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	r, _ := restoreFixture(t, "")
+	dumps := filepath.Join(r.MatrixDir, "dumps")
+	if err := os.Chmod(dumps, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dumps, 0o700) })
+	var out bytes.Buffer
+	if err := r.Run(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "delete matrix/dumps by hand") {
+		t.Errorf("undeletable dumps not reported: %q", out.String())
+	}
 }
 
 // A host:port reaches pg_restore as --host and --port, and the relation count gets it whole.
@@ -135,6 +175,9 @@ func assertUntouched(t *testing.T, r backup.MatrixRestore, log string, seeded in
 	}
 	if entries, _ := os.ReadDir(r.MediaDir); len(entries) != seeded {
 		t.Errorf("media store written after a failed check: %v", entries)
+	}
+	if _, err := os.Stat(filepath.Join(r.MatrixDir, "dumps")); err != nil {
+		t.Errorf("dumps removed after a failed check: %v", err)
 	}
 }
 

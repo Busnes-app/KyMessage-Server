@@ -117,6 +117,22 @@ func (s *Server) actorID(r *http.Request) string {
 	return user.ID
 }
 
+// backupLock takes backup.Lock for a drill or export, answering 409 while another run, deposit,
+// export or drill holds it, so at most one payload is in memory.
+func (s *Server) backupLock(w http.ResponseWriter) (func(), bool) {
+	unlock, err := backup.Lock(s.config.Database.DataDir)
+	if errors.Is(err, backup.ErrBusy) {
+		s.writeError(w, http.StatusConflict, "Another backup, export or drill is running; try again when it finishes")
+		return nil, false
+	}
+	if err != nil {
+		log.Printf("[BACKUP] backup lock: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "Failed to take the backup lock")
+		return nil, false
+	}
+	return unlock, true
+}
+
 // handleBackupDrill seals the live payload to a throwaway key, opens it in a sandbox and
 // runs the verification recipe. It reports, not proves, whether the suite key is pinned.
 // The route wraps it in `tracked`: the sandbox holds plaintext until the drill returns.
@@ -127,6 +143,11 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(drillWriteBudget))
 	ctx := r.Context()
+	unlock, ok := s.backupLock(w)
+	if !ok {
+		return
+	}
+	defer unlock()
 	payload, err := backup.Collect(ctx, s.config, appVersion)
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
 		s.writeTooLarge(w, err)
@@ -143,10 +164,6 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := backup.RunDrill(ctx, s.config, payload, backup.Checks)
-	if errors.Is(err, backup.ErrDrillBusy) {
-		s.writeError(w, http.StatusConflict, "A restore drill is already running")
-		return
-	}
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to execute restore drill")
 		return
@@ -180,6 +197,11 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Failed to load recovery key")
 		return
 	}
+	unlock, ok := s.backupLock(w)
+	if !ok {
+		return
+	}
+	defer unlock()
 	payload, err := backup.Collect(ctx, s.config, appVersion)
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
 		s.writeTooLarge(w, err)
@@ -328,9 +350,15 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := backup.Settings(ctx, s.store.Settings())
-	res, err := recoveryclient.Run(ctx, rc, settings, func() (recoveryclient.Payload, error) {
-		return backup.CollectForRun(ctx, s.config, settings, appVersion)
-	}, s.recovery)
+	// Busy is backup.ErrBusy, which is ErrInProgress: audited and answered 409 below.
+	var res recoveryclient.Result
+	unlock, err := backup.Lock(s.config.Database.DataDir)
+	if err == nil {
+		res, err = recoveryclient.Run(ctx, rc, settings, func() (recoveryclient.Payload, error) {
+			return backup.CollectForRun(ctx, s.config, settings, appVersion)
+		}, s.recovery)
+		unlock()
+	}
 
 	action, outcome, details := recoveryclient.Outcome(res, err)
 	details["outcome"] = outcome
@@ -548,6 +576,11 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.scheduleStatus(ctx, out)
+	// The scheduler builds the same RunConfig from the same immutable config at start and, if
+	// it fails, stops for the life of the process (cmd/server backupLoop).
+	if _, err := backup.RunConfig(s.config, appVersion); err != nil {
+		out["scheduler_error"] = "Scheduled backups are off until the configuration is fixed and the server restarted: " + recoveryclient.AuditSafe(err.Error())
+	}
 	if s.config.Backup.Dir != "" {
 		out["local_dir"] = s.config.Backup.Dir
 		out["local_keep"] = s.config.Backup.Keep

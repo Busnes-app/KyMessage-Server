@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -281,11 +282,18 @@ UPDATE messaging_devices SET suspended_at = `
 	suspendedWhere = ` WHERE status = 'approved' AND token_hash IS NULL;`
 )
 
+// ErrNewerSchema is a database already migrated past this build's newest migration.
+var ErrNewerSchema = errors.New("database schema is newer than this build")
+
 // Run executes all pending migrations for the specified database driver.
 func Run(ctx context.Context, db *sql.DB, driver string) error {
-	driver = strings.ToLower(driver)
-	if driver == "postgresql" {
+	switch strings.ToLower(driver) {
+	case "postgres", "postgresql":
 		driver = "postgres"
+	case "sqlite":
+		driver = "sqlite"
+	default:
+		return fmt.Errorf("unsupported migration driver %q", driver)
 	}
 
 	// Create schema_migrations table
@@ -308,15 +316,27 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 		return fmt.Errorf("failed to init schema_migrations: %w", err)
 	}
 
+	// A database migrated by a newer build (an image rollback, or a restored capsule from one)
+	// has a schema this binary does not know; running against it would corrupt it quietly.
+	var applied, known int
+	if err := db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&applied); err != nil {
+		return fmt.Errorf("failed to read schema version: %w", err)
+	}
+	for _, m := range registry {
+		known = max(known, m.Version)
+	}
+	if applied > known {
+		return fmt.Errorf("%w: database is at schema version %d, this build knows up to %d; run the newer build or restore an older backup", ErrNewerSchema, applied, known)
+	}
+
+	checkQuery := "SELECT COUNT(1) FROM schema_migrations WHERE version = ?"
+	if driver == "postgres" {
+		checkQuery = "SELECT COUNT(1) FROM schema_migrations WHERE version = $1"
+	}
 	for _, m := range registry {
 		var exists int
-		err := db.QueryRowContext(ctx, "SELECT COUNT(1) FROM schema_migrations WHERE version = $1", m.Version).Scan(&exists)
-		if err != nil {
-			// Try SQLite positional ? parameter if $1 failed
-			err = db.QueryRowContext(ctx, "SELECT COUNT(1) FROM schema_migrations WHERE version = ?", m.Version).Scan(&exists)
-			if err != nil {
-				return fmt.Errorf("failed to check migration version %d: %w", m.Version, err)
-			}
+		if err := db.QueryRowContext(ctx, checkQuery, m.Version).Scan(&exists); err != nil {
+			return fmt.Errorf("failed to check migration version %d: %w", m.Version, err)
 		}
 
 		if exists > 0 {
