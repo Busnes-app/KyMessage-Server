@@ -1,5 +1,6 @@
 // usage: node e2e.mjs prove|refused|compat|noclaim|media|restored
-//        node e2e.mjs room|token|fedtoken|disabled|reread|reads USER
+//        node e2e.mjs room|token|fedtoken|disabled|reread|reads|owner USER
+//        AGENT_MXID=... AGENT_MSG=... AGENT_REPLY=... node e2e.mjs agent USER
 //        node e2e.mjs title BRAND
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
@@ -480,6 +481,37 @@ async function restored() {
   out({ mxid, after });
 }
 
+// Agents: USER, an agent's owner, signs in and sets up recovery (owner); then (agent) invites
+// $AGENT_MXID to a new room, or reuses it, sends $AGENT_MSG and reads the agent's reply
+// $AGENT_REPLY decrypted.
+async function owner() {
+  const page = await launch(user, 'agent-owner');
+  await nativeSignIn(page, user, mxid());
+  await setUpRecovery(page);
+}
+
+async function agent() {
+  const { AGENT_MXID: agentId, AGENT_MSG: msg, AGENT_REPLY: reply } = process.env;
+  const page = await resume(user, 'agent-owner');
+  let id;
+  if (fs.existsSync(stateFile('agent'))) {
+    id = JSON.parse(fs.readFileSync(stateFile('agent'), 'utf8')).room;
+    // A room opened before the first live sync keeps the cached timeline window, which never
+    // shows new events.
+    await page.waitForFunction(() => window.mxMatrixClientPeg.get()?.getSyncState() === 'SYNCING', null, { timeout: 60000 });
+    await openRoom(page, id, false);
+  } else {
+    id = await createRoom(page, `kymatrix-agent-${tag}`);
+    await invite(page, agentId);
+    await page.waitForFunction(({ id, agentId }) => window.mxMatrixClientPeg.get().getRoom(id)?.getMember(agentId)?.membership === 'join',
+      { id, agentId }, { timeout: 120000 });
+    console.log(`  ok: ${agentId} joined ${id}`);
+  }
+  await send(page, msg);
+  await sees(page, reply);
+  out({ room: id });
+}
+
 // Element's tab title carries the brand the console set: each page load fetches config.json.
 async function title() {
   const page = await launch('element');
@@ -571,7 +603,7 @@ async function calls(restored = false) {
   out({group:rooms.group, dm:rooms.dm, video, voice});
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title };
+const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title, owner, agent };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

@@ -7,9 +7,17 @@
 # disable or unassign cuts open Element sessions within 30 seconds, with KyMessages' sweep
 # making offboarding (including delete) stick in MAS. The operator console reports every
 # component up on its pinned version and ends a live Element session within 30 seconds,
-# audited. Health proves Synapse admin access through the console's service account. It
-# also takes a server backup, loses the host and restores the whole stack from custodian
-# shares, proving history, media, accounts, the server name and the signing key come back.
+# audited. Health proves Synapse admin access through the console's service account.
+# Agents: the console mints agent-accept for a member (config blocks require encryption and
+# allow only the owner; the token never in the agent list or audit). A matrix-js-sdk client
+# holding only that token cross-signs with no interactive auth, joins the owner's encrypted
+# room, decrypts his Element message and replies; Element decrypts the reply, stored encrypted.
+# Rotate keeps device and keys (old token refused within 180 seconds; measured 111-120); the owner's KyIdentity
+# disable locks the agent within 180 seconds, audited, and re-enabling restores it; revoke
+# deletes the device and the next rotate reissues on a new one; no call grant; delete
+# deactivates the account, audited. It also takes a server backup, loses the host and
+# restores the whole stack from custodian shares, proving history, media, accounts, the server
+# name and the signing key come back.
 # On the restored stack the console closes the group room (bob removed, rejoin refused) and
 # permanently deletes a throwaway room, audited.
 # It then renames the product and replaces its logo from the console: /app-icon.png follows at
@@ -94,6 +102,7 @@ pass() { printf 'PASS %-19s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$su
 
 cleanup() {
 	local rc=$?
+	if [[ -n ${agent_pid:-} ]]; then kill "$agent_pid" 2>/dev/null || true; fi
 	if [[ ${nss_imported:-0} == 1 ]]; then
 		certutil -D -d "sql:$nss_db" -n "$project" || { echo 'matrix-acceptance: could not remove its temporary CA' >&2; rc=1; }
 	fi
@@ -143,6 +152,7 @@ answer() {
 # Readiness poll with a deadline (30 tries, 1s apart).
 ready() { hcurl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors "$1" 2>/dev/null || { echo "  FAILED: $1 not ready" >&2; return 1; }; }
 kyid() { "$here/kyid-admin.sh" "$@"; }
+uri() { jq -rn --arg v "$1" '$v | @uri'; }
 e2e() { node "$here/e2e.mjs" "$@"; }
 # eventually BOUND WANT WHAT CMD...: runs CMD 1s apart until it prints WANT; fails after BOUND
 # seconds.
@@ -269,7 +279,7 @@ export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_ARTIFACTS=$artifac
 step kyidentity
 # The MXID localpart is the email's local part, not the username: AQuinn's mixed-case email
 # with a "+" maps to alice.q_ky. Everyone else's email is <username>@kymatrix.test.
-users=(AQuinn bob mallory nadia carol dave erin frank)
+users=(AQuinn bob mallory nadia carol dave erin frank owen)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
 for u in "${users[@]}"; do
@@ -622,6 +632,130 @@ expect "$(sync_status '"\(.rejected.count) \(.rejected.last_reason)"')" "$((reje
 pass
 
 # ---------------------------------------------------------------------------------------
+# Agents. Before the backup: the restored app's sign-in budget (10 per account per 15 minutes)
+# is spent by rooms, settings and federation. owen exists only to own agent-accept, so his
+# disable ends no session a later step uses; every agent session is revoked before the backup,
+# as the rooms step's live-session check needs. agent.mjs is a real encrypting client
+# (matrix-js-sdk, Rust crypto) signed in with the token alone; its crypto store is kept across
+# runs. Idle expiry (D3) is covered by Go unit tests, not here.
+step agents
+agent_name=agent-accept agent_mxid=@agent-accept:$KY_MATRIX_SERVER_NAME owner=owen
+owner_mxid=$(mxid "$owner")
+agent_js() { NODE_EXTRA_CA_CERTS=$scratch/tls/ca.crt node "$here/agent.mjs" "$agent_mxid" "$owner_mxid" "$@"; }
+# agent_whoami TOKEN: "200 <user_id> <device_id>" while live, else "<status> <errcode>".
+agent_whoami() {
+	local code
+	code=$(hcurl -o "$state/agent-whoami.json" -w '%{http_code}' -H "Authorization: Bearer $1" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami)
+	echo "$code $(jq -r '[.user_id // .errcode // "-", .device_id // empty] | join(" ")' "$state/agent-whoami.json" 2>/dev/null || echo unparsable)"
+}
+# no_token FILE: the token in FILE is in neither the agent list nor the newest audit rows.
+no_token() {
+	app_api GET /api/admin/agents >"$state/agents.json"
+	app_api GET '/api/admin/audit?limit=50' >"$state/agent-audit.json"
+	if grep -qF "$(cat "$1")" "$state/agents.json" "$state/agent-audit.json"; then echo "  FAILED: the token appears in the agent list or the audit" >&2; return 1; fi
+	ok "the token appears in neither the agent list nor the audit"
+}
+# agent_audit ACTION: the newest ACTION row's outcome for the agent.
+agent_audit() { app_api GET '/api/admin/audit?kind=matrix&limit=50' | jq -r --arg a "$1" --arg m "$agent_mxid" '[.records[] | select(.action == $a and .target == $m) | .outcome] | first // "none"'; }
+# sweep_reason ACTION: the reason in the sweep's newest ACTION row for the agent.
+sweep_reason() { app_api GET '/api/admin/audit?kind=matrix&limit=50' | jq -r --arg a "$1" --arg m "$agent_mxid" '[.records[] | select(.action == $a and .target == $m) | .details | capture("reason=\"(?<r>[^\"]*)\"").r] | first // "none"'; }
+agent_device_rows() { sql synapse "SELECT count(*) FROM devices WHERE user_id = '$agent_mxid' AND device_id = '$1'"; }
+# talk DEVICE MESSAGE REPLY: the owner's Element sends MESSAGE; agent.mjs decrypts it and
+# answers REPLY, which Element decrypts.
+talk() {
+	agent_js "$@" &
+	agent_pid=$!
+	AGENT_MXID=$agent_mxid AGENT_MSG=$2 AGENT_REPLY=$3 e2e agent "$owner"
+	wait "$agent_pid"
+	agent_pid=
+}
+
+e2e owner "$owner"
+app_login "$admin_pass"
+owner_id=$(app_api GET /api/admin/agents | jq -re --arg m "$owner_mxid" '.owners[] | select(.mxid == $m) | .id')
+app_api POST /api/admin/agents "$(jq -n --arg n "$agent_name" --arg o "$owner_id" '{name: $n, owner: $o}')" >"$state/agent-create.json"
+agent_id=$(jq -re .agent.id "$state/agent-create.json")
+device=$(jq -re .agent.device_id "$state/agent-create.json")
+jq -re .token "$state/agent-create.json" >"$state/agent.token"
+expect "$(jq -r .agent.mxid "$state/agent-create.json")" "$agent_mxid" "the console created $agent_mxid for $owner_mxid on device $device"
+jq -e --arg o "$owner_mxid" '(.configs.hermes | contains("MATRIX_E2EE_MODE=required\n") and contains("MATRIX_ALLOWED_USERS=\($o)\n")) and (.configs.openclaw | contains("encryption: true"))' \
+	"$state/agent-create.json" >/dev/null || { echo "  FAILED: config blocks: $(jq -c '.configs | map_values(length)' "$state/agent-create.json")" >&2; false; }
+ok "configs: Hermes requires encryption and allows only $owner_mxid; OpenClaw encrypts"
+expect "$(agent_audit agent.create)" created "audited agent.create"
+no_token "$state/agent.token"
+
+first=kymatrix-agent-first-$$ second=kymatrix-agent-rotated-$$
+replies=(kymatrix-agent-reply-first-$$ kymatrix-agent-reply-rotated-$$)
+talk "$device" "$first" "${replies[0]}"
+agent_room=$(jq -r .room "$state/agent-$owner.json")
+expect "$(sql synapse "SELECT count(*) FROM current_state_events WHERE room_id = '$agent_room' AND type = 'm.room.encryption'")" 1 "the agent's room $agent_room is encrypted"
+expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$agent_room' AND sender = '$agent_mxid' AND type = 'm.room.message'")" 0 "no m.room.message from the agent"
+expect "$(sql synapse "SELECT count(*) > 0 FROM events WHERE room_id = '$agent_room' AND sender = '$agent_mxid' AND type = 'm.room.encrypted'")" t "the agent's reply is stored as m.room.encrypted"
+expect "$(sql synapse "SELECT count(DISTINCT keytype) FROM e2e_cross_signing_keys WHERE user_id = '$agent_mxid'")" 3 "the agent's cross-signing keys uploaded"
+expect "$(sql synapse "SELECT count(*) > 0 FROM e2e_room_keys_versions WHERE user_id = '$agent_mxid'")" t "the agent's key backup created"
+expect "$(sql synapse "SELECT count(*) FROM account_data WHERE user_id = '$agent_mxid' AND account_data_type = 'm.secret_storage.default_key'")" 1 "the agent's secret storage set up"
+
+# Rotate: same device, the old token dies within Synapse's 2-minute token cache.
+app_login "$admin_pass"
+mv "$state/agent.token" "$state/agent.old"
+app_api POST "/api/admin/agents/$agent_id/rotate" >"$state/agent-rotate.json"
+jq -re .token "$state/agent-rotate.json" >"$state/agent.token"
+expect "$(jq -r .agent.device_id "$state/agent-rotate.json")" "$device" "rotate kept device $device"
+expect "$(agent_audit agent.rotate)" rotated "audited agent.rotate"
+no_token "$state/agent.token"
+eventually 180 '401 M_UNKNOWN_TOKEN' "the old token refused after the rotate" agent_whoami "$(cat "$state/agent.old")" | tee -a "$summary"
+expect "$(agent_whoami "$(cat "$state/agent.token")")" "200 $agent_mxid $device" "the new token works on device $device"
+talk "$device" "$second" "${replies[1]}"
+expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$agent_room' AND sender = '$agent_mxid' AND type = 'm.room.encrypted'")" 2 "both agent replies stored as m.room.encrypted"
+dump=$(dc exec -T postgres pg_dump -U postgres synapse)
+for m in "$first" "$second" "${replies[@]}"; do
+	if grep -qF "$m" <<<"$dump"; then echo "  FAILED: plaintext $m found in the Synapse database" >&2; false; fi
+done
+ok "no message or reply plaintext in a pg_dump of the Synapse database"
+
+# Offboarding the owner locks the agent; re-enabling unlocks it, keys and device kept.
+kyid PUT "/api/admin/users/${kid[$owner]}" '{"status": "disabled"}' >/dev/null
+eventually 180 '401 M_UNKNOWN_TOKEN' "the agent's token refused after its owner's disable" agent_whoami "$(cat "$state/agent.token")" | tee -a "$summary"
+expect "$(mas_user "$agent_name" 'locked_at IS NOT NULL')" t "MAS locked the agent"
+expect "$(sweep_reason matrix.lock)" "agent owner inactive in KyIdentity" "the sweep audited matrix.lock for $agent_mxid"
+kyid PUT "/api/admin/users/${kid[$owner]}" '{"status": "active"}' >/dev/null
+eventually 180 "200 $agent_mxid $device" "the agent's token accepted again after the owner's re-enable" agent_whoami "$(cat "$state/agent.token")" | tee -a "$summary"
+expect "$(sweep_reason matrix.unlock)" "agent owner active in KyIdentity" "the sweep audited matrix.unlock for $agent_mxid"
+
+# Revoke (one click, no fresh sign-in): token refused, Synapse deletes the device. Rotate then
+# reissues on a new device.
+expect "$(agent_device_rows "$device")" 1 "Synapse holds the agent's device $device"
+expect "$(app_api POST "/api/admin/agents/$agent_id/revoke" | jq -r .outcome)" revoked "the console revoked the agent's token"
+eventually 30 '401 M_UNKNOWN_TOKEN' "the revoked token refused" agent_whoami "$(cat "$state/agent.token")" | tee -a "$summary"
+eventually 30 0 "Synapse deleted the agent's device $device" agent_device_rows "$device"
+expect "$(agent_audit agent.revoke)" revoked "audited agent.revoke"
+app_login "$admin_pass"
+app_api POST "/api/admin/agents/$agent_id/rotate" >"$state/agent-reissue.json"
+jq -re .token "$state/agent-reissue.json" >"$state/agent.token"
+reissued=$(jq -re .agent.device_id "$state/agent-reissue.json")
+[[ $reissued != "$device" ]] || { echo "  FAILED: the reissued token kept the deleted device $device" >&2; false; }
+expect "$(agent_whoami "$(cat "$state/agent.token")")" "200 $agent_mxid $reissued" "rotate after revoke: a token on the new device $reissued"
+expect "$(agent_audit agent.rotate)" "reissued on a new device" "audited agent.rotate as reissued"
+no_token "$state/agent.token"
+
+# No calls (D7): the agent's OpenID token gets no LiveKit grant.
+openid=$(hcurl -fsS -X POST -H "Authorization: Bearer $(cat "$state/agent.token")" -H 'Content-Type: application/json' -d '{}' \
+	"https://matrix.kymatrix.test/_matrix/client/v3/user/$(uri "$agent_mxid")/openid/request_token" | jq -re .access_token)
+grant=$(answer POST "$KY_APP_URL/api/matrix/rtc/get_token" -H 'Content-Type: application/json' -d "$(jq -n --arg r "$agent_room" --arg u "$agent_mxid" --arg d "$reissued" --arg t "$openid" --arg s "$KY_MATRIX_SERVER_NAME" \
+	'{room_id: $r, slot_id: "m.call#ROOM", member: {id: "kymatrix-agent", claimed_user_id: $u, claimed_device_id: $d}, openid_token: {access_token: $t, matrix_server_name: $s}}')")
+expect "$grant $(jq -r .error "$state/answer.json")" '403 M_FORBIDDEN Chat access is disabled' "the agent's call grant is refused"
+
+# Delete: token ended, MAS user deactivated, row gone; no agent session left live.
+app_login "$admin_pass"
+expect "$(app_api DELETE "/api/admin/agents/$agent_id" | jq -r .outcome)" deleted "the console deleted the agent"
+expect "$(mas_user "$agent_name" 'deactivated_at IS NOT NULL')" t "MAS deactivated $agent_name"
+expect "$(app_api GET /api/admin/agents | jq --arg i "$agent_id" '[.agents[] | select(.id == $i)] | length')" 0 "the agent is gone from the console"
+expect "$(agent_audit agent.delete)" deleted "audited agent.delete"
+eventually 30 '401 M_UNKNOWN_TOKEN' "the deleted agent's token refused" agent_whoami "$(cat "$state/agent.token")"
+expect "$(sql mas "SELECT count(*) FROM personal_sessions s JOIN users u ON u.user_id = s.actor_user_id WHERE u.username = '$agent_name' AND s.revoked_at IS NULL")" 0 "no agent session left live"
+pass
+
+# ---------------------------------------------------------------------------------------
 # Server backup: the operator's admin API and `kymessages deposit`, sealed to a throwaway
 # suite key whose 2-of-3 shares only this harness holds.
 kyb() { dc exec -T -e PGPASSWORD="$(cat "$scratch/matrix/secrets/kybackup_db_password")" postgres psql -h 127.0.0.1 -U kybackup -v ON_ERROR_STOP=1 "$@"; }
@@ -762,7 +896,6 @@ pass
 # console account present and never touched it. Before reproduce and no-email, which
 # change sign-in for everyone.
 step rooms
-uri() { jq -rn --arg v "$1" '$v | @uri'; }
 # job_status ROOM DELETE_ID: the console's status for that job ("absent" until Synapse starts it).
 job_status() { app_api GET "/api/admin/matrix/rooms/$(uri "$1")/delete-status" | jq -r --arg d "$2" '[.jobs[] | select(.delete_id == $d) | .status] | first // "absent"'; }
 latest_membership() { sql synapse "SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '$1' AND m.room_id = '$2' ORDER BY e.stream_ordering DESC LIMIT 1"; }

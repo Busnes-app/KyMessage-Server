@@ -256,6 +256,11 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   our Synapse refuses its requests and transactions; level closed restores the closed file and
   the 404s. A peer's call token is refused with 502 while allowed (the app's client refuses the
   private address, so a cross-server call stays unproven) and 403 once removed.
+  Stage `agents` (before the backup, owner `owen`): `agent.mjs` (matrix-js-sdk, Rust crypto,
+  store kept across runs) with only the console's token cross-signs, decrypts the owner's
+  Element message and replies, stored encrypted; rotate keeps the device, owner disable locks
+  and re-enable restores (each within 130 s), revoke deletes the device, no call grant, delete
+  deactivates. Idle expiry is Go unit tests only.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.

@@ -187,13 +187,22 @@ with copy buttons, the two config blocks and **Download skill**, Rotate/Revoke/D
 `web/browser`.
 
 ### Task 6 — Acceptance stage
-In `scripts/matrix-acceptance`: create an agent through the API, then a mautrix-based test
-bot (Hermes's library) with the token and recovery key joins an encrypted room, decrypts a
-message from the Element test user and replies; the user decrypts the reply. Then lock the
-owner in the directory → the bot's next request is refused. Rotate → old token refused, new
-one works on the same device. Idle expiry: after the bot's last request, run the expiry
-check with the threshold lowered through a test-only setting → the token is refused and the
-audit row exists. Manual once per release: real OpenClaw and Hermes with the
+Stage `agents` of `scripts/matrix-acceptance.sh`, after `console` and before `backup` (the
+restored app's sign-in budget, 10 per account per 15 minutes, is spent by the later steps).
+Owner `owen`, a member used only here, so his disable ends no session a later step uses; every
+agent session is revoked before the backup. The console
+creates `agent-accept`: config blocks require encryption and allow only the owner; the token
+is never in the agent list or audit. `scripts/matrix-acceptance/agent.mjs` (matrix-js-sdk with
+Rust crypto, the crypto store kept across runs) signs in with the token alone, cross-signs
+with no interactive auth, sets up secret storage and key backup, joins the owner's encrypted
+room, decrypts his Element message and replies; Element decrypts the reply, stored as
+`m.room.encrypted`. Rotate → same device, old token `401 M_UNKNOWN_TOKEN` within 130 s, a
+restarted `agent.mjs` with the new token decrypts the next message. Disable the owner in
+KyIdentity → token refused within 130 s, audited `matrix.lock` (agent owner inactive);
+re-enable → accepted again within 130 s. Revoke → refused, Synapse device gone; rotate →
+reissued on a new device. Call grant refused (`Chat access is disabled`). Delete → MAS user
+deactivated, row gone, audited. Idle expiry is covered by Go unit tests (fake clock); no
+test-only setting exists. Manual once per release: real OpenClaw and Hermes with the
 downloaded skill, recorded in `UI-VERIFICATION.md`.
 
 ### Task 7 — Docs and DOX
@@ -215,7 +224,7 @@ downloaded skill, recorded in `UI-VERIFICATION.md`.
 - With federation on, users of allowed servers can invite and message the agent; the config
   blocks make it join and answer only for its owner.
 - An agent can change its display name to anything; its Matrix ID always starts with
-  `@agent-`. Offboarding the owner locks the agent within 2 minutes.
+  `@agent-`. Offboarding the owner locks the agent in about 2 minutes.
 
 ## Out of scope
 Password or compat login (D2), member self-service (D1, later), agents in calls and the Meeting Recording Agent (D7, its

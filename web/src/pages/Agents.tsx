@@ -48,7 +48,7 @@ export const AGENT_WARNINGS = [
   'The token gives full chat access as the agent. OpenClaw and Hermes store it on disk; Hermes in plaintext. A token in use does not expire; one unused for 90 days is revoked. Rotate on any doubt; revoke from here.',
   'Anyone in a room with the agent can try to steer it. Keep its tools as limited as you would trust every room member with.',
   'With federation on, users of allowed servers can invite and message the agent; the config blocks make it join and answer only for its owner.',
-  'An agent can change its display name to anything; its Matrix ID always starts with @agent-. Offboarding the owner locks the agent within 2 minutes.',
+  'An agent can change its display name to anything; its Matrix ID always starts with @agent-. Offboarding the owner locks the agent in about 2 minutes.',
 ];
 
 const STATE_BADGE: Record<Agent['token_state'], { label: string; badge: string }> = {

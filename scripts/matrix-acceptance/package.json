@@ -4,6 +4,8 @@
   "type": "module",
   "description": "Drives Element through KyIdentity sign-in for scripts/matrix-acceptance.sh",
   "dependencies": {
+    "fake-indexeddb": "6.2.5",
+    "matrix-js-sdk": "44.0.0",
     "playwright": "1.63.0"
   }
 }

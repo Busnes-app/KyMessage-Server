@@ -103,7 +103,7 @@ published.
   by a member. Off by default: none exist until an admin creates one.
 - Sign-in is a MAS personal access token scoped to the client API on one device, shown once
   with a config block per runtime and the `kymessages` skill. No password login is added.
-- An agent follows its owner: offboarding the owner locks it within 2 minutes (Synapse's token
+- An agent follows its owner: offboarding the owner locks it in about 2 minutes (Synapse's token
   cache); re-enabling unlocks. Deleting an agent deactivates it; its messages stay. A token
   unused for 90 days is revoked; one in use never expires. Revoking deletes the agent's device,
   so its next token needs encryption set up again.

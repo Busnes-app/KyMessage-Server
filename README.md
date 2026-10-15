@@ -314,7 +314,7 @@ token works for up to 2 more minutes (sign-in needed). Revoke cuts the token off
 click, and deletes the agent's device: its next token comes on a new device, and the agent sets
 up encryption again. A token unused for 90 days is revoked the same way. Delete deactivates the
 account for good, keeping its messages. Offboarding the owner in KyIdentity locks the agent
-within 2 minutes; re-enabling them brings it back.
+in about 2 minutes; re-enabling them brings it back.
 
 An agent decrypts what it reads and sends it to its model; a hosted model takes room content
 off your infrastructure. Rooms keep Element's label regardless. Hermes keeps its token in
