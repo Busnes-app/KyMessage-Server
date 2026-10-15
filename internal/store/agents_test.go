@@ -32,16 +32,20 @@ func TestAgentStoreLifecycle(t *testing.T) {
 		}
 	}
 
-	if err := st.SetAgentToken(ctx, "agt_1", "DEVICE0000000001", "", store.AgentTokenExpired); err != nil {
+	if err := st.SetAgentToken(ctx, "agt_1", "01SESS1", "DEVICE0000000001", "", store.AgentTokenExpired); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := st.GetAgent(ctx, "agt_1"); got.SessionID != "" || got.TokenState != store.AgentTokenExpired {
 		t.Fatalf("after expiry: %+v", got)
 	}
-	if err := st.SetAgentToken(ctx, "agt_1", "DEVICE0000000009", "01SESS3", store.AgentTokenActive); err != nil {
+	if err := st.SetAgentToken(ctx, "agt_1", "", "DEVICE0000000009", "01SESS3", store.AgentTokenActive); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAgentToken(ctx, "missing", "D", "", store.AgentTokenRevoked); !errors.Is(err, store.ErrNotFound) {
+	// A writer that read an older session loses: the newer one stays recorded.
+	if err := st.SetAgentToken(ctx, "agt_1", "", "DEVICE0000000008", "01SESS4", store.AgentTokenActive); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("SetAgentToken from a stale session: %v", err)
+	}
+	if err := st.SetAgentToken(ctx, "missing", "", "D", "", store.AgentTokenRevoked); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("SetAgentToken missing: %v", err)
 	}
 
@@ -81,7 +85,7 @@ func TestAgentTokenStateIsConsistent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, b := range bad {
-		if err := st.SetAgentToken(ctx, "agt", "d", b.session, b.state); err == nil {
+		if err := st.SetAgentToken(ctx, "agt", "01SESS", "d", b.session, b.state); err == nil {
 			t.Fatalf("SetAgentToken accepted %+v", b)
 		}
 	}

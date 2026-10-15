@@ -156,7 +156,8 @@ type AgentStore interface {
 	// ListAgents returns every agent, oldest first.
 	ListAgents(ctx context.Context) ([]*Agent, error)
 	// SetAgentToken records the agent's device and current session: a session ID with
-	// AgentTokenActive, or "" with AgentTokenRevoked or AgentTokenExpired.
-	SetAgentToken(ctx context.Context, id, deviceID, sessionID, state string) error
+	// AgentTokenActive, or "" with AgentTokenRevoked or AgentTokenExpired. It is ErrNotFound
+	// unless the agent still holds fromSession, so a concurrent change is never overwritten.
+	SetAgentToken(ctx context.Context, id, fromSession, deviceID, sessionID, state string) error
 	DeleteAgent(ctx context.Context, id string) error
 }

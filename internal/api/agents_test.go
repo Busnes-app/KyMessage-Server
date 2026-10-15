@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,10 @@ type agentMAS struct {
 	activity    map[string]matrixsync.Activity
 	activityErr error
 	mintErr     error
+	// mintHeld, when set, receives each mint's arrival; the mint then waits for mintGate.
+	mintHeld, mintGate chan struct{}
+	// onRevoke, when set, runs before a revoke is recorded: a concurrent change landing then.
+	onRevoke func(sessionID string)
 }
 
 func (f *fakeMAS) CreateAgentUser(_ context.Context, username string) (string, error) {
@@ -46,6 +51,10 @@ func (f *fakeMAS) CreateAgentUser(_ context.Context, username string) (string, e
 }
 
 func (f *fakeMAS) MintAgentToken(_ context.Context, userID, deviceID string) (string, string, error) {
+	if f.ag.mintHeld != nil {
+		f.ag.mintHeld <- struct{}{}
+		<-f.ag.mintGate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.ag.mintErr != nil {
@@ -69,6 +78,10 @@ func (f *fakeMAS) RotateAgentToken(ctx context.Context, userID, deviceID, sessio
 }
 
 func (f *fakeMAS) RevokeAgentSession(_ context.Context, sessionID string) error {
+	if hook := f.ag.onRevoke; hook != nil {
+		f.ag.onRevoke = nil
+		hook(sessionID)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ag.revoked = append(f.ag.revoked, sessionID)
@@ -341,6 +354,86 @@ func TestExpireIdleAgents(t *testing.T) {
 	f.ag.revoked, f.ag.activityErr = nil, errors.New("MAS down")
 	if err := srv.ExpireIdleAgents(ctx, now.Add(1000*day)); err == nil || len(f.ag.revoked) != 0 {
 		t.Fatalf("on read failure: %v revoked %v", err, f.ag.revoked)
+	}
+}
+
+// Two reissues on a revoked agent race: the loser revokes its own token, so every session MAS
+// minted is either recorded or revoked.
+func TestAgentConcurrentReissue(t *testing.T) {
+	srv, st, f, admin := setupAgents(t)
+	ctx := context.Background()
+	c := createAgent(t, srv, admin, "agent-race")
+	if w := adminDo(t, srv, admin, "POST", "/api/admin/agents/"+c.Agent.ID+"/revoke", nil); w.Code != http.StatusOK {
+		t.Fatalf("revoke %d", w.Code)
+	}
+	f.ag.mintHeld, f.ag.mintGate = make(chan struct{}), make(chan struct{})
+	codes := make(chan int, 2)
+	for range 2 {
+		go func() {
+			codes <- adminDo(t, srv, admin, "POST", "/api/admin/agents/"+c.Agent.ID+"/rotate", nil).Code
+		}()
+	}
+	<-f.ag.mintHeld
+	<-f.ag.mintHeld // both rotates read the revoked row before either mints
+	close(f.ag.mintGate)
+	got := []int{<-codes, <-codes}
+	if got[0]+got[1] != http.StatusOK+http.StatusConflict {
+		t.Fatalf("codes %v", got)
+	}
+	row, _ := st.Agents().GetAgent(ctx, c.Agent.ID)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// SESS02 is create's and was revoked; the race minted SESS03 and SESS04.
+	for _, sess := range []string{"SESS03", "SESS04"} {
+		if sess != row.SessionID && !slices.Contains(f.ag.revoked, sess) {
+			t.Errorf("%s is neither recorded (%s) nor revoked %v", sess, row.SessionID, f.ag.revoked)
+		}
+	}
+	if row.TokenState != store.AgentTokenActive || slices.Contains(f.ag.revoked, row.SessionID) {
+		t.Fatalf("row %+v revoked %v", row, f.ag.revoked)
+	}
+}
+
+// A revoke that read the row before a concurrent revoke and reissue landed ends the reissued
+// session too, rather than recording "revoked" over it.
+func TestAgentRevokeChasesAReissue(t *testing.T) {
+	srv, st, f, admin := setupAgents(t)
+	ctx := context.Background()
+	c := createAgent(t, srv, admin, "agent-chase")
+	f.ag.onRevoke = func(string) {
+		if err := st.Agents().SetAgentToken(ctx, c.Agent.ID, "SESS02", "D1", "", store.AgentTokenRevoked); err != nil {
+			t.Error(err)
+		}
+		if err := st.Agents().SetAgentToken(ctx, c.Agent.ID, "", "D2", "SESS09", store.AgentTokenActive); err != nil {
+			t.Error(err)
+		}
+	}
+	if w := adminDo(t, srv, admin, "POST", "/api/admin/agents/"+c.Agent.ID+"/revoke", nil); w.Code != http.StatusOK {
+		t.Fatalf("revoke %d %s", w.Code, w.Body.String())
+	}
+	row, _ := st.Agents().GetAgent(ctx, c.Agent.ID)
+	if row.SessionID != "" || row.TokenState != store.AgentTokenRevoked || strings.Join(f.ag.revoked, ",") != "SESS02,SESS09" {
+		t.Fatalf("row %+v revoked %v", row, f.ag.revoked)
+	}
+}
+
+// Idle expiry that finds the agent reissued since it listed leaves the new session alone.
+func TestExpireIdleAgentsSkipsAReissue(t *testing.T) {
+	srv, st, f, admin := setupAgents(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	c := createAgent(t, srv, admin, "agent-stale")
+	f.ag.activity = map[string]matrixsync.Activity{"SESS02": {CreatedAt: now.Add(-200 * 24 * time.Hour)}}
+	f.ag.onRevoke = func(string) {
+		_ = st.Agents().SetAgentToken(ctx, c.Agent.ID, "SESS02", "D1", "", store.AgentTokenRevoked)
+		_ = st.Agents().SetAgentToken(ctx, c.Agent.ID, "", "D2", "SESS09", store.AgentTokenActive)
+	}
+	if err := srv.ExpireIdleAgents(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := st.Agents().GetAgent(ctx, c.Agent.ID)
+	if row.SessionID != "SESS09" || row.TokenState != store.AgentTokenActive || strings.Join(f.ag.revoked, ",") != "SESS02" {
+		t.Fatalf("row %+v revoked %v", row, f.ag.revoked)
 	}
 }
 

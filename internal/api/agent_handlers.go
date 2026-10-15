@@ -306,11 +306,17 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) {
 		s.matrixError(w, err)
 		return
 	}
-	if err := s.store.Agents().SetAgentToken(ctx, a.ID, device, sessionID, store.AgentTokenActive); err != nil {
+	if err := s.store.Agents().SetAgentToken(ctx, a.ID, a.SessionID, device, sessionID, store.AgentTokenActive); err != nil {
+		// Another change won the row: an unrecorded session would outlive revoke and expiry.
+		raced := errors.Is(err, store.ErrNotFound)
 		if rerr := s.mas.RevokeAgentSession(ctx, sessionID); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
 		record(mxid, "error: "+err.Error())
+		if raced {
+			s.writeError(w, http.StatusConflict, "The agent changed meanwhile; the new token was revoked")
+			return
+		}
 		s.writeError(w, http.StatusInternalServerError, "Could not record the new token; it was revoked")
 		return
 	}
@@ -328,18 +334,42 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) {
 }
 
 // endAgentToken revokes a's session in MAS, then records state. A session MAS already ended
-// counts as revoked.
+// counts as revoked. store.ErrNotFound: the agent is gone or now holds another session.
 func (s *Server) endAgentToken(ctx context.Context, a *store.Agent, state string) error {
 	if a.SessionID != "" {
 		if err := s.mas.RevokeAgentSession(ctx, a.SessionID); err != nil {
 			return err
 		}
 	}
-	if err := s.store.Agents().SetAgentToken(ctx, a.ID, a.DeviceID, "", state); err != nil {
+	if err := s.store.Agents().SetAgentToken(ctx, a.ID, a.SessionID, a.DeviceID, "", state); err != nil {
 		return err
 	}
 	a.SessionID, a.TokenState = "", state
 	return nil
+}
+
+// revokeAgent ends whichever session the agent holds, re-reading it when a concurrent rotate
+// recorded a new one.
+func (s *Server) revokeAgent(ctx context.Context, a *store.Agent) error {
+	for range 3 {
+		err := s.endAgentToken(ctx, a, store.AgentTokenRevoked)
+		if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if a, err = s.store.Agents().GetAgent(ctx, a.ID); err != nil {
+			return err
+		}
+	}
+	return errors.New("the agent's token kept changing; try again")
+}
+
+// agentEndError answers a failed revoke or delete.
+func (s *Server) agentEndError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrNotFound) {
+		s.writeError(w, http.StatusNotFound, "No such agent")
+		return
+	}
+	s.matrixError(w, err)
 }
 
 func (s *Server) handleAgentRevoke(w http.ResponseWriter, r *http.Request) {
@@ -353,9 +383,9 @@ func (s *Server) handleAgentRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mxid := s.mxid(a.Username)
-	if err := s.endAgentToken(ctx, a, store.AgentTokenRevoked); err != nil {
+	if err := s.revokeAgent(ctx, a); err != nil {
 		record(mxid, "error: "+err.Error())
-		s.matrixError(w, err)
+		s.agentEndError(w, err)
 		return
 	}
 	record(mxid, "revoked")
@@ -374,7 +404,7 @@ func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mxid := s.mxid(a.Username)
-	err := s.endAgentToken(ctx, a, store.AgentTokenRevoked)
+	err := s.revokeAgent(ctx, a)
 	if err == nil {
 		err = s.mas.Deactivate(ctx, a.MASUserID)
 	}
@@ -383,7 +413,7 @@ func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		record(mxid, "error: "+err.Error())
-		s.matrixError(w, err)
+		s.agentEndError(w, err)
 		return
 	}
 	record(mxid, "deleted")
@@ -428,7 +458,9 @@ func (s *Server) ExpireIdleAgents(ctx context.Context, now time.Time) error {
 			continue
 		}
 		outcome := "expired"
-		if err := s.endAgentToken(ctx, a, store.AgentTokenExpired); err != nil {
+		// ErrNotFound: an admin changed the agent since listing. The idle session is still
+		// ended; the newer one is not this pass's to judge.
+		if err := s.endAgentToken(ctx, a, store.AgentTokenExpired); err != nil && !errors.Is(err, store.ErrNotFound) {
 			errs = append(errs, err)
 			outcome = "error: " + err.Error()
 		}
