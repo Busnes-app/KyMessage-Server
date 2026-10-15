@@ -118,19 +118,41 @@ func TestIPv6AddressesInOne64ShareAWindow(t *testing.T) {
 	}
 }
 
-// Password guesses spread across many addresses must still meet one per-account window.
-func TestLoginPerAccountWindow(t *testing.T) {
+// Only failures count, and the lockout is per account and client: an attacker's wrong guesses
+// lock out the attacker, not the owner signing in from elsewhere. Guesses spread across many
+// addresses still meet the account-wide ceiling.
+func TestLoginLockoutIsPerClientAndCountsOnlyFailures(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	createLocalUser(t, st, "usr_admin", "admin", "admin", "RealAdminPass123!")
+	good := map[string]string{"username": "admin", "password": "RealAdminPass123!"}
+	wrong := map[string]string{"username": "admin", "password": "guess"}
+	const owner, attacker = "198.51.100.7:40000", "203.0.113.66:40000"
 
+	for i := 1; i <= 12; i++ {
+		if w := postJSON(t, srv, "/api/auth/login", owner, good); w.Code != http.StatusOK {
+			t.Fatalf("successful sign-in %d answered %d: successes must not count", i, w.Code)
+		}
+	}
 	for i := 1; i <= 10; i++ {
-		peer := "203.0.113." + strconv.Itoa(i) + ":40000"
-		if w := postJSON(t, srv, "/api/auth/login", peer, map[string]string{"username": "admin", "password": "guess-" + strconv.Itoa(i)}); w.Code != http.StatusUnauthorized {
+		if w := postJSON(t, srv, "/api/auth/login", attacker, wrong); w.Code != http.StatusUnauthorized {
 			t.Fatalf("guess %d answered %d, want 401", i, w.Code)
 		}
 	}
-	if w := postJSON(t, srv, "/api/auth/login", "203.0.113.99:40000", map[string]string{"username": "admin", "password": "RealAdminPass123!"}); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("11th attempt answered %d, want 429", w.Code)
+	if w := postJSON(t, srv, "/api/auth/login", attacker, good); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("the locked-out client with the right password answered %d, want 429", w.Code)
+	}
+	if w := postJSON(t, srv, "/api/auth/login", owner, good); w.Code != http.StatusOK {
+		t.Fatalf("the owner from another address answered %d after the attacker's failures, want 200", w.Code)
+	}
+
+	// 90 more failures from nine addresses reach the account-wide ceiling of 100.
+	for ip := 1; ip <= 9; ip++ {
+		for i := 0; i < 10; i++ {
+			postJSON(t, srv, "/api/auth/login", "192.0.2."+strconv.Itoa(ip)+":40000", wrong)
+		}
+	}
+	if w := postJSON(t, srv, "/api/auth/login", "192.0.2.200:40000", good); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("after 100 failures the account answered %d from a fresh address, want 429", w.Code)
 	}
 }
 

@@ -550,7 +550,7 @@ jar=$state/app.cookies
 # app_api METHOD PATH [JSON]: the KyMessages admin API as the browser calls it (CSRF header from the cookie).
 app_api() {
 	local csrf body=()
-	csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
+	csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
 	[[ $# -ge 3 ]] && body=(-d "$3")
 	hcurl -fsS -b "$jar" -c "$jar" -X "$1" -H "Origin: $KY_APP_URL" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" "${body[@]}" "$KY_APP_URL$2"
 }
@@ -808,7 +808,7 @@ for table in "${purged_tables[@]}"; do
 done
 ok "throwaway room $throwaway has rows in ${purged_tables[*]}"
 app_login "$admin_pass"
-csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
+csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar")
 expect "$(status POST "$KY_APP_URL/api/admin/matrix/rooms/$(uri "$throwaway")/delete" -b "$jar" -H "Origin: $KY_APP_URL" \
 	-H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"confirm":"not the name"}')" 400 "a delete with the wrong room name is refused"
 app_login "$admin_pass"
@@ -881,7 +881,7 @@ if go run -C "$repo" ./scripts/matrix-acceptance/textpng -check "$state/logo.png
 fi
 ok "the logo fixture carries a tEXt chunk"
 app_login "$admin_pass"
-csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
+csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar")
 hcurl -fsS -b "$jar" -X PUT -H "Origin: $KY_APP_URL" -H 'Content-Type: image/png' -H "X-CSRF-Token: $csrf" \
 	--data-binary "@$state/logo.png" "$KY_APP_URL/api/admin/branding/logo" >"$state/logo.json"
 hcurl -fsS -D "$state/icon.headers" -o "$state/icon.png" "$KY_APP_URL/app-icon.png"

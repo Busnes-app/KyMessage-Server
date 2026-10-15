@@ -33,7 +33,10 @@ export KY_ADMIN_PASSWORD
 KY_HOST=127.0.0.1 ./kymessages
 ```
 
-Open `http://localhost:8080`. Replace the bootstrap password before privileged use.
+Open `http://localhost:8080`. Replace the bootstrap password before privileged use, then
+turn on two-factor sign-in under Settings > Account security. To create or reset the local
+administrator from a shell, run `./kymessages init-admin [-username <name>]`; it reads the
+password from stdin (no echo on a terminal), never from the command line.
 The local administrator operates the service; member access requires
 suite OIDC.
 The default data directory is `./data`; keep its encryption key with the database.
@@ -381,7 +384,8 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks |
 | `KY_ADMIN_USERNAME` | Username of the local admin created on an empty database and `init-admin`'s default, default `admin`; 3-64 letters, digits, `.`, `_` or `-`. Set it before first start when a KyIdentity user is called `admin` (KyIdentity's own admin cannot be renamed): a KyIdentity user whose username a local account holds is refused, never merged into it. It has no effect on an existing database. After resolving a clash (renaming the local account or the KyIdentity user), press Resync Directory on the KyMessages system in KyIdentity; KyIdentity does not resend a refused new user on its own |
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
-| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
+| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host. With it on and `KY_COOKIE_DOMAIN` unset, auth cookies carry the `__Host-` prefix |
+| `KY_SSO_ENABLED` | Default true; `false` turns KyIdentity sign-in off (its routes answer 404) |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
 | `KY_MATRIX_RTC_HOST`, `KY_MATRIX_MEDIA_IP` | LiveKit HTTPS signalling origin and directly reachable media IPv4; required by `matrix-init`; set the host in `.env` too |
 | `KY_MATRIX_TURN_HOST`, `KY_MATRIX_TURN_CERT_FILE`, `KY_MATRIX_TURN_KEY_FILE` | Optional complete TURN/TLS setup block for `matrix-init`; DNS-only hostname and trusted PEM files; enable the TURN overlay |
