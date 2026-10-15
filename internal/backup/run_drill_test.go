@@ -7,58 +7,35 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
-	"golang.org/x/sys/unix"
 )
 
-// A separate process holds the same lock used by the HTTP/CLI wrapper. Killing it
-// proves the kernel releases ownership without a stale lock-file recovery scheme.
-func TestDrillLockProcess(t *testing.T) {
-	if os.Getenv("KY_DRILL_LOCK_HELPER") != "1" {
+// A separate process holds backup.lock, as a cron `kymessages deposit` would while the server's
+// scheduler ticks. Killing it proves the kernel releases ownership without stale-lock recovery.
+func TestBackupLockProcess(t *testing.T) {
+	if os.Getenv("KY_BACKUP_LOCK_HELPER") != "1" {
 		return
 	}
-	dir := os.Getenv("KY_DRILL_LOCK_DIR")
-	f, err := os.OpenFile(filepath.Join(dir, "drill.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	unlock, err := backup.Lock(os.Getenv("KY_BACKUP_LOCK_DIR"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		t.Fatal(err)
-	}
+	defer unlock()
 	fmt.Println("locked")
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 }
 
-func TestRunDrillSerializesProcessesAndReleasesAfterExit(t *testing.T) {
-	t.Setenv("KY_PORT", "8080")
-	t.Setenv("KY_DB_DRIVER", "sqlite")
-	cfg, _ := payloadConfig(t)
-	payload, err := backup.Collect(context.Background(), cfg, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := backup.DrillRoot(cfg)
-	stale := filepath.Join(root, "recoveryclient-drill-active")
-	if err := os.MkdirAll(stale, 0700); err != nil {
-		t.Fatal(err)
-	}
-	marker := filepath.Join(stale, "active-data")
-	if err := os.WriteFile(marker, []byte("active"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(stale, old, old); err != nil {
-		t.Fatal(err)
-	}
+func TestLockSerializesProcessesAndReleasesAfterExit(t *testing.T) {
+	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDrillLockProcess$")
-	cmd.Env = append(os.Environ(), "KY_DRILL_LOCK_HELPER=1", "KY_DRILL_LOCK_DIR="+cfg.Database.DataDir)
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBackupLockProcess$")
+	cmd.Env = append(os.Environ(), "KY_BACKUP_LOCK_HELPER=1", "KY_BACKUP_LOCK_DIR="+dir)
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -77,28 +54,53 @@ func TestRunDrillSerializesProcessesAndReleasesAfterExit(t *testing.T) {
 	if err != nil || line != "locked\n" {
 		t.Fatalf("helper did not acquire lock: %q %v", line, err)
 	}
-	if _, err := backup.RunDrill(context.Background(), cfg, payload, backup.Checks); !errors.Is(err, backup.ErrDrillBusy) {
+	if _, err := backup.Lock(dir); !errors.Is(err, backup.ErrBusy) || !errors.Is(err, recoveryclient.ErrInProgress) {
 		t.Fatalf("concurrent process accepted: %v", err)
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("busy drill swept active scratch: %v", err)
+	unlock, err := backup.Lock(t.TempDir())
+	if err != nil {
+		t.Fatalf("independent data dir blocked: %v", err)
 	}
-	other, _ := payloadConfig(t)
-	result, err := backup.RunDrill(context.Background(), other, payload, backup.Checks)
-	if err != nil || !result.Passed {
-		t.Fatalf("independent data dir blocked: %+v %v", result, err)
-	}
+	unlock()
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_ = cmd.Wait()
+	unlock, err = backup.Lock(dir)
+	if err != nil {
+		t.Fatalf("lock survived process exit: %v", err)
+	}
+	// In one process too: the HTTP routes and the scheduler share a data directory.
+	if _, err := backup.Lock(dir); !errors.Is(err, backup.ErrBusy) {
+		t.Fatalf("second holder in the same process accepted: %v", err)
+	}
+	unlock()
+	unlock, err = backup.Lock(dir)
+	if err != nil {
+		t.Fatalf("lock survived unlock: %v", err)
+	}
+	unlock()
+}
+
+func TestRunDrillKeepsItsScratchPrivateAndClean(t *testing.T) {
+	t.Setenv("KY_PORT", "8080")
+	t.Setenv("KY_DB_DRIVER", "sqlite")
+	cfg, _ := payloadConfig(t)
+	payload, err := backup.Collect(context.Background(), cfg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := backup.DrillRoot(cfg)
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
 	// A permissive existing root is repaired before the library opens any plaintext.
 	if err := os.Chmod(root, 0755); err != nil {
 		t.Fatal(err)
 	}
-	result, err = backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
+	result, err := backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
 	if err != nil || !result.Passed {
-		t.Fatalf("lock survived process exit: %+v %v", result, err)
+		t.Fatalf("drill: %+v %v", result, err)
 	}
 	info, err := os.Stat(root)
 	if err != nil || info.Mode().Perm() != 0700 {
@@ -108,14 +110,12 @@ func TestRunDrillSerializesProcessesAndReleasesAfterExit(t *testing.T) {
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("scratch left behind: %v %v", entries, err)
 	}
-	// Cancellation must also release the lock.
 	canceled, stop := context.WithCancel(context.Background())
 	stop()
 	if _, err := backup.RunDrill(canceled, cfg, payload, backup.Checks); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled drill: %v", err)
 	}
-	result, err = backup.RunDrill(context.Background(), cfg, payload, backup.Checks)
-	if err != nil || !result.Passed {
-		t.Fatalf("lock survived cancellation: %+v %v", result, err)
+	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
+		t.Fatalf("canceled drill left scratch: %v %v", entries, err)
 	}
 }

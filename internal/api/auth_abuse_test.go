@@ -93,8 +93,7 @@ func TestPairVerifyAcceptsOnlyTheSecret(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "session_token") {
 		t.Fatalf("real secret: got %d %s", w.Code, w.Body.String())
 	}
-	poll := httptest.NewRecorder()
-	srv.ServeHTTP(poll, httptest.NewRequest("GET", "/api/devices/pair/poll?secret="+secret, nil))
+	poll := postJSON(t, srv, "/api/devices/pair/poll", "192.0.2.10:1000", map[string]string{"secret": secret})
 	if !strings.Contains(poll.Body.String(), `"consumed"`) {
 		t.Fatalf("poll after pairing: %s", poll.Body.String())
 	}

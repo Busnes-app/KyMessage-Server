@@ -328,7 +328,12 @@ func (s *Server) routes() {
 	// Devices & Ephemeral QR Pairing
 	s.mux.HandleFunc("/api/devices/pair/init", s.requireAuthenticated(s.handlePairInit))
 	s.mux.HandleFunc("/api/devices/pair/verify", s.handlePairVerify)
-	s.mux.HandleFunc("/api/devices/pair/poll", s.handlePairPoll)
+	s.mux.HandleFunc("POST /api/devices/pair/poll", s.handlePairPoll)
+	// The old GET carried the secret in its query string; refuse it loudly.
+	s.mux.HandleFunc("GET /api/devices/pair/poll", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", http.MethodPost)
+		s.writeError(w, http.StatusMethodNotAllowed, "Use POST with the secret in a JSON body")
+	})
 
 	// Feature 0 KyBackup & Restore Drills. Capsules carry site data and keys: admins only.
 	// Method patterns: only the declared method reaches a handler. Export is a POST so the
@@ -344,6 +349,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireFreshAdmin(s.handleSetSchedule))
 	s.mux.HandleFunc("GET /api/backup/status", s.requireAdmin(s.handleBackupStatus))
 	s.mux.HandleFunc("GET /api/admin/network-check", s.requireAdmin(s.handleNetworkCheck))
+	s.mux.HandleFunc("GET /api/admin/scim/users", s.requireAdmin(s.handleSCIMUsers))
 
 	// Console. Reads are any admin; ending a session needs a recent sign-in and is audited.
 	s.mux.HandleFunc("GET /api/admin/matrix/users", s.requireAdmin(s.handleMatrixUsers))

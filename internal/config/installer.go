@@ -36,6 +36,7 @@ func ApplyInstallerConfiguration(cfg *Config, b applysetup.Common) error {
 		}
 		cfg.SCIM.Enabled = false
 		cfg.SCIM.BearerToken = ""
+		cfg.SCIM.TokenSet = false
 		if s.RedirectURI != cfg.Server.AppURL+"/api/sso/kyidentity/callback" {
 			return errors.New("installer callback does not match the configured product URL")
 		}

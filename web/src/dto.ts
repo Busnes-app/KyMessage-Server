@@ -31,3 +31,26 @@ export function oneOf<T extends string>(v: unknown, allowed: readonly T[]): T {
   if (typeof v !== 'string' || !(allowed as readonly string[]).includes(v)) throw new InvalidResponse();
   return v as T;
 }
+/** `f(v)` when the field is present; Go omits empty fields or sends null for them. */
+export function opt<T>(v: unknown, f: (v: unknown) => T): T | undefined {
+  return v === undefined || v === null ? undefined : f(v);
+}
+
+export interface SessionUser { username: string; display_name: string; role: string; must_change_password: boolean }
+/** The `user` of /api/auth/me and the sign-in replies. */
+export function parseUser(v: unknown): SessionUser {
+  const o = obj(v);
+  return {
+    username: str(o.username, 255),
+    display_name: opt(o.display_name, str) ?? '',
+    role: str(o.role, 32),
+    must_change_password: bool(o.must_change_password),
+  };
+}
+
+export interface SiteSettings { app_name: string; chat_url: string; db_driver?: string }
+/** The /api/settings fields the shell uses; the rest is tiered by role and not read here. */
+export function parseSettings(v: unknown): SiteSettings {
+  const o = obj(v);
+  return { app_name: str(o.app_name), chat_url: opt(o.chat_url, str) ?? '', db_driver: opt(o.db_driver, (d) => str(d, 32)) };
+}

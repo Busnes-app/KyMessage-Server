@@ -35,6 +35,11 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - Migration 20 renames the stored suite provider `kysignon` to `kyidentity` in `users.sso_provider`, `directory_sync_state` and `directory_sync_events`; its SQL is idempotent.
 - Migration 14 rebuilds `device_pairings` without the six-digit code column; pending pairings (90 s) are dropped on upgrade.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
+  `migrations.Run` refuses with `ErrNewerSchema` a database whose `schema_migrations` holds a
+  version above this build's newest (image rollback, or a capsule from a newer build), before
+  running anything. It takes only `sqlite` or `postgres`/`postgresql` and picks its placeholder
+  from that.
+- `GetAllSettings` returns any row scan error rather than omitting the row.
 - SQLite runs in WAL mode with foreign keys enabled.
 - PostgreSQL queries are rebound dynamically from standard positional parameters.
 - MFA challenges and device pairings are consumed with database state transitions that permit exactly one successful use.
@@ -55,7 +60,8 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 ## Verification
 - `go test -v ./internal/store/...`
 - `migrations/migrations_test.go` builds a v16 database through the test-only
-  `RunThrough` seam (`export_test.go`) and checks migrations 17, 19, 20 and 21 on both engines.
+  `RunThrough` seam (`export_test.go`) and checks migrations 17, 19, 20 and 21 on both engines,
+  and the newer-schema refusal through `Run` and `store.Open`.
 
 ## Child DOX Index
 None.

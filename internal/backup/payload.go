@@ -157,7 +157,19 @@ func snapshotSQLite(ctx context.Context, dsn, dataDir string) ([]byte, error) {
 
 // snapshotFile writes a consistent copy of the live database into a fresh scratch
 // directory under dataDir. cleanup removes the directory and anything built beside the copy.
+// Callers hold Lock, so any older snapshot-* is plaintext a crashed run left behind; it goes first.
 func snapshotFile(ctx context.Context, dsn, dataDir string) (string, func(), error) {
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "snapshot-") {
+			if err := os.RemoveAll(filepath.Join(dataDir, e.Name())); err != nil {
+				return "", nil, fmt.Errorf("remove stale snapshot: %w", err)
+			}
+		}
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return "", nil, err

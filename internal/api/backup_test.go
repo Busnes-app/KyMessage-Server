@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -363,22 +362,20 @@ func TestDrillReportsBusyAndRunsDecodedChecks(t *testing.T) {
 	t.Setenv("KY_DB_DRIVER", "sqlite")
 	srv, st, cfg := setupSQLiteServer(t)
 	session := loginAs(t, srv, st, "drill-admin", "admin")
-	f, err := os.OpenFile(filepath.Join(cfg.Database.DataDir, "drill.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	pairedForBackup(t, srv, st, cfg)
+	// Another run, deposit, export or drill (here, or a CLI one) holds the lock: every sealing
+	// route refuses before collecting a second payload.
+	unlock, err := backup.Lock(cfg.Database.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{"/api/backup/drill", "/api/backup/export-capsule", "/api/backup/deposit"} {
+		if w := adminPost(t, srv, session, path); w.Code != http.StatusConflict {
+			t.Errorf("%s while busy: %d %s", path, w.Code, w.Body.String())
+		}
 	}
+	unlock()
 	w := adminPost(t, srv, session, "/api/backup/drill")
-	if w.Code != http.StatusConflict {
-		t.Fatalf("busy: %d %s", w.Code, w.Body.String())
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-	w = adminPost(t, srv, session, "/api/backup/drill")
 	if w.Code != http.StatusOK {
 		t.Fatalf("drill: %d %s", w.Code, w.Body.String())
 	}
@@ -909,6 +906,20 @@ func TestStatusReportsHalfWrittenPin(t *testing.T) {
 	status := statusOf(t, srv, session)
 	if status["key_pinned"] != false || !strings.Contains(fmt.Sprint(status["recovery_key_error"]), "pin was not recorded") {
 		t.Fatalf("half-written pin not reported: %v", status)
+	}
+}
+
+// A scheduler that stopped at start (it cannot build its sealer) is named in status, so the
+// screen does not show a schedule that never runs; a working one has no scheduler_error.
+func TestStatusReportsAStoppedScheduler(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	session := loginAs(t, srv, st, "sched-admin", "admin")
+	if status := statusOf(t, srv, session); status["scheduler_error"] != nil {
+		t.Fatalf("working scheduler reported stopped: %v", status["scheduler_error"])
+	}
+	cfg.Security.EncryptionKey = []byte("too short")
+	if msg, _ := statusOf(t, srv, session)["scheduler_error"].(string); !strings.Contains(msg, "Scheduled backups are off") {
+		t.Fatalf("scheduler_error = %q", msg)
 	}
 }
 

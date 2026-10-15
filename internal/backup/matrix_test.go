@@ -37,6 +37,7 @@ func matrixInstance(t *testing.T, masDump, synapseDump []byte) (*config.Config, 
 	mdir := t.TempDir()
 	for rel, body := range map[string]string{
 		"secrets/synapse_db_password":      "spw",
+		"secrets/mas_db_password":          "mpw",
 		"secrets/postgres_password":        "superuser-pw",
 		"secrets/.synapse_db_password.123": "matrix-init temp file",
 		"synapse/signing.key":              "ed25519 a_abcd seed",

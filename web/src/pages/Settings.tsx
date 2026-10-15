@@ -4,14 +4,16 @@ import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
 import { FederationPanel } from '../components/FederationPanel';
+import type { SiteSettings } from '../dto';
 
 interface SettingsProps {
-  settings: any;
+  settings: SiteSettings | null;
   /** Re-reads /api/settings so the shell shows a new name. */
   onBrandingChanged: () => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged }) => {
+  const driver = settings?.db_driver;
   return (
     <div style={{ maxWidth: '1080px', margin: '0 auto', padding: '32px 20px' }}>
       <div style={{ marginBottom: '24px' }}>
@@ -20,7 +22,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged 
           <span>System Settings & Architecture</span>
         </h1>
         <p style={{ color: 'var(--ink)', fontSize: '14px', marginTop: '4px' }}>
-          Pluggable database drivers, color theme defaults, and instance configuration.
+          Database, color theme defaults, and instance configuration.
         </p>
       </div>
 
@@ -29,22 +31,26 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged 
         <div className="panel">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
             <Database size={20} style={{ color: 'var(--accent)' }} />
-            <h3 style={{ fontSize: '16px' }}>Pluggable Database Layer</h3>
+            <h3 style={{ fontSize: '16px' }}>Database</h3>
           </div>
           <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
-            Supports zero-CGO SQLite (default) and PostgreSQL clustering on demand.
+            The supported deployment is SQLite on a single instance.
           </p>
 
           <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '6px', padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
-              <span style={{ color: 'var(--ink)' }}>Active Storage Driver:</span>
-              <span className="badge badge-accent font-mono">{settings?.db_driver || 'sqlite'}</span>
-            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-              <span style={{ color: 'var(--ink)' }}>Swapping Capability:</span>
-              <span style={{ color: 'var(--success)' }}>Supported (PostgreSQL / SQLite)</span>
+              <span style={{ color: 'var(--ink)' }}>Active storage driver:</span>
+              <span className="badge badge-accent font-mono">{driver ?? 'unknown'}</span>
             </div>
           </div>
+          {driver !== 'sqlite' && (
+            <div className="dr-alert dr-alert-warn" role="alert" style={{ marginTop: '12px' }}>
+              <span>
+                {driver ? `This server runs on ${driver}.` : 'The database driver is unknown.'} Only SQLite is supported, and
+                backup capsules can snapshot only SQLite: no capsule carries this database.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Appearance */}

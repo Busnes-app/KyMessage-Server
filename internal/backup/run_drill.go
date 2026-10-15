@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,24 +13,30 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var ErrDrillBusy = errors.New("backup: a restore drill is already running")
+// ErrBusy wraps recoveryclient.ErrInProgress, so run callers treat both alike.
+var ErrBusy = fmt.Errorf("backup: another backup, export or drill is running: %w", recoveryclient.ErrInProgress)
 
-// RunDrill serializes HTTP and CLI drills sharing a data directory. The persistent
-// lock file must not be unlinked: all processes must lock the same inode. Closing the
-// descriptor (including process exit) releases the advisory lock. checks is the kind's
-// verification.
-func RunDrill(ctx context.Context, cfg *config.Config, payload recoveryclient.Payload, checks func(string, capsule.Manifest) []recoveryclient.Check) (*recoveryclient.DrillResult, error) {
-	lock, err := os.OpenFile(filepath.Join(cfg.Database.DataDir, "drill.lock"), os.O_CREATE|os.O_RDWR, 0600)
+// Lock takes <dataDir>/backup.lock without waiting, or returns ErrBusy. Every run, deposit,
+// export and drill holds it from before Collect to the end, across processes: the lib's run
+// lock is per process, and one payload in memory at a time is enough. unlock, or process exit,
+// releases it. Never unlink the file: every process must lock the same inode.
+func Lock(dataDir string) (unlock func(), err error) {
+	f, err := os.OpenFile(filepath.Join(dataDir, "backup.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = f.Close()
 		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, ErrDrillBusy
+			return nil, ErrBusy
 		}
 		return nil, err
 	}
+	return func() { _ = f.Close() }, nil
+}
+
+// RunDrill opens payload in a private scratch root and runs checks. The caller holds Lock.
+func RunDrill(ctx context.Context, cfg *config.Config, payload recoveryclient.Payload, checks func(string, capsule.Manifest) []recoveryclient.Check) (*recoveryclient.DrillResult, error) {
 	root := DrillRoot(cfg)
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
