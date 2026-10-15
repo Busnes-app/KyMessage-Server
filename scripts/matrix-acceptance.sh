@@ -48,7 +48,7 @@ project=kymatrix-accept-$$
 kyid_image=$project-kyidentity:local
 app_image=kymatrix-accept-app:$$
 
-for tool in docker go node npm openssl curl jq certutil; do
+for tool in docker go node npm openssl curl jq certutil python3; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
 done
 [[ -f $kyid_src/Dockerfile ]] || { echo "matrix-acceptance: no KyIdentity checkout at $kyid_src (set KYIDENTITY_SRC)" >&2; exit 2; }
@@ -60,14 +60,15 @@ state=$scratch/state
 summary=$scratch/summary
 
 umask 077
-mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra"
+# ./data and ./backups belong to this user before the app (which runs as it) starts.
+mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data"
 cp -r "$here/overrides" "$scratch/overrides"
 chmod -R a+rX "$scratch/overrides" "$scratch/nginx-extra"
 
 # Compose interpolation. The network name is project-scoped, never kymessages-net.
 export KY_NETWORK=$project-net
 KY_MATRIX_UID=$(id -u) KY_MATRIX_GID=$(id -g)
-export KY_MATRIX_UID KY_MATRIX_GID
+export KY_MATRIX_UID KY_MATRIX_GID KY_UID=$KY_MATRIX_UID KY_GID=$KY_MATRIX_GID
 KY_ADMIN_PASSWORD=$(openssl rand -hex 16) KY_SESSION_SECRET=$(openssl rand -hex 32)
 export KY_ADMIN_PASSWORD KY_SESSION_SECRET
 # Compose requires these on every command; the matrix-init and kyidentity steps set the real
@@ -113,12 +114,6 @@ cleanup() {
 		echo "matrix-acceptance: logs and traces in $artifacts" >&2
 	fi
 	dc down -v --timeout 10 >/dev/null 2>&1 || echo "matrix-acceptance: down -v failed for project $project" >&2
-	# The restore step hands ./data and ./backups to root, as an operator does; take them back.
-	if [[ -n ${handed_to_root:-} ]]; then
-		docker run --rm --network none --user 0:0 -v "$scratch/data:/data" -v "$scratch/backups:/backups" \
-			--entrypoint chown "$app_image" -R "$(id -u):$(id -g)" /data /backups ||
-			echo "matrix-acceptance: could not hand back $scratch/data and $scratch/backups" >&2
-	fi
 	docker image rm "$kyid_image" "$app_image" >/dev/null 2>&1 || true
 	echo "== summary (total $((SECONDS - started))s)"
 	[[ -f $summary ]] && cat "$summary"
@@ -277,9 +272,10 @@ export ACCEPT_DIR=$scratch ACCEPT_PORT=${tls_addr##*:} ACCEPT_ARTIFACTS=$artifac
 
 # ---------------------------------------------------------------------------------------
 step kyidentity
-# The MXID localpart is the email's local part, not the username: AQuinn's mixed-case email
-# with a "+" maps to alice.q_ky. Everyone else's email is <username>@kymatrix.test.
-users=(AQuinn bob mallory nadia carol dave erin frank owen)
+# The MXID localpart is the verified email's local part, not the username: AQuinn's mixed-case
+# email with a "+" maps to alice.q_ky. Everyone else's email is <username>@kymatrix.test.
+# olga's email stays unverified.
+users=(AQuinn bob mallory nadia carol dave erin frank owen olga)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
 for u in "${users[@]}"; do
@@ -288,6 +284,12 @@ for u in "${users[@]}"; do
 		'{username: $u, displayName: $u, email: (({AQuinn: "Alice.Q+Ky"}[$u] // $u) + "@kymatrix.test"), password: $p}')" | jq -re .user.id)
 done
 ok "users ${users[*]}"
+# KyIdentity sets email_verified only when a mailed link is redeemed, and this harness has no
+# mail server: with KyIdentity stopped, mark every email but olga's verified in its database.
+dc stop kyidentity >/dev/null
+expect "$(python3 -I "$here/verify-emails.py" "$scratch/kyidentity-data/kyidentity.db" olga)" "$((${#users[@]} - 1))" "every email but olga's verified"
+dc start kyidentity >/dev/null
+ready https://id.kymatrix.test/healthz
 kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg b "$backchannel_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
 	'{clientId: $c, clientName: "KyMessages chat", clientType: "confidential", redirectUris: [$r], backchannelLogoutUri: $b, allowedScopes: ["openid", "profile", "email"]}')" >"$state/client.json"
 expect "$(kyid GET /api/admin/clients | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.clients[] | select(.id == $c) | .backchannelLogoutUri')" \
@@ -368,8 +370,10 @@ for u in '@alice.q_ky:kymatrix.test' '@bob:kymatrix.test'; do
 	expect "$(sql synapse "SELECT count(*) > 0 FROM e2e_room_keys_versions WHERE user_id = '$u'")" t "$u key backup created"
 	expect "$(sql synapse "SELECT count(*) FROM account_data WHERE user_id = '$u' AND account_data_type = 'm.secret_storage.default_key'")" 1 "$u recovery key (secret storage) set up"
 done
+# An assigned user whose email KyIdentity never verified gets no Matrix ID from it.
+e2e noclaim olga
 expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users")" 'alice.q_ky,bob,kymessages-console' \
-	"MAS accounts from email local parts: AQuinn (Alice.Q+Ky@kymatrix.test) mapped to alice.q_ky"
+	"MAS accounts from verified email local parts: AQuinn (Alice.Q+Ky@kymatrix.test) mapped to alice.q_ky, unverified olga refused"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -560,7 +564,7 @@ jar=$state/app.cookies
 # app_api METHOD PATH [JSON]: the KyMessages admin API as the browser calls it (CSRF header from the cookie).
 app_api() {
 	local csrf body=()
-	csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
+	csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
 	[[ $# -ge 3 ]] && body=(-d "$3")
 	hcurl -fsS -b "$jar" -c "$jar" -X "$1" -H "Origin: $KY_APP_URL" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" "${body[@]}" "$KY_APP_URL$2"
 }
@@ -821,8 +825,10 @@ caps=("$state"/backups/*.kycap)
 [[ -f ${caps[0]} ]] || { echo "  FAILED: no sealed capsule in the backup copy" >&2; false; }
 expect "${#caps[@]}" 1 "one sealed capsule"
 dc rm -sfv app element synapse mas postgres livekit synapse-media-owner >/dev/null
-for v in matrix-postgres matrix-media app-data app-backups; do docker volume rm "${project}_$v" >/dev/null; done
-expect "$(docker volume ls -q --filter "label=com.docker.compose.project=$project" | grep -cE '_(matrix-postgres|matrix-media|app-data|app-backups)$' || true)" 0 "Matrix and app volumes gone"
+for v in matrix-postgres matrix-media; do docker volume rm "${project}_$v" >/dev/null; done
+expect "$(docker volume ls -q --filter "label=com.docker.compose.project=$project" | grep -cE '_(matrix-postgres|matrix-media)$' || true)" 0 "Matrix volumes gone"
+rm -r "$scratch/data" "$scratch/backups"
+ok "./data and ./backups gone"
 mv "$scratch/matrix" "$state/matrix.before"
 # Usage step 1: restore as KY_MATRIX_UID (this user), shares on stdin, then move data/ and matrix/ in.
 "$scratch/kymessages" restore -capsule "${caps[0]}" -to "$scratch/restored" -service KyMessages <"$state/shares" | tee "$state/restore.out"
@@ -862,14 +868,7 @@ if dc run --rm -T restore-matrix >"$state/again.out" 2>&1; then echo "  FAILED: 
 grep -q 'refused: database mas already holds' "$state/again.out" ||
 	{ echo "  FAILED: second restore-matrix failed for another reason: $(cat "$state/again.out")" >&2; false; }
 expect "$(restored_sum)" "$media_sum" "a second restore-matrix refused and changed nothing"
-# Usage step 6 is `sudo chown -R root:root ./data ./backups`; CI has no sudo, so a throwaway
-# root container with only those two binds does the chown. cleanup hands them back.
-handed_to_root=1
-docker run --rm --network none --user 0:0 -v "$scratch/data:/data" -v "$scratch/backups:/backups" \
-	--entrypoint chown "$app_image" -R 0:0 /data /backups
-ok "./data and ./backups chowned to root"
-# The app now uses the shipped ./data and ./backups binds, as a deployment would.
-export KYMATRIX_ACCEPT_APP_DATA=./data KYMATRIX_ACCEPT_APP_BACKUPS=./backups
+# Usage step 6: the app runs as KY_MATRIX_UID, which already owns ./data and ./backups.
 dc up -d --quiet-pull --wait --wait-timeout 300 element livekit >/dev/null
 dc up -d app >/dev/null
 ready "$KY_APP_URL/.well-known/matrix/client"
@@ -941,7 +940,7 @@ for table in "${purged_tables[@]}"; do
 done
 ok "throwaway room $throwaway has rows in ${purged_tables[*]}"
 app_login "$admin_pass"
-csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
+csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar")
 expect "$(status POST "$KY_APP_URL/api/admin/matrix/rooms/$(uri "$throwaway")/delete" -b "$jar" -H "Origin: $KY_APP_URL" \
 	-H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"confirm":"not the name"}')" 400 "a delete with the wrong room name is refused"
 app_login "$admin_pass"
@@ -1014,7 +1013,7 @@ if go run -C "$repo" ./scripts/matrix-acceptance/textpng -check "$state/logo.png
 fi
 ok "the logo fixture carries a tEXt chunk"
 app_login "$admin_pass"
-csrf=$(awk '$6 == "ky_csrf" { print $7 }' "$jar")
+csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar")
 hcurl -fsS -b "$jar" -X PUT -H "Origin: $KY_APP_URL" -H 'Content-Type: image/png' -H "X-CSRF-Token: $csrf" \
 	--data-binary "@$state/logo.png" "$KY_APP_URL/api/admin/branding/logo" >"$state/logo.json"
 hcurl -fsS -D "$state/icon.headers" -o "$state/icon.png" "$KY_APP_URL/app-icon.png"
@@ -1163,6 +1162,34 @@ done
 expect "$(server_wk)" '404 {"error":"Federation is not enabled"}' "no /.well-known/matrix/server again"
 expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=20' | jq -r '[.records[] | select(.action | startswith("matrix.federation_")) | "\(.target) \(.outcome)"] | join(",")')" \
 	"closed changed from manual,$peer removed,gone.kymatrix.test added,$peer added,manual changed from closed" "the audit shows every federation change, newest first"
+pass
+
+# ---------------------------------------------------------------------------------------
+# Database password rotation as matrix-init prints it: delete the secrets, re-run, apply
+# role-passwords.sql on the running stack (init.sql ran only on the empty volume), restart.
+step rotate
+rm "$scratch/matrix/secrets/synapse_db_password" "$scratch/matrix/secrets/mas_db_password"
+matrix_init >"$state/rotate.out"
+grep -qF -- '-f /docker-entrypoint-initdb.d/role-passwords.sql' "$state/rotate.out" ||
+	{ echo "  FAILED: matrix-init did not print the rotation step: $(cat "$state/rotate.out")" >&2; false; }
+ok "matrix-init created both passwords and printed how to apply them"
+# Over matrix-db, as Synapse and MAS connect: the image trusts loopback, so a login from inside
+# the postgres container proves nothing about the password.
+role_login() {
+	dc run --rm --no-deps -T -e PGPASSWORD="$(cat "$scratch/matrix/secrets/$1_db_password")" -e PGCONNECT_TIMEOUT=10 \
+		--entrypoint psql restore-matrix -h postgres -U "$1" -d "$1" -Atc 'SELECT 1'
+}
+if role_login mas >/dev/null 2>&1; then echo "  FAILED: the new mas password worked before role-passwords.sql" >&2; false; fi
+ok "the new password is refused until applied"
+dc exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/role-passwords.sql >/dev/null
+expect "$(role_login mas)" 1 "mas signs in to Postgres with its rotated password"
+expect "$(role_login synapse)" 1 "synapse signs in to Postgres with its rotated password"
+dc restart synapse mas app >/dev/null
+ready https://auth.kymatrix.test/.well-known/openid-configuration
+ready https://matrix.kymatrix.test/_matrix/client/versions
+ready "$KY_APP_URL/.well-known/matrix/client"
+expect "$(hcurl -fsS -H "Authorization: Bearer $(cat "$state/AQuinn.token")" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami | jq -r .user_id)" \
+	"@alice.q_ky:$KY_MATRIX_SERVER_NAME" "Synapse and MAS serve alice on the rotated passwords"
 pass
 
 # ---------------------------------------------------------------------------------------

@@ -111,11 +111,6 @@ type SSOConfig struct {
 	KyIdentityClientID   string          `json:"kyidentity_client_id"`
 	KyIdentitySecret     string          `json:"kyidentity_secret"`
 	KyIdentityHMACSecret string          `json:"kyidentity_hmac_secret"`
-	GenericOIDCIssuer    string          `json:"generic_oidc_issuer"`
-	GenericOIDCClientID  string          `json:"generic_oidc_client_id"`
-	GenericOIDCSecret    string          `json:"generic_oidc_secret"`
-	SAMLEntityID         string          `json:"saml_entity_id"`
-	SAMLMetadataURL      string          `json:"saml_metadata_url"`
 	AutoProvision        bool            `json:"auto_provision"`
 }
 
@@ -178,12 +173,14 @@ func LoadFromEnv() (*Config, error) {
 
 	driver := strings.ToLower(getEnv("KY_DB_DRIVER", "sqlite"))
 	dataDir := getEnv("KY_DATA_DIR", "./data")
-	defaultDSN := fmt.Sprintf("%s/ky_server.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", dataDir)
+	dsn := getEnv("KY_DB_DSN", fmt.Sprintf("%s/ky_server.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", dataDir))
 	if driver == "postgres" || driver == "postgresql" {
 		driver = "postgres"
-		defaultDSN = "postgres://postgres:postgres@localhost:5432/ky_server?sslmode=disable"
+		// No default: a guessed postgres:postgres@localhost would connect to whatever answers.
+		if dsn = getEnv("KY_DB_DSN", ""); dsn == "" {
+			return nil, errors.New("KY_DB_DSN is required with KY_DB_DRIVER=postgres")
+		}
 	}
-	dsn := getEnv("KY_DB_DSN", defaultDSN)
 
 	sessionSecret := getEnv("KY_SESSION_SECRET", "")
 	if env == "production" && sessionSecret == "" {
@@ -278,11 +275,6 @@ func LoadFromEnv() (*Config, error) {
 			KyIdentityClientID:   getEnv("KY_KYIDENTITY_CLIENT_ID", ""),
 			KyIdentitySecret:     getEnv("KY_KYIDENTITY_SECRET", ""),
 			KyIdentityHMACSecret: getEnv("KY_KYIDENTITY_HMAC_SECRET", ""),
-			GenericOIDCIssuer:    getEnv("KY_OIDC_ISSUER", ""),
-			GenericOIDCClientID:  getEnv("KY_OIDC_CLIENT_ID", ""),
-			GenericOIDCSecret:    getEnv("KY_OIDC_SECRET", ""),
-			SAMLEntityID:         getEnv("KY_SAML_ENTITY_ID", ""),
-			SAMLMetadataURL:      getEnv("KY_SAML_METADATA_URL", ""),
 			AutoProvision:        getEnvBool("KY_SSO_AUTO_PROVISION", true),
 		},
 		SCIM: SCIMConfig{

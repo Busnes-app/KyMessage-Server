@@ -33,7 +33,10 @@ export KY_ADMIN_PASSWORD
 KY_HOST=127.0.0.1 ./kymessages
 ```
 
-Open `http://localhost:8080`. Replace the bootstrap password before privileged use.
+Open `http://localhost:8080`. Replace the bootstrap password before privileged use, then
+turn on two-factor sign-in under Settings > Account security. To create or reset the local
+administrator from a shell, run `./kymessages init-admin [-username <name>]`; it reads the
+password from stdin (no echo on a terminal), never from the command line.
 The local administrator operates the service; member access requires
 suite OIDC.
 The default data directory is `./data`; keep its encryption key with the database.
@@ -51,8 +54,11 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
 
 For an existing `.env`, append the build overlay to its current `COMPOSE_FILE` chain;
 keep any LAN-DNS/static-IP overlays. The build overlay contains an idempotent append
-snippet. Protect `.env` with mode 0600, export `KY_ADMIN_PASSWORD` as above, then run
-`docker compose up --build`. The published port binds `127.0.0.1` by default. Container
+snippet. Protect `.env` with mode 0600 and export `KY_ADMIN_PASSWORD` as above. The container
+never runs as root: create `./data` and `./backups` as yourself and set `KY_UID` and `KY_GID`
+in `.env` to your `id -u` and `id -g` (Compose refuses to start without them). It also drops
+every capability and runs with a read-only root filesystem; only `./data`, `./backups` and a
+`/tmp` tmpfs are writable. Then run `docker compose up --build`. The published port binds `127.0.0.1` by default. Container
 names, binary and local image are KyMessages-specific; the retained Go module path
 and token-sealing label are internal compatibility identifiers.
 
@@ -103,9 +109,11 @@ client secret once, when you register the client the first run describes.
    file is created closed; Settings owns it after.
 3. In KyIdentity, register the printed confidential client (client ID, redirect URI, back-channel
    logout URI, scopes `openid profile email`) and assign the users who may chat. Unassigned
-   users cannot sign in. A user's Matrix ID comes from their KyIdentity email: its local part,
+   users cannot sign in. A user's Matrix ID comes from their KyIdentity email once KyIdentity
+   has verified it (the user redeemed an activation or reset link it mailed; configure
+   KyIdentity's mail delivery, as a link handed over by hand does not verify): its local part,
    lowercased, with characters outside `[a-z0-9._=-]` replaced by `_`
-   (`Alice.Q+Ky@example.com` becomes `@alice.q_ky`). A user without an email, or whose local
+   (`Alice.Q+Ky@example.com` becomes `@alice.q_ky`). A user without a verified email, or whose local
    part another chat user already has (`alice@` on two domains), cannot sign in. The ID is
    fixed at first sign-in. The back-channel logout URI is what ends a disabled user's open
    Element sessions; without it they keep working until their token expires.
@@ -117,13 +125,17 @@ client secret once, when you register the client the first run describes.
    `matrix/mas/config.yaml`. Until then, `docker compose up` refuses MAS and the app with
    "bind source path does not exist". Whenever you re-run it on a running stack, apply the configs
    with `docker compose restart synapse mas element livekit app` (the app mounts each secret file, so
-   it sees a replaced `kyidentity_client_secret` only after a restart).
+   it sees a replaced `kyidentity_client_secret` only after a restart). To rotate the Synapse or
+   MAS database password, delete `matrix/secrets/synapse_db_password` or `mas_db_password`, re-run
+   it and do what it prints: apply `postgres/role-passwords.sql` with `psql` on the running
+   Postgres (its init script ran only on the empty volume), then restart `synapse mas app`.
 6. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`)
    and link it to the MAS client's app. KyIdentity shows its signing secret once: that is
    `KY_KYIDENTITY_HMAC_SECRET`. Its directory events are what lock and deactivate users in MAS.
    If MAS and KyMessages resolve only to private addresses (LAN-only), set
    `KYIDENTITY_ALLOW_PRIVATE_CALLBACKS=true` on KyIdentity so it may call them.
-7. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed, plus `KY_MATRIX_SERVER_NAME`,
+7. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed (the app then runs as that
+   user too, so it must own `./data` and `./backups`; keep `KY_UID`/`KY_GID` equal), plus `KY_MATRIX_SERVER_NAME`,
    `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
    from them), `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`) and
    `KY_KYIDENTITY_HMAC_SECRET` and `KY_MATRIX_RTC_HOST`. With Matrix enabled, KyMessages refuses to start with missing
@@ -381,7 +393,7 @@ Docker, node and a KyIdentity checkout; see [AGENTS.md](AGENTS.md)).
 The K80/K81 deployment lives in `busnes.app/ky-kubernetes` (manifests, `setup-kymessages.sh`
 wizard and runbook; not versioned). Design record:
 `docs/superpowers/specs/2026-10-02-k8s-deploy-design.md`. It runs the same images and
-`matrix-init` output; there the app runs as `KY_MATRIX_UID` instead of root, and Element is
+`matrix-init` output; there too the app runs as `KY_MATRIX_UID`, and Element is
 restarted with `kubectl -n ky-stack rollout restart deployment/element`
 (`KY_MATRIX_ELEMENT_RESTART_HINT`).
 
@@ -405,7 +417,8 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_APP_URL` | Exact public origin used for OIDC, browser Origin checks |
 | `KY_ADMIN_USERNAME` | Username of the local admin created on an empty database and `init-admin`'s default, default `admin`; 3-64 letters, digits, `.`, `_` or `-`. Set it before first start when a KyIdentity user is called `admin` (KyIdentity's own admin cannot be renamed): a KyIdentity user whose username a local account holds is refused, never merged into it. It has no effect on an existing database. After resolving a clash (renaming the local account or the KyIdentity user), press Resync Directory on the KyMessages system in KyIdentity; KyIdentity does not resend a refused new user on its own |
 | `KY_ENV=production` | Requires a durable `KY_SESSION_SECRET` and an `https` `KY_APP_URL` (unless `KY_COOKIE_SECURE=false`) |
-| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host |
+| `KY_COOKIE_SECURE` | Defaults to true for production or any `https` `KY_APP_URL`; also turns on HSTS for the `KY_APP_URL` host. With it on and `KY_COOKIE_DOMAIN` unset, auth cookies carry the `__Host-` prefix |
+| `KY_SSO_ENABLED` | Default true; `false` turns KyIdentity sign-in off (its routes answer 404) |
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
 | `KY_MATRIX_RTC_HOST`, `KY_MATRIX_MEDIA_IP` | LiveKit HTTPS signalling origin and directly reachable media IPv4; required by `matrix-init`; set the host in `.env` too |
 | `KY_MATRIX_TURN_HOST`, `KY_MATRIX_TURN_CERT_FILE`, `KY_MATRIX_TURN_KEY_FILE` | Optional complete TURN/TLS setup block for `matrix-init`; DNS-only hostname and trusted PEM files; enable the TURN overlay |

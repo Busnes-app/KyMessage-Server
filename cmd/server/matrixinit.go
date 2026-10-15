@@ -59,6 +59,12 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 	fmt.Fprintf(w, "Postgres, Synapse and MAS run as the owner of %s. Set:\n", res.Dir)
 	fmt.Fprintf(w, "  KY_MATRIX_UID=%d\n  KY_MATRIX_GID=%d\n", uid, os.Getgid())
 	fmt.Fprintf(w, "KyMessages' MAS admin client (offboarding and the console). Set:\n  KY_MATRIX_ADMIN_CLIENT_ID=%s\n\n", res.AdminClientID)
+	if res.RotatedDBPassword {
+		fmt.Fprintln(w, "A database password was rotated. Postgres still has the old one: apply the new one, then restart:")
+		fmt.Fprintln(w, "  docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/role-passwords.sql")
+		fmt.Fprintln(w, "  docker compose restart synapse mas app")
+		fmt.Fprintln(w)
+	}
 	if res.ClientSecretMissing {
 		fmt.Fprintf(w, "Register this client in KyIdentity, save the secret it shows to %s (mode 0600), and run matrix-init again.\n",
 			filepath.Join(res.Dir, matrixinit.ClientSecretFile))

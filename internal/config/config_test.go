@@ -37,6 +37,24 @@ func TestConfigLoadDefaults(t *testing.T) {
 	}
 }
 
+// Postgres has no default DSN: a guessed postgres:postgres@localhost would connect to whatever
+// answers there, in any environment.
+func TestPostgresRequiresAnExplicitDSN(t *testing.T) {
+	for _, driver := range []string{"postgres", "postgresql", "PostgreSQL"} {
+		for _, env := range []string{"development", "production"} {
+			t.Setenv("KY_DATA_DIR", t.TempDir())
+			t.Setenv("KY_ENV", env)
+			t.Setenv("KY_SESSION_SECRET", "s")
+			t.Setenv("KY_DB_DRIVER", driver)
+			t.Setenv("KY_DB_DSN", "")
+			_, err := config.LoadFromEnv()
+			if err == nil || !strings.Contains(err.Error(), "KY_DB_DSN is required") {
+				t.Errorf("%s/%s without KY_DB_DSN: %v", driver, env, err)
+			}
+		}
+	}
+}
+
 func TestConfigLoadFromEnvOverrides(t *testing.T) {
 	t.Setenv("KY_DATA_DIR", t.TempDir())
 	t.Setenv("KY_PORT", "9090")

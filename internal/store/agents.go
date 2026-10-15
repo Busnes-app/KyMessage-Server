@@ -83,17 +83,3 @@ func (s *agentStore) DeleteAgent(ctx context.Context, id string) error {
 	res, err := s.store.db.ExecContext(ctx, s.store.rebind(`DELETE FROM agents WHERE id = ?`), id)
 	return oneRow(res, err)
 }
-
-func oneRow(res sql.Result, err error) error {
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}

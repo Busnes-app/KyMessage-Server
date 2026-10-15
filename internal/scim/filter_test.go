@@ -61,7 +61,9 @@ func TestSCIMFilterMatchesExactlyOneAttribute(t *testing.T) {
 		`USERNAME EQ "bob@corp.com"`:       {"usr_bob"},
 		`userName eq "%"`:                  {},
 		`userName eq "j_mbob@corp.com"`:    {},
-		`externalId eq "sub-mal"`:          {"usr_mal"},
+		`externalId eq "ext-bob"`:          {"usr_bob"},
+		`externalId eq "sub-mal"`:          {}, // a KyIdentity row is not SCIM's to show
+		``:                                 {"usr_jim", "usr_bob"},
 		`emails.value eq "BOB@corp.com"`:   {"usr_bob"},
 		`displayName eq "bob@corp.com"`:    nil,
 		`userName eq "x" or userName pr`:   nil,

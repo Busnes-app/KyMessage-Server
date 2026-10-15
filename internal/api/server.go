@@ -72,8 +72,6 @@ type Server struct {
 	pairing          *devices.PairingService
 	kyidentity       *sso.KyIdentityClient
 	directoryChanged func()
-	oidc             *sso.GenericOIDCClient
-	saml             *sso.SAMLServiceProvider
 	scim             *scim.Server
 	recovery         recoveryClient
 	rtc              *matrixrtc.Client
@@ -209,8 +207,6 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 	sessions := auth.NewSessionManager(st, cfg.Security)
 	pairing := devices.NewPairingService(st, cfg.Server.AppName, cfg.Server.AppURL)
 	kyidentity := sso.NewKyIdentityClient(cfg.SSO, st)
-	oidc := sso.NewGenericOIDCClient(cfg.SSO, st)
-	saml := sso.NewSAMLServiceProvider(cfg.SSO.SAMLEntityID, cfg.Server.AppURL+"/saml/acs")
 	scimSrv := scim.NewServer(st, cfg.SCIM, cfg.Server.AppURL)
 	recovery := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
 
@@ -220,8 +216,6 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		sessions:        sessions,
 		pairing:         pairing,
 		kyidentity:      kyidentity,
-		oidc:            oidc,
-		saml:            saml,
 		scim:            scimSrv,
 		recovery:        recovery,
 		matrixTargets:   health.ComposeTargets,
@@ -272,15 +266,28 @@ func (l *attemptLimiter) makeRoom(now time.Time) {
 	}
 }
 
-// allowClientAttempt throttles an anonymous route per client. An IPv6 client is keyed by its
-// /64: a single subscriber usually holds at least that much, and one key per address would let
-// it mint a fresh window for every request.
-func (s *Server) allowClientAttempt(scope string, r *http.Request, limit int, window time.Duration) bool {
+// blocked reports whether key has used up limit in its current window, without counting.
+func (l *attemptLimiter) blocked(key string, limit int) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry, ok := l.m[key]
+	return ok && time.Now().Before(entry.reset) && entry.count >= limit
+}
+
+// clientKey is the limiter's name for the caller. An IPv6 client is keyed by its /64: a single
+// subscriber usually holds at least that much, and one key per address would let it mint a
+// fresh window for every request.
+func (s *Server) clientKey(r *http.Request) string {
 	client := s.requestIP(r)
 	if addr, err := netip.ParseAddr(client); err == nil && addr.Is6() {
 		client = netip.PrefixFrom(addr, 64).Masked().String()
 	}
-	return s.clientAttempts.allow(scope+":"+client, limit, window)
+	return client
+}
+
+// allowClientAttempt throttles an anonymous route per client.
+func (s *Server) allowClientAttempt(scope string, r *http.Request, limit int, window time.Duration) bool {
+	return s.clientAttempts.allow(scope+":"+s.clientKey(r), limit, window)
 }
 
 // allowAccountAttempt throttles by an existing user's ID. Callers must never pass a
@@ -316,12 +323,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	s.mux.HandleFunc("/api/auth/me", s.handleMe)
 	s.mux.HandleFunc("/api/auth/change-password", s.handleChangePassword)
+	// TOTP enrolment for the signed-in local admin; each step needs a recent sign-in.
+	s.mux.HandleFunc("POST /api/auth/totp/begin", s.requireFreshAdmin(s.handleTOTPBegin))
+	s.mux.HandleFunc("POST /api/auth/totp/confirm", s.requireFreshAdmin(s.handleTOTPConfirm))
+	s.mux.HandleFunc("POST /api/auth/totp/disable", s.requireFreshAdmin(s.handleTOTPDisable))
 
 	// SSO
 	s.mux.HandleFunc("/api/sso/kyidentity/login", s.handleKyIdentityLogin)
 	s.mux.HandleFunc("/api/sso/kyidentity/callback", s.handleKyIdentityCallback)
 	s.mux.HandleFunc("/api/sso/kyidentity/sync", s.handleKyIdentitySyncWebhook)
-	s.mux.HandleFunc("/saml/metadata", s.handleSAMLMetadata)
 
 	// Devices & Ephemeral QR Pairing
 	s.mux.HandleFunc("/api/devices/pair/init", s.requireAuthenticated(s.handlePairInit))
@@ -528,7 +538,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		return
 	}
-	if isUnsafeMethod(r.Method) && hasSessionCookie(r) && !csrfExempt(r.URL.Path) && !auth.ValidateCSRF(r) {
+	if isUnsafeMethod(r.Method) && s.sessions.HasSessionCookie(r) && !csrfExempt(r.URL.Path) && !s.sessions.ValidateCSRF(r) {
 		s.writeError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
@@ -547,11 +557,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func isUnsafeMethod(method string) bool {
 	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
-}
-
-func hasSessionCookie(r *http.Request) bool {
-	cookie, err := r.Cookie(auth.SessionCookieName)
-	return err == nil && cookie.Value != ""
 }
 
 func csrfExempt(path string) bool {

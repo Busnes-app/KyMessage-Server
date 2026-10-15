@@ -24,6 +24,14 @@ type MFARequest struct {
 	Code     string `json:"code"`
 }
 
+// Failed password logins per loginFailWindow: loginFailLimit per account and client,
+// loginFailCeiling per account from anywhere.
+const (
+	loginFailLimit   = 10
+	loginFailCeiling = 100
+	loginFailWindow  = 15 * time.Minute
+)
+
 func (s *Server) handlePoWChallenge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -79,14 +87,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Authentication error")
 		return
 	}
-	// Per account, so guesses spread across many addresses still meet one window.
-	if !s.allowAccountAttempt("login-user:"+user.ID, 10, 15*time.Minute) {
+	// Only failures count. The lockout is per account and client, so an attacker's wrong
+	// guesses cannot lock the owner out from elsewhere; the account-wide ceiling still bounds
+	// guesses spread across many addresses. Checked before Verify, so a locked-out caller
+	// learns nothing from a right password.
+	pairKey := "login-fail:" + user.ID + ":" + s.clientKey(r)
+	accountKey := "login-fail-user:" + user.ID
+	if s.clientAttempts.blocked(pairKey, loginFailLimit) || s.accountAttempts.blocked(accountKey, loginFailCeiling) {
 		s.writeError(w, http.StatusTooManyRequests, "Too many login attempts for this account")
 		return
 	}
 
 	ok, err := password.Verify(req.Password, user.PasswordHash)
 	if err != nil || !ok {
+		s.clientAttempts.allow(pairKey, loginFailLimit, loginFailWindow)
+		s.accountAttempts.allow(accountKey, loginFailCeiling, loginFailWindow)
 		s.writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}

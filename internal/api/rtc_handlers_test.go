@@ -8,6 +8,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,7 +114,7 @@ func TestRTCCallGrantsAndRevocation(t *testing.T) {
 	if err := srv.ReconcileCalls(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(removed, ",") != "alice-device,bob-device" {
+	if slices.Sort(removed); strings.Join(removed, ",") != "alice-device,bob-device" {
 		t.Fatal("removed room member survived", removed)
 	}
 }

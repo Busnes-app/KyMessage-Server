@@ -10,6 +10,8 @@ Owns session issuance and verification, TOTP token generation/validation, recove
 - Sessions for `must_change_password` users authenticate only GET `/api/auth/me` and POST `/api/auth/change-password` or `/api/auth/logout`; private settings and product actions fail closed. Session issuance is bound to the verified password hash and serialized with replacement.
 - Passwords require at least 12 characters (`ValidatePassword`).
 - Active sessions are stored with SHA-256 hashed tokens and verified against secure HttpOnly / SameSite cookies or Bearer headers.
+- `CookieName(base, cfg)` adds the `__Host-` prefix when `CookieSecure` is on and `CookieDomain` is empty (browsers accept it only on a Secure, host-only, `Path=/` cookie); the session manager sets, reads and clears the session and CSRF cookies only under that name (`SessionManager.HasSessionCookie`, `SessionManager.ValidateCSRF`).
+- `GenerateTOTPSecret`, `GenerateTOTPURL` and `GenerateRecoveryCodes` back the console's TOTP enrolment (`internal/api` `totp_handlers.go`).
 - Session authentication rejects inactive accounts and deletes their presented session.
 - PoW solutions must carry unexpired server-signed challenge metadata, and `PoWSpender` accepts each challenge once.
 - Password verification creates a five-minute opaque MFA transaction; MFA endpoints never accept a user ID and consume the transaction once.

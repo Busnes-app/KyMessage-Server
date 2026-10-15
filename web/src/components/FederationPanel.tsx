@@ -16,6 +16,8 @@ export interface Federation {
   presets: Preset[];
   restart_hint: string;
   file_error: string;
+  /** Removed servers the running Synapse may still allow: it applies the file at its next start. */
+  unapplied: string[];
 }
 
 export function parseFederation(v: unknown): Federation {
@@ -30,6 +32,7 @@ export function parseFederation(v: unknown): Federation {
     }),
     restart_hint: str(d.restart_hint, 256),
     file_error: d.file_error === undefined ? '' : str(d.file_error),
+    unapplied: arr(d.unapplied).map((n) => str(n, 253)),
   };
 }
 
@@ -249,9 +252,17 @@ export const FederationPanel: React.FC = () => {
               ))}
             </fieldset>
           )}
-          {changed && (
+          {changed && state.unapplied.length === 0 && (
             <div className="dr-alert dr-alert-warn" role="status">
               <span>Restart Synapse to apply{state.restart_hint && <>: <code>{state.restart_hint}</code></>}. Calls follow the new list at once.</span>
+            </div>
+          )}
+          {state.unapplied.length > 0 && (
+            <div className="dr-alert dr-alert-error" role="alert">
+              <span>
+                Restart Synapse to apply{state.restart_hint && <>: <code>{state.restart_hint}</code></>}. Until then removed servers can
+                still federate: {state.unapplied.map((n, i) => <React.Fragment key={n}>{i > 0 && ', '}<code className="dr-mono">{n}</code></React.Fragment>)}.
+              </span>
             </div>
           )}
           {state.file_error && <div className="dr-alert dr-alert-error" role="alert">Synapse’s federation file was not updated: {state.file_error}</div>}

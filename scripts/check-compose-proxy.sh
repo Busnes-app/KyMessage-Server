@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # The proxy overlay must publish nothing, name the network, carry its own subnet, require
-# its secrets, and keep composing with the static-IP overlay. Uses throwaway values and
+# its secrets, and keep composing with the static-IP overlay. The app runs as KY_UID:KY_GID
+# with no capability, no privilege gain and a read-only root. Uses throwaway values and
 # ignores any local .env; contacts nothing.
 set -u
 root=$(git rev-parse --show-toplevel)
-export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20
+export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 \
+  KY_UID=1234 KY_GID=5678
 unset KY_NETWORK_SUBNET KY_NETWORK
 render() { docker compose --env-file /dev/null --project-directory "$root" "$@" config --format json; }
 proxy=(-f "$root/docker-compose.yml" -f "$root/docker-compose.proxy.yml")
@@ -17,8 +19,13 @@ out=$(render "${proxy[@]}") || exit 1
 both=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${proxy[@]}" -f "$root/docker-compose.static-ip.yml") || { echo "proxy + static-ip does not compose"; exit 1; }
 [ "$(jq -r '.services.app.networks.default.ipv4_address' <<<"$both")" = 10.91.0.20 ] || { echo "static IP lost with proxy overlay"; fail=1; }
 [ "$(jq -c '[.networks.default.ipam.config[].subnet]' <<<"$both")" = '["10.91.0.0/24"]' ] || { echo "ipam subnet not merged to one entry"; fail=1; }
+# The app's hardening, in the base file and with every overlay.
+for j in "$(render -f "$root/docker-compose.yml")" "$out" "$both"; do
+  h=$(jq -c '.services.app | [.user, .cap_drop, .cap_add, .security_opt, .read_only, .tmpfs, .privileged]' <<<"$j")
+  [ "$h" = '["1234:5678",["ALL"],null,["no-new-privileges:true"],true,["/tmp"],null]' ] || { echo "app lost its hardening: $h"; fail=1; }
+done
 # Each required variable must fail the render, and for its own reason.
-for v in KY_APP_URL KY_SESSION_SECRET KY_TRUSTED_PROXIES; do
+for v in KY_APP_URL KY_SESSION_SECRET KY_TRUSTED_PROXIES KY_UID KY_GID; do
   err=$(env -u "$v" docker compose --env-file /dev/null --project-directory "$root" "${proxy[@]}" config 2>&1 >/dev/null) \
     && { echo "proxy overlay accepted a missing $v"; fail=1; continue; }
   grep -q "$v" <<<"$err" || { echo "missing $v failed for another reason: $err"; fail=1; }
