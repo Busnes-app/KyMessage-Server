@@ -398,6 +398,49 @@ func (u *userStore) SpendTOTPCounter(ctx context.Context, userID string, counter
 	return nil
 }
 
+// SetPendingTOTP stores an encrypted enrolment secret on a local account whose TOTP is off.
+// Sign-in ignores it until EnableTOTP.
+func (u *userStore) SetPendingTOTP(ctx context.Context, userID, secretEnc string) error {
+	q := u.store.rebind(`UPDATE users SET totp_secret_enc = ?, updated_at = ? WHERE id = ? AND sso_provider = 'local' AND totp_enabled = ?`)
+	return oneRow(u.store.db.ExecContext(ctx, q, secretEnc, time.Now().UTC(), userID, false))
+}
+
+// EnableTOTP turns on the pending secret, still secretEnc, with fresh recovery codes, and
+// revokes every grant issued before the second factor existed.
+func (u *userStore) EnableTOTP(ctx context.Context, userID, secretEnc, recoveryHashes string) error {
+	tx, err := u.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := u.store.rebind(`UPDATE users SET totp_enabled = ?, recovery_codes_hash = ?, updated_at = ? WHERE id = ? AND sso_provider = 'local' AND totp_enabled = ? AND totp_secret_enc = ?`)
+	if err := oneRow(tx.ExecContext(ctx, q, true, recoveryHashes, time.Now().UTC(), userID, false, secretEnc)); err != nil {
+		return err
+	}
+	if err := deleteGrants(ctx, u.store, tx, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DisableTOTP removes the second factor, its secret and recovery codes.
+func (u *userStore) DisableTOTP(ctx context.Context, userID string) error {
+	q := u.store.rebind(`UPDATE users SET totp_enabled = ?, totp_secret_enc = '', recovery_codes_hash = '[]', updated_at = ? WHERE id = ? AND totp_enabled = ?`)
+	return oneRow(u.store.db.ExecContext(ctx, q, false, time.Now().UTC(), userID, true))
+}
+
+// oneRow is ErrNotFound unless the statement changed exactly one row.
+func oneRow(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n != 1 {
+		err = ErrNotFound
+	}
+	return err
+}
+
 func (u *userStore) DeleteUser(ctx context.Context, id string) error {
 	q := u.store.rebind("DELETE FROM users WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)")
 	res, err := u.store.db.ExecContext(ctx, q, id)
@@ -419,14 +462,17 @@ func (u *userStore) ListUsers(ctx context.Context, offset, limit int, filter Use
 		offset = 0
 	}
 
-	where, args := "", []any{}
+	where, args := " WHERE 1 = 1", []any{}
 	switch filter.Field {
 	case UserFieldUsername:
-		where, args = " WHERE LOWER(username) = LOWER(?)", []any{filter.Value}
+		where, args = where+" AND LOWER(username) = LOWER(?)", []any{filter.Value}
 	case UserFieldEmail:
-		where, args = " WHERE LOWER(email) = LOWER(?)", []any{filter.Value}
+		where, args = where+" AND LOWER(email) = LOWER(?)", []any{filter.Value}
 	case UserFieldSubject:
-		where, args = " WHERE sso_subject = ?", []any{filter.Value}
+		where, args = where+" AND sso_subject = ?", []any{filter.Value}
+	}
+	if filter.Provider != "" {
+		where, args = where+" AND sso_provider = ?", append(args, filter.Provider)
 	}
 	countQuery := "SELECT COUNT(1) FROM users" + where
 	countArgs := args
@@ -553,10 +599,8 @@ func (u *userStore) ResetAdminPassword(ctx context.Context, userID, newHash stri
 }
 
 func (u *userStore) revokePasswordGrants(ctx context.Context, tx *sql.Tx, userID, details, ip string, now time.Time) error {
-	for _, table := range []string{"sessions", "mfa_challenges", "device_pairings"} {
-		if _, err := tx.ExecContext(ctx, u.store.rebind("DELETE FROM "+table+" WHERE user_id = ?"), userID); err != nil {
-			return err
-		}
+	if err := deleteGrants(ctx, u.store, tx, userID); err != nil {
+		return err
 	}
 	_, err := tx.ExecContext(ctx, u.store.rebind(`INSERT INTO audit_records (user_id, action, resource, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?)`), userID, "auth.password_changed", "user", details, ip, now)
 	return err
@@ -591,10 +635,27 @@ func (s *sessionStore) DeleteSession(ctx context.Context, tokenHash string) erro
 	return err
 }
 
+// DeleteUserSessions revokes every grant the user holds: sessions, pending MFA challenges and
+// device pairings, which would otherwise still mint a session.
 func (s *sessionStore) DeleteUserSessions(ctx context.Context, userID string) error {
-	q := s.store.rebind("DELETE FROM sessions WHERE user_id = ?")
-	_, err := s.store.db.ExecContext(ctx, q, userID)
-	return err
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := deleteGrants(ctx, s.store, tx, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteGrants(ctx context.Context, st *SQLStore, tx *sql.Tx, userID string) error {
+	for _, table := range []string{"sessions", "mfa_challenges", "device_pairings"} {
+		if _, err := tx.ExecContext(ctx, st.rebind("DELETE FROM "+table+" WHERE user_id = ?"), userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *sessionStore) CleanExpiredSessions(ctx context.Context) error {

@@ -44,9 +44,11 @@ type DirectoryEvent struct {
 }
 
 // UserFilter selects users by one exact attribute; the zero value matches everyone.
+// Provider, when set, also limits the result to that sso_provider.
 type UserFilter struct {
-	Field UserField
-	Value string
+	Field    UserField
+	Value    string
+	Provider string
 }
 
 type UserField int
@@ -85,6 +87,12 @@ type UserStore interface {
 	// SpendTOTPCounter records counter as used. It returns ErrAlreadyExists when counter is
 	// not greater than the stored one, which is how a replayed code inside the skew window fails.
 	SpendTOTPCounter(ctx context.Context, userID string, counter int64) error
+	// TOTP enrolment for local accounts: a pending secret, then enable (revoking every
+	// session, MFA challenge and pairing) or disable. Each is ErrNotFound when the account
+	// is not in the expected state.
+	SetPendingTOTP(ctx context.Context, userID, secretEnc string) error
+	EnableTOTP(ctx context.Context, userID, secretEnc, recoveryHashes string) error
+	DisableTOTP(ctx context.Context, userID string) error
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, offset, limit int, filter UserFilter) ([]*User, int, error)
 	CountUsers(ctx context.Context) (int, error)

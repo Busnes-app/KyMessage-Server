@@ -70,6 +70,9 @@ func TestSCIMWritesOnlyTouchSCIMRows(t *testing.T) {
 		t.Errorf("KyIdentity row changed: %+v", got)
 	}
 
+	if code := do("GET", "usr_kyid", nil); code != http.StatusNotFound {
+		t.Errorf("GET on a KyIdentity row: got %d, want 404", code)
+	}
 	if code := do("PATCH", "usr_scim", patch); code != http.StatusOK {
 		t.Errorf("PATCH on a SCIM row: got %d", code)
 	}

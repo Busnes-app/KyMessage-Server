@@ -18,7 +18,9 @@ priority is small teams and encrypted chat, with voice and video calls enabled b
   preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
 - `cmd/server` `bootstrapAdmin` creates the local admin on an empty database as
-  `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose). A KyIdentity user whose
+  `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose); a failed user count stops
+  startup rather than reading as empty. `init-admin` reads the password from stdin (no echo on
+  a terminal) and has no `-password` flag: argv is world-readable. A KyIdentity user whose
   username another account holds is refused, never merged: a webhook create gets 409 with
   sync reason `username_conflict` (recovery: rename, then Resync Directory in KyIdentity), an
   update keeps the old username and applies the rest, both audit `sso.sync_conflict`; sign-in
@@ -282,7 +284,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 - [internal/store/AGENTS.md](internal/store/AGENTS.md): Pluggable database abstraction layer (SQLite & PostgreSQL).
 - [internal/crypto/AGENTS.md](internal/crypto/AGENTS.md): Cryptographic primitives (AES-256-GCM, HMAC, SHA-256, randomness, PKCE).
 - [internal/auth/AGENTS.md](internal/auth/AGENTS.md): Authentication, MFA (TOTP), recovery codes, sessions, and CAPTCHA.
-- [internal/sso/AGENTS.md](internal/sso/AGENTS.md): Single Sign-On federation (KyIdentity, OIDC, SAML 2.0).
+- [internal/sso/AGENTS.md](internal/sso/AGENTS.md): KyIdentity OIDC sign-in and signed directory webhooks.
 - [internal/scim/AGENTS.md](internal/scim/AGENTS.md): SCIM 2.0 user and group provisioning engine.
 - [internal/matrixrtc/AGENTS.md](internal/matrixrtc/AGENTS.md): Element Call authorization hashes, scoped LiveKit grants and room management.
 - [internal/matrixinit/AGENTS.md](internal/matrixinit/AGENTS.md): `kymessages matrix-init` config generation for Synapse, MAS, Element and Postgres; write-once secrets.

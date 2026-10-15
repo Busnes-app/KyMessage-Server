@@ -76,7 +76,8 @@ published.
   an installer composition gate. The existing Matrix acceptance has not been rerun for this
   setup path.
 - The KyMessages console keeps a local operator login (bootstrap password must be replaced
-  before privileged use); members reach chat only through KyIdentity.
+  before privileged use), with optional TOTP two-factor sign-in and one-time recovery codes
+  under Settings > Account security; members reach chat only through KyIdentity.
 
 **Encryption.**
 - Synapse encrypts every new room by default (`encryption_enabled_by_default_for_room_type: all`).

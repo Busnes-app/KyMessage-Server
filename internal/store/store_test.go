@@ -287,6 +287,93 @@ func TestSpendTOTPCounterRefusesReplay(t *testing.T) {
 	}
 }
 
+// seedUserGrants gives the user a session, an MFA challenge and a pending pairing.
+func seedUserGrants(t *testing.T, st store.Store, userID, hash string) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-" + userID, UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Sessions().CreateMFAChallenge(ctx, &store.MFAChallenge{TokenHash: "mfa-" + userID, UserID: userID, ExpiresAt: now.Add(time.Minute)}, hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "pair-" + userID, UserID: userID, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}, hash); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertNoGrants(t *testing.T, st store.Store, userID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := st.Sessions().GetSession(ctx, "sess-"+userID); err == nil {
+		t.Error("session survived")
+	}
+	if _, _, err := st.Sessions().ConsumeMFAChallenge(ctx, "mfa-"+userID); err == nil {
+		t.Error("MFA challenge survived")
+	}
+	if _, err := st.Devices().GetPairingBySecret(ctx, "pair-"+userID); err == nil {
+		t.Error("device pairing survived")
+	}
+}
+
+// Revoking a user's sessions must also revoke what would mint the next one: a pending MFA
+// challenge or device pairing outlived a SCIM deactivation or role change.
+func TestDeleteUserSessionsRevokesEveryGrant(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.Users().CreateUser(context.Background(), &store.User{ID: "usr_g", Username: "g", PasswordHash: "h", Role: "admin", Status: "active", SSOProvider: "scim"}); err != nil {
+		t.Fatal(err)
+	}
+	seedUserGrants(t, st, "usr_g", "h")
+	if err := st.Sessions().DeleteUserSessions(context.Background(), "usr_g"); err != nil {
+		t.Fatal(err)
+	}
+	assertNoGrants(t, st, "usr_g")
+}
+
+// Enrolment only moves forward from the expected state; enabling revokes every earlier grant.
+func TestTOTPEnrolmentStates(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, u := range []*store.User{
+		{ID: "usr_l", Username: "l", PasswordHash: "h", Role: "admin", Status: "active", SSOProvider: "local"},
+		{ID: "usr_k", Username: "k", PasswordHash: "h", Role: "admin", Status: "active", SSOProvider: "kyidentity", SSOSubject: "s"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Users().SetPendingTOTP(ctx, "usr_k", "enc"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("pending TOTP on a suite account: %v", err)
+	}
+	if err := st.Users().DisableTOTP(ctx, "usr_l"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("disable while off: %v", err)
+	}
+	if err := st.Users().SetPendingTOTP(ctx, "usr_l", "enc-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Users().EnableTOTP(ctx, "usr_l", "enc-other", `["x"]`); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("enable with a replaced secret: %v", err)
+	}
+	seedUserGrants(t, st, "usr_l", "h")
+	if err := st.Users().EnableTOTP(ctx, "usr_l", "enc-1", `["x"]`); err != nil {
+		t.Fatal(err)
+	}
+	assertNoGrants(t, st, "usr_l")
+	if err := st.Users().SetPendingTOTP(ctx, "usr_l", "enc-2"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a new secret replaced an enabled one: %v", err)
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_l"); !u.TOTPEnabled || u.TOTPSecretEnc != "enc-1" || u.RecoveryCodesHash != `["x"]` {
+		t.Fatalf("enabled: %+v", u)
+	}
+	if err := st.Users().DisableTOTP(ctx, "usr_l"); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_l"); u.TOTPEnabled || u.TOTPSecretEnc != "" || u.RecoveryCodesHash != "[]" {
+		t.Fatalf("disabled: %+v", u)
+	}
+}
+
 // A taken username is a typed error on both engines, from every path that writes one, and the
 // directory write leaves its event unspent.
 func TestUsernameTakenIsTyped(t *testing.T) {

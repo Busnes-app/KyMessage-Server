@@ -111,11 +111,6 @@ type SSOConfig struct {
 	KyIdentityClientID   string          `json:"kyidentity_client_id"`
 	KyIdentitySecret     string          `json:"kyidentity_secret"`
 	KyIdentityHMACSecret string          `json:"kyidentity_hmac_secret"`
-	GenericOIDCIssuer    string          `json:"generic_oidc_issuer"`
-	GenericOIDCClientID  string          `json:"generic_oidc_client_id"`
-	GenericOIDCSecret    string          `json:"generic_oidc_secret"`
-	SAMLEntityID         string          `json:"saml_entity_id"`
-	SAMLMetadataURL      string          `json:"saml_metadata_url"`
 	AutoProvision        bool            `json:"auto_provision"`
 }
 
@@ -280,11 +275,6 @@ func LoadFromEnv() (*Config, error) {
 			KyIdentityClientID:   getEnv("KY_KYIDENTITY_CLIENT_ID", ""),
 			KyIdentitySecret:     getEnv("KY_KYIDENTITY_SECRET", ""),
 			KyIdentityHMACSecret: getEnv("KY_KYIDENTITY_HMAC_SECRET", ""),
-			GenericOIDCIssuer:    getEnv("KY_OIDC_ISSUER", ""),
-			GenericOIDCClientID:  getEnv("KY_OIDC_CLIENT_ID", ""),
-			GenericOIDCSecret:    getEnv("KY_OIDC_SECRET", ""),
-			SAMLEntityID:         getEnv("KY_SAML_ENTITY_ID", ""),
-			SAMLMetadataURL:      getEnv("KY_SAML_METADATA_URL", ""),
 			AutoProvision:        getEnvBool("KY_SSO_AUTO_PROVISION", true),
 		},
 		SCIM: SCIMConfig{

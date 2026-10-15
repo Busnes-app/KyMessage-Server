@@ -74,10 +74,13 @@ contains "backup-drill verifies the required files" "$DRILL_OUT" "required files
 contains "backup-drill checks database integrity" "$DRILL_OUT" "integrity_check passed"
 contains "backup-drill passes on a complete payload" "$DRILL_OUT" "Status:   PASSED"
 
+# The password comes from stdin only: argv is world-readable and lands in shell history.
+check "init-admin refuses a password in argv" \
+  "$(KY_DATA_DIR="$WORK/cli" KY_DB_DRIVER=sqlite "$BIN" init-admin -password "$ADMIN_PASS" </dev/null >/dev/null 2>&1 && echo 0 || echo 1)" "1"
 check "init-admin rejects short password" \
-  "$(KY_DATA_DIR="$WORK/cli" KY_DB_DRIVER=sqlite "$BIN" init-admin -password short >/dev/null 2>&1 && echo 0 || echo 1)" "1"
+  "$(printf 'short\n' | KY_DATA_DIR="$WORK/cli" KY_DB_DRIVER=sqlite "$BIN" init-admin >/dev/null 2>&1 && echo 0 || echo 1)" "1"
 check "init-admin creates admin" \
-  "$(KY_DATA_DIR="$WORK/cli" KY_DB_DRIVER=sqlite "$BIN" init-admin -password "$ADMIN_PASS" >/dev/null 2>&1 && echo 0 || echo 1)" "0"
+  "$(printf '%s\n' "$ADMIN_PASS" | KY_DATA_DIR="$WORK/cli" KY_DB_DRIVER=sqlite "$BIN" init-admin >/dev/null 2>&1 && echo 0 || echo 1)" "0"
 
 echo "==> HTTP with default PoW captcha"
 start_server pow
@@ -105,6 +108,8 @@ check "anonymous cannot set the schedule" "$(status -X PUT "$BASE/api/backup/sch
 check "anonymous cannot unpair" "$(status -X DELETE "$BASE/api/backup/pairing")" "401"
 check "anonymous cannot read the audit log" "$(status "$BASE/api/admin/audit")" "401"
 check "anonymous cannot read health" "$(status "$BASE/api/admin/health")" "401"
+check "anonymous cannot start TOTP setup" "$(status -X POST "$BASE/api/auth/totp/begin")" "401"
+contains "no SAML metadata (the path is the SPA)" "$(curl -s "$BASE/saml/metadata")" 'id="root"'
 check "anonymous cannot set site theme" "$(status -X POST -H 'Content-Type: application/json' -d '{"theme":"oled"}' "$BASE/api/settings/theme")" "401"
 check "scim rejects wrong bearer" "$(status -H 'Authorization: Bearer wrong' "$BASE/scim/v2/Users")" "401"
 stop_server
@@ -148,7 +153,7 @@ LOGIN_BODY="$(curl -s -c "$WORK/cookies" -H 'Content-Type: application/json' \
 contains "replacement password signs in" "$LOGIN_BODY" '"authenticated":true'
 contains "replacement clears the restriction" "$LOGIN_BODY" '"must_change_password":false'
 check "init-admin resets the existing admin" \
-  "$(KY_DATA_DIR="$WORK/data" KY_DB_DRIVER=sqlite "$BIN" init-admin -password 'OperatorResetPass789!' >/dev/null 2>&1 && echo 0 || echo 1)" "0"
+  "$(printf '%s\n' 'OperatorResetPass789!' | KY_DATA_DIR="$WORK/data" KY_DB_DRIVER=sqlite "$BIN" init-admin >/dev/null 2>&1 && echo 0 || echo 1)" "0"
 check "operator reset revokes the previous session" "$(status -b "$WORK/cookies" "$BASE/api/backup/status")" "401"
 LOGIN_BODY="$(curl -s -c "$WORK/cookies" -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"OperatorResetPass789!"}' "$BASE/api/auth/login")"
