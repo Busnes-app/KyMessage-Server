@@ -261,7 +261,7 @@ func TestPlanExemptsOnlyTheUnlinkedConsoleAccount(t *testing.T) {
 		{ID: "x5", Username: "Kymessages-console"},             // lock: case differs
 		{ID: "x6", Username: "kym\u0435ssages-console"},        // lock: Cyrillic e
 		{ID: "x7", Username: "kymessages\u2010console"},        // lock: Unicode hyphen
-	}, map[string]string{"i": "inactive"})
+	}, map[string]string{"i": "inactive"}, nil)
 	var locked []string
 	for _, a := range got {
 		if a.Kind != Lock {

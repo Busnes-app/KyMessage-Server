@@ -87,3 +87,25 @@ type Setting struct {
 	Value     string    `json:"value"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Agent token states: a current personal session, revoked by an admin, or expired unused.
+const (
+	AgentTokenActive  = "active"
+	AgentTokenRevoked = "revoked"
+	AgentTokenExpired = "expired"
+)
+
+// Agent is a chat agent account: a MAS user with no upstream link, owned by a directory
+// member (OwnerSubject, a KyIdentity subject). Its token lives only in MAS; SessionID names the
+// current personal session and is empty when TokenState is not active.
+type Agent struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	MASUserID    string    `json:"mas_user_id"`
+	DeviceID     string    `json:"device_id"`
+	OwnerSubject string    `json:"owner_subject"`
+	SessionID    string    `json:"-"`
+	TokenState   string    `json:"token_state"`
+	CreatedBy    string    `json:"created_by"`
+	CreatedAt    time.Time `json:"created_at"`
+}

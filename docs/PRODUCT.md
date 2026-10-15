@@ -101,6 +101,20 @@ published.
   calls. A change sent while KyMessages was down waits in KyIdentity until an operator resumes
   it. Every action is audited.
 
+**Agents** (owner decisions 2026-10-14, plan `superpowers/plans/2026-10-14-agent-accounts.md`).
+- Admins create chat agent accounts (`@agent-<name>`) for OpenClaw or Hermes Agent, each owned
+  by a member. Off by default: none exist until an admin creates one.
+- Sign-in is a MAS personal access token scoped to the client API on one device, shown once
+  with a config block per runtime and the `kymessages` skill. No password login is added.
+- An agent follows its owner: offboarding the owner locks it in about 2 minutes (Synapse's token
+  cache); re-enabling unlocks. Deleting an agent deactivates it; its messages stay. A token
+  unused for 90 days is revoked; one in use never expires. Revoking deletes the agent's device,
+  so its next token needs encryption set up again.
+- An agent can rename itself; its Matrix ID always starts with `@agent-`.
+- An agent decrypts, like a bridge: rooms keep Element's label, but the agent's machine and
+  model see plaintext, and a hosted model takes room content off your infrastructure.
+- Agents are text participants; they never get call grants.
+
 **Backups** (detail in [the backups design](superpowers/specs/2026-10-01-matrix-backups-design.md)).
 - One sealed server capsule to KyRecovery and/or the local backup directory, on the admin's
   schedule: app database and key, Matrix configs and secrets (not the Postgres superuser

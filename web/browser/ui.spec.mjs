@@ -156,8 +156,15 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await nav.getByRole('button', { name: 'Users', exact: true }).click();
   await expect(page.getByText('Chat (Matrix) is not set up on this server.')).toBeVisible();
   await fits(page);
-  // Rooms, Matrix off: the same notice; reached from Users by keyboard.
+  // Agents, then Rooms, Matrix off: the same notice; reached from Users by keyboard.
   await nav.getByRole('button', { name: 'Users', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(nav.getByRole('button', { name: 'Agents', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(nav.getByRole('button', { name: 'Agents', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Agents', level: 1 })).toBeVisible();
+  await expect(page.getByText('Chat (Matrix) is not set up on this server.')).toBeVisible();
+  await fits(page);
   await page.keyboard.press('Tab');
   await expect(nav.getByRole('button', { name: 'Rooms', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');

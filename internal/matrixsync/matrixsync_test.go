@@ -33,7 +33,7 @@ func TestPlan(t *testing.T) {
 		u("revived", "a", true, true),                                                               // deactivated stays deactivated
 		{ID: "multi-open", Username: "multi-open", Subject: "a", Ambiguous: true},                   // lock, though "a" is active
 		{ID: "multi-locked", Username: "multi-locked", Subject: "a", Ambiguous: true, Locked: true}, // nothing
-	}, dir)
+	}, dir, nil)
 	want := []Action{
 		{Unlock, u("active-locked", "a", true, false), "active in KyIdentity"},
 		{Lock, u("inactive-open", "i", false, false), "inactive in KyIdentity"},
@@ -45,6 +45,40 @@ func TestPlan(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestPlanJudgesAgentsByOwner(t *testing.T) {
+	dir := map[string]string{"a": "active", "i": "inactive", "d": "deleted"}
+	agents := map[string]string{"ag-a": "a", "ag-a-locked": "a", "ag-i": "i", "ag-d": "d", "ag-d-locked": "d",
+		"ag-x": "x", "ag-linked": "a", "ag-multi": "a"}
+	got := Plan([]User{
+		{ID: "ag-a", Username: "agent-a"},                                     // nothing
+		{ID: "ag-a-locked", Username: "agent-b", Locked: true},                // unlock
+		{ID: "ag-i", Username: "agent-c"},                                     // lock
+		{ID: "ag-d", Username: "agent-d"},                                     // lock, never deactivate
+		{ID: "ag-d-locked", Username: "agent-e", Locked: true},                // nothing
+		{ID: "ag-x", Username: "agent-f"},                                     // lock: owner unknown
+		{ID: "ag-linked", Username: "agent-g", Subject: "i"},                  // linked: a person, judged as one
+		{ID: "ag-multi", Username: "agent-h", Subject: "a", Ambiguous: true},  // lock: linked twice
+		{ID: "unregistered", Username: "agent-a"},                             // lock: same name, not registered
+		{ID: "ag-gone", Username: "agent-z", Locked: true, Deactivated: true}, // never touched
+	}, dir, agents)
+	want := []string{
+		"unlock ag-a-locked agent owner active in KyIdentity",
+		"lock ag-i agent owner inactive in KyIdentity",
+		"lock ag-d agent owner deleted in KyIdentity",
+		"lock ag-x agent owner not known to KyMessages",
+		"lock ag-linked inactive in KyIdentity",
+		"lock ag-multi linked to several KyIdentity subjects",
+		"lock unregistered no KyIdentity link",
+	}
+	var lines []string
+	for _, a := range got {
+		lines = append(lines, string(a.Kind)+" "+a.User.ID+" "+a.Reason)
+	}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("got  %q\nwant %q", lines, want)
 	}
 }
 

@@ -76,3 +76,28 @@ func TestMaintenanceLoopReconcilesBrandAtStart(t *testing.T) {
 		t.Fatal("done not closed")
 	}
 }
+
+// Expiry runs at start under a deadline, survives a failure, and closes done on cancel.
+func TestAgentExpiryLoopRunsAtStartAndStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	called := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go agentExpiryLoop(ctx, func(ctx context.Context, now time.Time) error {
+		if _, ok := ctx.Deadline(); !ok || now.IsZero() {
+			t.Error("expiry runs without a deadline or a time")
+		}
+		called <- struct{}{}
+		return errors.New("MAS down")
+	}, done)
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("expiry did not run at start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("agentExpiryLoop did not close done after cancel")
+	}
+}

@@ -349,6 +349,7 @@ dialog.modal-window::backdrop {
 .dr-list { list-style: none; margin: 0 0 12px; padding: 0; }
 .dr-list li { align-items: center; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
 .dr-list li code { overflow-wrap: anywhere; }
+.dr-pre { overflow-x: auto; margin: 0; padding: 10px; font-size: 12px; background: var(--panel-hover); border: 1px solid var(--line); border-radius: 6px; }
 .dr-alert ul { margin: 6px 0 10px; padding-left: 18px; }
 
 /* Busnes.app light/dark defaults. Existing named palettes remain selectable. */

@@ -14,7 +14,7 @@ var auditKinds = map[string][]string{
 	"auth":     {"auth.", "device.", "sso."},
 	"backup":   {"backup.", "admin.backup_", "restore."},
 	"branding": {"admin.brand_"},
-	"matrix":   {"matrix."},
+	"matrix":   {"matrix.", "agent."},
 	"scim":     {"scim."},
 }
 

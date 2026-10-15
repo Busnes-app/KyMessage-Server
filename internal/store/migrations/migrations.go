@@ -248,6 +248,24 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	// The suite identity provider was renamed from KySignOn to KyIdentity.
 	{Version: 20, Name: "kyidentity_provider", SQLite: kyIdentityProvider, Postgres: kyIdentityProvider},
 	{Version: 21, Name: "drop_messaging", SQLite: dropMessaging, Postgres: dropMessaging},
+	// Chat agent accounts. The token lives only in MAS; session_id names its personal session.
+	{Version: 22, Name: "agents", SQLite: agentsSchema("DATETIME"), Postgres: agentsSchema("TIMESTAMPTZ")},
+}
+
+func agentsSchema(timestamp string) string {
+	return `
+CREATE TABLE agents (
+    id VARCHAR(64) PRIMARY KEY,
+    username VARCHAR(64) NOT NULL UNIQUE,
+    mas_user_id VARCHAR(64) NOT NULL UNIQUE,
+    device_id VARCHAR(32) NOT NULL UNIQUE,
+    owner_subject VARCHAR(255) NOT NULL,
+    session_id VARCHAR(64) NOT NULL DEFAULT '',
+    token_state VARCHAR(16) NOT NULL,
+    created_by VARCHAR(255) NOT NULL,
+    created_at ` + timestamp + ` NOT NULL
+);
+`
 }
 
 // The custom MLS messaging stack was retired for Matrix; its tables, audit rows and backup

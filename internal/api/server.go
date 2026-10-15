@@ -44,6 +44,14 @@ type MatrixAdmin interface {
 	Version(ctx context.Context) (string, error)
 	// AsConsole runs fn with a 5-minute console session token for Synapse's admin API.
 	AsConsole(ctx context.Context, fn func(ctx context.Context, token string) error) error
+	Deactivate(ctx context.Context, id string) error
+
+	// Agent accounts (agent_handlers.go). Tokens are returned, never kept.
+	CreateAgentUser(ctx context.Context, username string) (string, error)
+	MintAgentToken(ctx context.Context, userID, deviceID string) (sessionID, token string, err error)
+	RotateAgentToken(ctx context.Context, userID, deviceID, sessionID string) (newSessionID, token string, err error)
+	RevokeAgentSession(ctx context.Context, sessionID string) error
+	AgentActivity(ctx context.Context, sessionID string) (matrixsync.Activity, error)
 }
 
 // RoomAdmin is the Synapse admin surface the console uses; *synapseadmin.Client implements it.
@@ -361,6 +369,14 @@ func (s *Server) routes() {
 
 	// Rooms act through a 5-minute console session on Synapse's admin API. Close and delete
 	// need a recent sign-in, run detached and are audited. Close is final: there is no reopen.
+	// Chat agent accounts: docs/superpowers/plans/2026-10-14-agent-accounts.md.
+	s.mux.HandleFunc("GET /api/admin/agents", s.requireAdmin(s.handleAgents))
+	s.mux.HandleFunc("GET /api/admin/agents/skill", s.requireAdmin(s.handleAgentSkill))
+	s.mux.HandleFunc("POST /api/admin/agents", s.tracked(s.requireFreshAdmin(s.handleAgentCreate)))
+	s.mux.HandleFunc("POST /api/admin/agents/{id}/rotate", s.tracked(s.requireFreshAdmin(s.handleAgentRotate)))
+	// Revoke cuts access, so it is one click, like narrowing federation.
+	s.mux.HandleFunc("POST /api/admin/agents/{id}/revoke", s.tracked(s.requireAdmin(s.handleAgentRevoke)))
+	s.mux.HandleFunc("DELETE /api/admin/agents/{id}", s.tracked(s.requireFreshAdmin(s.handleAgentDelete)))
 	s.mux.HandleFunc("GET /api/admin/matrix/rooms", s.requireAdmin(s.handleRooms))
 	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}", s.requireAdmin(s.handleRoom))
 	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}/delete-status", s.requireAdmin(s.handleRoomJobs))

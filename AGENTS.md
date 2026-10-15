@@ -270,6 +270,11 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   prints the `role-passwords.sql` step; the new password is refused until it is applied, then
   both roles sign in and Synapse and MAS serve alice after `restart synapse mas app`. A peer's call token is refused with 502 while allowed (the app's client refuses the
   private address, so a cross-server call stays unproven) and 403 once removed.
+  Stage `agents` (before the backup, owner `owen`): `agent.mjs` (matrix-js-sdk, Rust crypto,
+  store kept across runs) with only the console's token cross-signs, decrypts the owner's
+  Element message and replies, stored encrypted; rotate keeps the device, owner disable locks
+  and re-enable restores (each within 130 s), revoke deletes the device, no call grant, delete
+  deactivates. Idle expiry is Go unit tests only.
   `MATRIX_ACCEPT_REPRODUCE=1` (CI, make) also routes MAS's compatibility login in the
   scratch copy and records the finding from `docs/CHAT-PLATFORM-OPTIONS.md` section 7.
   Harness-only files live in `scripts/matrix-acceptance/` and never enter a deployment.
@@ -296,6 +301,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 - [internal/devices/AGENTS.md](internal/devices/AGENTS.md): 90-second ephemeral QR device pairing and push registration.
 - [internal/testdb/AGENTS.md](internal/testdb/AGENTS.md): Test-only isolated database provisioning (SQLite or PostgreSQL).
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
+- [agent-skill/AGENTS.md](agent-skill/AGENTS.md): The `kymessages` skill for chat agents (OpenClaw, Hermes Agent) and the console's config blocks.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
 
 `cmd/server` owns the scheduler: `backupLoop` builds the server capsule's `RunConfig` and the client once

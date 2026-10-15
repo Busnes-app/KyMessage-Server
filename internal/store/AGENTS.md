@@ -4,7 +4,7 @@
 Provides the unified Database Abstraction Layer (DAL) supporting pluggable backends (SQLite zero-CGO default and PostgreSQL enterprise) with automated dialect-aware migrations.
 
 ## Ownership
-Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`), dialect translations, and schema migrations.
+Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`, `AgentStore`), dialect translations, and schema migrations.
 
 ## Local Contracts
 - `AuditStore.ListAuditRecords(offset, limit, prefixes...)` pages newest first by `id`; prefixes match the
@@ -34,6 +34,10 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - `DirectoryStatuses(provider)` maps each subject to its user status, or `deleted` for a tombstone row with no user; `matrixsync` plans from it. Subjects are not unique: of several rows, a non-active status wins (fail closed).
 - Migration 20 renames the stored suite provider `kysignon` to `kyidentity` in `users.sso_provider`, `directory_sync_state` and `directory_sync_events`; its SQL is idempotent.
 - Migration 14 rebuilds `device_pairings` without the six-digit code column; pending pairings (90 s) are dropped on upgrade.
+- Migration 22 adds `agents`, the chat agent registry (`AgentStore`): username, MAS user ID and
+  device ID each unique (`ErrAlreadyExists`), owner subject, current MAS personal session ID and
+  `token_state` (`active` with a session ID; `revoked` or `expired` with none, enforced on every
+  write). It never holds a token. `SetAgentToken` and `DeleteAgent` answer `ErrNotFound` for no row.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
   `migrations.Run` refuses with `ErrNewerSchema` a database whose `schema_migrations` holds a
   version above this build's newest (image rollback, or a capsule from a newer build), before

@@ -16,7 +16,10 @@ supplies subject → status.
 - Decision table, per non-deactivated MAS user, by the subject of its KyIdentity link:
   active → unlock if locked; deleted → deactivate; inactive or unknown to KyMessages →
   lock if unlocked; no link, or links to more than one subject (`Ambiguous`) → lock if
-  unlocked (fail closed). A lock applied by hand in MAS to a user active in KyIdentity is
+  unlocked (fail closed). A registered agent (`Plan`'s `agents`: MAS user ID → owner subject,
+  from `store.Agents()`) that is unlinked and not `Ambiguous` follows its owner instead: owner
+  active → unlock if locked; anything else → lock if unlocked, never deactivate (deleting an
+  agent is an admin action). Matching is by MAS user ID, never username. A lock applied by hand in MAS to a user active in KyIdentity is
   undone by the next sweep; operators offboard in KyIdentity.
 - The console account is MAS user `kymessages-console` (`ConsoleUsername`): no password, no
   upstream link, never MAS admin (`can_request_admin`): personal sessions do not need it, and it
@@ -32,6 +35,16 @@ supplies subject → status.
   the request dies is still known and revoked. Once MAS returns a session ID it revokes the session afterwards on a detached
   `ConsoleCallTimeout` context, also when the reply has no token, the action fails or its context ends; a failed revoke (other than 409, already revoked) is
   logged with the session ID, never the token, and the session expires on its own.
+- Agent accounts (`agents.go`): `CreateAgentUser` creates an unlinked MAS user and answers
+  `ErrNameTaken` on 409, never adopting an existing account. `MintAgentToken` mints a personal
+  session with scope exactly `urn:matrix:client:api:* urn:matrix:client:device:<device>`,
+  `human_name` `KyMessages agent` and no `expires_in` (KyMessages expires it after 90 days
+  unused), on a detached `ConsoleCallTimeout` context; a session returned without a token is
+  revoked. `RotateAgentToken` regenerates a live session (`POST personal-sessions/{id}/regenerate`, same
+  session and device, no expiry; Synapse may accept the old token up to 2 minutes) and refuses
+  a reply naming another session; with no session it mints one. `RevokeAgentSession` (detached)
+  treats 409 (already revoked) as done; Synapse then deletes the device. `AgentActivity` reads the
+  session's `created_at` and `last_active_at`; `Activity.Since` is the last use, else creation.
 - Deactivate always sends `{"skip_erase":true}`; messages are never erased.
 - A deactivated MAS user is never reactivated or otherwise touched.
 - MAS must have exactly one upstream provider; any other count is an error.

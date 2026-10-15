@@ -19,7 +19,7 @@ This directory owns test setup, disposable server launch and UI assertions. The 
   local sealed copies through the real API; no private recovery key or shares are
   present. Check the persisted result and layout at both widths/themes.
 - Login allows 10 failed attempts per account and client per 15 minutes (successes do not count); only `dark-390` and `firefox-light-1280` try a wrong password. Do not relax the limiter; budget failures before adding projects.
-- The suite also covers Users and Rooms (Matrix off; Rooms by keyboard from Users), Health, the Audit kind filter with keyboard navigation and the Overview, at every project.
+- The suite also covers Users, Agents and Rooms (Matrix off; Agents then Rooms by keyboard from Users), Health, the Audit kind filter with keyboard navigation and the Overview, at every project.
 - Settings Branding at every project: reset to defaults first (a failed project must not break the next on the shared server), a 64-character name typed by keyboard (the header wraps it), a PNG upload previewed by digest with `/app-icon.png` served `no-cache`, then both resets. With Matrix off there is no KyIdentity sync panel.
 - Screenshots and failure traces live in ignored `test-results/` and CI artifacts, not production assets.
 

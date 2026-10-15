@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/Busnes-app/ky_server_base/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -17,7 +18,7 @@ import (
 )
 
 func TestRTCCallGrantsAndRevocation(t *testing.T) {
-	srv, _, cfg, mas := setupMatrixServer(t)
+	srv, st, cfg, mas := setupMatrixServer(t)
 	cfg.Matrix.RTCHost = "https://sfu.example.com"
 	rooms := newFakeRooms()
 	api.SetRoomAdminForTest(srv, rooms)
@@ -85,6 +86,16 @@ func TestRTCCallGrantsAndRevocation(t *testing.T) {
 	request(body+`{}`, 400)
 	user = "@bob:example.com"
 	request(body, 403)
+	// D7: an agent never gets a call grant, even with an active owner and room membership.
+	if err := st.Agents().CreateAgent(context.Background(), &store.Agent{ID: "agt", Username: "dave", MASUserID: uDave, DeviceID: "DEVD",
+		OwnerSubject: "sub-a", SessionID: "S", TokenState: store.AgentTokenActive, CreatedBy: "root"}); err != nil {
+		t.Fatal(err)
+	}
+	user = "@dave:example.com"
+	rooms.members[rGroup] = append(rooms.members[rGroup], user)
+	if w := request(strings.Replace(body, `"claimed_user_id":"@alice:example.com"`, `"claimed_user_id":"@dave:example.com"`, 1), 403); !strings.Contains(w.Body.String(), "Chat access is disabled") {
+		t.Fatalf("agent refused for the wrong reason: %s", w.Body)
+	}
 	user = "@alice:example.com"
 	rooms.members[rGroup] = []string{"@bob:example.com"}
 	request(body, 403)
