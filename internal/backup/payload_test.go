@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
@@ -154,5 +155,30 @@ func TestCollectRefusesADriverItCannotSnapshot(t *testing.T) {
 	cfg.Database.Driver = "postgres"
 	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); !errors.Is(err, backup.ErrNoDatabaseSnapshot) {
 		t.Fatalf("got %v, want ErrNoDatabaseSnapshot", err)
+	}
+}
+
+// A run that died mid-snapshot leaves a plaintext copy of the database behind; the next
+// collection, under the backup lock, removes it before making its own.
+func TestCollectSweepsStaleSnapshots(t *testing.T) {
+	cfg, _ := payloadConfig(t)
+	stale := filepath.Join(cfg.Database.DataDir, "snapshot-123")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "ky_server.db"), []byte("plaintext"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(cfg.Database.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "snapshot-") {
+			t.Errorf("snapshot left behind: %s", e.Name())
+		}
 	}
 }

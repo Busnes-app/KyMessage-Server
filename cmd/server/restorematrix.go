@@ -35,7 +35,8 @@ Loads the restored Matrix databases and media into a fresh stack, once:
   5. docker compose run --rm restore-matrix
   6. docker compose up -d. The app runs as KY_MATRIX_UID, which owns ./data and ./backups.
 It refuses, changing nothing, if a database is not empty, the media store is not empty, or a
-dump or media file does not check out.`
+dump or media file does not check out. After a success it deletes the plaintext dumps, or says
+to delete ./matrix/dumps by hand when it cannot (./matrix is mounted read-only).`
 
 // parseRestoreMatrix takes the defaults the restore-matrix Compose service mounts.
 func parseRestoreMatrix(args []string, out io.Writer) (backup.MatrixRestore, error) {

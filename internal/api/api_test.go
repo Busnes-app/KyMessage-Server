@@ -507,9 +507,7 @@ func TestPairPollProjectsTheRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/devices/pair/poll?secret="+pairing.Secret, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	w := postJSON(t, srv, "/api/devices/pair/poll", "192.0.2.10:1000", map[string]string{"secret": pairing.Secret})
 	if w.Code != http.StatusOK {
 		t.Fatalf("poll expected 200, got %d: %s", w.Code, w.Body.String())
 	}

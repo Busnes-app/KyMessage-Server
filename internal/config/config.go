@@ -123,6 +123,8 @@ type SSOConfig struct {
 type SCIMConfig struct {
 	Enabled     bool   `json:"enabled"`
 	BearerToken string `json:"bearer_token"`
+	// TokenSet is true when KY_SCIM_TOKEN is set; otherwise the token is random per start.
+	TokenSet bool `json:"-"`
 }
 
 // BackupConfig holds parameters for KyBackup capsules & recovery drills.
@@ -288,6 +290,7 @@ func LoadFromEnv() (*Config, error) {
 		SCIM: SCIMConfig{
 			Enabled:     getEnvBool("KY_SCIM_ENABLED", true),
 			BearerToken: getEnv("KY_SCIM_TOKEN", generateRandomHex(24)),
+			TokenSet:    getEnv("KY_SCIM_TOKEN", "") != "",
 		},
 		Backup: BackupConfig{
 			Dir:                  getEnv("KY_BACKUP_DIR", ""),

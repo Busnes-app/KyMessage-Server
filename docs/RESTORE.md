@@ -74,7 +74,8 @@ SQLite copies and database rollbacks bypass the preparation below and are unsupp
    downloaded container's SHA-256 are different checks. Preserve the receipt.
 
 The product then requires a nonempty regular SQLite file and a valid 32-byte
-hexadecimal deployment key. It opens/migrates the offline snapshot and, in one
+hexadecimal deployment key. It opens/migrates the offline snapshot (refusing a database
+migrated by a newer build: restore with that build or newer) and, in one
 transaction, deletes sessions, MFA challenges and device pairings and records
 `restore.grants_invalidated`. It closes the store before reporting success.
 
@@ -126,7 +127,10 @@ restoring her keys from key backup; the server name and signing key were unchang
    `matrix/element/config.json` is ever left truncated or invalid (a crash mid-write), re-run
    `matrix-init` as in step 2; the app re-applies the name within a minute; then restart
    Element.
-7. Delete `./matrix/dumps`.
+7. The dumps are plaintext copies of every room. After a successful restore `restore-matrix`
+   deletes `matrix/dumps` and prints `Deleted the plaintext dumps`; after a failure it keeps
+   them for the retry. If it prints `Could not delete the plaintext dumps` (the shipped
+   Compose service mounts `./matrix` read-only), delete `./matrix/dumps` yourself.
 8. Members sign in on a new device and restore message keys from key backup with their own
    recovery key. KyRecovery cannot do this for them.
 

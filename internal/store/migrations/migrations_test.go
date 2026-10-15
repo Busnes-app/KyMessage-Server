@@ -3,11 +3,13 @@ package migrations_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/ky_server_base/internal/store"
 	"github.com/Busnes-app/ky_server_base/internal/store/migrations"
 	"github.com/Busnes-app/ky_server_base/internal/testdb"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -315,4 +317,44 @@ func TestDropMessagingTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("rerun")
+}
+
+// A database migrated by a newer build is refused, both by Run and by store.Open.
+func TestNewerSchemaIsRefused(t *testing.T) {
+	ctx := context.Background()
+	cfg := testdb.Config(t)
+	st, err := store.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	driver := "sqlite"
+	if cfg.Driver == "postgres" {
+		driver = "pgx"
+	}
+	db, err := sql.Open(driver, cfg.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations (version, name, applied_at) VALUES (9999, 'from_the_future', $1)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Run(ctx, db, cfg.Driver); !errors.Is(err, migrations.ErrNewerSchema) {
+		t.Fatalf("Run on a newer schema: %v", err)
+	}
+	if st, err := store.Open(ctx, cfg); !errors.Is(err, migrations.ErrNewerSchema) {
+		if st != nil {
+			_ = st.Close()
+		}
+		t.Fatalf("store.Open on a newer schema: %v", err)
+	}
+}
+
+func TestRunRefusesAnUnknownDriver(t *testing.T) {
+	if err := migrations.Run(context.Background(), nil, "mysql"); err == nil {
+		t.Fatal("unknown driver accepted")
+	}
 }

@@ -57,15 +57,8 @@ func (r MatrixRestore) Run(ctx context.Context, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("refused: %w", err)
 		}
-		toc, err := listFiles(ctx, parts)
-		if err == nil {
-			err = readFiles(ctx, parts)
-		}
-		if err != nil {
+		if err := checkDump(ctx, parts); err != nil {
 			return fmt.Errorf("refused: the %s dump: %w", d.db, err)
-		}
-		if ext := untrustedExtension(toc); ext != "" {
-			return fmt.Errorf("refused: the %s dump has %q, which its owner cannot restore", d.db, ext)
 		}
 		n, err := relations(ctx, r.DBHost, d.db, d.db, password)
 		if err != nil {
@@ -103,13 +96,21 @@ func (r MatrixRestore) Run(ctx context.Context, out io.Writer) error {
 	}
 	if r.SkipMedia {
 		fmt.Fprintln(out, "Media skipped (-skip-media): uploads from before the backup are missing")
+	} else {
+		n, err := media.Restore(ctx, filepath.Join(r.BackupDir, "media"), key, r.MediaDir, os.Getuid(), os.Getgid(), true)
+		if err != nil {
+			return fmt.Errorf("media restore failed after the databases were restored; start again from a fresh stack: %w", err)
+		}
+		fmt.Fprintf(out, "Restored %d media files\n", n)
+	}
+	// Plaintext copies of every room, needed only by a retry from a fresh stack, which a
+	// success rules out. A failure above keeps them for that retry.
+	dumps := filepath.Join(r.MatrixDir, "dumps")
+	if err := os.RemoveAll(dumps); err != nil {
+		fmt.Fprintf(out, "Could not delete the plaintext dumps in %s: %v; delete matrix/dumps by hand\n", dumps, err)
 		return nil
 	}
-	n, err := media.Restore(ctx, filepath.Join(r.BackupDir, "media"), key, r.MediaDir, os.Getuid(), os.Getgid(), true)
-	if err != nil {
-		return fmt.Errorf("media restore failed after the databases were restored; start again from a fresh stack: %w", err)
-	}
-	fmt.Fprintf(out, "Restored %d media files\n", n)
+	fmt.Fprintf(out, "Deleted the plaintext dumps in %s\n", dumps)
 	return nil
 }
 
@@ -168,6 +169,22 @@ func restoreParts(dir, base string) ([]string, error) {
 		return nil, fmt.Errorf("the %s parts in %s are missing or not contiguous from .000", base, dir)
 	}
 	return parts, nil
+}
+
+// checkDump is what the drill and restore-matrix both require of one dump's parts: a full read,
+// and no extension its owner cannot restore.
+func checkDump(ctx context.Context, parts []string) error {
+	toc, err := listFiles(ctx, parts)
+	if err != nil {
+		return err
+	}
+	if err := readFiles(ctx, parts); err != nil {
+		return fmt.Errorf("could not read it in full: %w", err)
+	}
+	if ext := untrustedExtension(toc); ext != "" {
+		return fmt.Errorf("it has %q, which its owner cannot restore", ext)
+	}
+	return nil
 }
 
 func listFiles(ctx context.Context, parts []string) (string, error) {

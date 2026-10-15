@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -240,9 +241,12 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 	defer close(done)
 	// Run never gets far enough to stamp the attempt on a RunConfig failure, so retrying
 	// would log and audit it every tick forever.
+	// The status route reports the same failure as scheduler_error; this row is the trail.
 	rc, err := backup.RunConfig(cfg, appVersion)
 	if err != nil {
 		log.Printf("[BACKUP] scheduler disabled: %v", err)
+		_ = st.Audit().LogAudit(context.WithoutCancel(ctx), &store.AuditRecord{UserID: "system", Action: schedulerAction,
+			Details: api.AuditDetails(map[string]any{"outcome": "failure", "error": "scheduler disabled: " + err.Error()})})
 		return
 	}
 	client := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
@@ -274,6 +278,14 @@ func backupTick(ctx context.Context, cfg *config.Config, st store.Store, rc reco
 	if !on || time.Now().Before(next) {
 		return
 	}
+	// Held across capsule and media: a cron `kymessages deposit` is another process, which the
+	// lib's run lock does not see. Busy leaves the run unstamped, so the next tick retries.
+	unlock, err := backup.Lock(cfg.Database.DataDir)
+	if err != nil {
+		log.Printf("[BACKUP] %s; retrying next tick", recoveryclient.AuditSafe(err.Error()))
+		return
+	}
+	defer unlock()
 	res, err := runBackup(runCtx, cfg, rc, settings, client)
 	if errors.Is(err, recoveryclient.ErrNotPaired) || errors.Is(err, recoveryclient.ErrNoDestination) {
 		return // never configured; nothing to report
@@ -299,7 +311,10 @@ func delivered(res recoveryclient.Result, err error) bool {
 	return err == nil || res.LocalPath != "" || res.Receipt != nil
 }
 
-const backupRunAction = "admin.backup_run"
+const (
+	backupRunAction = "admin.backup_run"
+	schedulerAction = "admin.backup_scheduler"
+)
 
 // recordRun audits one run the same way the admin route does, under the actor that started it.
 func recordRun(ctx context.Context, st store.Store, actor, action string, res recoveryclient.Result, err error) {
@@ -378,6 +393,9 @@ func runDeposit(args []string) {
 		log.Fatalf("Backup: %v", err)
 	}
 	client := recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})
+	// The server's scheduler may be running one now; backup.lock serializes the two processes.
+	unlock := mustLock(cfg)
+	defer unlock()
 	res, err := runBackup(ctx, cfg, rc, backup.Settings(ctx, st.Settings()), client)
 	recordRun(ctx, st, "cli", backupRunAction, res, err)
 	var merr error
@@ -487,6 +505,15 @@ func collectFiles(ctx context.Context, cfg *config.Config) recoveryclient.Payloa
 	return payload
 }
 
+// mustLock takes backup.lock for a CLI seal, or exits while another run, export or drill holds it.
+func mustLock(cfg *config.Config) func() {
+	unlock, err := backup.Lock(cfg.Database.DataDir)
+	if err != nil {
+		log.Fatalf("Backup: %v", err)
+	}
+	return unlock
+}
+
 func runBackupDrill(args []string) {
 	mustParseNoArgs("backup-drill", args)
 	cfg, err := config.LoadFromEnv()
@@ -500,6 +527,8 @@ func runBackupDrill(args []string) {
 	}
 	defer st.Close()
 
+	unlock := mustLock(cfg)
+	defer unlock()
 	result, err := backup.RunDrill(ctx, cfg, collectFiles(ctx, cfg), backup.Checks)
 	if err != nil {
 		log.Fatalf("Drill execution error: %v", err)
@@ -538,6 +567,11 @@ func runExportCapsule(args []string) {
 	if err != nil {
 		log.Fatalf("Recovery key: %v", err)
 	}
+	if _, err := os.Lstat(*out); *out != "" && err == nil {
+		log.Fatalf("Write: %s already exists; refusing to overwrite it", *out)
+	}
+	unlock := mustLock(cfg)
+	defer unlock()
 	raw, m, err := recoveryclient.Seal(collectFiles(ctx, cfg), key)
 	if err != nil {
 		log.Fatalf("Seal: %v", err)
@@ -546,10 +580,41 @@ func runExportCapsule(args []string) {
 	if path == "" {
 		path = recoveryclient.FilenameSafe(m.CapsuleID) + ".kycap"
 	}
-	if err := os.WriteFile(path, raw, 0600); err != nil {
+	if err := writeNew(path, raw); err != nil {
 		log.Fatalf("Write: %v", err)
 	}
 	log.Printf("✓ Capsule %s sealed to recovery key %s, written to %s (%d bytes)", m.CapsuleID, m.RecoveryKeyID, path, len(raw))
+}
+
+// writeNew puts data at path, which must not exist, through a synced 0600 temporary file in the
+// same directory: a crash leaves no partial file under the name. The hard link refuses an
+// existing path atomically, which a rename would replace.
+func writeNew(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".kycap-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Link(tmp.Name(), path); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // stdinIsTerminal reports whether a human is typing, so a pipeline gets no stray prompt.

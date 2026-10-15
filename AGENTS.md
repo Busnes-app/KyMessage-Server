@@ -202,7 +202,7 @@ When the user requests a durable behavior change, record it here or in the relev
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh` and `scripts/check-compose-matrix.sh`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
-- Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source (it is embedded in the binary)
+- Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source, untracked files included (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
 - `scripts/backup-acceptance.py` starts its own loopback process and disposable
   SQLite/local-copy directories. It exercises real scheduler ticks (~3 minutes),
@@ -211,7 +211,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   No live identity or recovery destination is contacted. CI's smoke job runs it.
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
-- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit, Overview and Settings branding (rename by keyboard, logo upload and resets) pages; these checks remain release gates.
+- Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, proof-of-work sign-in on a second server, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit, Overview and Settings branding (rename by keyboard, logo upload and resets) pages; these checks remain release gates.
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
@@ -298,11 +298,13 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 
 `cmd/server` owns the scheduler: `backupLoop` builds the server capsule's `RunConfig` and the client once
 and returns with `scheduler disabled: ...` if that fails, because a run that never stamps its
-attempt would log and audit the same failure every minute forever. Each tick `backupTick` runs the
-server capsule if due, then (Matrix enabled) mirrors media via `runMedia`, audited as `admin.backup_media`
+attempt would log and audit the same failure every minute forever; it audits that once as
+`admin.backup_scheduler`, and backup status reports it as `scheduler_error`. Each tick `backupTick`, when due, takes
+`backup.Lock` (busy: logged, unstamped, retried next tick), runs the
+server capsule, then (Matrix enabled) mirrors media via `runMedia`, audited as `admin.backup_media`
 and never failing the capsule; media is skipped when the capsule run returns `ErrNotPaired`,
 `ErrNoDestination` or `ErrInProgress` (the last is logged and left unstamped, so it is
-retried next tick). The HTTP run route does not mirror media. The `deposit` and `backup-drill` commands and `export-capsule` seal the server capsule; `deposit` also mirrors media and exits non-zero if only media failed.
+retried next tick). The HTTP run route does not mirror media. The `deposit` and `backup-drill` commands and `export-capsule` seal the server capsule under `backup.Lock` (exiting while it is held); `deposit` also mirrors media and exits non-zero if only media failed. `export-capsule` refuses an existing `-out` and writes through a synced temporary file hard-linked into place.
 The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for
@@ -319,7 +321,7 @@ work is abandoned with a log line rather than killed silently.
 
 `cmd/server/restore.go` delegates custodian handling and extraction to recoveryclient,
 requires a regular nonempty `data/ky_server.db` and a valid 32-byte deployment key,
-then opens the offline SQLite snapshot (running migrations), invalidates
+then opens the offline SQLite snapshot (running migrations; a schema from a newer build is refused and the extraction removed), invalidates
 restored grants and closes it before reporting success. Before extraction it resolves symlinked parents and checks the real path up to `/`: an existing target must be a non-symlink directory owned by the current user, each ancestor owned by the current user or root, and none group- or world-writable except a root-owned sticky ancestor (`/tmp`). It creates an absent target (`os.Mkdir`, so the parent must exist; a target that appears meanwhile is refused), opens an `os.Root` on it, checks the opened directory against the target rule and the path (`checkTarget`), and refuses a nonempty target without touching it. A library failure is rolled back by the library; only a created target is then removed. After extraction it requires the path to still name that directory. A later failure removes what was extracted through the handle, never by path (and the target itself if restore created it).
 It restores `matrix/` with the rest and chmods `matrix/element/config.json` back to 0644 (Element's
 nginx reads it as another user). `cmd/server/restorematrix.go` (`restore-matrix`) then loads the

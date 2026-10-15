@@ -19,9 +19,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// matrixRequired are the Matrix members a rebuilt stack cannot start without.
-var matrixRequired = []string{mediaKeyPath, "matrix/synapse/signing.key", "matrix/synapse/homeserver.yaml",
-	"matrix/mas/config.yaml", "matrix/postgres/init.sql", "matrix/postgres/kybackup-role.sql"}
+// matrixRequired are the Matrix members a rebuilt stack cannot start without, and the owner
+// passwords restore-matrix restores as.
+func matrixRequired() []string {
+	req := []string{mediaKeyPath, "matrix/synapse/signing.key", "matrix/synapse/homeserver.yaml",
+		"matrix/mas/config.yaml", "matrix/postgres/init.sql", "matrix/postgres/kybackup-role.sql"}
+	for _, d := range restoreDBs {
+		req = append(req, "matrix/secrets/"+d.secret)
+	}
+	return req
+}
 
 // DumpCheckTimeout bounds the drill's full read of one dump.
 const DumpCheckTimeout = 2 * time.Minute
@@ -69,7 +76,7 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 		if bases, err = recipeStrings(raw); err != nil {
 			return recipeFailure("pg_dumps: " + err.Error())
 		}
-		for _, name := range matrixRequired {
+		for _, name := range matrixRequired() {
 			if !slices.Contains(required, name) {
 				return recipeFailure("required_files omits " + name)
 			}
@@ -227,8 +234,8 @@ func dumpMembersFailure(opened capsule.Manifest, bases []string) string {
 	return ""
 }
 
-// dumpChecks reports each base's parts, joined in order, read in full by pg_restore: --list
-// reads only the TOC, so a truncated last part would pass it.
+// dumpChecks reports each base's parts, joined in order, through checkDump: what restore-matrix
+// would refuse fails the drill.
 func dumpChecks(dir string, bases []string) []recoveryclient.Check {
 	var checks []recoveryclient.Check
 	for _, base := range bases {
@@ -239,10 +246,10 @@ func dumpChecks(dir string, bases []string) []recoveryclient.Check {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), DumpCheckTimeout)
-		err := readFiles(ctx, paths)
+		err := checkDump(ctx, paths)
 		cancel()
 		if err != nil {
-			checks = append(checks, recoveryclient.Check{Name: name, Message: "pg_restore could not read it in full: " + recoveryclient.AuditSafe(err.Error())})
+			checks = append(checks, recoveryclient.Check{Name: name, Message: "restore-matrix would refuse it: " + recoveryclient.AuditSafe(err.Error())})
 			continue
 		}
 		checks = append(checks, recoveryclient.Check{Name: name, Passed: true, Message: fmt.Sprintf("pg_restore read all %d parts in full", len(paths))})
