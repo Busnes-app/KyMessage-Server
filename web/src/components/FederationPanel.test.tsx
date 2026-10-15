@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { FederationPanel, parseFederation, parseStatuses, wideningWarnings } from './FederationPanel';
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
-const CLOSED = { level: 'closed', server_name: 'example.com', servers: [], presets: [], restart_hint: 'docker compose restart synapse' };
+const CLOSED = { level: 'closed', server_name: 'example.com', servers: [], presets: [], restart_hint: 'docker compose restart synapse', unapplied: [] as string[] };
 const PRESET = { name: 'public.example', operator: 'Public Org', open_signup: true, source: 'https://public.example/', checked: '2026-10-11', ticked: false };
 
 function serve(route: (url: string, init?: RequestInit) => Response | undefined) {
@@ -25,6 +25,9 @@ describe('parsing', () => {
     expect(f.servers).toEqual(['partner.example']);
     expect(f.presets[0].open_signup).toBe(true);
     expect(f.file_error).toBe('');
+    expect(f.unapplied).toEqual([]);
+    // A view without the list must not hide the restart warning.
+    expect(() => parseFederation({ ...CLOSED, unapplied: undefined })).toThrow();
     expect(() => parseFederation({ ...CLOSED, level: 'open' })).toThrow();
     expect(() => parseFederation({ ...CLOSED, servers: ['partner.example'] })).toThrow();
     expect(parseStatuses({ statuses: { 'a.example': 'connected' } })).toEqual({ 'a.example': 'connected' });
@@ -132,6 +135,24 @@ describe('FederationPanel', () => {
     });
     render(<FederationPanel />);
     expect(await screen.findByText('No public servers are listed in this release yet.')).toBeTruthy();
+  });
+
+  it('warns until Synapse restarts that removed servers can still federate', async () => {
+    let view = { ...CLOSED, level: 'manual', servers: [{ name: 'partner.example' }], unapplied: ['gone.example', 'old.example'] };
+    serve((url, init) => {
+      if (url === '/api/admin/federation' && !init?.method) return json(view);
+      if (url === '/api/admin/federation/status') return json({ statuses: {} });
+      return undefined;
+    });
+    const { unmount } = render(<FederationPanel />);
+    const alert = (await screen.findByText(/removed servers can\s+still federate/)).closest('[role="alert"]');
+    expect(alert?.textContent).toContain('gone.example, old.example');
+    expect(alert?.textContent).toContain('docker compose restart synapse');
+    unmount();
+    view = { ...view, unapplied: [] };
+    render(<FederationPanel />);
+    await screen.findByText('partner.example');
+    expect(screen.queryByText(/still federate/)).toBeNull();
   });
 
   it('shows a file error and a refused change', async () => {

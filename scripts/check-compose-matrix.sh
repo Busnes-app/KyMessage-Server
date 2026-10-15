@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The Matrix overlay must publish nothing, pin every image by tag and digest, run the stateful
-# services as the matrix-init owner, mount only each service's own ./matrix path read-only,
+# The Matrix overlay must publish nothing, pin every image by tag and digest, run the app and
+# the stateful services as the matrix-init owner (the app hardened like the Matrix services),
+# mount only each service's own ./matrix path read-only,
 # pass the Postgres superuser password as a secret file and keep it out of the app's view, and
 # keep composing with the proxy and static-IP overlays.
 # The app's writable ./matrix paths are Element's config.json, whose brand the console sets, and
@@ -9,7 +10,7 @@
 set -u
 root=$(git rev-parse --show-toplevel)
 export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only \
-  KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 \
+  KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 KY_UID=1111 KY_GID=2222 \
   KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com \
   KY_MATRIX_MEDIA_BIND_IP=0.0.0.0 KY_MATRIX_RTC_HOST=https://sfu.example.com KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
 unset KY_NETWORK_SUBNET KY_NETWORK
@@ -131,6 +132,12 @@ both=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" -f "$root/docker-comp
 [ "$(jq -r '.services.app.networks.default.ipv4_address' <<<"$both")" = 10.91.0.20 ] || bad "static IP lost with matrix overlay"
 [ "$(jq -c '.services.app.environment | [.KY_MATRIX_SERVER_NAME, .KY_MATRIX_HOST, .KY_MATRIX_CHAT_HOST]' <<<"$out")" = '["example.com","https://matrix.example.com","https://chat.example.com"]' ] \
   || bad "app does not receive the Matrix locations"
+# The app holds every Matrix secret: never root, no capability, no privilege gain, read-only
+# root. It runs as the owner of ./matrix (not KY_UID), so it writes its two files there.
+for j in "$out" "$both"; do
+  h=$(jq -c '.services.app | [.user, .cap_drop, .cap_add, .security_opt, .read_only, .tmpfs, .privileged]' <<<"$j")
+  [ "$h" = '["1234:5678",["ALL"],null,["no-new-privileges:true"],true,["/tmp"],null]' ] || bad "app lost its hardening: $h"
+done
 # Offboarding: only mas and app reach the admin API, on an internal network, by alias.
 admin_checks() {
   local j=$1

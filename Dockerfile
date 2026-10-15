@@ -1,7 +1,7 @@
 # Multi-stage build for kymessages
 
 # Stage 1: Build React PWA Frontend
-FROM node:26-alpine AS frontend-builder
+FROM node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS frontend-builder
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2: Build Go Standalone Binary
-FROM golang:1.27.2-alpine AS backend-builder
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS backend-builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -18,7 +18,7 @@ COPY --from=frontend-builder /app/web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o kymessages ./cmd/server
 
 # Stage 3: Minimal Production Container
-FROM alpine:3.24
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 # postgresql17-client: pg_dump/pg_restore for Matrix backups; its major must equal the
 # postgres service's (scripts/check-compose-matrix.sh).
 RUN apk --no-cache add ca-certificates tzdata postgresql17-client
@@ -26,7 +26,10 @@ WORKDIR /app
 COPY --from=backend-builder /app/kymessages /app/kymessages
 # /app/backups is the optional mount for sealed local capsules; KY_BACKUP_DIR is set by the
 # operator (compose does), so an image run bare keeps no local copies.
-RUN mkdir -p /app/data /app/backups
+# Never root: Compose runs it as the owner of ./data (KY_UID, or KY_MATRIX_UID with Matrix);
+# a bare run uses 10001, which owns the image's own volumes.
+RUN mkdir -p /app/data /app/backups && chown 10001:10001 /app/data /app/backups
+USER 10001:10001
 
 ENV KY_PORT=8080
 ENV KY_HOST=0.0.0.0

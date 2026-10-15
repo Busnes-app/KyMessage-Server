@@ -29,6 +29,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 )
 
 //go:embed templates/*
@@ -40,10 +41,11 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 }).ParseFS(templateFS, "templates/*"))
 
 // MAS claims templates (minijinja). The localpart is the email's local part (before the first
-// "@"), lowercased, with every character outside [a-z0-9._=-] mapped to "_"; no email, or one
-// without "@" or local part, renders empty, which "require" refuses.
+// "@"), lowercased, with every character outside [a-z0-9._=-] mapped to "_"; an email KyIdentity
+// has not verified (email_verified not true), no email, or one without "@" or local part,
+// renders empty, which "require" refuses.
 const (
-	localpartTemplate   = `{% if user.email and "@" in user.email %}{% for c in user.email | split("@") | first | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}{% endif %}`
+	localpartTemplate   = `{% if user.email_verified is true and user.email and "@" in user.email %}{% for c in user.email | split("@") | first | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}{% endif %}`
 	displayNameTemplate = `{{ user.name }}`
 	emailTemplate       = `{{ user.email }}`
 )
@@ -72,13 +74,16 @@ type Registration struct {
 
 // Result lists paths relative to Dir: Created and Kept are write-once secrets, Rendered are
 // configs rewritten on every run. ClientSecretMissing means ClientSecretFile is absent, so
-// mas/config.yaml was not rendered.
+// mas/config.yaml was not rendered. RotatedDBPassword means a Synapse or MAS database password
+// was created for an existing stack (its superuser password kept), which must then apply
+// postgres/role-passwords.sql.
 type Result struct {
 	Dir                 string
 	Created             []string
 	Kept                []string
 	Rendered            []string
 	ClientSecretMissing bool
+	RotatedDBPassword   bool
 	Registration        Registration
 	AdminClientID       string
 }
@@ -181,25 +186,28 @@ func httpsURL(raw string) (*url.URL, error) {
 
 // secretSpecs are written once under secrets/. The provider ID is not secret but must be
 // just as stable: KyIdentity's redirect URI embeds it.
+// A token (hex or ULID) is rendered byte for byte, while the app trims what it reads, so a kept
+// one must hold no whitespace or control character; the PEM keys hold newlines.
 var secretSpecs = []struct {
-	name string
-	gen  func() ([]byte, error)
+	name  string
+	gen   func() ([]byte, error)
+	token bool
 }{
-	{"livekit_api_key", hexSecret},
-	{"livekit_api_secret", hexSecret},
-	{"synapse_db_password", hexSecret},
-	{"mas_db_password", hexSecret},
-	{"postgres_password", hexSecret}, // superuser; a Compose secret, never rendered
-	{"synapse_macaroon_secret_key", hexSecret},
-	{"synapse_form_secret", hexSecret},
-	{"mas_synapse_shared_secret", hexSecret},
-	{"mas_encryption", hexSecret}, // MAS requires exactly 32 bytes, hex encoded
-	{"mas_signing_rsa", rsaKeyPEM},
-	{"mas_signing_ec", ecKeyPEM},
-	{"upstream_provider_id", newULID},
-	{"mas_admin_client_id", newULID},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
-	{"mas_admin_client_secret", hexSecret}, // mounted into KyMessages, never in env
-	{"kybackup_db_password", hexSecret},    // read-only backup role; KyMessages reads it as a Compose secret
+	{"livekit_api_key", hexSecret, true},
+	{"livekit_api_secret", hexSecret, true},
+	{"synapse_db_password", hexSecret, true},
+	{"mas_db_password", hexSecret, true},
+	{"postgres_password", hexSecret, true}, // superuser; a Compose secret, never rendered
+	{"synapse_macaroon_secret_key", hexSecret, true},
+	{"synapse_form_secret", hexSecret, true},
+	{"mas_synapse_shared_secret", hexSecret, true},
+	{"mas_encryption", hexSecret, true}, // MAS requires exactly 32 bytes, hex encoded
+	{"mas_signing_rsa", rsaKeyPEM, false},
+	{"mas_signing_ec", ecKeyPEM, false},
+	{"upstream_provider_id", newULID, true},
+	{"mas_admin_client_id", newULID, true},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
+	{"mas_admin_client_secret", hexSecret, true}, // mounted into KyMessages, never in env
+	{"kybackup_db_password", hexSecret, true},    // read-only backup role; KyMessages reads it as a Compose secret
 }
 
 // Run validates in fully, then writes the configuration under dir.
@@ -252,8 +260,12 @@ func Run(in Input, dir string) (Result, error) {
 		return v, nil
 	}
 	for _, spec := range secretSpecs {
-		if s[spec.name], err = ensure(filepath.Join("secrets", spec.name), spec.gen); err != nil {
+		rel := filepath.Join("secrets", spec.name)
+		if s[spec.name], err = ensure(rel, spec.gen); err != nil {
 			return Result{}, err
+		}
+		if spec.token && strings.ContainsFunc(s[spec.name], func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+			return Result{}, fmt.Errorf("%s: contains whitespace or control characters (a trailing newline counts); restore it from backup byte for byte", rel)
 		}
 	}
 	if _, err := ensure(filepath.Join("synapse", "signing.key"), synapseSigningKey); err != nil {
@@ -280,6 +292,8 @@ func Run(in Input, dir string) (Result, error) {
 		// After init.sql by name: the entrypoint runs both on a new volume; operators run it once
 		// on an existing stack. Idempotent.
 		{"kybackup-role.sql.tmpl", "postgres/kybackup-role.sql", 0o600, false},
+		// Last by name; idempotent. Applies a rotated synapse or mas password to a running stack.
+		{"role-passwords.sql.tmpl", "postgres/role-passwords.sql", 0o600, false},
 		// No secrets; the Element container reads it as a different user. In place: Compose
 		// binds this single file into Element and the app, and a running container keeps the
 		// inode it was given.
@@ -303,6 +317,8 @@ func Run(in Input, dir string) (Result, error) {
 	}
 
 	res.AdminClientID = s["mas_admin_client_id"]
+	res.RotatedDBPassword = slices.Contains(res.Kept, "secrets/postgres_password") &&
+		(slices.Contains(res.Created, "secrets/synapse_db_password") || slices.Contains(res.Created, "secrets/mas_db_password"))
 	res.Registration = Registration{
 		RedirectURI:          in.AuthHost + "/upstream/callback/" + s["upstream_provider_id"],
 		BackchannelLogoutURI: in.AuthHost + "/upstream/backchannel-logout/" + s["upstream_provider_id"],

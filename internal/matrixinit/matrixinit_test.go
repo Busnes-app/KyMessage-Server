@@ -229,11 +229,14 @@ func TestMASConfigTrustsOnlyKyIdentity(t *testing.T) {
 		t.Errorf("provider: %v", p)
 	}
 	lp := p["claims_imports"].(map[string]any)["localpart"].(map[string]any)
-	// Owner decision 2026-10-02: the localpart is the email's local part. This exact template was
-	// rendered with MAS v1.26.0's minijinja environment: alice@example.com -> alice,
-	// Mixed.Case+Tag@Example.COM -> mixed.case_tag; empty, null, missing, "@"-less and
-	// "@example.com" render empty, which "require" refuses. matrix-acceptance checks it live.
-	const emailLocalpart = `{% if user.email and "@" in user.email %}{% for c in user.email | split("@") | first | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}{% endif %}`
+	// Owner decision 2026-10-02: the localpart is the email's local part, only once KyIdentity
+	// has verified the address (it sends email_verified, false for an address no mailed link
+	// proved). The unverified gate was rendered with minijinja 3.0 (minijinja-py): verified
+	// alice@example.com -> alice, Mixed.Case+Tag -> mixed.case_tag; email_verified false,
+	// missing, null, "true" or 1, and an empty, "@"-less or "@example.com" email render empty,
+	// which "require" refuses. `is true` is a builtin test in MAS 1.26's minijinja 2.21.
+	// matrix-acceptance checks it live.
+	const emailLocalpart = `{% if user.email_verified is true and user.email and "@" in user.email %}{% for c in user.email | split("@") | first | lower %}{% if c in "abcdefghijklmnopqrstuvwxyz0123456789._=-" %}{{ c }}{% else %}_{% endif %}{% endfor %}{% endif %}`
 	if lp["action"] != "require" || lp["on_conflict"] != "fail" || lp["template"] != emailLocalpart {
 		t.Errorf("localpart mapping: %v", lp)
 	}
@@ -597,7 +600,7 @@ func TestBackupRoleSQL(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"init.sql", "kybackup-role.sql"}) {
+	if !slices.Equal(names, []string{"init.sql", "kybackup-role.sql", "role-passwords.sql"}) {
 		t.Fatalf("entrypoint order %v: init.sql must run first", names)
 	}
 	pw, _ := os.ReadFile(filepath.Join(dir, "secrets", "kybackup_db_password"))
@@ -625,6 +628,36 @@ func TestBackupRoleSQL(t *testing.T) {
 	}
 	if fi, _ := os.Stat(filepath.Join(dir, "postgres", "kybackup-role.sql")); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v, want 0600: it holds the password", fi.Mode().Perm())
+	}
+}
+
+// A kept token is rendered byte for byte into the MAS, Synapse and Postgres configs while the app
+// trims what it reads, so a restored copy with a stray newline or space would split the two.
+func TestInitRefusesKeptTokenWithWhitespace(t *testing.T) {
+	for _, bad := range []string{"abc\n", "a b", "abc\r", " abc"} {
+		dir := filepath.Join(t.TempDir(), "m")
+		if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+			t.Fatal(err)
+		}
+		masCfg, _ := os.ReadFile(filepath.Join(dir, "mas", "config.yaml"))
+		if err := os.WriteFile(filepath.Join(dir, "secrets", "mas_db_password"), []byte(bad), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Run(goodInput(), dir)
+		if err == nil || !strings.Contains(err.Error(), "secrets/mas_db_password: contains whitespace") {
+			t.Fatalf("%q: err %v, want a refusal naming the file", bad, err)
+		}
+		if after, _ := os.ReadFile(filepath.Join(dir, "mas", "config.yaml")); !bytes.Equal(after, masCfg) {
+			t.Fatalf("%q: mas/config.yaml rewritten after a refusal", bad)
+		}
+	}
+	// The PEM keys hold newlines and are kept as they are.
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := runWithSecret(t, goodInput(), dir, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
 	}
 }
 
