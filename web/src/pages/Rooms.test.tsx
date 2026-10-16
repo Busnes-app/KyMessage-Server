@@ -108,7 +108,8 @@ describe('Rooms', () => {
     expect(await screen.findByText(/Room closed: everyone was removed/)).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Team chat' })).toBeNull();
     expect(polls).toBe(5);
-    expect(calls.filter((c) => c.startsWith('GET /api/admin/matrix/rooms?'))).toHaveLength(2);
+    // The list refetch is an effect that runs after the message renders.
+    await waitFor(() => expect(calls.filter((c) => c.startsWith('GET /api/admin/matrix/rooms?'))).toHaveLength(2));
   });
 
   it('retries a close after the admin confirms it is them', async () => {
