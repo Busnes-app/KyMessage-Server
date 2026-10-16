@@ -86,10 +86,25 @@ async function signedIn(page, expectMxid) {
   return mxid;
 }
 
+// Element's login page: Continue goes to MAS. Element registers its client with MAS once per
+// load; if Chrome aborts that request (ERR_NETWORK_CHANGED while Compose adds an interface) it
+// shows a homeserver error instead of Continue, so reload, at most twice.
+async function startSignIn(page) {
+  const go = page.getByRole('button', { name: 'Continue', exact: true });
+  const failed = page.getByText('There was a problem communicating with the homeserver');
+  await page.goto(`${CHAT}/#/login`);
+  for (let i = 0; ; i++) {
+    await go.or(failed).first().waitFor();
+    if (await go.isVisible()) return go.click();
+    if (i === 2) throw new Error('Element could not reach MAS on three loads of its login page');
+    console.log('  note: Element could not reach MAS; reloading its login page');
+    await page.reload();
+  }
+}
+
 // Element's native OIDC sign-in: Continue on the login page goes to MAS, then KyIdentity.
 async function nativeSignIn(page, user, expectMxid) {
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await kyidentityLogin(page, user);
   return signedIn(page, expectMxid);
 }
@@ -217,8 +232,7 @@ async function refused() {
   const page = await launch('mallory');
   const seen = [];
   page.on('request', (r) => seen.push(r.url()));
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
   await fillLogin(page, 'mallory');
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -268,8 +282,7 @@ async function compat() {
 async function noclaim() {
   const who = user || 'nadia';
   const page = await launch(who);
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
   await fillLogin(page, who);
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -364,8 +377,7 @@ async function token() {
     async (r) => r.url().startsWith(`${MATRIX}/_matrix/client/`) && /^Bearer /.test((await r.headerValue('authorization')) ?? ''),
     { timeout: 60000 },
   );
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await kyidentityLogin(page, user);
   const bearer = (await (await authorized).headerValue('authorization')).slice('Bearer '.length);
   fs.writeFileSync(`${dir}/state/${user}.token`, bearer, { mode: 0o600 });
@@ -375,8 +387,7 @@ async function token() {
 // A disabled account: KyIdentity refuses the password sign-in, so Element never opens.
 async function disabled() {
   const page = await launch(user);
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
   await fillLogin(page, user);
   const login = page.waitForResponse((r) => r.url() === 'https://id.kymatrix.test/api/auth/login' && r.request().method() === 'POST');
@@ -392,8 +403,7 @@ async function disabled() {
 async function reread() {
   const { room: id, messages } = roomState();
   const page = await launch(user);
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await kyidentityLogin(page, user);
   // A new device of an account with cross-signing lands on "Confirm your identity".
   await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
@@ -456,8 +466,7 @@ async function media() {
 }
 
 async function recoveredSignIn(page, name, expected) {
-  await page.goto(`${CHAT}/#/login`);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await startSignIn(page);
   await kyidentityLogin(page, name);
   await page.getByRole('button', { name: 'Use recovery key', exact: true }).click();
   const dlg = page.getByRole('dialog');
