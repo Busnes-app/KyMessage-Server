@@ -8,14 +8,14 @@ priority is small teams and encrypted chat, with voice and video calls enabled b
 - `kymessages` is the binary and local image name; `KY_APP_NAME` defaults to
   `KyMessages`. `internal/config.AppVersion` is shared by CLI and capsule paths.
   Preserve explicit legacy service names for existing pairing pins/capsules.
-- Compose is a loopback local preview by default, names `kymessages:local` and never
-  pulls an upstream base image. The app never runs as root: the image's `USER` is 10001 (owning
+- Compose is a loopback local preview by default and runs `ghcr.io/busnes-app/kymessage-server:stable`
+  (`KY_IMAGE` pins a verified digest); it never runs an upstream base image. The build overlay
+  builds `kymessages:local` (app and `restore-matrix`), never pulled. The app never runs as root: the image's `USER` is 10001 (owning
   its own `/app/data` and `/app/backups`); Compose runs it as `KY_UID:KY_GID` (required, the
   owner of `./data` and `./backups`), or `KY_MATRIX_UID:KY_MATRIX_GID` with the Matrix overlay,
   with `cap_drop: [ALL]`, `no-new-privileges`, `read_only: true` and a `/tmp` tmpfs;
   `scripts/check-compose-proxy.sh` and `check-compose-matrix.sh` fail if any of that is lost.
-  Dockerfile base images are pinned by tag and digest (Dependabot's `docker` entry bumps them). Use the build overlay while images are unpublished;
-  preserve existing overlay chains. The release target is SQLite, one instance.
+  Dockerfile base images are pinned by tag and digest (Dependabot's `docker` entry bumps them). Preserve existing overlay chains. The release target is SQLite, one instance.
 - `make clean` removes generated artifacts only; never runtime data or backups.
 - `cmd/server` `bootstrapAdmin` creates the local admin on an empty database as
   `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose); a failed user count stops
@@ -214,7 +214,13 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - `scripts/smoke-test.sh`: runs the built binary and asserts CLI, auth, session, and SPA behavior
 - Docker image build and container HTTP check
 - Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, proof-of-work sign-in on a second server, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit, Overview and Settings branding (rename by keyboard, logo upload and resets) pages; these checks remain release gates.
-- Container builds use `npm ci`. CI builds/runs `kymessages:ci` but has no image publication/promotion jobs while release gates remain open. Keep the deployed identity gates explicit.
+- Container builds use `npm ci`. CI builds/runs `kymessages:ci` and publishes nothing.
+  `.github/workflows/release-image.yml` is the only publisher: on a published release `vX.Y.Z`
+  it requires every version source (`internal/config/config.go`, `web/package.json`, both
+  `web/package-lock.json` entries) to equal X.Y.Z and every ci.yml job, by name, to have passed
+  on the tagged commit, then pushes `:X.Y.Z` (SBOM, provenance), attests and verifies it, and
+  moves `:stable` only forward and never to a prerelease. A new ci.yml job joins its `REQUIRED`
+  list; its action pins match KyPulse's. Keep the deployed identity gates explicit.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
   (CI: a pinned checkout), runs `matrix-init` twice (proving Compose refuses MAS in between,

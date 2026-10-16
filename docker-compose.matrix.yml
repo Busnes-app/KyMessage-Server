@@ -212,7 +212,7 @@ services:
   # writer of the media volume besides Synapse; everything else is read-only.
   restore-matrix:
     profiles: [restore]
-    image: ${KY_IMAGE:-kymessages:local}
+    image: ${KY_IMAGE:-ghcr.io/busnes-app/kymessage-server:stable}
     pull_policy: never
     entrypoint: ["/app/kymessages", "restore-matrix"]
     user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"

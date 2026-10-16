@@ -42,11 +42,26 @@ suite OIDC.
 The default data directory is `./data`; keep its encryption key with the database.
 `make clean` removes build artifacts, never runtime data or backups.
 
+## Container image
+
+Compose runs the published image `ghcr.io/busnes-app/kymessage-server:stable`, the newest
+release. Each release `vX.Y.Z` is also published as `:X.Y.Z` with an SBOM and a build
+attestation, and only after CI passed on the tagged commit. `docker compose pull` moves to a
+newer release. To stay on one release, pin it by digest in `KY_IMAGE` after verifying its
+attestation; `docker-compose.yml` has the command.
+
+Protect `.env` with mode 0600 and export `KY_ADMIN_PASSWORD` as above. The container
+never runs as root: create `./data` and `./backups` as yourself and set `KY_UID` and `KY_GID`
+in `.env` to your `id -u` and `id -g` (Compose refuses to start without them). It also drops
+every capability and runs with a read-only root filesystem; only `./data`, `./backups` and a
+`/tmp` tmpfs are writable. Then run `docker compose up -d`. The published port binds
+`127.0.0.1` by default. Container names, binary and local image are KyMessages-specific; the
+retained Go module path and token-sealing label are internal compatibility identifiers.
+
 ## Local container build
 
-There is no published KyMessages image yet. Compose defaults to `kymessages:local`
-with pulling disabled, so it cannot silently start the upstream server-base image.
-Build this checkout with `docker-compose.build.yml`. In a new `.env`, set:
+To run this checkout instead, build it with `docker-compose.build.yml`. Its image is
+`kymessages:local`, never pulled, and wins over `KY_IMAGE`. In a new `.env`, set:
 
 ```dotenv
 COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
@@ -54,13 +69,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
 
 For an existing `.env`, append the build overlay to its current `COMPOSE_FILE` chain;
 keep any LAN-DNS/static-IP overlays. The build overlay contains an idempotent append
-snippet. Protect `.env` with mode 0600 and export `KY_ADMIN_PASSWORD` as above. The container
-never runs as root: create `./data` and `./backups` as yourself and set `KY_UID` and `KY_GID`
-in `.env` to your `id -u` and `id -g` (Compose refuses to start without them). It also drops
-every capability and runs with a read-only root filesystem; only `./data`, `./backups` and a
-`/tmp` tmpfs are writable. Then run `docker compose up --build`. The published port binds `127.0.0.1` by default. Container
-names, binary and local image are KyMessages-specific; the retained Go module path
-and token-sealing label are internal compatibility identifiers.
+snippet. Then run `docker compose up --build`.
 
 Optional `docker-compose.static-ip.yml` requires `KY_CONTAINER_IP` and
 `KY_NETWORK_SUBNET`; otherwise Compose chooses addressing. Optional
@@ -214,7 +223,7 @@ Upgrading a stack from before Matrix backups:
 1. Re-run `./kymessages matrix-init` (adds `kybackup_db_password` and `postgres/kybackup-role.sql`).
 2. Run the role file once:
    `docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/kybackup-role.sql`.
-3. Rebuild the app image (no image is published), keep `KY_BACKUP_DIR` set, and optionally set
+3. `docker compose pull app` (or rebuild with the build overlay), keep `KY_BACKUP_DIR` set, and optionally set
    `KY_BACKUP_MEDIA_FULL_KEEP`.
 4. `docker compose up -d`. The first scheduled run then backs up Matrix.
 
@@ -457,7 +466,11 @@ The smoke CI job also runs `python3 scripts/backup-acceptance.py`, a three-minut
 disposable test of actual scheduler ticks, local-copy failures and live schedule
 changes.
 CI builds/runs the container, checks dependencies and verifies committed frontend
-assets. It publishes no image while release gates remain open (see `docs/superpowers/specs/2026-10-01-matrix-platform-design.md`).
+assets; it publishes nothing. Publishing a GitHub release `vX.Y.Z` runs
+`.github/workflows/release-image.yml`: it refuses a tag that disagrees with any version source
+(`internal/config/config.go`, `web/package.json`, `web/package-lock.json`) or a commit on which
+any CI job did not pass, then publishes `:X.Y.Z`, attests and verifies it, and moves `:stable`
+unless the release is a prerelease or older than the newest one.
 
 ## Container-local installer integration
 

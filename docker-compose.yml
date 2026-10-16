@@ -1,9 +1,21 @@
 # Local operator-console preview. No chat client is embedded.
-# Build this checkout with docker-compose.build.yml; no KyMessages image is published yet.
 services:
   app:
-    image: ${KY_IMAGE:-kymessages:local}
-    pull_policy: never
+    # The published, attested release image. `docker compose pull` moves to the newest release;
+    # `up` uses what is present, otherwise pulls. A source build lives in docker-compose.build.yml
+    # under kymessages:local, which wins over this.
+    # To run one release only, pin it by digest after verifying it was built by this repository's
+    # release workflow at that tag (gh logged in). The new .env is staged here and renamed over
+    # the old one only after a full write, so a failed check never touches your secrets:
+    #   v=0.4.2; i=ghcr.io/busnes-app/kymessage-server \
+    #     && d=$(docker buildx imagetools inspect "$i:$v" --format '{{.Manifest.Digest}}') \
+    #     && gh attestation verify "oci://$i@$d" --repo Busnes-app/KyMessage-Server \
+    #          --cert-identity "https://github.com/Busnes-app/KyMessage-Server/.github/workflows/release-image.yml@refs/tags/v$v" \
+    #     && (umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env && { grep -v '^KY_IMAGE=' .env || [ $? -eq 1 ]; } > "$t" \
+    #         && echo "KY_IMAGE=$i@$d" >> "$t" && mv "$t" .env) \
+    #     && grep -qxF "KY_IMAGE=$i@$d" .env
+    image: ${KY_IMAGE:-ghcr.io/busnes-app/kymessage-server:stable}
+    pull_policy: missing
     container_name: kymessages
     restart: unless-stopped
     # Never root: the owner of ./data and ./backups (create both as that user before `up`).

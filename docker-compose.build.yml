@@ -18,3 +18,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+  # The Matrix restore one-shot (docker-compose.matrix.yml) runs the same local build.
+  restore-matrix:
+    profiles: [restore]
+    image: kymessages:local
+    pull_policy: never
