@@ -1,10 +1,11 @@
 # KyMessages server restore
 
 KyMessages is not deployed yet. These instructions cover the source-built server's
-SQLite capsule restore and the Matrix stack restore, which is tested with disposable custodian keys. No published
-KyMessages image or production identity/deployment verification is implied by this
-runbook. Do not substitute the upstream `ky-server-base` image: it does not contain
-this repository's restore policy.
+SQLite capsule restore and the Matrix stack restore, which is tested with disposable custodian keys. No
+production identity/deployment verification is implied by this runbook. Restore with the
+published `ghcr.io/busnes-app/kymessage-server` image or a build of this repository. Do not
+substitute the upstream `ky-server-base` image: it does not contain this repository's restore
+policy.
 
 ## What recovery can restore
 
@@ -112,8 +113,9 @@ restoring her keys from key backup; the server name and signing key were unchang
    certificate is still valid before restarting LiveKit. For a
    capsule from before calling, `matrix-init` generates the new LiveKit keys once. Active calls
    and recordings are not restored; there is no recording service.
-3. Set `.env` as before, with `KY_MATRIX_UID`/`KY_MATRIX_GID` (and `KY_UID`/`KY_GID`) for that user. Build the
-   image (build overlay).
+3. Set `.env` as before, with `KY_MATRIX_UID`/`KY_MATRIX_GID` (and `KY_UID`/`KY_GID`) for that user. Pull the
+   image (`docker compose pull app`; `restore-matrix` runs the same image and never pulls) or
+   build it (build overlay).
 4. Only if this stack is meant to be replaced: `docker compose down -v`, which deletes its
    Matrix database and media. Then `docker compose up -d postgres`, nothing else.
 5. `docker compose run --rm restore-matrix`. Add `-skip-media` only if no media backup
