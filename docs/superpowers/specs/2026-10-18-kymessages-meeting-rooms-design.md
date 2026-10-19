@@ -24,6 +24,9 @@ Nothing else about guests changes: outside meeting rooms, KyMessages still has n
 3. KyCalendar authenticates with a backend server credential, not per-user tokens.
 4. Element stays stock (owner decision 2026-10-02). Stock Element configuration (`config.json`)
    may change; Element code may not.
+5. A guest's window opens 10 minutes before each occurrence starts and closes at its end. At the
+   end, guests are removed from the call even if members stay on.
+6. Any internal member of the room (the organizer or an internal attendee) may let a guest in.
 
 ## Design
 
@@ -39,7 +42,8 @@ stable per change, so the replay guard absorbs retries.
   - **Body:** `{organizer_sub, title, member_subs[], guests[{key}], windows[{start, end}]}`.
     - `guests[].key` is an opaque per-attendee key. KyMessages never receives guest names or
       addresses.
-    - `windows` covers at most 90 days ahead.
+    - `windows` covers at most 90 days ahead. KyCalendar sends each occurrence as
+      `[start - 10 min, end]` (decision 5); KyMessages enforces exactly what it is given.
   - **Creates or reconciles the room:**
     - members are invited and removed members are kicked;
     - the title becomes the room name;
@@ -79,7 +83,8 @@ stable per change, so the replay guard absorbs retries.
    - The display name is `<name> (guest)`, and the suffix is re-applied by the reconciler.
    - Its personal session expires at the end of the window.
    - The account then knocks on the room.
-5. **Members see "asks to join" in Element**, and any member present may approve it. Approval is
+5. **Members see "asks to join" in Element**, and any internal member may approve it
+   (decision 6). Approval is
    a Matrix invite, which the guest's client accepts.
 6. **Call grant rule for a guest.** `handleRTCToken` issues one only when all three hold:
    - the account belongs to this meeting;
