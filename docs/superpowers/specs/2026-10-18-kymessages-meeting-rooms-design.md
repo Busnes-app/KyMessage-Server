@@ -124,6 +124,60 @@ Each ends in a recorded pass or fail under `docs/evidence/`.
 - **S2, approving.** Whether the pinned Element shows and approves knocks ("Ask to join") during
   an Element Call, and which `config.json` feature flag it needs.
 - **S3, confinement.** The Synapse module callbacks above, on the pinned Synapse v1.162.0.
+- **Desk results (2026-10-19, from source at the pinned tags; nothing run yet).** Each still
+  needs its container test before building on it.
+  - **S1: go, with a workaround.**
+    - **No supported route.** MAS 1.26 has no admin API that creates a compatibility session or
+      login token (only `mas-cli manage issue-compatibility-token`). Element reads `loginToken`
+      only to finish an SSO login it started itself. Synapse's "log in as user" admin endpoint is
+      off under MAS. Element Call's own guest join needs `/register`, which MAS disables.
+    - **Workable route.** A small static bootstrap page mounted into the stock Element container,
+      as `config.json` is:
+      1. It trades the guest link's one-time code, by POST to the admin host, for a personal
+         session KyMessages mints. Scope: `urn:matrix:client:api:*
+         urn:matrix:client:device:<id>`, with no admin scope, expiring at the window end.
+      2. It writes the session where Element restores sessions from (`mx_hs_url`, `mx_user_id`,
+         `mx_device_id`, `mx_access_token`, which Element moves into IndexedDB).
+      3. It redirects to the room. The token never appears in a URL.
+    - **Risks:**
+      - Element's storage layout is internal, so every Element bump must re-run this test.
+      - The page is new script on Element's origin; it needs a strict CSP.
+      - Sign-out probably fails, because compat routes aren't public, so KyMessages revokes the
+        session.
+      - Unproven: whether a fresh account's crypto-setup prompts block the guest.
+    - **Rejected:**
+      - A KyMessages OIDC upstream: it would add a provider chooser with a "Guest" button to
+        every staff login, and it is the most code.
+  - **S2: go.**
+    - **The flag:** `"features": {"feature_ask_to_join": true}` in `config.json`. It is a labs
+      feature marked "In Development".
+    - **During a call:** the room header (`RoomKnocksBar`) shows during a call, so a member with
+      invite or kick power approves (an invite) or denies (a kick) without leaving it.
+    - **For the guest:** admission is approve, then the guest accepts the invite, then joins the
+      call: two more clicks for them.
+    - **Unproven:** knocks while the call is popped out or the member is in another room, and
+      whether knocks notify at all.
+    - **No call access while knocking:** call membership needs `join` under the room authorization
+      rules, and `handleRTCToken` refuses non-members.
+  - **S3: go.** On Synapse v1.162.0:
+    - **Module callbacks:**
+      - `user_may_create_room` (DMs too);
+      - `user_may_invite`;
+      - `user_may_send_3pid_invite`;
+      - `user_may_join_room` (deny when not invited);
+      - `user_may_create_room_alias`;
+      - `user_may_publish_room`.
+    - **Directory search:** `check_username_for_spam`, returning true for a guest requester,
+      because `search_all_users: false` still lists users in public rooms. Plus
+      `limit_profile_requests_to_users_who_share_rooms: true`.
+    - **Knocks:** `user_may_join_room` doesn't cover them, so the third-party rule
+      `check_event_allowed` limits a guest's knocks to their meeting room.
+    - **Media:** `is_user_allowed_to_upload_media_of_size` caps uploads, since
+      `check_media_file_for_spam` isn't told the uploader.
+    - **Installing:** the module is mounted read-only with `PYTHONPATH` set on both Synapse
+      containers. That is unproven in the official image.
+    - **Rate limits:** server-wide only, apart from the admin API's per-user message
+      `override_ratelimit`.
 - **If S1 or S2 fails:** the fallback is a KyMessages guest page that joins LiveKit directly with
   a KyMessages grant, with admission through a console-bot notice in the room that a member
   approves. Its media cannot use Element Call's Matrix-keyed encryption, so choosing it is an
