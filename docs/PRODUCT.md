@@ -16,7 +16,8 @@ published.
 - Small business teams first: one organization per deployment, self-hosted.
 - Encrypted chat, with voice and video calls enabled by default. Widgets and integrations are off.
 - Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
-  guests.
+  guests (approved, not shipped: KyCalendar meeting rooms admit external attendees through a
+  waiting room for the time of the meeting; see "Later or out of scope").
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
 - Not offered: Slack or Teams parity, compliance archiving, open federation.
 
@@ -160,6 +161,9 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 - Widgets and integrations: disabled in Element's config.
 - Console: room creation, membership editing, message moderation, colour editing, health
   history and alerting.
+- KyCalendar meeting rooms (approved 2026-10-18, not scheduled): a room with a call per meeting,
+  and external guests during the meeting only, admitted from a waiting room by someone in the
+  room. Design: `docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`.
 
 ## Known risks
 

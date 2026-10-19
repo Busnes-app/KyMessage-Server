@@ -176,6 +176,10 @@ When the user requests a durable behavior change, record it here or in the relev
   KyIdentity directory/MAS checks and room membership checks. No public or guest callers;
   users of servers on the federation allow-list may join a call a local user started (owner
   decision 2026-10-11, `internal/api/AGENTS.md`).
+  Exception approved 2026-10-18, not yet built: KyCalendar meeting rooms admit external guests
+  during the meeting only, from a waiting room, admitted by someone in the room and again after
+  leaving (`docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`). Until it
+  ships, the rule above holds.
   Setup needs `KY_MATRIX_RTC_HOST` and a directly reachable IPv4 `KY_MATRIX_MEDIA_IP`; cloudflared
   carries signalling only. Optional TURN/TLS is configured by the complete `KY_MATRIX_TURN_*`
   hostname/certificate/key setup block; validate before writes, renew through `matrix-init`
