@@ -77,6 +77,9 @@ func (s *Server) handleInstallerDirectory(w http.ResponseWriter, r *http.Request
 		case errors.Is(err, sso.ErrSyncUsernameConflict):
 			s.writeError(w, 409, err.Error())
 			return
+		case errors.Is(err, sso.ErrMemberRefused):
+			s.writeError(w, 422, "Directory revision or assigned identity refused")
+			return
 		case err != nil:
 			s.writeError(w, 500, "Directory update failed")
 			return

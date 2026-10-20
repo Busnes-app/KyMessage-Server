@@ -300,26 +300,71 @@ func TestInstallerDirectoryAdmitsAssignedMembers(t *testing.T) {
 	if code := send(key, "user.updated", "e3", member("member", true, 3)); code != 204 || plan(true) != "unlock" {
 		t.Fatalf("reassigned: %d %q", code, plan(true))
 	}
+	// user.deactivated, with nothing but the subject: inactive, profile kept.
+	if code := send(key, "user.deactivated", "d1", `{"id":"member","meta":{"version":"W/\"4\""}}`); code != 204 || plan(false) != "lock,session_end" {
+		t.Fatalf("deactivated: %d %q", code, plan(false))
+	}
+	if u, err := st.Users().GetUserBySSO(ctx, "kyidentity", "member"); err != nil || u.Status != "inactive" || u.Username != "member" || u.Email != "member@example.test" {
+		t.Fatalf("deactivated member %+v %v", u, err)
+	}
+	if code := send(key, "user.updated", "e3", member("member", true, 5)); code != 204 || plan(true) != "session_end" {
+		t.Fatalf("a replayed event ID applied: %d %q", code, plan(true))
+	}
+	if code := send(key, "user.updated", "e6", member("member", true, 6)); code != 204 || plan(true) != "unlock" {
+		t.Fatalf("reactivated: %d %q", code, plan(true))
+	}
+	// KyIdentity's unassign of a user it no longer holds carries only the subject.
+	if code := send(key, "user.updated", "e7", `{"id":"member","active":false,"meta":{"version":"W/\"7\""}}`); code != 204 || plan(false) != "lock,session_end" {
+		t.Fatalf("id-only unassign: %d %q", code, plan(false))
+	}
+	if u, err := st.Users().GetUserBySSO(ctx, "kyidentity", "member"); err != nil || u.Username != "member" || u.Email != "member@example.test" {
+		t.Fatalf("id-only event blanked the profile %+v %v", u, err)
+	}
+	// Types the member path does not know are refused, never acknowledged as nothing.
+	for _, kind := range []string{"group.updated", "user.suspended"} {
+		if code := send(key, kind, "u-"+kind, member("member", true, 8)); code != 422 || plan(true) != "session_end" {
+			t.Fatalf("%s: %d %q", kind, code, plan(true))
+		}
+	}
+	// Out of order: a deactivation before the creation fences it.
+	if code := send(key, "user.deactivated", "late-d2", `{"id":"late","meta":{"version":"W/\"2\""}}`); code != 204 {
+		t.Fatalf("deactivation first: %d", code)
+	}
+	if code := send(key, "user.created", "late-c1", `{"id":"late","userName":"late","active":true,"meta":{"version":"W/\"1\""}}`); code != 204 {
+		t.Fatalf("older creation: %d", code)
+	}
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["late"] != "inactive" {
+		t.Fatalf("an older creation overtook a deactivation: %v %v", statuses, err)
+	}
+	if u, err := st.Users().GetUserBySSO(ctx, "kyidentity", "late"); err != nil || u.Username != "late" || u.Status != "inactive" {
+		t.Fatalf("a member first seen without a username %+v %v", u, err)
+	}
+	if code := send(key, "user.updated", "e8", member("member", true, 8)); code != 204 || plan(true) != "unlock" {
+		t.Fatalf("reassigned again: %d %q", code, plan(true))
+	}
 	if code := send(key, "user.created", "c1", `{"id":"clash","userName":"owner-admin","active":true,"meta":{"version":"W/\"1\""}}`); code != 409 {
 		t.Fatalf("username held by the owner: %d", code)
 	}
 	if owner, err := st.Users().GetUserBySSO(ctx, "kyidentity", "owner"); err != nil || owner.Username != "owner-admin" {
 		t.Fatalf("owner %+v %v", owner, err)
 	}
-	if code := send(key, "user.deleted", "e4", `{"id":"member","active":false,"meta":{"version":"W/\"4\""}}`); code != 204 || plan(true) != "deactivate" {
+	if code := send(key, "user.deleted", "e9", `{"id":"member","active":false,"meta":{"version":"W/\"9\""}}`); code != 204 || plan(true) != "deactivate" {
 		t.Fatalf("deleted: %d %q", code, plan(true))
 	}
-	if code := send(key, "user.created", "e5", member("member", true, 5)); code != 204 {
-		t.Fatalf("recreated: %d", code)
+	// Deleted is final, as for owned identities.
+	for i, kind := range []string{"user.created", "user.updated"} {
+		if code := send(key, kind, fmt.Sprint("r", i), member("member", true, 10+i)); code != 422 || plan(true) != "deactivate" {
+			t.Fatalf("%s after delete: %d %q", kind, code, plan(true))
+		}
 	}
 	// Owned identities still take the installer path: the dedicated admin stays out of chat.
 	if code := send(key, "user.updated", "o1", `{"id":"owner","active":true,"roles":[{"value":"kymessage.admin"}],"meta":{"version":"W/\"1\""}}`); code != 204 {
 		t.Fatalf("owner: %d", code)
 	}
-	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["owner"] != "inactive" || statuses["member"] != "active" {
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["owner"] != "inactive" || statuses["member"] != "deleted" {
 		t.Fatal(statuses, err)
 	}
-	if woken != 7 {
+	if woken != 13 {
 		t.Fatalf("sweep woken %d times, want once per accepted event", woken)
 	}
 }

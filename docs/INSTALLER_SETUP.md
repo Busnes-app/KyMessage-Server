@@ -63,7 +63,9 @@ A subject setup did not create is an ordinary chat member, applied as the native
 does (per-subject revisions, deletion kept, a username another account holds refused with 409):
 role `user` whatever roles arrive, and no console sign-in, which admits owned identities only.
 Only these signed events create members; while delivered active they keep chat, and an
-inactive or deleted event has the sweep lock (and end every session of) or deactivate them.
+inactive, `user.deactivated` or deleted event has the sweep lock (and end every session of) or
+deactivate them. A deleted member is never reactivated, a field an event omits is kept, and
+other event types are refused (422).
 
 `GET /api/installer/network` exposes only client address, header trust and scheme, with
 `no-store`. It shares `KY_TRUSTED_PROXIES` resolution with native rate/session/audit decisions.

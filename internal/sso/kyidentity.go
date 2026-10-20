@@ -1,6 +1,7 @@
 package sso
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,9 @@ var (
 	ErrSyncUnauthorized = errors.New("directory webhook not authenticated")
 	// ErrSyncMalformed is an authenticated body that is not a usable SCIM User.
 	ErrSyncMalformed = errors.New("directory webhook body is not a usable SCIM user")
+	// ErrMemberRefused is an authenticated member event refused: an unsupported type, or one
+	// that would reactivate a deleted member.
+	ErrMemberRefused = errors.New("directory event refused for a member")
 	// ErrSyncUsernameConflict is an authenticated user whose username another account holds.
 	ErrSyncUsernameConflict = errors.New("directory username is held by another KyMessages account")
 	// errNoSecret: the receiver has no key, so nothing can be verified.
@@ -135,7 +139,7 @@ func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncau
 
 // ApplyMemberEvent applies an event the installer directory already verified, for a subject
 // installer setup does not own: an ordinary member, never an administrator, whatever its roles.
-// Ordering, deletion and username conflicts are HandleSyncWebhook's; so is the record.
+// Ordering and username conflicts are HandleSyncWebhook's; so is the record. See applyMember.
 func (k *KyIdentityClient) ApplyMemberEvent(ctx context.Context, event syncauth.Event, body []byte) error {
 	err := k.applyEvent(ctx, event, body, true)
 	k.account(ctx, event.Type, err)
@@ -200,9 +204,12 @@ func (k *KyIdentityClient) applyEvent(ctx context.Context, event syncauth.Event,
 
 	k.syncMu.Lock()
 	defer k.syncMu.Unlock()
+	if member {
+		return k.applyMember(ctx, event.Type, user, ev)
+	}
 	switch event.Type {
 	case "user.created", "user.updated", "user.mfa_reset":
-		return k.upsertDirectoryUser(ctx, user, ev, member)
+		return k.upsertDirectoryUser(ctx, user, ev, false)
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -219,15 +226,41 @@ func (k *KyIdentityClient) applyEvent(ctx context.Context, event syncauth.Event,
 	return nil // other event types (groups) are not for this product
 }
 
+// applyMember applies one event for a member, failing closed: user.deactivated is an inactive
+// update, a deletion keeps the row as deleted and nothing reactivates it, a field the event
+// omits keeps its stored value, and any other event type is refused.
+func (k *KyIdentityClient) applyMember(ctx context.Context, kind string, in DirectoryUser, ev store.DirectoryEvent) error {
+	status := "inactive"
+	switch kind {
+	case "user.created", "user.updated", "user.mfa_reset":
+		if in.Active {
+			status = "active"
+		}
+	case "user.deactivated":
+	case "user.deleted":
+		status = "deleted"
+	default:
+		return fmt.Errorf("%w: event %q", ErrMemberRefused, kind)
+	}
+	return k.upsert(ctx, in, ev, true, status)
+}
+
 func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool) error {
+	status := "inactive"
+	if in.Active {
+		status = "active"
+	}
+	return k.upsert(ctx, in, ev, member, status)
+}
+
+// upsert writes in with status. A member is always role user; an existing member keeps the
+// fields the event omits, a new one without a username takes its subject, and a deleted
+// member is never written back to another status.
+func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool, status string) error {
 	// KyIdentity sends this app's roles when it defines any, else the user's global role.
 	role := "user"
 	if !member && primaryValue(in.Roles) == "admin" {
 		role = "admin"
-	}
-	status := "inactive"
-	if in.Active {
-		status = "active"
 	}
 	email := primaryValue(in.Emails)
 	displayName := in.DisplayName
@@ -236,6 +269,9 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 	}
 
 	existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", in.ID)
+	if member && errors.Is(err, store.ErrNotFound) && in.UserName == "" {
+		in.UserName = in.ID
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		_, err = k.store.Users().CreateDirectoryUser(ctx, &store.User{
 			ID: fmt.Sprintf("usr_%s", crypto.RandomHex(12)), Username: in.UserName, Email: email,
@@ -249,6 +285,13 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 	}
 	if err != nil {
 		return err
+	}
+	if member {
+		if existing.Status == "deleted" && status != "deleted" {
+			return fmt.Errorf("%w: deleted in KyIdentity, never reactivated", ErrMemberRefused)
+		}
+		in.UserName = cmp.Or(in.UserName, existing.Username)
+		email, displayName = cmp.Or(email, existing.Email), cmp.Or(displayName, existing.DisplayName)
 	}
 	updated := *existing
 	updated.Username, updated.Email, updated.DisplayName, updated.Role, updated.Status = in.UserName, email, displayName, role, status
