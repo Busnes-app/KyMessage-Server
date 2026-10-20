@@ -53,7 +53,8 @@ Commands and unlinked file paths below are relative to the repository root.
   Overview shows the same as a card. A change made while KyMessages was down waits in
   KyIdentity as an uncertain write; resume it there (Suite sync, the system's Deliveries).
 - Ending a session needs a sign-in from the last 10 minutes; the console asks "Confirm it's you"
-  and retries after you sign in again. Each ending is audited as `matrix.session_end`.
+  and retries after you sign in again. Each ending is audited as `matrix.session_end`; the
+  offboarding sweep's own endings show the actor `system`.
 - Session IPs and devices are shown to admins only and are never logged or audited.
 
 `make matrix-acceptance` proves encrypted

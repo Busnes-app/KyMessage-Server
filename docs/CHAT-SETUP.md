@@ -127,8 +127,11 @@ After start:
 Offboarding, as measured by `make matrix-acceptance` (cut within 30 s, in practice 0.3-3 s):
 
 - **Disable or unassign** in KyIdentity: open Element sessions end and sign-in is refused;
-  KyMessages locks the MAS user (sessions are gone either way, history stays).
-- **Re-enable**: MAS unlocks within seconds. Sign in again on a new device and restore keys from
+  KyMessages locks the MAS user and ends every MAS session, audited as `matrix.session_end`, so
+  this holds without KyIdentity's back-channel logout too (installer setups have none). The
+  next request on an ended session is refused (Synapse checks the device MAS deletes, ahead of
+  its fixed 2-minute token cache) and its refresh token is refused; history stays.
+- **Re-enable**: MAS unlocks within seconds. Ended sessions stay ended. Sign in again on a new device and restore keys from
   key backup with the security key to read earlier history; a device whose session ended
   stays ended.
 - **Delete**: MAS deactivates the user without erasing; they leave their rooms and colleagues

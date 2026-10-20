@@ -206,6 +206,9 @@ When the user requests a durable behavior change, record it here or in the relev
 - Dedicated owned console administrators have no ordinary Matrix access. The directory
   status projection keeps them inactive for MAS sweeps/call grants. KyIdentity must also
   exclude them from MAS assignments; complete assignment composition is a release gate.
+- People KyIdentity's signed directory delivers whom setup did not create are ordinary chat
+  members (role `user`, no console sign-in), kept while delivered active; nothing else creates
+  them. The directory reflects whichever KyIdentity app its connector is linked to.
 - Matrix generation/deployment, existing mixed-use migration and installer recovery pairing
   remain separate gates. Setup preserves existing Matrix configs and content.
 
@@ -261,7 +264,11 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   30s (fixed bound, times in the summary; live means `whoami` names that user, refused means
   `401 M_UNKNOWN_TOKEN`) and MAS locks; re-enable unlocks with history;
   delete deactivates and parts rooms, also for a user already locked; unassign refuses a
-  live token within the same 30s and locks without deactivating; with KyMessages stopped the back-channel still cuts,
+  live token within the same 30s and locks without deactivating; with the back-channel removed from the MAS
+  client (`offboard-sweep`, as installer setups have none), the sweep alone refuses frank's refreshed live token
+  within the same 30s, ends every MAS session and MAS refuses his refresh token (a refresh before the disable is
+  the control), and after re-enable the old token and refresh token stay refused while a fresh sign-in works; the
+  console step then finds those `matrix.session_end` rows by `system`; with KyMessages stopped the back-channel still cuts,
   and the lock lands once the missed webhook is redelivered (KyIdentity fences it as an
   uncertain write; the harness resumes it as the operator would); Synapse cannot reach
   `mas:8081` or `mas-admin`. Console (the bootstrap admin, password sign-in): Health reports every

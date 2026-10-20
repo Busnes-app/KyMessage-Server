@@ -59,6 +59,11 @@ their audit, and replace the account's credential snapshot in the same transacti
 or pairing already in flight cannot issue a grant afterwards. Offboarding also wakes the native
 Matrix sweep. Deletion retains `deleted` status so MAS deactivates without
 erasing messages; later activation is refused. The native console service account is separate.
+A subject setup did not create is an ordinary chat member, applied as the native directory
+does (per-subject revisions, deletion kept, a username another account holds refused with 409):
+role `user` whatever roles arrive, and no console sign-in, which admits owned identities only.
+Only these signed events create members; while delivered active they keep chat, and an
+inactive or deleted event has the sweep lock (and end every session of) or deactivate them.
 
 `GET /api/installer/network` exposes only client address, header trust and scheme, with
 `no-store`. It shares `KY_TRUSTED_PROXIES` resolution with native rate/session/audit decisions.
