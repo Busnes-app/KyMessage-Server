@@ -383,14 +383,10 @@ func mustParseNoArgs(name string, args []string) {
 // runDeposit seals and delivers one capsule now, for cron or an operator at a shell.
 func runDeposit(args []string) {
 	mustParseNoArgs("deposit", args)
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
 	ctx := context.Background()
-	st, err := store.Open(ctx, cfg.Database)
+	cfg, st, err := openForSeal(ctx)
 	if err != nil {
-		log.Fatalf("DB error: %v", err)
+		log.Fatal(err)
 	}
 	defer st.Close()
 
@@ -541,35 +537,61 @@ func mustLock(cfg *config.Config) func() {
 
 func runBackupDrill(args []string) {
 	mustParseNoArgs("backup-drill", args)
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
 	ctx := context.Background()
-	st, err := store.Open(ctx, cfg.Database)
+	cfg, st, err := openForSeal(ctx)
 	if err != nil {
-		log.Fatalf("DB error: %v", err)
+		log.Fatal(err)
 	}
 	defer st.Close()
 
 	unlock := mustLock(cfg)
-	defer unlock()
+	err = backupDrill(ctx, cfg, os.Stdout)
+	unlock()
+	if err != nil {
+		st.Close()
+		log.Fatal(err)
+	}
+}
+
+// backupDrill seals the current payload to a throwaway key, restores it and prints each check.
+func backupDrill(ctx context.Context, cfg *config.Config, w io.Writer) error {
 	result, err := backup.RunDrill(ctx, cfg, collectFiles(ctx, cfg), backup.Checks)
 	if err != nil {
-		log.Fatalf("Drill execution error: %v", err)
+		return fmt.Errorf("drill execution error: %w", err)
 	}
-
-	fmt.Printf("\n=== Feature 0: KyBackup Restore Drill Summary ===\n")
-	fmt.Printf("Status:   %s\n", map[bool]string{true: "PASSED (OK)", false: "FAILED"}[result.Passed])
-	fmt.Printf("Duration: %d ms\n", result.DurationMs)
+	fmt.Fprintf(w, "\n=== Feature 0: KyBackup Restore Drill Summary ===\n")
+	fmt.Fprintf(w, "Status:   %s\n", map[bool]string{true: "PASSED (OK)", false: "FAILED"}[result.Passed])
+	fmt.Fprintf(w, "Duration: %d ms\n", result.DurationMs)
 	for _, check := range result.Checks {
 		status := "✓"
 		if !check.Passed {
 			status = "✗"
 		}
-		fmt.Printf("  [%s] %s: %s\n", status, check.Name, check.Message)
+		fmt.Fprintf(w, "  [%s] %s: %s\n", status, check.Name, check.Message)
 	}
-	fmt.Println("==================================================")
+	fmt.Fprintln(w, "==================================================")
+	if !result.Passed {
+		return errors.New("restore drill failed")
+	}
+	return nil
+}
+
+// openForSeal opens what a CLI seal needs: the server's configuration, stored installer setup
+// included as runServer loads it, so a managed console's capsule carries its credentials.
+func openForSeal(ctx context.Context) (*config.Config, store.Store, error) {
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
+	}
+	st, err := store.Open(ctx, cfg.Database)
+	if err != nil {
+		return nil, nil, fmt.Errorf("DB error: %w", err)
+	}
+	if err := loadInstallerConfiguration(ctx, cfg, st); err != nil {
+		st.Close()
+		return nil, nil, fmt.Errorf("installer configuration unavailable: %w", err)
+	}
+	return cfg, st, nil
 }
 
 func runExportCapsule(args []string) {
@@ -577,14 +599,10 @@ func runExportCapsule(args []string) {
 	out := fs.String("out", "", "output path (default <capsule-id>.kycap in the current directory)")
 	_ = fs.Parse(args)
 
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
 	ctx := context.Background()
-	st, err := store.Open(ctx, cfg.Database)
+	cfg, st, err := openForSeal(ctx)
 	if err != nil {
-		log.Fatalf("DB error: %v", err)
+		log.Fatal(err)
 	}
 	defer st.Close()
 

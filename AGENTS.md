@@ -195,6 +195,8 @@ When the user requests a durable behavior change, record it here or in the relev
 
 - `kymessages apply-setup` is the container-local installer boundary; see
   [docs/INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md) for protected inputs and deployment gates.
+  Stock Compose sets nothing setup refuses: SCIM and backup retention/interval pass through
+  only when `.env` sets them (`TestStockComposeEnvironmentAcceptsInstallerSetup`).
 - Common envelope service `kymessage` owns new exact KyIdentity subjects and immutable
   configuration; it preserves the native product/capsule name `KyMessages`.
 - Dedicated owned console administrators have no ordinary Matrix access. The directory
@@ -324,7 +326,7 @@ attempt would log and audit the same failure every minute forever; it audits tha
 server capsule, then (Matrix enabled) mirrors media via `runMedia`, audited as `admin.backup_media`
 and never failing the capsule; media is skipped when the capsule run returns `ErrNotPaired`,
 `ErrNoDestination` or `ErrInProgress` (the last is logged and left unstamped, so it is
-retried next tick). The HTTP run route does not mirror media. The `deposit` and `backup-drill` commands and `export-capsule` seal the server capsule under `backup.Lock` (exiting while it is held); `deposit` also mirrors media and exits non-zero if only media failed. `export-capsule` refuses an existing `-out` and writes through a synced temporary file hard-linked into place.
+retried next tick). The HTTP run route does not mirror media. The `deposit` and `backup-drill` commands and `export-capsule` open through `openForSeal`, which loads the stored installer setup as `runServer` does, so a managed console's credentials are sealed (`TestCLISealIncludesInstallerCredentials`); they seal the server capsule under `backup.Lock` (exiting while it is held); `backup-drill` exits non-zero when a check fails (`TestBackupDrillFailureIsAnError`); `deposit` also mirrors media and exits non-zero if only media failed. `export-capsule` refuses an existing `-out` and writes through a synced temporary file hard-linked into place.
 The loop closes its `done` channel
 only where it returns, between runs, and `runServer` cancels and waits on that channel after
 `httpServer.Shutdown` and before the store closes, then waits on `api.Server.WaitDetached()` for

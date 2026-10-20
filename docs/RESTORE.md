@@ -195,6 +195,5 @@ host, restore from custodian shares on stdin, then read old history.
 When the restored database retains installer configuration, restore the sealed
 `installer/client.secret` and `installer/directory.secret` to their original protected paths
 from `installer/credential-paths.json` before restart. Keep process ownership and 0600 modes.
-The managed restore drill requires these members. Capsules from the CLI `deposit` and
-`export-capsule` lack them, and CLI `backup-drill` fails without them yet exits 0: back up and
-drill from the console. See [INSTALLER_SETUP.md](INSTALLER_SETUP.md).
+The managed restore drill requires these members. Capsules sealed by v0.4.2 or earlier CLI
+`deposit` or `export-capsule` lack them; seal a new one. See [INSTALLER_SETUP.md](INSTALLER_SETUP.md).

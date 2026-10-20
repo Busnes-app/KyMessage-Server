@@ -58,6 +58,12 @@ every capability and runs with a read-only root filesystem; only `./data`, `./ba
 `127.0.0.1` by default. Container names, binary and local image are KyMessages-specific; the
 retained Go module path and token-sealing label are internal compatibility identifiers.
 
+Upgrading from v0.4.2 or earlier: Compose now passes `KY_SCIM_ENABLED`, `KY_BACKUP_KEEP` and
+`KY_BACKUP_DEPOSIT_INTERVAL` from `.env` only when set (unset keeps the defaults: SCIM on, 7,
+24h). A `KY_SCIM_ENABLED` in `.env`, ignored before, now applies. On a console set up by
+`apply-setup`, CLI `deposit` and `export-capsule` capsules from v0.4.2 or earlier lack its
+installer credentials: seal a new one ([INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md)).
+
 ## Local container build
 
 To run this checkout instead, build it with `docker-compose.build.yml`. Its image is
@@ -229,9 +235,8 @@ Backups:
   decrypt end-to-end encrypted messages. Compose hides the superuser password from it.
 - Media is mirrored, encrypted, to `KY_BACKUP_DIR/media` after each scheduled run or
   `kymessages deposit`, with a full archive each month. Copy that directory off the host.
-  `deposit` exits non-zero if the media step fails after a good deposit. On a console set up by
-  `apply-setup`, back up and drill from the console instead
-  ([INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md)).
+  `deposit` exits non-zero if the media step fails after a good deposit; `backup-drill` exits
+  non-zero when any check fails.
 - The backup screen shows the capsule size, a warning from 75% of the 256 MiB limit and the
   last media run. "Run now" seals the capsule only.
 - Restore: see [docs/RESTORE.md](docs/RESTORE.md).

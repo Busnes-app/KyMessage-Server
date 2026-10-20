@@ -194,7 +194,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 - `GET /api/admin/matrix/sync-status` (`sync_handlers.go`; admin, `no-store`; 404 `matrix_disabled` without Matrix) answers `{webhook: sso.WebhookRecord|null, rejected: sso.Rejections, sweep: matrixsync.SweepRecord|null, kyidentity_url}`. It only reads the records; their only writers are `internal/sso` and `internal/matrixsync`. An unreadable record shows as null. `kyidentity_url` is `KY_KYIDENTITY_ISSUER`. Hints are the page's.
 
 - Private installer IPC validates the live snapshot and reports pending graceful activation;
-  it is separate from public HTTP. `GET /api/installer/network` deliberately exposes only
+  it is separate from public HTTP. Its transport answers any refusal with a generic 409, so
+  `ApplyInstaller` logs the reason as `[INSTALLER] setup refused: ...`
+  (`TestInstallerRefusalReasonIsLogged`); bundles carry file references, so no reason holds a secret. `GET /api/installer/network` deliberately exposes only
   `clientIp`, `proxyHeadersTrusted`, `scheme`, with `no-store`, using native peer trust.
 - `POST /api/installer/directory` and the managed suite sync alias verify the protected
   HMAC credential before owned, revision-fenced authority updates and wake the MAS sweep.
