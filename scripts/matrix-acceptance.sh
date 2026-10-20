@@ -657,7 +657,11 @@ owner_mxid=$(mxid "$owner")
 notes_mxid=@kymessages-notes:$KY_MATRIX_SERVER_NAME
 said='The quarterly budget review moves to Tuesday morning.'
 # notes_tool SCRIPT ARGS: one of notes/test's in-image tools, offline, on $state.
-notes_tool() { docker run --rm --network none --user "$(id -u):$(id -g)" -v "$state:/in" -v "$repo/notes/test:/t:ro" "$notes_image" node "/t/$@"; }
+notes_tool() {
+	local script=$1
+	shift
+	docker run --rm --network none --user "$(id -u):$(id -g)" -v "$state:/in" -v "$repo/notes/test:/t:ro" "$notes_image" node "/t/$script" "$@"
+}
 notes_says() { dc logs --no-color notes 2>&1 | grep -qF "$1" && echo yes || echo no; }
 notes_audit() { app_api GET '/api/admin/audit?kind=matrix&limit=50' | jq -r --arg a "$1" --arg t "$2" '[.records[] | select(.action == $a and .target == $t) | .outcome] | first // "none"'; }
 e2e owner "$owner"
