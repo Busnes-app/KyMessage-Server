@@ -29,7 +29,7 @@ address according to the product’s proxy guide.
 The base service can run independently for operator/admin use. **It does not include
 member chat.** Full chat requires the separately configured Matrix stack, KyIdentity,
 HTTPS routes and Element. This is still a qualification deployment; read the
-[product definition](docs/PRODUCT.md) and [Matrix setup](README.md#matrix-chat) before
+[product definition](docs/PRODUCT.md) and [Matrix setup](docs/CHAT-SETUP.md#matrix-chat) before
 planning private team use.
 
 In a new checkout, create a private Compose file as your non-root account:
