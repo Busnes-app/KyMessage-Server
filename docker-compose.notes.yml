@@ -1,0 +1,47 @@
+# Meeting-notes bot (docs/MEETING-NOTES.md). Append after docker-compose.matrix.yml in
+# COMPOSE_FILE, then turn it on in Settings > Meeting notes. It talks only to the app, Synapse
+# and LiveKit on kymessages-net and publishes nothing. Audio and transcripts stay in its memory;
+# its volume holds only its device keys. A source install also appends
+# docker-compose.notes-build.yml.
+services:
+  # The volume belongs to the owner of ./matrix, as the bot runs as it (to read its 0600 secret).
+  notes-data-owner:
+    image: ${KY_NOTES_IMAGE:-ghcr.io/busnes-app/kymessage-notes:stable}
+    entrypoint: ["chown", "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}", "/data"]
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes:
+      - notes-data:/data
+
+  notes:
+    image: ${KY_NOTES_IMAGE:-ghcr.io/busnes-app/kymessage-notes:stable}
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+    user: "${KY_MATRIX_UID:?Set KY_MATRIX_UID (printed by matrix-init)}:${KY_MATRIX_GID:?Set KY_MATRIX_GID (printed by matrix-init)}"
+    environment:
+      # The transport Element Call members publish, so the bot's media keys map to its identity.
+      - NOTES_RTC_SERVICE_URL=${KY_APP_URL:?Set KY_APP_URL}/api/matrix/rtc
+      - NOTES_SECRET_FILE=/run/secrets/notes_api_secret
+      # Times in the posted notes.
+      - TZ=${KY_NOTES_TZ:-UTC}
+    secrets: [notes_api_secret]
+    volumes:
+      - notes-data:/data
+    depends_on:
+      notes-data-owner: {condition: service_completed_successfully}
+      app: {condition: service_started}
+      livekit: {condition: service_started}
+
+secrets:
+  notes_api_secret:
+    file: ./matrix/secrets/notes_api_secret
+
+volumes:
+  notes-data:

@@ -225,4 +225,17 @@ want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	tru
   || bad "restore-matrix mounts: $(jq -c .volumes <<<"$r")"
 [ "$(jq -c '[.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$r")" = '[true]' ] \
   || bad "restore-matrix mounts matrix-media without nocopy, which resets the media owner"
+# Meeting notes (docker-compose.notes.yml): the bot publishes nothing, joins only kymessages-net,
+# runs as the matrix-init owner with no capability on a read-only root, reads its secret as a
+# file and keeps state only in its own volume. Its owner one-shot has only CHOWN and no network.
+nt=$(render "${stack[@]}" -f "$root/docker-compose.notes.yml") || { echo "notes overlay does not compose"; exit 1; }
+n=$(jq -c '.services.notes' <<<"$nt")
+[ "$(jq -c '[.image, .user, .cap_drop, .cap_add, .security_opt, .read_only, (.ports // []), (.networks | keys), .secrets[0].source]' <<<"$n")" \
+  = '["ghcr.io/busnes-app/kymessage-notes:stable","1234:5678",["ALL"],null,["no-new-privileges:true"],true,[],["default"],"notes_api_secret"]' ] \
+  || bad "notes is not locked down: $n"
+[ "$(jq -r '.volumes[] | [.type, .source, .target] | @tsv' <<<"$n")" = "$(printf 'volume\tnotes-data\t/data')" ] || bad "notes mounts: $(jq -c .volumes <<<"$n")"
+jq -e '.environment | to_entries | any(.key | test("PASSWORD|SECRET|KEY|TOKEN") and (endswith("_FILE") | not))' <<<"$n" >/dev/null && bad "notes has a secret in plain env"
+[ "$(jq -c '.services["notes-data-owner"] | [.network_mode, .cap_drop, .cap_add, .read_only, .entrypoint]' <<<"$nt")" \
+  = '["none",["ALL"],["CHOWN"],true,["chown","1234:5678","/data"]]' ] || bad "notes-data-owner is not locked down"
+[ "$(jq -r '.secrets.notes_api_secret.file' <<<"$nt")" = "$root/matrix/secrets/notes_api_secret" ] || bad "notes secret is not matrix-init's file"
 exit $fail
