@@ -6,8 +6,8 @@ KyMessages is a Ky-integrated Matrix deployment: stock Synapse, Matrix Authentic
 operation: [README](../README.md). Restore: [RESTORE.md](RESTORE.md).
 
 Sections below separate what ships (in code and proven by `make matrix-acceptance`) from what
-is later work. KyMessages is not yet deployed or approved for private team use; no image is
-published.
+is later work. KyMessages is not yet deployed or approved for private team use. Each release
+publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Container image").
 
 ## Promise and audience
 

@@ -110,7 +110,21 @@ client secret once, when you register the client the first run describes.
 2. Run `./kymessages matrix-init` as the unprivileged user that will own the files
    (`-dir` defaults to `./matrix`; it refuses root, and an existing directory that group or
    others can read). It writes every config except MAS's, prints the KyIdentity registration
-   values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Back up `matrix/secrets` and
+   values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Without a source build, run it from the image
+   the stack runs (swap in your `KY_IMAGE` pin if you set one), in the directory holding the
+   Compose files; the image's entrypoint is `/app/kymessages`, and each `-e NAME` passes the
+   value exported in step 1:
+
+   ```sh
+   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -w /w \
+     -e KY_MATRIX_SERVER_NAME -e KY_MATRIX_HOST -e KY_MATRIX_AUTH_HOST -e KY_MATRIX_CHAT_HOST \
+     -e KY_MATRIX_RTC_HOST -e KY_MATRIX_MEDIA_IP -e KY_ADMIN_HOST -e KY_KYIDENTITY_ISSUER \
+     -e KY_MATRIX_MAS_CLIENT_ID ghcr.io/busnes-app/kymessage-server:stable matrix-init
+   ```
+
+   Use the same command wherever this guide says to run or re-run `./kymessages matrix-init`.
+   For TURN, mount the certificate and key too and pass `KY_MATRIX_TURN_*` as container paths.
+   Back up `matrix/secrets` and
    `matrix/synapse/signing.key`; they are never regenerated. Upgrading a stack set up before
    `matrix/federation/federation.yaml` existed: re-run `matrix-init` first, or Compose refuses
    to start Synapse (it never creates that file), then `docker compose up -d` with your overlay
@@ -140,7 +154,9 @@ client secret once, when you register the client the first run describes.
    Postgres (its init script ran only on the empty volume), then restart `synapse mas app`.
 6. Pair a `suite_webhook` system in KyIdentity (callback `https://<host>/api/sso/kyidentity/sync`)
    and link it to the MAS client's app. KyIdentity shows its signing secret once: that is
-   `KY_KYIDENTITY_HMAC_SECRET`. Its directory events are what lock and deactivate users in MAS.
+   `KY_KYIDENTITY_HMAC_SECRET`. On a console set up by `apply-setup` it must equal the setup's
+   directory secret file ([INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md)). Its directory events
+   are what lock and deactivate users in MAS.
    If MAS and KyMessages resolve only to private addresses (LAN-only), set
    `KYIDENTITY_ALLOW_PRIVATE_CALLBACKS=true` on KyIdentity so it may call them.
 7. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed (the app then runs as that
@@ -213,7 +229,9 @@ Backups:
   decrypt end-to-end encrypted messages. Compose hides the superuser password from it.
 - Media is mirrored, encrypted, to `KY_BACKUP_DIR/media` after each scheduled run or
   `kymessages deposit`, with a full archive each month. Copy that directory off the host.
-  `deposit` exits non-zero if the media step fails after a good deposit.
+  `deposit` exits non-zero if the media step fails after a good deposit. On a console set up by
+  `apply-setup`, back up and drill from the console instead
+  ([INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md)).
 - The backup screen shows the capsule size, a warning from 75% of the 256 MiB limit and the
   last media run. "Run now" seals the capsule only.
 - Restore: see [docs/RESTORE.md](docs/RESTORE.md).
@@ -241,8 +259,8 @@ caller-supplied server URL. See [network setup](docs/Reverse_Proxy_Networking.md
 
 Forward **TCP 7881 and UDP 7882**, unchanged, to the Docker host at `KY_MATRIX_MEDIA_IP`.
 `KY_MATRIX_MEDIA_BIND_IP` optionally limits which host interface Compose publishes on
-(default `0.0.0.0`). Cloudflared handles HTTPS/WebSocket signalling; its HTTP tunnel cannot
-carry these media ports.
+(default `0.0.0.0`, every interface); for LAN-only use, set it to the host's LAN address.
+Cloudflared handles HTTPS/WebSocket signalling; its HTTP tunnel cannot carry these media ports.
 
 For networks limited to TLS 443, export `KY_MATRIX_TURN_HOST` (DNS-only hostname resolving to
 that public media IP), `KY_MATRIX_TURN_CERT_FILE` and `KY_MATRIX_TURN_KEY_FILE`, and re-run
