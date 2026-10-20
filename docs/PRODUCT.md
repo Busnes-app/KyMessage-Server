@@ -132,7 +132,10 @@ guide [MEETING-NOTES.md](MEETING-NOTES.md)).
 - Speech is transcribed on this server (Whisper base.en, English only); the models are in the
   image and nothing is downloaded or sent anywhere. Audio is never stored; the transcript stays in
   the bot's memory until it is posted, encrypted, to the room.
-- Voice only. Shared-screen snapshots later, as a separate opt-in; never video or webcams.
+- Shared-screen snapshots: allowed in Settings (off), then turned on per meeting by the room's
+  creator or an admin (`!notes screens on`), said out loud and in chat, including whose screen.
+  Still pictures when a shared screen changes and settles, posted encrypted with the notes.
+  The bot never subscribes to a camera; never video.
 
 **Backups** (detail in [the backups design](superpowers/specs/2026-10-01-matrix-backups-design.md)).
 - One sealed server capsule to KyRecovery and/or the local backup directory, on the admin's

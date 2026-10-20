@@ -686,7 +686,34 @@ mkdir -p "$artifacts/notes"
 cp "$state/owner-voice.wav" "$state/notes-heard.wav" "$artifacts/notes/"
 notes_tool hear.mjs /in/notes-heard.wav 'This meeting is being recorded for note taking.'
 expect "$(notes_audit notes.call "$notes_room")" granted "audited the bot's call grant"
-expect "$(notes_says 'subscribed to an audio track') $(notes_says 'skipped a video track') $(notes_says 'subscribed to a video track')" "yes yes no" "the bot took the call's audio and skipped the camera it was offered"
+expect "$(notes_says 'subscribed to an audio track') $(notes_says 'skipped a camera track')" "yes yes" "the bot took the call's audio and skipped the camera it was offered"
+# Shared-screen snapshots: allowed in the console, then turned on in the call by owen (the
+# room's creator). A screen shared before that is skipped; slide 1 is taken; Settings then
+# revokes them mid-meeting and nothing more is taken. Posted encrypted, Element shows it. Never a
+# camera.
+expect "$(app_api POST /api/admin/notes/screens/enable | jq -r .outcome)" enabled "the console allowed shared-screen snapshots"
+expect "$(notes_audit notes.screens_enable "$notes_mxid")" enabled "audited notes.screens_enable"
+# Settings revokes snapshots in the middle of that meeting, when the browser asks for it.
+rm -f "$state/screens-revoke" "$state/screens-revoked"
+(
+	for _ in $(seq 1 600); do
+		if [[ -f $state/screens-revoke ]]; then
+			app_api POST /api/admin/notes/screens/disable >/dev/null && touch "$state/screens-revoked"
+			break
+		fi
+		sleep 0.5
+	done
+) &
+revoker=$!
+e2e notesscreens "$owner"
+wait "$revoker"
+expect "$(notes_audit notes.screens_disable "$notes_mxid")" disabled "audited notes.screens_disable in the meeting"
+expect "$(dc logs --no-color notes 2>&1 | grep -c 'took a screen snapshot')" 1 "the bot took no snapshot after Settings revoked them"
+screens_room=$(jq -r .room "$state/notesscreens-$owner.json")
+expect "$(notes_says 'skipped a screen track') $(notes_says 'subscribed to a screen track') $(notes_says 'took a screen snapshot')" "yes yes yes" "the bot skipped the screen until turned on, then took snapshots"
+expect "$(dc logs --no-color notes 2>&1 | grep -c 'subscribed to a camera track')" 0 "the bot never subscribed to a camera"
+expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$screens_room' AND sender = '$notes_mxid' AND type = 'm.room.message'")" 0 "the bot's snapshots are stored as m.room.encrypted"
+expect "$(sql synapse "SELECT count(*) >= $(jq -r .shots "$state/notesscreens-$owner.json") FROM local_media_repository WHERE user_id = '$notes_mxid' AND media_type = 'application/octet-stream'")" t "the snapshots' media is ciphertext (application/octet-stream)"
 for r in "$notes_room" "$(jq -r .room "$state/notesinvite-$owner.json")"; do
 	expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$r' AND sender = '$notes_mxid' AND type = 'm.room.message'")" 0 "the bot's messages in $r are stored encrypted"
 done

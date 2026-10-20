@@ -20,6 +20,7 @@ const (
 	notesSessionKey = "notes_session" // the bot's MAS personal session ID
 	notesDeviceKey  = "notes_device"
 	notesCheckinKey = "notes_checkin" // RFC 3339 time of the bot's last session request
+	notesScreensKey = "notes_screens" // shared-screen snapshots allowed (plan ...-meeting-notes-screens.md)
 	notesTimeout    = 30 * time.Second
 )
 
@@ -54,9 +55,11 @@ func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	checkin, _ := s.setting(r.Context(), notesCheckinKey)
+	screens, _ := s.setting(r.Context(), notesScreensKey)
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"available": s.config.Matrix.NotesSecret != "",
 		"enabled":   on,
+		"screens":   screens == "true",
 		"user":      s.notesMXID(),
 		"checkin":   checkin,
 	})
@@ -117,18 +120,7 @@ func (s *Server) handleNotesDisable(w http.ResponseWriter, r *http.Request) {
 // notes secret; the token is returned, never stored or logged.
 func (s *Server) handleNotesSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	secret := s.config.Matrix.NotesSecret
-	if secret == "" || s.mas == nil {
-		s.writeError(w, http.StatusNotFound, "Meeting notes are not configured")
-		return
-	}
-	if !s.allowClientAttempt("notes:", r, 10, time.Minute) {
-		s.writeError(w, http.StatusTooManyRequests, "Too many requests")
-		return
-	}
-	given, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || subtle.ConstantTimeCompare([]byte(given), []byte(secret)) != 1 {
-		s.writeError(w, http.StatusUnauthorized, "Invalid notes secret")
+	if !s.notesBot(w, r) {
 		return
 	}
 	var req struct {
@@ -192,4 +184,61 @@ func (s *Server) handleNotesSession(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(ctx, "", r, "notes.session", s.notesMXID(), auditFields(outcome, "device", device))
 	s.writeJSON(w, http.StatusOK, map[string]string{"user_id": s.notesMXID(), "device_id": device, "access_token": token})
+}
+
+// notesBot authenticates the bot: the notes secret as Bearer, 10 requests a minute per address.
+func (s *Server) notesBot(w http.ResponseWriter, r *http.Request) bool {
+	w.Header().Set("Cache-Control", "no-store")
+	secret := s.config.Matrix.NotesSecret
+	if secret == "" || s.mas == nil {
+		s.writeError(w, http.StatusNotFound, "Meeting notes are not configured")
+		return false
+	}
+	if !s.allowClientAttempt("notes:", r, 10, time.Minute) {
+		s.writeError(w, http.StatusTooManyRequests, "Too many requests")
+		return false
+	}
+	given, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || subtle.ConstantTimeCompare([]byte(given), []byte(secret)) != 1 {
+		s.writeError(w, http.StatusUnauthorized, "Invalid notes secret")
+		return false
+	}
+	return true
+}
+
+// handleNotesConfig tells the bot what it may do: screens only while notes are on too.
+func (s *Server) handleNotesConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.notesBot(w, r) {
+		return
+	}
+	on, err := s.notesOn(r.Context())
+	screens, err2 := s.setting(r.Context(), notesScreensKey)
+	if err != nil || err2 != nil {
+		s.writeError(w, http.StatusInternalServerError, "Could not read the setting")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]bool{"enabled": on, "screens": on && screens == "true"})
+}
+
+// handleNotesScreens turns shared-screen snapshots on (fresh sign-in) or off (one click).
+func (s *Server) handleNotesScreens(on bool) http.HandlerFunc {
+	action, value := "notes.screens_disable", "false"
+	if on {
+		action, value = "notes.screens_enable", "true"
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.config.Matrix.NotesSecret == "" || s.mas == nil {
+			s.writeError(w, http.StatusNotFound, "Meeting notes are not configured")
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), notesTimeout)
+		defer cancel()
+		if err := s.store.Settings().SetSetting(ctx, notesScreensKey, value); err != nil {
+			s.writeError(w, http.StatusInternalServerError, "Could not save the setting")
+			return
+		}
+		outcome := map[bool]string{true: "enabled", false: "disabled"}[on]
+		s.audit(ctx, s.actorID(r), r, action, s.notesMXID(), auditFields(outcome))
+		s.writeJSON(w, http.StatusOK, map[string]string{"outcome": outcome})
+	}
 }
