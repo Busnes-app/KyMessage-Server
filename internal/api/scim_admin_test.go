@@ -21,6 +21,7 @@ type scimUsersReply struct {
 
 func TestSCIMUsersListsOnlySCIMRowsForAdmins(t *testing.T) {
 	srv, st, cfg := setupTestServer(t)
+	cfg.SCIM.Enabled = true
 	cfg.SCIM.BearerToken = "never-in-a-reply"
 	cfg.SCIM.TokenSet = true
 	for _, u := range []*store.User{

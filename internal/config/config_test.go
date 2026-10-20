@@ -163,6 +163,21 @@ func TestBackupConfigFromEnv(t *testing.T) {
 	}
 }
 
+// SCIM is off unless the operator turns it on: an empty value is unset, like every boolean.
+func TestSCIMOffUnlessEnabled(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "false": false, "true": true} {
+		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_SCIM_ENABLED", v)
+		cfg, err := config.LoadFromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.SCIM.Enabled != want {
+			t.Errorf("KY_SCIM_ENABLED=%q: enabled=%v", v, cfg.SCIM.Enabled)
+		}
+	}
+}
+
 func TestBackupKeepBelowOneIsRefused(t *testing.T) {
 	t.Setenv("KY_DATA_DIR", t.TempDir())
 	t.Setenv("KY_BACKUP_KEEP", "0")

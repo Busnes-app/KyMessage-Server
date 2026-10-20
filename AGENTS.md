@@ -138,7 +138,8 @@ When the user requests a durable behavior change, record it here or in the relev
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest. LiveKit publishes TCP 7881 and UDP 7882
   for direct media; optional `docker-compose.turn.yml` adds TCP 443→5349 and
-  UDP 3478 and 30000–30100. LiveKit binds its private directory read-only so renewed TLS files are
+  UDP 3478 and 30000–30100. Both bind only `KY_MATRIX_MEDIA_BIND_IP`, which has no default
+  (never a wildcard fallback; the check script holds both files to it). LiveKit binds its private directory read-only so renewed TLS files are
   observed after restart. Signalling and the other services stay private. The stateful three
   as `KY_MATRIX_UID:KY_MATRIX_GID`, Postgres only on the internal `matrix-db` network (the app joins it
   for `pg_dump` as the read-only `kybackup` role, and mounts `matrix-media` and `./matrix`
@@ -196,7 +197,10 @@ When the user requests a durable behavior change, record it here or in the relev
 - `kymessages apply-setup` is the container-local installer boundary; see
   [docs/INSTALLER_SETUP.md](docs/INSTALLER_SETUP.md) for protected inputs and deployment gates.
   Stock Compose sets nothing setup refuses: SCIM and backup retention/interval pass through
-  only when `.env` sets them (`TestStockComposeEnvironmentAcceptsInstallerSetup`).
+  only when `.env` sets them, and SCIM is off by default (`TestStockComposeEnvironmentAcceptsInstallerSetup`).
+  The socket answers every refusal with a generic 409, so on failure the CLI reruns
+  `config.ApplyInstallerConfiguration` in its own (the container's) environment and prints
+  that reason, else points to the server log (`TestApplySetupRefusalSaysWhy`).
 - Common envelope service `kymessage` owns new exact KyIdentity subjects and immutable
   configuration; it preserves the native product/capsule name `KyMessages`.
 - Dedicated owned console administrators have no ordinary Matrix access. The directory

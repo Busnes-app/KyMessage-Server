@@ -23,8 +23,10 @@ every capability and runs with a read-only root filesystem; only `./data`, `./ba
 retained Go module path and token-sealing label are internal compatibility identifiers.
 
 Upgrading from v0.4.2 or earlier: Compose now passes `KY_SCIM_ENABLED`, `KY_BACKUP_KEEP` and
-`KY_BACKUP_DEPOSIT_INTERVAL` from `.env` only when set (unset keeps the defaults: SCIM on, 7,
-24h). A `KY_SCIM_ENABLED` in `.env`, ignored before, now applies. On a console set up by
+`KY_BACKUP_DEPOSIT_INTERVAL` from `.env` only when set (unset keeps the defaults: 7, 24h). SCIM
+is now off unless `KY_SCIM_ENABLED=true`: a deployment that provisions over SCIM must set it.
+With the Matrix overlay, Compose refuses to start until `.env` sets `KY_MATRIX_MEDIA_BIND_IP`
+(it used to default to `0.0.0.0`; set that to keep the old bind). On a console set up by
 `apply-setup`, CLI `deposit` and `export-capsule` capsules from v0.4.2 or earlier lack its
 installer credentials: seal a new one ([INSTALLER_SETUP.md](INSTALLER_SETUP.md)).
 
@@ -44,10 +46,10 @@ instance; the current operator-console preview is not a chat release (see `docs/
 | `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` | Suite KyIdentity OIDC client; register `https://<host>/api/sso/kyidentity/callback` as its redirect URI. The former `KY_KYSIGNON_*` names stop startup |
 | `KY_MATRIX_RTC_HOST`, `KY_MATRIX_MEDIA_IP` | LiveKit HTTPS signalling origin and directly reachable media IPv4; required by `matrix-init`; set the host in `.env` too |
 | `KY_MATRIX_TURN_HOST`, `KY_MATRIX_TURN_CERT_FILE`, `KY_MATRIX_TURN_KEY_FILE` | Optional complete TURN/TLS setup block for `matrix-init`; DNS-only hostname and trusted PEM files; enable the TURN overlay |
-| `KY_MATRIX_MEDIA_BIND_IP` | Host interface for direct TCP 7881/UDP 7882, default `0.0.0.0`; does not change the advertised media IP |
-| `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync`; required with the Matrix stack |
+| `KY_MATRIX_MEDIA_BIND_IP` | Host interface for direct TCP 7881/UDP 7882; required with the Matrix overlay, no default (`0.0.0.0` for every interface); does not change the advertised media IP |
+| `KY_KYIDENTITY_HMAC_SECRET` | Signing secret KyIdentity shows once when you pair a `suite_webhook` system; set that system's callback URL to `https://<host>/api/sso/kyidentity/sync`; required with the Matrix stack. On a console set up by `apply-setup` it must equal the content of the setup's directory secret file, or setup is refused |
 | `KY_TRUSTED_PROXIES` | Only the reverse proxy's own addresses/CIDRs, not the whole container network |
-| `KY_SCIM_TOKEN` | Stable provisioning credential when SCIM is used; no automatic SCIM-to-room mapping |
+| `KY_SCIM_ENABLED`, `KY_SCIM_TOKEN` | SCIM provisioning, off by default: set `KY_SCIM_ENABLED=true` and a stable token to use it; no automatic SCIM-to-room mapping. `apply-setup` refuses SCIM on |
 | `KY_BACKUP_DIR`, `KY_BACKUP_KEEP` | Optional local sealed copies; keep newest N (default 7) |
 | `KY_BACKUP_MEDIA_FULL_KEEP` | Monthly full media archives kept, default 3; below 1 fails startup |
 | `KY_BACKUP_DEPOSIT_INTERVAL` | Initial schedule, default `24h`; `0` disables, otherwise at least `15m`; admin UI overrides without restart |

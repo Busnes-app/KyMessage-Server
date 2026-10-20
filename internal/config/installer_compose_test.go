@@ -50,6 +50,9 @@ func TestStockComposeEnvironmentAcceptsInstallerSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cfg.SCIM.Enabled {
+		t.Fatal("stock compose turns SCIM on")
+	}
 	dir := t.TempDir()
 	secret, directory := filepath.Join(dir, "client"), filepath.Join(dir, "directory")
 	for _, p := range []string{secret, directory} {

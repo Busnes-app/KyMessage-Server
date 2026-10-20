@@ -74,7 +74,7 @@ export const SCIMAdmin: React.FC = () => {
         </p>
         {dir && !dir.enabled && (
           <div className="dr-alert dr-alert-warn" role="status" style={{ marginTop: '12px' }}>
-            <span>SCIM is off on this server (<code>KY_SCIM_ENABLED=false</code>).</span>
+            <span>SCIM is off on this server. Set <code>KY_SCIM_ENABLED=true</code> and restart to turn it on.</span>
           </div>
         )}
         {dir?.enabled && !dir.token_set && (

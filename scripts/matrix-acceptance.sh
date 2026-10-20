@@ -81,7 +81,7 @@ export KY_MATRIX_CHAT_HOST=https://chat.kymatrix.test
 export KY_ADMIN_HOST=https://admin.kymatrix.test KY_APP_URL=https://admin.kymatrix.test
 export KY_KYIDENTITY_ISSUER=https://id.kymatrix.test
 export KY_MATRIX_MAS_CLIENT_ID=kymatrix-mas
-export KY_MATRIX_RTC_HOST=https://sfu.kymatrix.test KY_MATRIX_MEDIA_IP=127.0.0.1
+export KY_MATRIX_RTC_HOST=https://sfu.kymatrix.test KY_MATRIX_MEDIA_IP=127.0.0.1 KY_MATRIX_MEDIA_BIND_IP=127.0.0.1
 # Scratch media ports are chosen independently of any existing deployment.
 KYMATRIX_ACCEPT_TCP_PORT=$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
 KYMATRIX_ACCEPT_UDP_PORT=$(node -e 'const s=require("dgram").createSocket("udp4");s.bind(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')

@@ -45,3 +45,9 @@ it('says when KY_SCIM_TOKEN is not set', async () => {
   expect(await screen.findByText(/is not set, so no provider can authenticate/)).toBeTruthy();
   expect(screen.getByText('No accounts have been provisioned through SCIM.')).toBeTruthy();
 });
+
+it('says how to turn SCIM on when it is off', async () => {
+  stub(() => json({ enabled: false, token_set: false, users: [] }));
+  render(<SCIMAdmin />);
+  expect((await screen.findByText(/SCIM is off on this server/)).textContent).toContain('Set KY_SCIM_ENABLED=true and restart');
+});

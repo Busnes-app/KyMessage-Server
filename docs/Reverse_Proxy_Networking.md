@@ -166,7 +166,7 @@ The signalling host supports WebSocket upgrades; its `/twirp/` API is internal o
 The console's existing route also serves call-token requests under `/api/matrix/rtc`.
 Forward host TCP 7881 and UDP 7882 unchanged to the media host, and set
 `KY_MATRIX_MEDIA_IP` to the address callers can reach (public IP with NAT forwards, LAN IP
-for LAN-only use). `KY_MATRIX_MEDIA_BIND_IP` limits the host bind, default `0.0.0.0`.
+for LAN-only use). `KY_MATRIX_MEDIA_BIND_IP` is the required host bind (no default; `0.0.0.0` for every interface).
 An HTTP cloudflared tunnel cannot carry WebRTC media. Restrictive client networks that allow
 only TLS on port 443 use the optional `docker-compose.turn.yml` overlay. Set the complete
 `KY_MATRIX_TURN_HOST`, `KY_MATRIX_TURN_CERT_FILE`, `KY_MATRIX_TURN_KEY_FILE` block before

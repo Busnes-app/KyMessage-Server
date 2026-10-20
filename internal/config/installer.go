@@ -31,8 +31,8 @@ func ApplyInstallerConfiguration(cfg *Config, b applysetup.Common) error {
 		if strings.TrimRight(s.IssuerURL, "/") != s.IssuerURL {
 			return errors.New("issuer must be canonical")
 		}
-		if cfg.SCIM.Enabled && (os.Getenv("KY_SCIM_TOKEN") != "" || os.Getenv("KY_SCIM_ENABLED") != "") {
-			return errors.New("installer refuses existing SCIM configuration")
+		if cfg.SCIM.Enabled {
+			return errors.New("installer refuses existing SCIM configuration: KY_SCIM_ENABLED is on; unset it, setup turns SCIM off")
 		}
 		cfg.SCIM.Enabled = false
 		cfg.SCIM.BearerToken = ""

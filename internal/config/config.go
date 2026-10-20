@@ -278,7 +278,7 @@ func LoadFromEnv() (*Config, error) {
 			AutoProvision:        getEnvBool("KY_SSO_AUTO_PROVISION", true),
 		},
 		SCIM: SCIMConfig{
-			Enabled:     getEnvBool("KY_SCIM_ENABLED", true),
+			Enabled:     getEnvBool("KY_SCIM_ENABLED", false),
 			BearerToken: getEnv("KY_SCIM_TOKEN", generateRandomHex(24)),
 			TokenSet:    getEnv("KY_SCIM_TOKEN", "") != "",
 		},
