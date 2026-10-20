@@ -1,6 +1,6 @@
 # KyMessages server restore
 
-KyMessages is not deployed yet. These instructions cover the source-built server's
+These instructions cover the source-built server's
 SQLite capsule restore and the Matrix stack restore, which is tested with disposable custodian keys. No
 production identity/deployment verification is implied by this runbook. Restore with the
 published `ghcr.io/busnes-app/kymessage-server` image or a build of this repository. Do not
