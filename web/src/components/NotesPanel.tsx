@@ -3,11 +3,11 @@ import { Mic } from 'lucide-react';
 import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
 import { bool, obj, str } from '../dto';
 
-export interface NotesStatus { available: boolean; enabled: boolean; user: string; checkin: string }
+export interface NotesStatus { available: boolean; enabled: boolean; screens: boolean; user: string; checkin: string }
 
 export function parseNotes(v: unknown): NotesStatus {
   const s = obj(v);
-  return { available: bool(s.available), enabled: bool(s.enabled), user: str(s.user, 255), checkin: str(s.checkin, 64) };
+  return { available: bool(s.available), enabled: bool(s.enabled), screens: bool(s.screens), user: str(s.user, 255), checkin: str(s.checkin, 64) };
 }
 
 /** What the admin agrees to before turning meeting notes on. */
@@ -18,13 +18,35 @@ export const NOTES_WARNINGS = [
   'English only.',
 ];
 
+/** What the admin agrees to before allowing shared-screen snapshots. */
+export const SCREENS_WARNINGS = [
+  "Each meeting still starts without them: the room's creator or an admin turns them on in the call with !notes screens on, and the bot says so out loud and in the chat.",
+  'The bot looks at shared screens only, never cameras, and says whose screen it is capturing.',
+  'It posts still snapshots of what was shared with the notes, encrypted, in the room; they stay in the room like any shared image.',
+];
+
 const when = (t: string) => new Date(t).toLocaleString();
+
+interface SwitchProps { on: boolean; busy: boolean; warnings: string[]; onChange: (on: boolean) => void }
+
+/** Off is one click; on first shows the warnings with Turn on/Cancel (Cancel sends nothing). */
+const Switch: React.FC<SwitchProps> = ({ on, busy, warnings, onChange }) => {
+  const [confirming, setConfirming] = useState(false);
+  if (on) return <button type="button" className="btn-secondary" disabled={busy} onClick={() => onChange(false)}>Turn off</button>;
+  if (!confirming) return <button type="button" onClick={() => setConfirming(true)}>Turn on…</button>;
+  return (
+    <div className="dr-alert dr-alert-warn" role="alert">
+      <ul>{warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+      <button type="button" disabled={busy} onClick={() => { setConfirming(false); onChange(true); }}>Turn on</button>{' '}
+      <button type="button" className="btn-secondary" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+    </div>
+  );
+};
 
 /** Settings' "Meeting notes" panel; nothing at all when chat is not set up. */
 export const NotesPanel: React.FC = () => {
   const [status, setStatus] = useState<NotesStatus | null>(null);
   const [error, setError] = useState('');
-  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -42,13 +64,12 @@ export const NotesPanel: React.FC = () => {
     return () => controller.abort();
   }, [load]);
 
-  const change = async (on: boolean) => {
+  const change = (path: string, what: string) => async (on: boolean) => {
     setBusy(true);
     setError('');
     try {
-      const res = await adminFetch(`/api/admin/notes/${on ? 'enable' : 'disable'}`, { method: 'POST' });
-      if (!res.ok) throw new Error(await errorMessage(res, `Could not turn meeting notes ${on ? 'on' : 'off'}`));
-      setConfirming(false);
+      const res = await adminFetch(`/api/admin/notes/${path}${on ? 'enable' : 'disable'}`, { method: 'POST' });
+      if (!res.ok) throw new Error(await errorMessage(res, `Could not turn ${what} ${on ? 'on' : 'off'}`));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change meeting notes');
@@ -77,16 +98,13 @@ export const NotesPanel: React.FC = () => {
               <div className="dr-fact-value">{status.checkin ? `Last checked in ${when(status.checkin)}` : 'Has not checked in: start the notes service (docker-compose.notes.yml).'}</div>
             </div>
           </div>
-          {status.enabled ? (
-            <button type="button" className="btn-secondary" disabled={busy} onClick={() => change(false)}>Turn off</button>
-          ) : confirming ? (
-            <div className="dr-alert dr-alert-warn" role="alert">
-              <ul>{NOTES_WARNINGS.map((w) => <li key={w}>{w}</li>)}</ul>
-              <button type="button" disabled={busy} onClick={() => change(true)}>Turn on</button>{' '}
-              <button type="button" className="btn-secondary" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+          <Switch on={status.enabled} busy={busy} warnings={NOTES_WARNINGS} onChange={change('', 'meeting notes')} />
+          {status.enabled && (
+            <div className="dr-section">
+              <h4>Shared-screen snapshots <span className={status.screens ? 'badge badge-success' : 'badge'}>{status.screens ? 'Allowed' : 'Off'}</span></h4>
+              <p>Lets the bot add still pictures of shared screens to the notes, when a meeting turns them on.</p>
+              <Switch on={status.screens} busy={busy} warnings={SCREENS_WARNINGS} onChange={change('screens/', 'shared-screen snapshots')} />
             </div>
-          ) : (
-            <button type="button" onClick={() => setConfirming(true)}>Turn on…</button>
           )}
         </>
       )}

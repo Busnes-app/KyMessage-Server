@@ -686,7 +686,18 @@ mkdir -p "$artifacts/notes"
 cp "$state/owner-voice.wav" "$state/notes-heard.wav" "$artifacts/notes/"
 notes_tool hear.mjs /in/notes-heard.wav 'This meeting is being recorded for note taking.'
 expect "$(notes_audit notes.call "$notes_room")" granted "audited the bot's call grant"
-expect "$(notes_says 'subscribed to an audio track') $(notes_says 'skipped a video track') $(notes_says 'subscribed to a video track')" "yes yes no" "the bot took the call's audio and skipped the camera it was offered"
+expect "$(notes_says 'subscribed to an audio track') $(notes_says 'skipped a camera track')" "yes yes" "the bot took the call's audio and skipped the camera it was offered"
+# Shared-screen snapshots: allowed in the console, then turned on in the call by owen (the
+# room's creator). A screen shared before that is skipped; after it, one snapshot per slide is
+# posted encrypted with the notes and Element shows them. Never a camera.
+expect "$(app_api POST /api/admin/notes/screens/enable | jq -r .outcome)" enabled "the console allowed shared-screen snapshots"
+expect "$(notes_audit notes.screens_enable "$notes_mxid")" enabled "audited notes.screens_enable"
+e2e notesscreens "$owner"
+screens_room=$(jq -r .room "$state/notesscreens-$owner.json")
+expect "$(notes_says 'skipped a screen track') $(notes_says 'subscribed to a screen track') $(notes_says 'took a screen snapshot')" "yes yes yes" "the bot skipped the screen until turned on, then took snapshots"
+expect "$(dc logs --no-color notes 2>&1 | grep -c 'subscribed to a camera track')" 0 "the bot never subscribed to a camera"
+expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$screens_room' AND sender = '$notes_mxid' AND type = 'm.room.message'")" 0 "the bot's snapshots are stored as m.room.encrypted"
+expect "$(sql synapse "SELECT count(*) >= $(jq -r .shots "$state/notesscreens-$owner.json") FROM local_media_repository WHERE user_id = '$notes_mxid' AND media_type = 'application/octet-stream'")" t "the snapshots' media is ciphertext (application/octet-stream)"
 for r in "$notes_room" "$(jq -r .room "$state/notesinvite-$owner.json")"; do
 	expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$r' AND sender = '$notes_mxid' AND type = 'm.room.message'")" 0 "the bot's messages in $r are stored encrypted"
 done

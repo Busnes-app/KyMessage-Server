@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { roomAdmin, parseCommand, Throttle, userOf, Segmenter, formatNotes, chunks } from '../src/rules.mjs';
+import { roomAdmin, parseCommand, Throttle, userOf, Segmenter, formatNotes, chunks, thumb, StillPicture } from '../src/rules.mjs';
 
 const create = { sender: '@alice:x', content: { additional_creators: ['@carol:x'] } };
 const levels = { content: { users: { '@dana:x': 100, '@bob:x': 50 }, users_default: 0 } };
@@ -85,4 +85,37 @@ test('chunks: split at lines, never over max', () => {
   assert.deepEqual(parts.map((p) => p.length), [6, 6, 10, 10, 5]);
   assert.equal(parts.join(''), text.replace(/\n/g, ''));
   assert.deepEqual(chunks('short', 10), ['short']);
+});
+
+test('parseCommand: screens on and off', () => {
+  assert.equal(parseCommand('!notes screens on'), 'screens-on');
+  assert.equal(parseCommand('!notes  Screens   OFF'), 'screens-off');
+  assert.equal(parseCommand('!notes screens'), null);
+});
+
+test('thumb averages blocks into grey', () => {
+  const w = 4, h = 2, rgba = new Uint8Array(w * h * 4);
+  for (let x = 0; x < 2; x++) for (let y = 0; y < 2; y++) rgba.set([255, 255, 255, 255], (y * w + x) * 4); // left half white
+  assert.deepEqual([...thumb(rgba, w, h, 2, 1)].map((v) => Math.round(v * 100) / 100), [1, 0]);
+});
+
+test('StillPicture: one snapshot per settled change, spaced out', () => {
+  const s = new StillPicture({ stillMs: 2000, gapMs: 10_000 });
+  const a = new Float32Array(4).fill(0.2), b = new Float32Array(4).fill(0.8);
+  const shots = [];
+  for (let t = 0; t <= 30_000; t += 1000) {
+    const pic = t < 14_000 ? a : b; // a slide change at 14 s
+    if (s.feed(t < 1000 || (t >= 14_000 && t < 15_000) ? pic.map((v, i) => v + (i ? 0.5 : 0)) : pic, t)) shots.push(t);
+  }
+  // a settles at 1 s, so its first still frame 2 s on is 3 s; b settles at 15 s, so 17 s.
+  assert.deepEqual(shots, [3000, 17_000]);
+  // The same picture again is never shot twice.
+  assert.equal(s.feed(b, 40_000), false);
+});
+
+test('formatNotes lists snapshots but not as speakers', () => {
+  const start = Date.UTC(2026, 9, 20, 14, 0);
+  const text = formatNotes({ room: 'T', start, end: start, entries: [{ at: start, who: 'Alice', shot: 1 }] });
+  assert.match(text, /Speakers: none/);
+  assert.match(text, /\[14:00\] Snapshot 1 of Alice's shared screen \(posted below\)/);
 });

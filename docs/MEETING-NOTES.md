@@ -28,6 +28,23 @@ Off by default. Design and decisions:
 
 English only (Whisper base.en). Speakers are told apart by their call connection, not by voice.
 
+## Shared-screen snapshots
+
+Off twice over: an admin must allow them in Settings > Meeting notes, and each meeting starts
+without them.
+
+- In the call, the room's creator or an admin types `!notes screens on`. The bot says, out loud
+  and in the chat, that shared screens will be captured. Anyone in the call can type
+  `!notes screens off`.
+- When someone shares a screen, the bot says whose screen it is capturing. It looks at shared
+  screens only, never at cameras.
+- It keeps a still picture when the shared screen changes and then holds still for 2 seconds
+  (a new slide, say): at most one every 10 seconds, 60 per meeting, nothing while paused. A
+  playing video never holds still, so it is not captured.
+- After the notes it posts the snapshots, encrypted, as images in the room; each line of the
+  notes says when it was taken and whose screen it was. Like the transcript, they stay in the
+  bot's memory until then and are never written to its disk.
+
 ## What stays on the server
 
 - Audio is transcribed in the bot's memory and dropped. Nothing is written to disk but the bot's
@@ -63,4 +80,4 @@ nothing more.
 
 - Element Call's compatibility mode only (the pinned Element's default).
 - Participants from other servers are not heard: their media goes through their own server.
-- Voice only. Screen snapshots are planned as a separate opt-in; video and webcams never.
+- Voice and still snapshots of shared screens only; never video or webcams.

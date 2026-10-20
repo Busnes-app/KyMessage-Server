@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { NOTES_WARNINGS, NotesPanel } from './NotesPanel';
+import { NOTES_WARNINGS, NotesPanel, SCREENS_WARNINGS } from './NotesPanel';
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
-const OFF = { available: true, enabled: false, user: '@kymessages-notes:example.com', checkin: '2026-10-20T10:00:00Z' };
+const OFF = { available: true, enabled: false, screens: false, user: '@kymessages-notes:example.com', checkin: '2026-10-20T10:00:00Z' };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function stub(states: unknown[]) {
@@ -59,5 +59,28 @@ describe('NotesPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Turn on…' }));
     fireEvent.click(screen.getByRole('button', { name: 'Turn on' }));
     expect(await screen.findByText('Could not prepare the notes account')).toBeTruthy();
+  });
+});
+
+describe('NotesPanel shared-screen snapshots', () => {
+  it('appear only while notes are on, and turn on behind their own warnings', async () => {
+    const on = { ...OFF, enabled: true, screens: false };
+    const calls = stub([on, { ...on, screens: true }]);
+    render(<NotesPanel />);
+    expect(await screen.findByText('Shared-screen snapshots')).toBeTruthy();
+    const turnOns = screen.getAllByRole('button', { name: 'Turn on…' });
+    expect(turnOns).toHaveLength(1);
+    fireEvent.click(turnOns[0]);
+    for (const w of SCREENS_WARNINGS) expect(screen.getByText(w)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }));
+    expect(await screen.findByText('Allowed')).toBeTruthy();
+    expect(calls).toContain('POST /api/admin/notes/screens/enable');
+  });
+
+  it('are hidden while notes are off', async () => {
+    stub([{ ...OFF, screens: true }]);
+    render(<NotesPanel />);
+    await screen.findByRole('button', { name: 'Turn on…' });
+    expect(screen.queryByText('Shared-screen snapshots')).toBeNull();
   });
 });

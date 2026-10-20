@@ -216,3 +216,51 @@ func TestNotesCallGrant(t *testing.T) {
 		t.Fatalf("off: removed %v %v", removed, err)
 	}
 }
+
+func notesConfig(t *testing.T, srv *api.Server, secret string, want int) map[string]bool {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/api/notes/config", nil)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != want || (want == 200 && w.Header().Get("Cache-Control") != "no-store") {
+		t.Fatalf("config: %d want %d: %s", w.Code, want, w.Body)
+	}
+	var out map[string]bool
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return out
+}
+
+// Screens need both switches; notes off turns them off for the bot whatever the setting says.
+func TestNotesScreensSwitch(t *testing.T) {
+	srv, st, _, _, admin := setupNotes(t)
+	notesConfig(t, srv, strings.Repeat("x", 64), http.StatusUnauthorized)
+	if got := notesConfig(t, srv, notesSecret, 200); got["enabled"] || got["screens"] {
+		t.Fatalf("defaults %v", got)
+	}
+	if w := adminDo(t, srv, admin, "POST", "/api/admin/notes/screens/enable", nil); w.Code != http.StatusOK {
+		t.Fatalf("screens enable: %d %s", w.Code, w.Body)
+	}
+	if got := notesConfig(t, srv, notesSecret, 200); got["screens"] {
+		t.Fatalf("screens without notes %v", got)
+	}
+	adminDo(t, srv, admin, "POST", "/api/admin/notes/enable", nil)
+	if got := notesConfig(t, srv, notesSecret, 200); !got["enabled"] || !got["screens"] {
+		t.Fatalf("both on %v", got)
+	}
+	if status := decode[map[string]any](t, adminDo(t, srv, admin, "GET", "/api/admin/notes", nil)); status["screens"] != true {
+		t.Fatalf("status %v", status)
+	}
+	adminDo(t, srv, admin, "POST", "/api/admin/notes/screens/disable", nil)
+	if got := notesConfig(t, srv, notesSecret, 200); got["screens"] {
+		t.Fatalf("screens off %v", got)
+	}
+	recs, _, _ := st.Audit().ListAuditRecords(context.Background(), 0, 20)
+	var actions []string
+	for _, r := range recs {
+		actions = append(actions, r.Action)
+	}
+	if got := strings.Join(actions, ","); !strings.Contains(got, "notes.screens_enable") || !strings.Contains(got, "notes.screens_disable") {
+		t.Fatalf("audit %s", got)
+	}
+}

@@ -14,7 +14,8 @@
     "@livekit/rtc-node": "1.1.0",
     "fake-indexeddb": "6.2.5",
     "kokoro-js": "1.2.1",
-    "matrix-js-sdk": "44.0.0"
+    "matrix-js-sdk": "44.0.0",
+    "sharp": "0.35.5"
   },
   "overrides": {
     "sharp": "0.35.5"

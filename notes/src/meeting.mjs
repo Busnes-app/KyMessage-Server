@@ -1,21 +1,26 @@
 // One meeting: join the room's Element Call with its media keys, announce the recording, take
-// per-speaker notes, honour commands, post the notes and leave. Audio stays in memory.
+// per-speaker notes and, when allowed and turned on, snapshots of shared screens; honour
+// commands, post the notes and leave. Audio and snapshots stay in memory until then.
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { MatrixRTCSessionEvent } from 'matrix-js-sdk/lib/matrixrtc/index.js';
-import { Segmenter, Throttle, formatNotes, chunks, userOf } from './rules.mjs';
+import sharp from 'sharp';
+import { Segmenter, StillPicture, Throttle, formatNotes, chunks, roomAdmin, thumb, userOf } from './rules.mjs';
+import { encrypt } from './attach.mjs';
 import { speak, transcribe, RATE } from './speech.mjs';
 import { resample, toInt16, toFloat } from './audio.mjs';
 
 // rtc-node 1.1.0's KeyProvider.setKey drops the key bytes (dist/e2ee.cjs), so the bot sends
 // the FFI request itself. The ESM build is one bundle; the CJS build exposes FfiClient.
 const require = createRequire(import.meta.url);
-const { AudioFrame, AudioSource, AudioStream, EncryptionType, LocalAudioTrack, Room, RoomEvent, TrackKind, TrackPublishOptions, TrackSource } = require('@livekit/rtc-node');
+const { AudioFrame, AudioSource, AudioStream, EncryptionType, LocalAudioTrack, Room, RoomEvent, TrackKind, TrackPublishOptions, TrackSource, VideoBufferType, VideoStream } = require('@livekit/rtc-node');
 const { E2eeRequest, KeyDerivationFunction, SetKeyRequest } = require('@livekit/rtc-ffi-bindings');
 const { FfiClient } = require(path.join(path.dirname(require.resolve('@livekit/rtc-node')), 'ffi_client.cjs'));
 
 export const NOTICE = 'This meeting is being recorded for note taking.';
 const HELP = 'Anyone in the call can type !notes pause, !notes resume or !notes leave.';
+const SCREENS_HELP = "The room's creator or an admin can type !notes screens on to add shared screens; anyone in the call can type !notes screens off.";
+const MAX_SHOTS = 60;
 const ALONE_MS = 30_000; // the call ended for the bot once nobody else is in it this long
 const LATE_LEAD_MS = 3000; // a newcomer's client subscribes and takes keys before the notice
 
@@ -37,6 +42,9 @@ export class Meeting {
     this.paused = null; // the open pause entry
     this.speaking = Promise.resolve();
     this.finished = false;
+    this.screens = false; // this meeting's !notes screens on
+    this.shares = new Map(); // LiveKit identity → { stopped }
+    this.shots = []; // { at, who, jpeg, w, h }
   }
 
   name(user) { return this.room.getMember(user)?.name ?? user; }
@@ -58,11 +66,18 @@ export class Meeting {
       [{ type: 'livekit', livekit_service_url: this.cfg.serviceUrl, livekit_alias: this.room.roomId }], { manageMediaKeys: true });
     const jwt = await this.grant();
     this.lk = new Room();
-    // Audio only: the bot never subscribes to cameras or screens, so their frames never reach it.
+    // Audio, and screens only while turned on: the bot never subscribes to a camera, so its
+    // frames never reach it.
     this.lk.on(RoomEvent.TrackPublished, (pub) => this.want(pub));
-    this.lk.on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
-      this.log(`subscribed to ${track.kind === TrackKind.KIND_AUDIO ? 'an audio' : 'a video'} track`);
-      if (track.kind === TrackKind.KIND_AUDIO) this.listen(track, p.identity);
+    this.lk.on(RoomEvent.TrackUnpublished, (_pub, p) => this.stopShare(p.identity));
+    this.lk.on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+      if (track.kind === TrackKind.KIND_AUDIO) {
+        this.log('subscribed to an audio track');
+        this.listen(track, p.identity);
+      } else if (this.screens && pub.source === TrackSource.SOURCE_SCREENSHARE) {
+        this.log('subscribed to a screen track');
+        this.watch(track, p.identity);
+      } else pub.setSubscribed(false);
     });
     this.lk.on(RoomEvent.ParticipantConnected, () => this.lateJoin());
     this.lk.on(RoomEvent.ParticipantDisconnected, (p) => { this.stopReader(p.identity); this.checkAlone(); });
@@ -85,7 +100,7 @@ export class Meeting {
     await new Promise((r) => setTimeout(r, 1000));
     this.throttle.spoke(Date.now());
     await this.say(NOTICE);
-    await this.notice(`Meeting notes joined the call. ${NOTICE} ${HELP}`);
+    await this.notice(`Meeting notes joined the call. ${NOTICE} ${HELP} ${SCREENS_HELP}`);
     this.checkAlone();
   }
 
@@ -100,8 +115,64 @@ export class Meeting {
   }
 
   want(pub) {
-    if (pub.kind !== TrackKind.KIND_AUDIO) return this.log('skipped a video track');
+    const screen = pub.source === TrackSource.SOURCE_SCREENSHARE;
+    if (pub.kind !== TrackKind.KIND_AUDIO && !(screen && this.screens)) return this.log(`skipped a ${screen ? 'screen' : 'camera'} track`);
     if (!pub.subscribed) pub.setSubscribed(true);
+  }
+
+  // screensAllowed asks KyMessages whether Settings allows shared-screen snapshots.
+  async screensAllowed() {
+    const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
+    return r.ok && (await r.json()).screens === true;
+  }
+
+  isAdmin(user) {
+    const ev = (t) => { const e = this.room.currentState.getStateEvents(t, ''); return e && { sender: e.getSender(), content: e.getContent() }; };
+    return roomAdmin(ev('m.room.create'), ev('m.room.power_levels'), user);
+  }
+
+  // setScreens subscribes to every shared screen, or drops them all.
+  setScreens(on) {
+    this.screens = on;
+    for (const p of this.lk.remoteParticipants.values()) {
+      for (const pub of p.trackPublications.values()) {
+        if (pub.source !== TrackSource.SOURCE_SCREENSHARE) continue;
+        if (on) this.want(pub); else { this.stopShare(p.identity); if (pub.subscribed) pub.setSubscribed(false); }
+      }
+    }
+  }
+
+  // watch looks at a shared screen about once a second and keeps a snapshot whenever the
+  // picture changed and held still (StillPicture). Nothing while paused.
+  watch(track, identity) {
+    if (this.shares.has(identity)) return;
+    const who = this.name(userOf(identity));
+    const share = { stopped: false };
+    this.shares.set(identity, share);
+    this.say(`${who}'s shared screen is being captured for the notes.`);
+    this.notice(`Capturing ${who}'s shared screen for the notes. !notes screens off stops it.`).catch(() => {});
+    const still = new StillPicture();
+    (async () => {
+      let next = 0;
+      for await (const { frame } of new VideoStream(track)) {
+        if (share.stopped || this.finished || !this.screens) break;
+        const now = Date.now();
+        if (now < next || this.paused || this.shots.length >= MAX_SHOTS) continue;
+        next = now + 1000;
+        const f = frame.convert(VideoBufferType.RGBA);
+        if (!still.feed(thumb(f.data, f.width, f.height), now)) continue;
+        const { data, info } = await sharp(Buffer.from(f.data.buffer, f.data.byteOffset, f.data.byteLength), { raw: { width: f.width, height: f.height, channels: 4 } })
+          .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true });
+        this.shots.push({ at: now, who, jpeg: data, w: info.width, h: info.height });
+        this.entries.push({ at: now, who, shot: this.shots.length });
+        this.log('took a screen snapshot');
+      }
+    })().catch((e) => this.log(`a shared screen failed: ${e.message}`));
+  }
+
+  stopShare(identity) {
+    const s = this.shares.get(identity);
+    if (s) { s.stopped = true; this.shares.delete(identity); }
   }
 
   // say speaks text into the call, one utterance at a time.
@@ -180,8 +251,27 @@ export class Meeting {
       await this.say('Meeting notes are leaving. The notes will be posted in the chat.');
       await this.finish(`${by} asked it to leave`);
     } else if (cmd === 'help') {
-      await this.notice(HELP);
+      await this.notice(`${HELP} ${SCREENS_HELP}`);
+    } else if (cmd === 'screens-on' && !this.screens) {
+      if (!this.isAdmin(sender)) return this.notice("Only the room's creator or an admin can turn on shared-screen snapshots.");
+      if (!(await this.screensAllowed())) return this.notice('Shared-screen snapshots are turned off in Settings.');
+      this.setScreens(true);
+      await this.say('Shared screens will be captured for the notes.');
+      await this.notice(`Shared-screen snapshots turned on by ${by}: still pictures of shared screens will be posted with the notes. !notes screens off stops it.`);
+    } else if (cmd === 'screens-off' && this.screens) {
+      this.setScreens(false);
+      await this.say('Shared screens are no longer captured.');
+      await this.notice(`Shared-screen snapshots turned off by ${by}.`);
     }
+  }
+
+  // postShot uploads one snapshot encrypted (only the room can read it) as m.image.
+  async postShot(n, { at, who, jpeg, w, h }) {
+    const { data, file } = encrypt(jpeg);
+    const { content_uri: url } = await this.client.uploadContent(data, { type: 'application/octet-stream', includeFilename: false });
+    const time = new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: this.cfg.timeZone });
+    await this.client.sendMessage(this.room.roomId, { msgtype: 'm.image', body: `Snapshot ${n} of ${who}'s shared screen, ${time}.jpg`,
+      file: { ...file, url }, info: { mimetype: 'image/jpeg', w, h, size: jpeg.length } });
   }
 
   // finish posts the notes (unless the bot lost the room) and leaves the call and the room.
@@ -192,6 +282,7 @@ export class Meeting {
     clearTimeout(this.pending);
     this.log(`leaving the call in ${this.room.roomId}: ${reason}`);
     for (const r of this.readers.values()) r.stopped = true;
+    for (const id of [...this.shares.keys()]) this.stopShare(id);
     for (const r of this.readers.values()) this.take(r.seg.flush(), r.who);
     if (this.paused) this.paused.until = Date.now();
     await this.speaking;
@@ -204,11 +295,13 @@ export class Meeting {
         const text = formatNotes({ room: this.room.name || 'this room', start: this.startedAt ?? Date.now(), end: Date.now(), entries: this.entries, timeZone: this.cfg.timeZone });
         const parts = chunks(text);
         for (const [i, p] of parts.entries()) await this.notice(parts.length > 1 ? `(${i + 1}/${parts.length}) ${p}` : p);
+        for (const [i, s] of this.shots.entries()) await this.postShot(i + 1, s);
       }
     } catch (e) {
       this.log(`posting the notes failed: ${e.message}`);
     }
     this.entries = [];
+    this.shots = [];
     this.onDone(this);
   }
 }

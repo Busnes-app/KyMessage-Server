@@ -24,8 +24,18 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
 - Calls: MatrixRTC `join` with `manageMediaKeys` and the transport
   `{livekit_service_url: NOTES_RTC_SERVICE_URL, livekit_alias: room}` (compatibility mode, so
   identities are `@user:server:DEVICE`); the grant comes from KyMessages' `/sfu/get`; LiveKit
-  is reached at `NOTES_LIVEKIT_URL`. `autoSubscribe` is off: it subscribes to audio tracks only,
-  so camera (and screen) frames never reach it; it logs each kind it takes or skips. E2EE: GCM, HKDF, salt `LKFrameEncryptionKey`, ratchet
+  is reached at `NOTES_LIVEKIT_URL`. `autoSubscribe` is off: it subscribes to audio tracks, and
+  to screen-share tracks only while this meeting's snapshots are on; never to a camera, so camera
+  frames never reach it. It logs each kind it takes or skips (`subscribed to an audio|a screen
+  track`, `skipped a camera|screen track`).
+- Shared-screen snapshots (plan `2026-10-20-meeting-notes-screens.md`): `!notes screens on` from
+  the room's creator or an admin (`rules.roomAdmin` on current state) while `GET /api/notes/config`
+  says `screens`; `!notes screens off` from anyone in the call. Each is spoken and posted, and so
+  is each share it starts capturing. About one frame a second goes through `rules.thumb` and
+  `rules.StillPicture` (changed 0.04, moving 0.01, still 2 s, gap 10 s); at most 60 per meeting,
+  none while paused. JPEG (sharp, from raw RGBA only, longest side 1600) in memory; posted after
+  the notes as `m.image` with Matrix attachment encryption (`attach.mjs`, AES-256-CTR), upload
+  type `application/octet-stream`. E2EE: GCM, HKDF, salt `LKFrameEncryptionKey`, ratchet
   window 10, key ring 256 (Element Call's MatrixKeyProvider). Keys are set with a hand-built FFI
   `SetKeyRequest`: rtc-node 1.1.0's `KeyProvider.setKey` drops the key. Re-check this on any
   `@livekit/rtc-node` bump.

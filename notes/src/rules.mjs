@@ -10,11 +10,12 @@ export function roomAdmin(create, levels, user) {
   return Number(level) >= 100;
 }
 
-// parseCommand: "!notes pause|resume|leave|stop|help" → the command, else null.
+// parseCommand: "!notes pause|resume|leave|stop|help|screens on|screens off" → the command
+// ("screens-on", "screens-off" for the last two), else null.
 export function parseCommand(body) {
-  const m = /^\s*!notes\s+(pause|resume|leave|stop|help)\s*$/i.exec(body ?? '');
+  const m = /^\s*!notes\s+(pause|resume|leave|stop|help|screens\s+on|screens\s+off)\s*$/i.exec(body ?? '');
   if (!m) return null;
-  const c = m[1].toLowerCase();
+  const c = m[1].toLowerCase().replace(/\s+/, '-');
   return c === 'stop' ? 'leave' : c;
 }
 
@@ -85,12 +86,16 @@ const clock = (ms, timeZone) => new Date(ms).toLocaleTimeString('en-GB', { hour:
 // pauses, any order; times in timeZone.
 export function formatNotes({ room, start, end, entries, timeZone = 'UTC' }) {
   const day = new Date(start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone });
-  const people = [...new Set(entries.filter((e) => e.who).map((e) => e.who))];
+  const people = [...new Set(entries.filter((e) => e.text !== undefined).map((e) => e.who))];
   const head = [`Meeting notes: ${room}, ${day}, ${clock(start, timeZone)}-${clock(end, timeZone)} ${timeZone}`,
     `Speakers: ${people.length ? people.join(', ') : 'none'}`, ''];
-  const body = [...entries].sort((a, b) => a.at - b.at).map((e) => (e.who
-    ? `[${clock(e.at, timeZone)}] ${e.who}: ${e.text}`
-    : `[${clock(e.at, timeZone)}] Paused by ${e.by} until ${e.until ? clock(e.until, timeZone) : 'the end'}`));
+  const line = (e) => {
+    const t = `[${clock(e.at, timeZone)}]`;
+    if (e.shot) return `${t} Snapshot ${e.shot} of ${e.who}'s shared screen (posted below)`;
+    if (e.text !== undefined) return `${t} ${e.who}: ${e.text}`;
+    return `${t} Paused by ${e.by} until ${e.until ? clock(e.until, timeZone) : 'the end'}`;
+  };
+  const body = [...entries].sort((a, b) => a.at - b.at).map(line);
   return [...head, ...(body.length ? body : ['No speech was transcribed.'])].join('\n');
 }
 
@@ -106,4 +111,43 @@ export function chunks(text, max = 30_000) {
   }
   if (cur) out.push(cur);
   return out;
+}
+
+// thumb shrinks an RGBA frame to a tw×th grey thumbnail (0..1) by box averages.
+export function thumb(rgba, width, height, tw = 32, th = 18) {
+  const out = new Float32Array(tw * th);
+  for (let ty = 0; ty < th; ty++) {
+    const y0 = Math.floor((ty * height) / th), y1 = Math.max(y0 + 1, Math.floor(((ty + 1) * height) / th));
+    for (let tx = 0; tx < tw; tx++) {
+      const x0 = Math.floor((tx * width) / tw), x1 = Math.max(x0 + 1, Math.floor(((tx + 1) * width) / tw));
+      let sum = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const i = (y * width + x) * 4;
+        sum += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+      }
+      out[ty * tw + tx] = sum / ((y1 - y0) * (x1 - x0) * 255);
+    }
+  }
+  return out;
+}
+
+export const thumbDiff = (a, b) => { let d = 0; for (let i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]); return d / a.length; };
+
+// StillPicture decides when a shared screen is worth a snapshot: it differs from the last one
+// by more than changed, has moved less than moving since stillMs, and the last one is at least
+// gapMs old. feed(thumb, at) → true when a snapshot should be taken now.
+export class StillPicture {
+  constructor({ changed = 0.04, moving = 0.01, stillMs = 2000, gapMs = 10_000 } = {}) {
+    Object.assign(this, { changed, moving, stillMs, gapMs });
+    this.prev = null; this.since = 0; this.last = null; this.lastAt = -Infinity;
+  }
+
+  feed(t, at) {
+    if (!this.prev || thumbDiff(this.prev, t) > this.moving) this.since = at;
+    this.prev = t;
+    const fresh = !this.last || thumbDiff(this.last, t) > this.changed;
+    if (!fresh || at - this.since < this.stillMs || at - this.lastAt < this.gapMs) return false;
+    this.last = t; this.lastAt = at;
+    return true;
+  }
 }

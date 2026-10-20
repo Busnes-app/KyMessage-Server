@@ -189,7 +189,7 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   stored device, else revokes it (deleting the device) and mints one on a new device. The token
   is in the reply only (`no-store`), never stored, logged or audited; `notes_session` and
   `notes_device` hold the session ID and device. Disable sets the switch off first, then revokes
-  the session. Audit `notes.enable|disable|session|call` (kind `matrix`), resource the bot's
+  the session. Audit `notes.enable|disable|session|call|screens_enable|screens_disable` (kind `matrix`), resource the bot's
   MXID or, for `notes.call`, the room ID; details `outcome=...` (`granted`/`refused: ...` with
   `inviter`). `activeCallUsers` admits the bot while on, unlinked, unlocked and not deactivated;
   the call authorizer then requires `RoomAdmin.AdminInvite` (the bot's invite came from the
@@ -203,6 +203,13 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
 | POST | `/api/admin/notes/enable` | `handleNotesEnable` | fresh | `{outcome:"enabled"}` |
 | POST | `/api/admin/notes/disable` | `handleNotesDisable` | admin (one click: it cuts access) | `{outcome}` |
 | POST | `/api/notes/session` | `handleNotesSession` | notes secret | `{user_id, device_id, access_token}` |
+| POST | `/api/admin/notes/screens/enable` | `handleNotesScreens(true)` | fresh | `{outcome:"enabled"}` |
+| POST | `/api/admin/notes/screens/disable` | `handleNotesScreens(false)` | admin (one click) | `{outcome:"disabled"}` |
+| GET | `/api/notes/config` | `handleNotesConfig` | notes secret | `{enabled, screens}`; `screens` only while notes are on |
+
+  Shared-screen snapshots (plan `2026-10-20-meeting-notes-screens.md`): setting `notes_screens`,
+  audited `notes.screens_enable|disable`; `GET /api/admin/notes` adds `screens`. The server only
+  tells the bot; which tracks it takes is the bot's contract (`notes/AGENTS.md`).
 
 | Method | Path | Handler | Guard | Response |
 |---|---|---|---|---|

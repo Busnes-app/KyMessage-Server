@@ -714,7 +714,81 @@ async function notesmeeting() {
   out({ room: id, heardSeconds: pcm.length / 2 / best.rate });
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting };
+// Shared-screen snapshots. Chromium's fake screen never holds still, as a playing video would
+// not, so the shared screen here is a canvas of two still slides, switched at the given time.
+async function slidesForScreenShare(page) {
+  await page.addInitScript(() => {
+    if (!navigator.mediaDevices) return;
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const c = document.createElement('canvas');
+      c.width = 1280; c.height = 720;
+      const x = c.getContext('2d');
+      const start = Date.now();
+      const draw = () => {
+        const second = Date.now() - start > 20000;
+        x.fillStyle = second ? '#1d3557' : '#ffffff'; x.fillRect(0, 0, 1280, 720);
+        x.fillStyle = second ? '#ffffff' : '#000000'; x.font = '72px sans-serif';
+        x.fillText(second ? 'Slide 2: next steps' : 'Slide 1: budget review', 120, 360);
+      };
+      draw();
+      setInterval(draw, 200); // repaint so the stream keeps producing frames
+      return c.captureStream(5);
+    };
+  });
+}
+
+// waitNotice: a bot notice containing text arrives in room id (read through Element's client;
+// the call view hides the timeline).
+const waitNotice = (page, id, text, timeout = 60000) => page.waitForFunction(({ id, text }) =>
+  window.mxMatrixClientPeg.get().getRoom(id)?.getLiveTimeline().getEvents().some((e) => e.getContent()?.body?.includes(text)),
+  { id, text }, { timeout }).then(() => console.log(`  ok: ${text} decrypted`));
+
+// USER's video call: snapshots refused by the room until turned on; once on, the bot announces
+// the share, and after the hangup posts encrypted snapshots that Element decrypts and shows.
+async function notesscreens() {
+  const page = await resume(user, 'agent-owner');
+  await slidesForScreenShare(page);
+  await page.reload();
+  await synced(page);
+  const id = await createRoom(page, `kymatrix-screens-${tag}`);
+  await invite(page, NOTES);
+  await memberOf(page, id, NOTES, 'join');
+  await page.getByRole('button', { name: /Video call|Start video call/i }).first().click();
+  const call = page.frameLocator('iframe[title="Element Call"]');
+  const end = call.getByRole('button', { name: 'End call', exact: true });
+  for (let i = 0; i < 30 && !(await end.isVisible()); i++) {
+    for (const b of [page, call].map((p) => p.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first())) if (await b.isVisible()) await b.click();
+    await page.waitForTimeout(1000);
+  }
+  await end.waitFor();
+  await waitNotice(page, id, 'Meeting notes joined the call.');
+  const say = (body) => page.evaluate(({ id, body }) => window.mxMatrixClientPeg.get().sendTextMessage(id, body), { id, body });
+  // Shared before it is turned on: the bot must skip it.
+  // Element Call's share control is a switch, not a button.
+  await call.getByRole('switch', { name: 'Share screen' }).click();
+  await page.waitForTimeout(5000);
+  await say('!notes screens on');
+  await waitNotice(page, id, 'Shared-screen snapshots turned on by');
+  await waitNotice(page, id, "shared screen for the notes");
+  await page.waitForTimeout(30000); // slide 1, then slide 2 after 20 s
+  await end.click();
+  await end.waitFor({ state: 'hidden' });
+  await openRoom(page, id, false);
+  await timeline(page).getByText(/Meeting notes: kymatrix-screens-/).waitFor({ timeout: 180000 });
+  const notes = await timeline(page).getByText(/Meeting notes: kymatrix-screens-/).last().innerText();
+  console.log(`  notes:\n${notes.replace(/^/gm, '    ')}`);
+  const shots = (notes.match(/Snapshot \d+ of /g) ?? []).length;
+  check(shots >= 2, `the notes list ${shots} snapshots, one per slide`);
+  // Element decrypts each snapshot and shows it.
+  // Decrypted images, by size: the snapshots are 1280 px wide, avatars a few dozen.
+  await page.waitForFunction((n) => [...document.querySelectorAll('.mx_RoomView_MessageList img')].filter((i) => i.complete && i.naturalWidth >= 300).length >= n,
+    shots, { timeout: 60000 });
+  check(true, `Element decrypted and shows ${shots} snapshots`);
+  await memberOf(page, id, NOTES, 'leave');
+  out({ room: id, shots });
+}
+
+const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);
