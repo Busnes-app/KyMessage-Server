@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/Busnes-app/ky-primitives/applysetup"
@@ -43,7 +44,7 @@ func runInstaller(args []string) error {
 	}
 	r, err := applysetup.CallLocal(context.Background(), socket, raw, opts.Check)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w (a refusal's reason is in the server log: [INSTALLER] setup refused)", err)
 	}
 	if r.Service != b.Service || r.SetupID != b.SetupID {
 		return errors.New("product setup report identity mismatch")

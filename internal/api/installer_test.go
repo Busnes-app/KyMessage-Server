@@ -19,6 +19,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
+	"log"
 	"strings"
 )
 
@@ -253,5 +254,32 @@ func TestInstallerManagedCredentialsSealAndDrill(t *testing.T) {
 	}
 	if _, err = backup.Collect(ctx, cfg, "fixture"); err == nil {
 		t.Fatal("sealed incomplete managed backup")
+	}
+}
+
+// The setup socket answers every refusal with one generic 409; the reason must reach the
+// server log, or the operator cannot tell which setting blocks setup.
+func TestInstallerRefusalReasonIsLogged(t *testing.T) {
+	_, st, cfg := setupTestServer(t)
+	cfg.Server.AppURL = "https://message.example.test"
+	cfg.SCIM.Enabled = true
+	t.Setenv("KY_SCIM_ENABLED", "true")
+	dir := t.TempDir()
+	secret, directory := filepath.Join(dir, "client"), filepath.Join(dir, "directory")
+	for _, p := range []string{secret, directory} {
+		if err := os.WriteFile(p, []byte("private-fixture-secret"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := applysetup.Common{Schema: applysetup.Schema, Service: "kymessage", SetupID: "271333e2-c221-4601-b249-563b3d828530", SSO: &applysetup.SSO{IssuerURL: "https://identity.example.test", ClientID: "message", ClientSecretFile: secret, DirectorySecretFile: directory, RedirectURI: cfg.Server.AppURL + "/api/sso/kyidentity/callback"}, Admins: []applysetup.Identity{{Issuer: "https://identity.example.test", Subject: "owner-sub", Username: "owner-admin"}}}
+	raw, _ := json.Marshal(b)
+	var logs strings.Builder
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if _, err := api.NewServer(cfg, st).ApplyInstaller(context.Background(), raw, false); err == nil {
+		t.Fatal("setup with SCIM configured was accepted")
+	}
+	if got := logs.String(); !strings.Contains(got, "setup refused: installer refuses existing SCIM configuration") || strings.Contains(got, "private-fixture-secret") {
+		t.Fatalf("log = %q", got)
 	}
 }

@@ -47,8 +47,9 @@ services:
       - KY_DB_DRIVER=sqlite
       - KY_DATA_DIR=/app/data
       - KY_BACKUP_DIR=${KY_BACKUP_DIR-/app/backups}
-      - KY_BACKUP_KEEP=${KY_BACKUP_KEEP:-7}
-      - KY_BACKUP_DEPOSIT_INTERVAL=${KY_BACKUP_DEPOSIT_INTERVAL:-24h}
+      # Empty means the app default (7, 24h); a set value is an operator choice setup must not replace.
+      - KY_BACKUP_KEEP=${KY_BACKUP_KEEP:-}
+      - KY_BACKUP_DEPOSIT_INTERVAL=${KY_BACKUP_DEPOSIT_INTERVAL:-}
       - KY_BACKUP_ALLOW_PRIVATE_RECOVERY=${KY_BACKUP_ALLOW_PRIVATE_RECOVERY:-false}
       - KY_TRUSTED_PROXIES=${KY_TRUSTED_PROXIES:-}
       - KY_SSO_ENABLED=true
@@ -56,7 +57,7 @@ services:
       - KY_KYIDENTITY_CLIENT_ID=${KY_KYIDENTITY_CLIENT_ID:-}
       - KY_KYIDENTITY_SECRET=${KY_KYIDENTITY_SECRET:-}
       - KY_KYIDENTITY_HMAC_SECRET=${KY_KYIDENTITY_HMAC_SECRET:-}
-      - KY_SCIM_ENABLED=true
+      - KY_SCIM_ENABLED=${KY_SCIM_ENABLED:-}
       - KY_SCIM_TOKEN=${KY_SCIM_TOKEN:-}
     volumes:
       - ./data:/app/data
