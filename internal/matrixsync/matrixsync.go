@@ -1,6 +1,6 @@
 // Package matrixsync keeps MAS in step with KyIdentity's directory as KyMessages records it:
-// inactive or unknown users are locked, deleted ones deactivated (never erased), re-enabled
-// ones unlocked. KyIdentity's back-channel logout cuts sessions first; this makes it stick.
+// inactive or unknown users are locked and their sessions ended, deleted ones deactivated (never
+// erased), re-enabled ones unlocked. A lock alone leaves sessions working; ending them is what cuts.
 package matrixsync
 
 import (
@@ -20,6 +20,9 @@ const (
 	Lock       Kind = "lock"
 	Unlock     Kind = "unlock"
 	Deactivate Kind = "deactivate"
+	// EndSessions finishes every MAS session of a person who is not active, also once locked,
+	// so a session a failed or earlier sweep left behind is still ended.
+	EndSessions Kind = "session_end"
 )
 
 // User is a MAS user with the KyIdentity subject of its upstream link ("" when none).
@@ -37,7 +40,8 @@ type Action struct {
 }
 
 // Plan compares MAS with dir (subject → "active", "deleted" or another status) and returns
-// the actions, failing closed: anything not known to be active is locked. agents maps a
+// the actions, failing closed: anything not known to be active is locked and its sessions ended
+// (an agent only locked: re-enabling its owner restores it). agents maps a
 // registered agent's MAS user ID to its owner's subject; an unlinked agent follows its owner,
 // but is only ever locked, never deactivated: deleting an agent is an admin's call.
 func Plan(users []User, dir map[string]string, agents map[string]string) []Action {
@@ -65,28 +69,29 @@ func Plan(users []User, dir map[string]string, agents map[string]string) []Actio
 			continue
 		}
 		status, known := dir[u.Subject]
+		var reason string
 		switch {
 		case u.Ambiguous:
-			if !u.Locked {
-				out = append(out, Action{Lock, u, "linked to several KyIdentity subjects"})
-			}
+			reason = "linked to several KyIdentity subjects"
 		case u.Subject == "":
-			if !u.Locked {
-				out = append(out, Action{Lock, u, "no KyIdentity link"})
-			}
+			reason = "no KyIdentity link"
 		case status == "active":
 			if u.Locked {
 				out = append(out, Action{Unlock, u, "active in KyIdentity"})
 			}
+			continue
 		case status == "deleted":
 			out = append(out, Action{Deactivate, u, "deleted in KyIdentity"})
-		case !u.Locked:
-			reason := "not known to KyMessages"
-			if known {
-				reason = "inactive in KyIdentity"
-			}
+			continue
+		case known:
+			reason = "inactive in KyIdentity"
+		default:
+			reason = "not known to KyMessages"
+		}
+		if !u.Locked {
 			out = append(out, Action{Lock, u, reason})
 		}
+		out = append(out, Action{EndSessions, u, reason})
 	}
 	return out
 }
@@ -97,6 +102,8 @@ type MAS interface {
 	Lock(ctx context.Context, id string) error
 	Unlock(ctx context.Context, id string) error
 	Deactivate(ctx context.Context, id string) error
+	Sessions(ctx context.Context, userID string) ([]Session, error)
+	FinishSession(ctx context.Context, kind SessionKind, id string) (already bool, err error)
 }
 
 // Syncer runs Plan against MAS on a timer and whenever Wake is called.
@@ -152,8 +159,8 @@ func (s *Syncer) Run(ctx context.Context, interval time.Duration, done chan<- st
 	}
 }
 
-// Sweep applies Plan once. Every action is audited, success or failure; one failed action
-// does not stop the rest.
+// Sweep applies Plan once. Every action is audited, success or failure (an EndSessions per
+// session it finds); one failed action does not stop the rest.
 func (s *Syncer) Sweep(ctx context.Context) error {
 	_, _, err := s.sweep(ctx)
 	return err
@@ -183,6 +190,14 @@ func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 			errs = append(errs, err)
 			break
 		}
+		if a.Kind == EndSessions {
+			n, f, err := s.endSessions(ctx, a)
+			applied, failed = applied+n, failed+f
+			if err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
 		var err error
 		switch a.Kind {
 		case Lock:
@@ -200,17 +215,56 @@ func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 		} else {
 			applied++
 		}
-		// The MAS action happened; record it even if shutdown cancelled the sweep.
-		actx, acancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		aerr := s.st.Audit().LogAudit(actx, &store.AuditRecord{
-			Action:   "matrix." + string(a.Kind),
-			Resource: "@" + a.User.Username + ":" + s.serverName,
-			Details:  fmt.Sprintf("subject=%q reason=%q outcome=%q", a.User.Subject, a.Reason, outcome),
-		})
-		acancel()
-		if aerr != nil {
+		if aerr := s.audit(ctx, a, fmt.Sprintf("outcome=%q", outcome)); aerr != nil {
 			errs = append(errs, aerr)
 		}
 	}
 	return applied, failed, errors.Join(errs...)
+}
+
+// endSessions finishes every active MAS session of a.User: browser sessions first, then OAuth
+// 2.0 (with their refresh tokens) and compatibility sessions. MAS then has Synapse delete each
+// session's device, which Synapse checks on every request, ahead of its 2-minute cache of MAS's
+// token introspection. Each session is audited as matrix.session_end; none found, none written.
+func (s *Syncer) endSessions(ctx context.Context, a Action) (applied, failed int, err error) {
+	sessions, err := s.mas.Sessions(ctx, a.User.ID)
+	if err != nil {
+		err = fmt.Errorf("%s %s: %w", a.Kind, a.User.Username, err)
+		return 0, 1, errors.Join(err, s.audit(ctx, a, fmt.Sprintf("outcome=%q", "error: "+err.Error())))
+	}
+	var errs []error
+	for _, ss := range sessions {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		outcome := "ended"
+		already, ferr := s.mas.FinishSession(ctx, ss.Kind, ss.ID)
+		switch {
+		case ferr != nil:
+			failed++
+			outcome = "error: " + ferr.Error()
+			errs = append(errs, fmt.Errorf("%s %s %s %s: %w", a.Kind, a.User.Username, ss.Kind, ss.ID, ferr))
+		case already:
+			outcome = "already_ended"
+		default:
+			applied++
+		}
+		if aerr := s.audit(ctx, a, fmt.Sprintf("session=%q kind=%q outcome=%q", ss.ID, ss.Kind, outcome)); aerr != nil {
+			errs = append(errs, aerr)
+		}
+	}
+	return applied, failed, errors.Join(errs...)
+}
+
+// audit records a as matrix.<kind> with fields after its subject and reason. The MAS action
+// happened; it is recorded even if shutdown cancelled the sweep.
+func (s *Syncer) audit(ctx context.Context, a Action, fields string) error {
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	return s.st.Audit().LogAudit(actx, &store.AuditRecord{
+		Action:   "matrix." + string(a.Kind),
+		Resource: "@" + a.User.Username + ":" + s.serverName,
+		Details:  fmt.Sprintf("subject=%q reason=%q %s", a.User.Subject, a.Reason, fields),
+	})
 }

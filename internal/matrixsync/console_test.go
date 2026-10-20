@@ -263,15 +263,19 @@ func TestPlanExemptsOnlyTheUnlinkedConsoleAccount(t *testing.T) {
 		{ID: "x6", Username: "kym\u0435ssages-console"},        // lock: Cyrillic e
 		{ID: "x7", Username: "kymessages\u2010console"},        // lock: Unicode hyphen
 	}, map[string]string{"i": "inactive"}, nil)
-	var locked []string
+	var locked, ended []string
 	for _, a := range got {
-		if a.Kind != Lock {
+		switch a.Kind {
+		case Lock:
+			locked = append(locked, a.User.ID)
+		case EndSessions:
+			ended = append(ended, a.User.ID)
+		default:
 			t.Fatalf("unexpected %+v", a)
 		}
-		locked = append(locked, a.User.ID)
 	}
-	if strings.Join(locked, ",") != "x1,x2,x3,x4,x5,x6,x7" {
-		t.Fatalf("locked %v", locked)
+	if strings.Join(locked, ",") != "x1,x2,x3,x4,x5,x6,x7" || strings.Join(ended, ",") != "x1,x2,x3,x4,x5,x6,x7" {
+		t.Fatalf("locked %v, sessions ended %v", locked, ended)
 	}
 }
 
@@ -328,7 +332,7 @@ func TestPlanExemptsOnlyTheUnlinkedNotesAccount(t *testing.T) {
 		{ID: "x1", Username: NotesUsername, Subject: "i"}, // lock: linked, so a person
 		{ID: "x2", Username: "kymessages-note"},           // lock: not the exact name
 	}, map[string]string{"i": "inactive"}, nil)
-	if len(got) != 2 || got[0].User.ID != "x1" || got[1].User.ID != "x2" {
+	if len(got) != 4 || got[0].User.ID != "x1" || got[2].User.ID != "x2" || got[0].Kind != Lock || got[1].Kind != EndSessions {
 		t.Fatalf("got %+v", got)
 	}
 }
