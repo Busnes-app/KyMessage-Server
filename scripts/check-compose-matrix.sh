@@ -58,8 +58,8 @@ done
 # Only media may cross the host boundary; signalling and admin API stay private.
 [ "$(jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort' <<<"$out")" = '[[7881,"7881","tcp","192.0.2.10"],[7882,"7882","udp","192.0.2.10"]]' ] || bad "LiveKit must publish exactly TCP 7881 and UDP 7882 on KY_MATRIX_MEDIA_BIND_IP"
 # The media bind has no wildcard default: without KY_MATRIX_MEDIA_BIND_IP Compose refuses.
-KY_MATRIX_MEDIA_BIND_IP= render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay renders without KY_MATRIX_MEDIA_BIND_IP"
-KY_MATRIX_MEDIA_BIND_IP= render -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
+KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay renders without KY_MATRIX_MEDIA_BIND_IP"
+KY_MATRIX_MEDIA_BIND_IP='' render -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
   || bad "TURN overlay does not require KY_MATRIX_MEDIA_BIND_IP"
 [ "$(jq -c '.services.livekit.command' <<<"$out")" = '["--config","/config/config.yaml"]' ] || bad "LiveKit does not use its generated config"
 # Directory bind observes atomic configuration/certificate renewal after restart.
