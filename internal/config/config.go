@@ -158,7 +158,7 @@ const DefaultElementRestartHint = "docker compose restart element"
 const DefaultSynapseRestartHint = "docker compose restart synapse"
 
 // AppVersion is shared by the CLI and every capsule-producing path.
-const AppVersion = "0.4.2"
+const AppVersion = "0.4.3"
 
 // LoadFromEnv initializes a Config struct populated from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
@@ -278,7 +278,7 @@ func LoadFromEnv() (*Config, error) {
 			AutoProvision:        getEnvBool("KY_SSO_AUTO_PROVISION", true),
 		},
 		SCIM: SCIMConfig{
-			Enabled:     getEnvBool("KY_SCIM_ENABLED", true),
+			Enabled:     getEnvBool("KY_SCIM_ENABLED", false),
 			BearerToken: getEnv("KY_SCIM_TOKEN", generateRandomHex(24)),
 			TokenSet:    getEnv("KY_SCIM_TOKEN", "") != "",
 		},

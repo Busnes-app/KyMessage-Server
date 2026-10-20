@@ -17,8 +17,8 @@ checks local identity, directory/MAS status and joined-room membership; it never
 caller-supplied server URL. See [network setup](Reverse_Proxy_Networking.md).
 
 Forward **TCP 7881 and UDP 7882**, unchanged, to the Docker host at `KY_MATRIX_MEDIA_IP`.
-`KY_MATRIX_MEDIA_BIND_IP` optionally limits which host interface Compose publishes on
-(default `0.0.0.0`, every interface); for LAN-only use, set it to the host's LAN address.
+`KY_MATRIX_MEDIA_BIND_IP` (required, no default) is the host interface Compose publishes them
+on: the host's LAN address for LAN-only use, or `0.0.0.0` to accept media on every interface.
 Cloudflared handles HTTPS/WebSocket signalling; its HTTP tunnel cannot carry these media ports.
 
 For networks limited to TLS 443, export `KY_MATRIX_TURN_HOST` (DNS-only hostname resolving to

@@ -198,11 +198,12 @@ services:
     command: ["--config", "/config/config.yaml"]
     volumes:
       - {<<: *matrix-ro, source: ./matrix/livekit, target: /config}
-    # Media bypasses the HTTP tunnel. Forward these two ports unchanged to this host.
+    # Media bypasses the HTTP tunnel. Forward these two ports unchanged to this host. No
+    # wildcard default: the operator names the interface that may receive media.
     # 7880 signalling/admin stays private, reached by the proxy and KyMessages.
     ports:
-      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:7881:7881/tcp"
-      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:7882:7882/udp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:7881:7881/tcp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:7882:7882/udp"
 
   # One-shot, after `kymessages restore` and `kymessages matrix-init` (which recreates the
   # superuser password the capsule leaves out), against a fresh stack with only postgres up:

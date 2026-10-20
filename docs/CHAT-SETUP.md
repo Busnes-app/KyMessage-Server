@@ -34,16 +34,18 @@ client secret once, when you register the client the first run describes.
 2. Run `./kymessages matrix-init` as the unprivileged user that will own the files
    (`-dir` defaults to `./matrix`; it refuses root, and an existing directory that group or
    others can read). It writes every config except MAS's, prints the KyIdentity registration
-   values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Without a source build, run it from the image
-   the stack runs (swap in your `KY_IMAGE` pin if you set one), in the directory holding the
-   Compose files; the image's entrypoint is `/app/kymessages`, and each `-e NAME` passes the
-   value exported in step 1:
+   values and `KY_MATRIX_UID`/`KY_MATRIX_GID`. Without a source build, run it from the release
+   image the stack runs, pinned by the digest you verified for `KY_IMAGE` (see
+   `docker-compose.yml`), in the directory holding the Compose files. `--user` makes your
+   account own the files; mounting the directory at its own path makes the paths it prints
+   true on the host; each `-e NAME` passes the value exported in step 1:
 
    ```sh
-   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -w /w \
+   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" \
      -e KY_MATRIX_SERVER_NAME -e KY_MATRIX_HOST -e KY_MATRIX_AUTH_HOST -e KY_MATRIX_CHAT_HOST \
      -e KY_MATRIX_RTC_HOST -e KY_MATRIX_MEDIA_IP -e KY_ADMIN_HOST -e KY_KYIDENTITY_ISSUER \
-     -e KY_MATRIX_MAS_CLIENT_ID ghcr.io/busnes-app/kymessage-server:stable matrix-init
+     -e KY_MATRIX_MAS_CLIENT_ID --entrypoint /app/kymessages \
+     ghcr.io/busnes-app/kymessage-server@sha256:<digest> matrix-init -dir "$PWD/matrix"
    ```
 
    Use the same command wherever this guide says to run or re-run `./kymessages matrix-init`.
@@ -86,8 +88,10 @@ client secret once, when you register the client the first run describes.
 7. Add to `.env`: `KY_MATRIX_UID` and `KY_MATRIX_GID` as printed (the app then runs as that
    user too, so it must own `./data` and `./backups`; keep `KY_UID`/`KY_GID` equal), plus `KY_MATRIX_SERVER_NAME`,
    `KY_MATRIX_HOST`, `KY_MATRIX_CHAT_HOST` (KyMessages serves discovery and the chat link
-   from them), `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`) and
-   `KY_KYIDENTITY_HMAC_SECRET` and `KY_MATRIX_RTC_HOST`. With Matrix enabled, KyMessages refuses to start with missing
+   from them), `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`),
+   `KY_KYIDENTITY_HMAC_SECRET`, `KY_MATRIX_RTC_HOST` and `KY_MATRIX_MEDIA_BIND_IP` (the host
+   interface that receives call media: its LAN address for LAN-only use, `0.0.0.0` for every
+   interface; Compose refuses to start without it). With Matrix enabled, KyMessages refuses to start with missing
    admin settings (client ID, readable non-empty secret file) or no webhook secret. A wrong
    admin secret still starts, but every offboarding sweep then fails; the failure is logged
    once per failure streak (`[MATRIX] offboarding sweep failing`), so check the logs after

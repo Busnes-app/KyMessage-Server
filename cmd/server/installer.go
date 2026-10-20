@@ -44,12 +44,23 @@ func runInstaller(args []string) error {
 	}
 	r, err := applysetup.CallLocal(context.Background(), socket, raw, opts.Check)
 	if err != nil {
-		return fmt.Errorf("%w (a refusal's reason is in the server log: [INSTALLER] setup refused)", err)
+		return explainRefusal(err, b)
 	}
 	if r.Service != b.Service || r.SetupID != b.SetupID {
 		return errors.New("product setup report identity mismatch")
 	}
 	return r.Write(os.Stdout)
+}
+
+// explainRefusal adds the reason the socket's generic 409 hides: it reruns the server's
+// configuration check here, in the container environment the server shares.
+func explainRefusal(err error, b applysetup.Common) error {
+	if cfg, cerr := config.LoadFromEnv(); cerr == nil {
+		if cerr = config.ApplyInstallerConfiguration(cfg, b); cerr != nil {
+			return fmt.Errorf("%w: %v", err, cerr)
+		}
+	}
+	return fmt.Errorf("%w (a refusal's reason is in the server log: [INSTALLER] setup refused)", err)
 }
 
 func loadInstallerConfiguration(ctx context.Context, cfg *config.Config, st store.Store) error {

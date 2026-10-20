@@ -12,7 +12,7 @@ root=$(git rev-parse --show-toplevel)
 export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSION_SECRET=check-only \
   KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 KY_UID=1111 KY_GID=2222 \
   KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com \
-  KY_MATRIX_MEDIA_BIND_IP=0.0.0.0 KY_MATRIX_RTC_HOST=https://sfu.example.com KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
+  KY_MATRIX_MEDIA_BIND_IP=192.0.2.10 KY_MATRIX_RTC_HOST=https://sfu.example.com KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
 unset KY_NETWORK_SUBNET KY_NETWORK
 render() { docker compose --env-file /dev/null --project-directory "$root" "$@" config --format json; }
 stack=(-f "$root/docker-compose.yml" -f "$root/docker-compose.proxy.yml" -f "$root/docker-compose.matrix.yml")
@@ -56,7 +56,11 @@ for s in "${!image[@]}"; do
   done < <(jq -r '.volumes // [] | .[] | [.type, .source, .target, (.read_only // false)] | @tsv' <<<"$svc")
 done
 # Only media may cross the host boundary; signalling and admin API stay private.
-[ "$(jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort' <<<"$out")" = '[[7881,"7881","tcp","0.0.0.0"],[7882,"7882","udp","0.0.0.0"]]' ] || bad "LiveKit must publish exactly TCP 7881 and UDP 7882"
+[ "$(jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort' <<<"$out")" = '[[7881,"7881","tcp","192.0.2.10"],[7882,"7882","udp","192.0.2.10"]]' ] || bad "LiveKit must publish exactly TCP 7881 and UDP 7882 on KY_MATRIX_MEDIA_BIND_IP"
+# The media bind has no wildcard default: without KY_MATRIX_MEDIA_BIND_IP Compose refuses.
+KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay renders without KY_MATRIX_MEDIA_BIND_IP"
+KY_MATRIX_MEDIA_BIND_IP='' render -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
+  || bad "TURN overlay does not require KY_MATRIX_MEDIA_BIND_IP"
 [ "$(jq -c '.services.livekit.command' <<<"$out")" = '["--config","/config/config.yaml"]' ] || bad "LiveKit does not use its generated config"
 # Directory bind observes atomic configuration/certificate renewal after restart.
 [ "$(jq -r '.services.livekit.volumes[] | "\(.source) \(.target) \(.read_only)"' <<<"$out")" = "$root/matrix/livekit /config true" ] || bad "LiveKit must bind its private directory read-only"
@@ -65,6 +69,7 @@ for extra in "" "$root/docker-compose.static-ip.yml"; do
   [ -z "$extra" ] || turnstack+=(-f "$extra")
   turn=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${turnstack[@]}") || exit 1
   jq -e '.services.livekit.ports | length == 105' <<<"$turn" >/dev/null || bad "TURN overlay port count"
+  jq -e 'all(.services.livekit.ports[]; .host_ip == "192.0.2.10")' <<<"$turn" >/dev/null || bad "TURN publishes beyond KY_MATRIX_MEDIA_BIND_IP"
   jq -e '[.services.livekit.ports[] | select(.target == 5349) | [.published,.protocol]] == [["443","tcp"]]' <<<"$turn" >/dev/null || bad "TURN TLS must publish 443 to 5349"
   jq -e '[.services.livekit.ports[] | select(.target >= 30000 and .target <= 30100) | select(.protocol == "udp" and (.published | tonumber) == .target)] | length == 101' <<<"$turn" >/dev/null || bad "TURN relay range must be forwarded unchanged"
   jq -e '[.services.livekit.ports[] | select(.target == 7880)] | length == 0' <<<"$turn" >/dev/null || bad "TURN publishes signalling/admin"

@@ -8,13 +8,16 @@ configuration. Setup CLI reads `KY_DATA_DIR` (default `./data`); it must match t
 
 ## With the stock Compose files
 
-A refusal prints `product setup refused or is busy (a refusal's reason is in the server log: ...)`;
-`docker logs kymessages` shows `[INSTALLER] setup refused: <reason>`. Each start re-applies
+A refusal prints its reason, for example `product setup refused or is busy: installer refuses
+existing SCIM configuration: ...`: the CLI reruns the server's configuration check in the
+container. A refusal it cannot reproduce (another setup already applied, setup in progress)
+points to the server log, where `docker logs kymessages` shows `[INSTALLER] setup refused: <reason>`. Each start re-applies
 the stored setup, so a conflicting setting added later stops the server with
 `Installer configuration unavailable: ...`. Setup refuses to replace an operator's choice:
 
-- Leave `KY_SCIM_ENABLED`, `KY_SCIM_TOKEN`, `KY_BACKUP_KEEP` and `KY_BACKUP_DEPOSIT_INTERVAL`
-  unset in `.env`; Compose passes them only when set. Setup turns SCIM off.
+- Leave `KY_SCIM_ENABLED` unset or `false` (SCIM is off by default; setup refuses it on), and
+  `KY_BACKUP_KEEP` and `KY_BACKUP_DEPOSIT_INTERVAL` unset or equal to the setup's `backup`
+  values; Compose passes them only when `.env` sets them. Setup turns SCIM off.
 - `KY_KYIDENTITY_ISSUER`, `KY_KYIDENTITY_CLIENT_ID`, `KY_KYIDENTITY_SECRET` and
   `KY_KYIDENTITY_HMAC_SECRET` must be unset or equal the setup's values. The Matrix overlay
   requires `KY_KYIDENTITY_HMAC_SECRET`: set it to the content of the setup's directory secret file.

@@ -3,6 +3,6 @@
 services:
   livekit:
     ports:
-      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:3478:3478/udp"
-      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:443:5349/tcp"
-      - "${KY_MATRIX_MEDIA_BIND_IP:-0.0.0.0}:30000-30100:30000-30100/udp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:3478:3478/udp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:443:5349/tcp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:30000-30100:30000-30100/udp"
