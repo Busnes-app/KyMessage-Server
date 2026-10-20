@@ -17,7 +17,8 @@ a withheld key yields nothing intelligible.
 
 - **D1 — One account, off by default.** `@kymessages-notes:<server>`, created and checked like
   `@kymessages-console` (unlinked, unlocked, not a MAS admin). Settings > Meeting notes turns it
-  on (fresh sign-in, audited). Off locks the MAS user and revokes its session; on unlocks it.
+  on (fresh sign-in, audited). Off revokes its session (deleting its device) at once; while off
+  no session or call grant is issued. No MAS lock: a revoked token is already dead.
 - **D2 — One invite, one meeting.** After the call it was invited to ends, the bot posts the
   notes and leaves the room. Invited with no call, it waits up to 12 hours, then leaves. Each
   meeting needs a new invite, so an old invite never records a later meeting.
@@ -48,6 +49,10 @@ a withheld key yields nothing intelligible.
   with their room display name.
 
 ## Tasks
+
+Status 2026-10-20: 0-6 done on `feat/meeting-notes`; the acceptance step `notes` passes on the
+real stack (bot in its container, both audio directions heard by Whisper, refusal, pause,
+notes, leave, off). Not done: shared-screen snapshots (owner: later opt-in).
 
 0. Gate: prove the inviter is readable from Synapse admin room state (member event
    `unsigned.prev_sender`/`replaces_state`), else redesign D3.

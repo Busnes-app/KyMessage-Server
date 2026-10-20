@@ -4,12 +4,19 @@
   "type": "module",
   "description": "KyMessages meeting-notes bot: joins an invited Element Call, announces itself, transcribes locally",
   "license": "MIT",
-  "engines": { "node": ">=24" },
-  "scripts": { "test": "node --test test/*.test.mjs" },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "dependencies": {
     "@livekit/rtc-node": "1.1.0",
     "fake-indexeddb": "6.2.5",
     "kokoro-js": "1.2.1",
     "matrix-js-sdk": "44.0.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5"
   }
 }

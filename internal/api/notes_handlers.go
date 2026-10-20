@@ -45,6 +45,9 @@ func (s *Server) notesOn(ctx context.Context) (bool, error) {
 }
 
 func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
+	if !s.matrixOn(w) {
+		return
+	}
 	on, err := s.notesOn(r.Context())
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Could not read the setting")
@@ -52,7 +55,7 @@ func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	checkin, _ := s.setting(r.Context(), notesCheckinKey)
 	s.writeJSON(w, http.StatusOK, map[string]any{
-		"available": s.config.Matrix.NotesSecret != "" && s.mas != nil,
+		"available": s.config.Matrix.NotesSecret != "",
 		"enabled":   on,
 		"user":      s.notesMXID(),
 		"checkin":   checkin,
@@ -157,11 +160,16 @@ func (s *Server) handleNotesSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := s.setting(ctx, notesSessionKey)
 	device, _ := s.setting(ctx, notesDeviceKey)
-	var token, outcome string
+	token, outcome := "", "regenerated"
 	if sess != "" && req.DeviceID != "" && req.DeviceID == device {
-		sess, token, err = s.mas.RotateAgentToken(ctx, userID, device, sess)
-		outcome = "regenerated"
-	} else {
+		var regenerated string
+		// A session MAS no longer regenerates (revoked or expired outside KyMessages) gives way
+		// to a new device below.
+		if regenerated, token, err = s.mas.RotateAgentToken(ctx, userID, device, sess); err == nil {
+			sess = regenerated
+		}
+	}
+	if token == "" {
 		if sess != "" {
 			if err := s.mas.RevokeAgentSession(ctx, sess); err != nil {
 				s.audit(ctx, "", r, "notes.session", s.notesMXID(), auditFields("error: old session not revoked: "+err.Error()))

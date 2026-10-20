@@ -4,6 +4,7 @@ import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
 import { FederationPanel } from '../components/FederationPanel';
+import { NotesPanel } from '../components/NotesPanel';
 import type { SiteSettings } from '../dto';
 
 interface SettingsProps {
@@ -74,6 +75,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged 
         <BrandingPanel onChanged={onBrandingChanged} />
         <SyncPanel />
         <FederationPanel />
+        <NotesPanel />
       </div>
     </div>
   );

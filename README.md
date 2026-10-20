@@ -31,6 +31,7 @@ an "Open chat" link for members; without it they see a page saying chat is not a
 - [Running](docs/RUNNING.md) — Container image, Identity and recovery configuration, Container-local installer integration. <a id="container-image"></a><a id="identity-and-recovery-configuration"></a><a id="container-local-installer-integration"></a>
 - [Chat setup](docs/CHAT-SETUP.md) — Matrix chat. <a id="matrix-chat"></a>
 - [Calls](docs/CALLS.md) — Voice and video calls. <a id="voice-and-video-calls"></a>
+- [Meeting notes](docs/MEETING-NOTES.md) — An invited bot that takes notes in calls, off by default.
 - [Federation](docs/FEDERATION.md) — Federation. <a id="federation"></a>
 - [Chat agents](docs/CHAT-AGENTS.md) — Agents. <a id="agents"></a>
 - [Operator console](docs/OPERATOR-CONSOLE.md) — Operator console. <a id="operator-console"></a>

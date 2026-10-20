@@ -288,6 +288,16 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   prints the `role-passwords.sql` step; the new password is refused until it is applied, then
   both roles sign in and Synapse and MAS serve alice after `restart synapse mas app`. A peer's call token is refused with 502 while allowed (the app's client refuses the
   private address, so a cross-server call stays unproven) and 403 once removed.
+  Stage `notes` (before `agents`, owner `owen` signs in here; `docs/MEETING-NOTES.md`): the bot
+  image built from `notes/` runs as shipped (`docker-compose.notes.yml`) on the project network;
+  off by default, it waits, the console turns it on (audited) and it gets its session; bob's
+  invite (no power level 100) is refused in the room and the bot leaves; owen's call, his fake
+  microphone a sentence spoken by the image's Kokoro, gets the bot's spoken notice (Element Call
+  decrypts and decodes it; Whisper in the image hears it), the join, pause and resume notices
+  and, after the hangup, notes holding his sentence and the pause, then the bot leaves; the grant
+  is audited `notes.call granted`, every bot message is `m.room.encrypted`, no notes plaintext
+  is in a `pg_dump`, and turning it off ends the bot's session. `MATRIX_ACCEPT_STOP_AFTER=<step>`
+  ends a run after that step.
   Stage `agents` (before the backup, owner `owen`): `agent.mjs` (matrix-js-sdk, Rust crypto,
   store kept across runs) with only the console's token cross-signs, decrypts the owner's
   Element message and replies, stored encrypted; rotate keeps the device, owner disable locks
@@ -321,6 +331,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 - [internal/api/AGENTS.md](internal/api/AGENTS.md): HTTP REST API endpoints, routing, and middleware.
 - [agent-skill/AGENTS.md](agent-skill/AGENTS.md): The `kymessages` skill for chat agents (OpenClaw, Hermes Agent) and the console's config blocks.
 - [web/AGENTS.md](web/AGENTS.md): React 19 + TypeScript + Vite PWA frontend and KySecurity design system.
+- [notes/AGENTS.md](notes/AGENTS.md): The meeting-notes bot (Node): invited call notes with local Kokoro and Whisper, its image and models.
 
 `cmd/server` owns the scheduler: `backupLoop` builds the server capsule's `RunConfig` and the client once
 and returns with `scheduler disabled: ...` if that fails, because a run that never stamps its

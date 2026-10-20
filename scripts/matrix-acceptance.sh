@@ -36,7 +36,8 @@
 #
 # Env: KYIDENTITY_SRC (KyIdentity-server checkout, default ../KyIdentity-server),
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
-# MATRIX_ACCEPT_ARTIFACTS (traces and logs on failure, default scripts/matrix-acceptance/artifacts).
+# MATRIX_ACCEPT_ARTIFACTS (traces and logs on failure, default scripts/matrix-acceptance/artifacts),
+# MATRIX_ACCEPT_STOP_AFTER (a step name: stop there, for iterating on one step).
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -47,6 +48,7 @@ artifacts=${MATRIX_ACCEPT_ARTIFACTS:-$here/artifacts}/kymatrix-accept-$$
 project=kymatrix-accept-$$
 kyid_image=$project-kyidentity:local
 app_image=kymatrix-accept-app:$$
+notes_image=kymatrix-accept-notes:$$
 
 for tool in docker go node npm openssl curl jq certutil python3; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
@@ -89,16 +91,21 @@ KYMATRIX_ACCEPT_TURN_PORT=$(node -e 'const s=require("net").createServer();s.lis
 export KYMATRIX_ACCEPT_TCP_PORT KYMATRIX_ACCEPT_UDP_PORT KYMATRIX_ACCEPT_TURN_PORT
 KYMATRIX_ACCEPT_ADMIN_PASS=$(openssl rand -hex 16)
 export KYMATRIX_ACCEPT_ADMIN_PASS
-export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image KYMATRIX_ACCEPT_APP_IMAGE=$app_image
+export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image KYMATRIX_ACCEPT_APP_IMAGE=$app_image KY_NOTES_IMAGE=$notes_image
 
 dc() {
 	docker compose --progress quiet -p "$project" --project-directory "$scratch" \
-		-f "$repo/docker-compose.yml" -f "$repo/docker-compose.matrix.yml" \
+		-f "$repo/docker-compose.yml" -f "$repo/docker-compose.matrix.yml" -f "$repo/docker-compose.notes.yml" \
 		-f "$scratch/overrides/compose.yml" -f "$scratch/overrides/app.yml" "$@"
 }
 
 current=setup t0=$SECONDS started=$SECONDS
-step() { current=$1 t0=$SECONDS; echo "== $1"; }
+# MATRIX_ACCEPT_STOP_AFTER=STEP ends the run (passing) once STEP has passed.
+step() {
+	if [[ -n ${MATRIX_ACCEPT_STOP_AFTER:-} && $current == "$MATRIX_ACCEPT_STOP_AFTER" ]]; then echo "== stopping after $current"; exit 0; fi
+	current=$1 t0=$SECONDS
+	echo "== $1"
+}
 pass() { printf 'PASS %-19s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$summary"; }
 
 cleanup() {
@@ -114,7 +121,7 @@ cleanup() {
 		echo "matrix-acceptance: logs and traces in $artifacts" >&2
 	fi
 	dc down -v --timeout 10 >/dev/null 2>&1 || echo "matrix-acceptance: down -v failed for project $project" >&2
-	docker image rm "$kyid_image" "$app_image" >/dev/null 2>&1 || true
+	docker image rm "$kyid_image" "$app_image" "$notes_image" >/dev/null 2>&1 || true
 	echo "== summary (total $((SECONDS - started))s)"
 	[[ -f $summary ]] && cat "$summary"
 	rm -rf "$scratch"
@@ -175,8 +182,9 @@ step build
 go build -C "$repo" -o "$scratch/kymessages" ./cmd/server
 docker build -q -t "$app_image" "$repo" >/dev/null
 docker build -q -t "$kyid_image" "$kyid_src" >/dev/null
+docker build -q -t "$notes_image" "$repo/notes" >/dev/null
 npm ci --prefix "$here" --no-audit --no-fund --silent
-ok "kymessages (binary and image), KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
+ok "kymessages (binary and image), the notes bot, KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -636,6 +644,49 @@ expect "$(sync_status '"\(.rejected.count) \(.rejected.last_reason)"')" "$((reje
 pass
 
 # ---------------------------------------------------------------------------------------
+# Meeting notes (docs/MEETING-NOTES.md). The bot runs as shipped (docker-compose.notes.yml) in
+# its own container on the project network, off until the console turns it on. owen, who also
+# owns agent-accept below, owns the rooms; bob is a plain member. A member's invite is refused.
+# In owen's call, his microphone speaks a Kokoro sentence: the bot must speak the notice (Element
+# Call decrypts and decodes it; Whisper in the bot's image must hear it), post it, take the
+# pause and resume commands, and after the hangup post notes holding his sentence and the pause,
+# then leave. All of it stored encrypted; turning notes off ends the bot's session.
+step notes
+owner=owen
+owner_mxid=$(mxid "$owner")
+notes_mxid=@kymessages-notes:$KY_MATRIX_SERVER_NAME
+said='The quarterly budget review moves to Tuesday morning.'
+# notes_tool SCRIPT ARGS: one of notes/test's in-image tools, offline, on $state.
+notes_tool() { docker run --rm --network none --user "$(id -u):$(id -g)" -v "$state:/in" -v "$repo/notes/test:/t:ro" "$notes_image" node "/t/$@"; }
+notes_says() { dc logs --no-color notes 2>&1 | grep -qF "$1" && echo yes || echo no; }
+notes_audit() { app_api GET '/api/admin/audit?kind=matrix&limit=50' | jq -r --arg a "$1" --arg t "$2" '[.records[] | select(.action == $a and .target == $t) | .outcome] | first // "none"'; }
+e2e owner "$owner"
+app_login "$admin_pass"
+expect "$(app_api GET /api/admin/notes | jq -r '[.available, .enabled] | join(" ")')" "true false" "meeting notes are available and off by default"
+dc up -d notes >/dev/null
+eventually 60 yes "the bot waits while notes are off" notes_says 'turned off in Settings'
+expect "$(app_api POST /api/admin/notes/enable | jq -r .outcome)" enabled "the console turned meeting notes on"
+expect "$(notes_audit notes.enable "$notes_mxid")" enabled "audited notes.enable"
+eventually 90 yes "the bot got its session" notes_says "running as $notes_mxid"
+e2e notesinvite "$owner"
+notes_tool say.mjs "$said" /in/owner-voice.wav am_michael
+KYMATRIX_ACCEPT_FAKE_AUDIO=$state/owner-voice.wav e2e notesmeeting "$owner"
+notes_room=$(jq -r .room "$state/notesmeeting-$owner.json")
+mkdir -p "$artifacts/notes"
+cp "$state/owner-voice.wav" "$state/notes-heard.wav" "$artifacts/notes/"
+notes_tool hear.mjs /in/notes-heard.wav 'This meeting is being recorded for note taking.'
+expect "$(notes_audit notes.call "$notes_room")" granted "audited the bot's call grant"
+for r in "$notes_room" "$(jq -r .room "$state/notesinvite-$owner.json")"; do
+	expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$r' AND sender = '$notes_mxid' AND type = 'm.room.message'")" 0 "the bot's messages in $r are stored encrypted"
+done
+if dc exec -T postgres pg_dump -U postgres synapse | grep -qiF 'budget review'; then echo "  FAILED: the notes' plaintext is in the Synapse database" >&2; false; fi
+ok "no notes plaintext in a pg_dump of the Synapse database"
+expect "$(app_api POST /api/admin/notes/disable | jq -r .outcome)" disabled "the console turned meeting notes off"
+eventually 30 yes "turning notes off ended the bot's session" notes_says 'the session ended'
+dc rm -sf notes >/dev/null
+pass
+
+# ---------------------------------------------------------------------------------------
 # Agents. Before the backup: the restored app's sign-in budget (10 per account per 15 minutes)
 # is spent by rooms, settings and federation. owen exists only to own agent-accept, so his
 # disable ends no session a later step uses; every agent session is revoked before the backup,
@@ -674,7 +725,6 @@ talk() {
 	agent_pid=
 }
 
-e2e owner "$owner"
 app_login "$admin_pass"
 owner_id=$(app_api GET /api/admin/agents | jq -re --arg m "$owner_mxid" '.owners[] | select(.mxid == $m) | .id')
 app_api POST /api/admin/agents "$(jq -n --arg n "$agent_name" --arg o "$owner_id" '{name: $n, owner: $o}')" >"$state/agent-create.json"

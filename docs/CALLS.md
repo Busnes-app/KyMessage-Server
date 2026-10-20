@@ -45,6 +45,7 @@ The call reconciler runs every 5 seconds and evicts users disabled/unassigned/de
 local directory, locked/deactivated in MAS, or removed from the Matrix room. LiveKit refreshes
 connected users' tokens: cached grants can reconnect between passes, and a stopped or failing
 control plane cannot evict media. Ending a MAS browser session alone does not end its active
-call. Calls are not recorded or restored. LiveKit routes media; the existing text encryption
+call. The server records no call and restores none; the optional [meeting-notes bot](MEETING-NOTES.md)
+is a participant that someone invites, and it says so in the call. LiveKit routes media; the existing text encryption
 acceptance does not prove call encryption. `make matrix-acceptance` includes a separate
 real audio/video check; production networking still needs deployment verification.

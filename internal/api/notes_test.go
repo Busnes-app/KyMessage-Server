@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -97,13 +98,20 @@ func TestNotesSessionFollowsTheSwitch(t *testing.T) {
 	if fresh["device_id"] == first["device_id"] || len(mas.ag.revoked) != 1 {
 		t.Fatalf("fresh %v revoked %v", fresh, mas.ag.revoked)
 	}
+	// A session MAS no longer regenerates (revoked outside KyMessages) gives way to a new device.
+	mas.ag.rotateErr = errors.New("session revoked")
+	moved := notesSession(t, srv, notesSecret, fresh["device_id"], http.StatusOK)
+	mas.ag.rotateErr = nil
+	if moved["device_id"] == fresh["device_id"] || len(mas.ag.revoked) != 2 {
+		t.Fatalf("after a failed regenerate %v revoked %v", moved, mas.ag.revoked)
+	}
 	if w := adminDo(t, srv, admin, "POST", "/api/admin/notes/disable", nil); w.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", w.Code, w.Body)
 	}
-	if len(mas.ag.revoked) != 2 {
+	if len(mas.ag.revoked) != 3 {
 		t.Fatalf("disable revoked %v", mas.ag.revoked)
 	}
-	notesSession(t, srv, notesSecret, fresh["device_id"], http.StatusForbidden)
+	notesSession(t, srv, notesSecret, moved["device_id"], http.StatusForbidden)
 	status := decode[map[string]any](t, adminDo(t, srv, admin, "GET", "/api/admin/notes", nil))
 	if status["enabled"] != false || status["available"] != true || status["checkin"] == "" {
 		t.Fatalf("status %v", status)

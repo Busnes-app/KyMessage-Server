@@ -255,3 +255,36 @@ jobs:
           curl -sf -X POST -H 'Content-Type: application/json' \
             -d '{"username":"admin","password":"CiSmokeAdminPass123!"}' \
             http://127.0.0.1:18080/api/auth/login | grep -q '"authenticated":true'
+
+  notes:
+    name: Meeting-notes bot (tests & image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: notes/package-lock.json
+
+      - run: npm ci --ignore-scripts
+        working-directory: notes
+
+      - name: Unit tests
+        run: npm test
+        working-directory: notes
+
+      - name: npm audit
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: notes
+
+      - name: Build image
+        run: docker build -t kymessages-notes:ci notes
+
+      # As shipped: offline, read-only, no capability. Kokoro must speak the notice and Whisper
+      # in the same image must hear it back from the baked models.
+      - name: Image speaks and hears offline
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -v "$PWD/notes/test:/t:ro" -v "$RUNNER_TEMP:/in" --user "$(id -u):$(id -g)" kymessages-notes:ci \
+            sh -c 'node /t/say.mjs "This meeting is being recorded for note taking." /in/n.wav && node /t/hear.mjs /in/n.wav "This meeting is being recorded for note taking."'

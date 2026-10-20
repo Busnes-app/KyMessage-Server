@@ -51,8 +51,9 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
   OpenID identity, active KyIdentity/MAS account, joined room. Grants cannot administer LiveKit.
 - Direct media needs TCP 7881/UDP 7882 and an advertised reachable IPv4; HTTPS/WebSocket
   signalling can use cloudflared. Optional embedded TURN/TLS uses external TCP 443 and
-  UDP 3478 and 30000–30100, a DNS-only hostname and a trusted certificate. No call recording, guests
-  or third-party call service.
+  UDP 3478 and 30000–30100, a DNS-only hostname and a trusted certificate. No server-side call
+  recording, guests or third-party call service; the optional meeting-notes bot (below) is an
+  invited participant.
 - Every 5 seconds the control plane removes offboarded participants and removed room members;
   each pass uses a 5-second context; detached admin-session minting and cleanup can extend it. A cached LiveKit token may reconnect between passes, and
   LiveKit refreshes connected users' tokens; an unavailable control plane cannot evict calls.
@@ -116,6 +117,22 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 - An agent decrypts, like a bridge: rooms keep Element's label, but the agent's machine and
   model see plaintext, and a hosted model takes room content off your infrastructure.
 - Agents are text participants; they never get call grants.
+
+**Meeting notes** (owner decisions 2026-10-20, plan `superpowers/plans/2026-10-20-meeting-notes.md`,
+guide [MEETING-NOTES.md](MEETING-NOTES.md)).
+- One server-owned bot, `@kymessages-notes`, in its own container (`docker-compose.notes.yml`,
+  image `ghcr.io/busnes-app/kymessage-notes`). Off until an admin turns it on in Settings.
+- It joins a call only on an invite from the room's creator or a power-level-100 member, only in
+  encrypted rooms, and only for the room's next call; then it posts the notes and leaves. The
+  server checks the invite before every call grant and on every call sweep; the bot never starts
+  a call.
+- On joining it says, by voice (Kokoro) and in the chat, that the meeting is recorded for note
+  taking; it says it again when someone joins, at most once a minute. Anyone in the call can
+  pause, resume or end it from the chat.
+- Speech is transcribed on this server (Whisper base.en, English only); the models are in the
+  image and nothing is downloaded or sent anywhere. Audio is never stored; the transcript stays in
+  the bot's memory until it is posted, encrypted, to the room.
+- Voice only. Shared-screen snapshots later, as a separate opt-in; never video or webcams.
 
 **Backups** (detail in [the backups design](superpowers/specs/2026-10-01-matrix-backups-design.md)).
 - One sealed server capsule to KyRecovery and/or the local backup directory, on the admin's
@@ -182,6 +199,10 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
   MAS until an operator resumes it or resyncs.
 - `@kymessages-console` holds Synapse admin scope; sessions last 5 minutes and every use is
   audited.
+- Meeting notes: the bot hears meetings and holds transcripts in plaintext in its memory, like an
+  agent; a compromised bot container can listen to the calls it is invited to. It relies on a
+  workaround for `@livekit/rtc-node` 1.1.0, whose per-participant `setKey` drops the key (pinned,
+  acceptance-gated), and on Element Call's compatibility mode for its key mapping.
 - Operational weight: PostgreSQL plus several services, against the old single binary.
 - Federation: allowed servers hold copies the operator cannot recall; a public server's rooms
   spread posts beyond the allow-list; the app can write Synapse's config through the federation
