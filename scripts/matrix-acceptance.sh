@@ -662,7 +662,13 @@ notes_tool() {
 	shift
 	docker run --rm --network none --user "$(id -u):$(id -g)" -v "$state:/in" -v "$repo/notes/test:/t:ro" "$notes_image" node "/t/$script" "$@"
 }
-notes_says() { dc logs --no-color notes 2>&1 | grep -qF "$1" && echo yes || echo no; }
+# notes_says TEXT: "yes" when the bot's log has TEXT. Counts the whole log: grep -q would stop
+# early and, under pipefail, fail the pipeline whenever docker is still writing.
+notes_says() {
+	local n
+	n=$(dc logs --no-color notes 2>&1 | grep -cF "$1" || true)
+	((n > 0)) && echo yes || echo no
+}
 notes_audit() { app_api GET '/api/admin/audit?kind=matrix&limit=50' | jq -r --arg a "$1" --arg t "$2" '[.records[] | select(.action == $a and .target == $t) | .outcome] | first // "none"'; }
 e2e owner "$owner"
 app_login "$admin_pass"
