@@ -6,7 +6,8 @@ KyMessages is a Ky-integrated Matrix deployment: stock Synapse, Matrix Authentic
 operation: [README](../README.md). Restore: [RESTORE.md](RESTORE.md).
 
 Sections below separate what ships (in code and proven by `make matrix-acceptance`) from what
-is later work. KyMessages has been installed on real hardware and passes its test suite. Each release
+is later work. KyMessages has been installed on real hardware and passes its test suite; that is not a security
+audit, and the limits recorded below and in the README still apply. Each release
 publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Container image").
 
 ## Promise and audience

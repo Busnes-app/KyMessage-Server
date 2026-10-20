@@ -6,8 +6,11 @@ Private team conversations, on infrastructure you control.
 
 KyMessages uses Matrix for chat, with suite identity and sealed server backups. See the
 [Matrix platform design](docs/superpowers/specs/2026-10-01-matrix-platform-design.md).
-It has been installed on real hardware and passes its test suite. The application
-provides the operator console and, once the Matrix stack below is configured,
+It has been installed on real hardware and passes its test suite. That is not a security
+audit: chat encryption is not independently audited and Synapse does not enforce it, and call
+encryption and production networking still need verifying on your own deployment. Read
+[Matrix chat](#matrix-chat) before relying on it for private conversations. The source-built
+application provides the operator console and, once the Matrix stack below is configured,
 an "Open chat" link for members; without it they see a page saying chat is not available.
 
 - [Product definition](docs/PRODUCT.md)
