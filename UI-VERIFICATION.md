@@ -29,11 +29,13 @@ The subsequent browser-regression change moves worker registration into the JS b
 
 `web/browser/ui.spec.mjs` runs against a freshly built Go server with disposable SQLite data, real login and production CSP at 390×900 and 1280×900 in both OS themes. CI retains screenshots and failure traces for seven days and requires the browser job before publishing.
 
-The assertions cover worker activation and stale-shell refresh, invalid-login errors, theme persistence and cross-tab/OS transitions, Paper-to-Busnes switching, selected navigation/focus, Settings overflow, and pairing dialog containment/Escape/focus return. The tests exposed and fixed the old 480px minimum Settings column and non-modal pairing behavior. These are workflow checks, not all-page E2E or full accessibility coverage.
+The assertions cover worker activation and stale-shell refresh, invalid-login errors, theme persistence and cross-tab/OS transitions, Paper-to-Busnes switching, selected navigation/focus, Settings overflow, and absence of the retired console device-pairing control and its API requests. These are workflow checks, not all-page E2E or full accessibility coverage.
 
-Representative captures from the automated run (2026-09-25; scratch pairing codes expire and the server is deleted afterward):
+Verified 2026-10-20 after removing console device pairing: `make ci` passed (144 frontend tests), the production frontend built, and all seven browser projects passed in Chromium and Firefox. Desktop light and mobile dark Overview captures were inspected; the suite writes current captures to ignored `web/test-results/`.
 
-| Mobile Settings — light | Mobile pairing — dark |
+Historical captures from the automated run (2026-09-25). The console device-pairing control was removed on 2026-10-20; chat device sign-in and verification belong to Element:
+
+| Mobile Settings — light | Retired pairing dialog — historical only |
 | --- | --- |
 | ![Settings fits mobile](docs/browser-settings-light-mobile.png) | ![Native pairing dialog](docs/browser-pairing-dark-mobile.png) |
 

@@ -1,7 +1,7 @@
 # Web
 
 ## Purpose
-React 19 + TypeScript + Vite PWA frontend embedding KySecurity color tokens (Busnes light/dark defaults plus `Patina Ky`, `Cyber`, `Nord`, `Paper`, `OLED`), 90-second ephemeral QR device pairing modals, client-side WebCrypto PoW CAPTCHA, and administrative management panels.
+React 19 + TypeScript + Vite PWA frontend embedding KySecurity color tokens (Busnes light/dark defaults plus `Patina Ky`, `Cyber`, `Nord`, `Paper`, `OLED`), client-side WebCrypto PoW CAPTCHA, and administrative management panels.
 
 ## Ownership
 Owns user interface components, service worker caching, PWA installation manifests, and frontend theme switching.
@@ -18,7 +18,8 @@ Owns user interface components, service worker caching, PWA installation manifes
 - Dynamic theme selection applies `data-theme` attribute to the root HTML document and persists to `localStorage`.
 - Authenticated state-changing requests use `secureFetch` so the CSRF cookie (`__Host-ky_csrf` on secure deployments without `KY_COOKIE_DOMAIN`, else `ky_csrf`) is mirrored into `X-CSRF-Token`.
 - `TwoFactorSetup.tsx` ("Account security", mounted under the Settings page) reads `/api/auth/me` and renders nothing for non-local accounts. Off: set up shows the QR (`qrcode` `toDataURL`, a `data:` image the CSP allows) and the key, then confirms one code. The recovery codes from confirm are shown once, until "I have saved them". On: turning off takes a code or a recovery code. All calls use `adminFetch`; refused codes stay on the form (`TwoFactorSetup.test.tsx`).
-- Register the service worker from the production JS bundle; keep `script-src 'self'` intact. Pairing uses a native modal dialog for focus containment, Escape and focus restoration. It shows only the QR code (no typed PIN) and treats poll status `consumed` as linked. `QRPairingModal` polls with `secureFetch` `POST /api/devices/pair/poll` and the secret in the JSON body, never in a URL; it aborts on close (timers start only after init resolves and an abort check), and stops with a visible error at 90 seconds or on any non-OK init or poll answer (`QRPairingModal.test.tsx`).
+- Register the service worker from the production JS bundle; keep `script-src 'self'` intact.
+- The console has no device-pairing control for admins or members. Chat device sign-in and encryption-key verification belong to Element; the inherited console-session pairing API does not connect Matrix clients.
 - `Login.tsx` labels its fields (`htmlFor`/`id`, `autoComplete` `username`, `current-password`, `one-time-code`); its error box is `role="alert"`; there is no subtitle under the product name. `CaptchaWidget` fetches and solves one challenge per mount, again when `round` changes (Login bumps it after every attempt: the server spends the token before checking the password) and on expiry (never sooner than a minute); never per render (`Login.test.tsx`).
 - `App.tsx` validates `/api/auth/me` and `/api/settings` with `parseUser`/`parseSettings` (`dto.ts`) and shows a failure as an alert. Sign-out leaves the console only after the server confirms it; a refusal or network error keeps the session and says "You are still signed in" (`App.test.tsx`). `ErrorBoundary` wraps the app (`main.tsx`) and each page (keyed by tab), so a render failure shows a message instead of a blank page.
 - `SCIMAdmin.tsx` lists `GET /api/admin/scim/users` (validated by `parseSCIMDirectory`), shows load errors, and says whether `KY_SCIM_TOKEN` is set; it never shows or copies a token (`SCIMAdmin.test.tsx`).
