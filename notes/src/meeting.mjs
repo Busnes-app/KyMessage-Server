@@ -57,17 +57,23 @@ export class Meeting {
       [{ type: 'livekit', livekit_service_url: this.cfg.serviceUrl, livekit_alias: this.room.roomId }], { manageMediaKeys: true });
     const jwt = await this.grant();
     this.lk = new Room();
-    this.lk.on(RoomEvent.TrackSubscribed, (track, _pub, p) => { if (track.kind === TrackKind.KIND_AUDIO) this.listen(track, p.identity); });
+    // Audio only: the bot never subscribes to cameras or screens, so their frames never reach it.
+    this.lk.on(RoomEvent.TrackPublished, (pub) => this.want(pub));
+    this.lk.on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
+      this.log(`subscribed to ${track.kind === TrackKind.KIND_AUDIO ? 'an audio' : 'a video'} track`);
+      if (track.kind === TrackKind.KIND_AUDIO) this.listen(track, p.identity);
+    });
     this.lk.on(RoomEvent.ParticipantConnected, () => this.lateJoin());
     this.lk.on(RoomEvent.ParticipantDisconnected, (p) => { this.stopReader(p.identity); this.checkAlone(); });
     this.lk.on(RoomEvent.Disconnected, () => this.finish('disconnected from the call'));
-    await this.lk.connect(this.cfg.livekitUrl, jwt, { autoSubscribe: true, dynacast: false, encryption: {
+    await this.lk.connect(this.cfg.livekitUrl, jwt, { autoSubscribe: false, dynacast: false, encryption: {
       encryptionType: EncryptionType.GCM,
       // Element Call's MatrixKeyProvider: HKDF from raw keys, livekit-client's salt, window and ring.
       keyProviderOptions: { keyDerivationFunction: KeyDerivationFunction.HKDF, ratchetSalt: new TextEncoder().encode('LKFrameEncryptionKey'),
         ratchetWindowSize: 10, keyRingSize: 256, failureTolerance: 10 },
     } });
     this.keys.forEach((k) => this.setKey(k));
+    for (const p of this.lk.remoteParticipants.values()) for (const pub of p.trackPublications.values()) this.want(pub);
     this.source = new AudioSource(24000, 1);
     await this.lk.localParticipant.publishTrack(LocalAudioTrack.createAudioTrack('notes', this.source), new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }));
     this.log(`joined the call in ${this.room.roomId}`);
@@ -87,6 +93,11 @@ export class Meeting {
     const body = await r.json().catch(() => ({}));
     if (!r.ok || !body.jwt) throw Object.assign(new Error(body.error ?? `grant refused (${r.status})`), { refused: true });
     return body.jwt;
+  }
+
+  want(pub) {
+    if (pub.kind !== TrackKind.KIND_AUDIO) return this.log('skipped a video track');
+    if (!pub.subscribed) pub.setSubscribed(true);
   }
 
   // say speaks text into the call, one utterance at a time.

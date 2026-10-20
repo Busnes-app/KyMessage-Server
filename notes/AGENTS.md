@@ -24,7 +24,8 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
 - Calls: MatrixRTC `join` with `manageMediaKeys` and the transport
   `{livekit_service_url: NOTES_RTC_SERVICE_URL, livekit_alias: room}` (compatibility mode, so
   identities are `@user:server:DEVICE`); the grant comes from KyMessages' `/sfu/get`; LiveKit
-  is reached at `NOTES_LIVEKIT_URL`. E2EE: GCM, HKDF, salt `LKFrameEncryptionKey`, ratchet
+  is reached at `NOTES_LIVEKIT_URL`. `autoSubscribe` is off: it subscribes to audio tracks only,
+  so camera (and screen) frames never reach it; it logs each kind it takes or skips. E2EE: GCM, HKDF, salt `LKFrameEncryptionKey`, ratchet
   window 10, key ring 256 (Element Call's MatrixKeyProvider). Keys are set with a hand-built FFI
   `SetKeyRequest`: rtc-node 1.1.0's `KeyProvider.setKey` drops the key. Re-check this on any
   `@livekit/rtc-node` bump.

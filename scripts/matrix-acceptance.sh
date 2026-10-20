@@ -676,6 +676,7 @@ mkdir -p "$artifacts/notes"
 cp "$state/owner-voice.wav" "$state/notes-heard.wav" "$artifacts/notes/"
 notes_tool hear.mjs /in/notes-heard.wav 'This meeting is being recorded for note taking.'
 expect "$(notes_audit notes.call "$notes_room")" granted "audited the bot's call grant"
+expect "$(notes_says 'subscribed to an audio track') $(notes_says 'skipped a video track') $(notes_says 'subscribed to a video track')" "yes yes no" "the bot took the call's audio and skipped the camera it was offered"
 for r in "$notes_room" "$(jq -r .room "$state/notesinvite-$owner.json")"; do
 	expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$r' AND sender = '$notes_mxid' AND type = 'm.room.message'")" 0 "the bot's messages in $r are stored encrypted"
 done

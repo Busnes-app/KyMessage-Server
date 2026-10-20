@@ -638,7 +638,7 @@ async function notesinvite() {
   out({ room: id });
 }
 
-// USER invites the bot, starts a voice call speaking KYMATRIX_ACCEPT_FAKE_AUDIO, pauses and
+// USER invites the bot, starts a video call speaking KYMATRIX_ACCEPT_FAKE_AUDIO, pauses and
 // resumes it by chat command, hangs up, and reads the notes. Element Call's decoded audio from
 // the bot goes to state/notes-heard.wav.
 async function notesmeeting() {
@@ -648,7 +648,8 @@ async function notesmeeting() {
   await invite(page, NOTES);
   await memberOf(page, id, NOTES, 'join');
   await sees(page, 'Meeting notes will join the next call in this room');
-  await page.getByRole('button', { name: /Voice call|Start voice call|Audio call|Video call/i }).first().click();
+  // A video call: the bot must take the audio and never subscribe to the camera.
+  await page.getByRole('button', { name: /Video call|Start video call/i }).first().click();
   const call = page.frameLocator('iframe[title="Element Call"]');
   const end = call.getByRole('button', { name: 'End call', exact: true });
   for (let i = 0; i < 30 && !(await end.isVisible()); i++) {
