@@ -17,6 +17,7 @@ const { FfiClient } = require(path.join(path.dirname(require.resolve('@livekit/r
 export const NOTICE = 'This meeting is being recorded for note taking.';
 const HELP = 'Anyone in the call can type !notes pause, !notes resume or !notes leave.';
 const ALONE_MS = 30_000; // the call ended for the bot once nobody else is in it this long
+const LATE_LEAD_MS = 3000; // a newcomer's client subscribes and takes keys before the notice
 
 // Transcription is CPU-bound: one at a time, across meetings.
 let transcribing = Promise.resolve();
@@ -75,10 +76,13 @@ export class Meeting {
     this.keys.forEach((k) => this.setKey(k));
     for (const p of this.lk.remoteParticipants.values()) for (const pub of p.trackPublications.values()) this.want(pub);
     this.source = new AudioSource(24000, 1);
+    // Speak only once someone is listening: their client has subscribed to the bot's track and
+    // had a moment to take its key. Words spoken earlier arrive clipped or not at all.
+    const heard = new Promise((r) => { this.lk.once(RoomEvent.LocalTrackSubscribed, r); setTimeout(r, 15_000); });
     await this.lk.localParticipant.publishTrack(LocalAudioTrack.createAudioTrack('notes', this.source), new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }));
     this.log(`joined the call in ${this.room.roomId}`);
-    // Element Call gets the bot's key on join; give it a moment before the first words.
-    await new Promise((r) => setTimeout(r, 1500));
+    await heard;
+    await new Promise((r) => setTimeout(r, 1000));
     this.throttle.spoke(Date.now());
     await this.say(NOTICE);
     await this.notice(`Meeting notes joined the call. ${NOTICE} ${HELP}`);
@@ -120,7 +124,7 @@ export class Meeting {
   lateJoin() {
     this.checkAlone();
     if (this.pending || this.finished) return;
-    this.pending = setTimeout(() => { this.pending = null; this.throttle.spoke(Date.now()); this.say(NOTICE); }, this.throttle.wait(Date.now()));
+    this.pending = setTimeout(() => { this.pending = null; this.throttle.spoke(Date.now()); this.say(NOTICE); }, Math.max(LATE_LEAD_MS, this.throttle.wait(Date.now())));
   }
 
   listen(track, identity) {
