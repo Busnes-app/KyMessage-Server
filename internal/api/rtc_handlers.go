@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/matrixrtc"
+	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
 )
 
@@ -128,7 +129,9 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var joined bool
+	notes := local && sub == s.notesMXID()
+	var joined, invited bool
+	var inviter string
 	err = s.mas.AsConsole(ctx, func(ctx context.Context, token string) error {
 		// A closed room keeps its remote members; it never grants a call.
 		blocked, err := s.rooms.Blocked(ctx, token, in.RoomID)
@@ -140,7 +143,10 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		joined = slices.Contains(members, sub)
-		return nil
+		if notes && joined {
+			inviter, invited, err = s.rooms.AdminInvite(ctx, token, in.RoomID, sub)
+		}
+		return err
 	})
 	if err != nil {
 		s.rtcError(w, 502, "Unable to verify room membership")
@@ -150,18 +156,24 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 		s.rtcError(w, 403, "Join the Matrix room before its call")
 		return
 	}
+	if notes && !invited {
+		s.audit(ctx, "", r, "notes.call", in.RoomID, auditFields("refused: not invited by the room's creator or an admin", "inviter", inviter))
+		s.rtcError(w, 403, "Meeting notes need an invite from the room's creator or an admin")
+		return
+	}
 	room := matrixrtc.Hash(in.RoomID, in.SlotID)
 	identity := matrixrtc.Hash(sub, in.Member.DeviceID, in.Member.ID)
 	if legacy {
 		identity = sub + ":" + in.DeviceID
 	}
-	if local {
+	if local && !notes {
 		if err := s.rtc.Create(ctx, room, in.RoomID); err != nil {
 			s.rtcError(w, 502, "Call service is unavailable")
 			return
 		}
 	} else {
-		// Remote users only join: the call must already exist, started by someone here.
+		// Remote users and the notes bot only join: the call must already exist, started by
+		// someone here.
 		rooms, err := s.rtc.Rooms(ctx)
 		if err != nil {
 			s.rtcError(w, 502, "Call service is unavailable")
@@ -171,6 +183,9 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 			s.rtcError(w, 403, "Wait for someone on "+s.config.Matrix.ServerName+" to start the call")
 			return
 		}
+	}
+	if notes {
+		s.audit(ctx, "", r, "notes.call", in.RoomID, auditFields("granted", "inviter", inviter))
 	}
 	s.writeJSON(w, 200, map[string]string{"url": "wss" + strings.TrimPrefix(s.config.Matrix.RTCHost, "https"), "jwt": s.rtc.Join(room, identity, sub)})
 }
@@ -189,10 +204,19 @@ func (s *Server) activeCallUsers(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	notes, err := s.notesOn(ctx)
+	if err != nil {
+		return nil, err
+	}
 	active := map[string]bool{}
 	for _, u := range users {
-		if u.Subject != "" && !u.Ambiguous && !u.Locked && !u.Deactivated && statuses[u.Subject] == "active" {
+		usable := !u.Ambiguous && !u.Locked && !u.Deactivated
+		switch {
+		case u.Subject != "" && usable && statuses[u.Subject] == "active":
 			active["@"+u.Username+":"+s.config.Matrix.ServerName] = true
+		// The meeting-notes bot, while turned on; its invite rule is checked per room.
+		case notes && u.Username == matrixsync.NotesUsername && u.Subject == "" && usable:
+			active[s.notesMXID()] = true
 		}
 	}
 	return active, nil
@@ -275,6 +299,15 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 			for _, p := range c.stay {
 				if !slices.Contains(members, p.Metadata) {
 					remove(c.room, p)
+					continue
+				}
+				if p.Metadata == s.notesMXID() {
+					_, ok, err := s.rooms.AdminInvite(ctx, token, c.id, p.Metadata)
+					if err != nil {
+						result = errors.Join(result, err)
+					} else if !ok {
+						remove(c.room, p)
+					}
 				}
 			}
 		}

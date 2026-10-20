@@ -42,7 +42,8 @@ type fakeRooms struct {
 	lostReply error            // Close and Delete: the job starts, then this is returned
 	slowJobs  bool             // DeleteJobs returns only when its context is done
 	tokens    []string
-	changes   []string // "close <room>", "delete <room>", in order
+	changes   []string             // "close <room>", "delete <room>", in order
+	invites   map[string]botInvite // the notes bot's inviter per room (notes_test.go)
 }
 
 func newFakeRooms() *fakeRooms {

@@ -46,8 +46,8 @@ func Plan(users []User, dir map[string]string, agents map[string]string) []Actio
 		if u.Deactivated {
 			continue // reactivation restores nothing; never undone here
 		}
-		if u.Username == ConsoleUsername && u.Subject == "" && !u.Ambiguous {
-			continue // the console's service account; linked, it is a person and judged as one
+		if (u.Username == ConsoleUsername || u.Username == NotesUsername) && u.Subject == "" && !u.Ambiguous {
+			continue // a service account; linked, it is a person and judged as one
 		}
 		if owner, ok := agents[u.ID]; ok && u.Subject == "" && !u.Ambiguous {
 			switch status, known := dir[owner]; {

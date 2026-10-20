@@ -401,6 +401,10 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 // password and no upstream link; the sweep leaves it alone (Plan).
 const ConsoleUsername = "kymessages-console"
 
+// NotesUsername is the meeting-notes bot's MAS account, the console's twin: no password, no
+// upstream link, left alone by the sweep. Its sessions are client-API tokens on one device.
+const NotesUsername = "kymessages-notes"
+
 const (
 	// consoleScope: Synapse requires the client API scope of every token; the admin scope is
 	// what makes it an admin. No device scope: Synapse does not need one.
@@ -411,55 +415,65 @@ const (
 // ConsoleCallTimeout bounds each detached session call AsConsole makes: the mint and the revoke.
 const ConsoleCallTimeout = 10 * time.Second
 
-// EnsureConsoleUser returns the console account's MAS ID, creating it when needed. It refuses
-// an account that is locked, deactivated, linked to an upstream identity (a person's) or MAS
-// admin: personal sessions need no admin flag, and with it an interactive login as the
-// account could request urn:mas:admin.
+// EnsureConsoleUser returns the console account's MAS ID, creating it when needed.
 func (c *Client) EnsureConsoleUser(ctx context.Context) (string, error) {
+	return c.ensureServiceUser(ctx, ConsoleUsername, "console account")
+}
+
+// EnsureNotesUser returns the meeting-notes bot's MAS ID, creating it when needed, under the
+// same rules as the console's.
+func (c *Client) EnsureNotesUser(ctx context.Context) (string, error) {
+	return c.ensureServiceUser(ctx, NotesUsername, "notes account")
+}
+
+// ensureServiceUser refuses an account that is locked, deactivated, linked to an upstream
+// identity (a person's) or MAS admin: personal sessions need no admin flag, and with it an
+// interactive login as the account could request urn:mas:admin.
+func (c *Client) ensureServiceUser(ctx context.Context, username, label string) (string, error) {
 	select {
 	case c.consoleMu <- struct{}{}:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
 	defer func() { <-c.consoleMu }()
-	path := adminPrefix + "users/by-username/" + ConsoleUsername
+	path := adminPrefix + "users/by-username/" + username
 	r, err := c.one(ctx, path)
 	var se *StatusError
 	if errors.As(err, &se) && se.Status == http.StatusNotFound {
 		var doc struct {
 			Data resource `json:"data"`
 		}
-		err = c.call(ctx, http.MethodPost, adminPrefix+"users", []byte(`{"username":"`+ConsoleUsername+`"}`), &doc)
+		err = c.call(ctx, http.MethodPost, adminPrefix+"users", []byte(`{"username":"`+username+`"}`), &doc)
 		r = doc.Data
 		if errors.As(err, &se) && se.Status == http.StatusConflict {
 			r, err = c.one(ctx, path) // created meanwhile
 		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("console account: %w", err)
+		return "", fmt.Errorf("%s: %w", label, err)
 	}
 	var a userAttrs
 	if err := json.Unmarshal(r.Attributes, &a); err != nil {
-		return "", fmt.Errorf("console account: %w", err)
+		return "", fmt.Errorf("%s: %w", label, err)
 	}
 	switch {
-	case a.Username != ConsoleUsername:
-		return "", errors.New("console account: MAS answered with another user")
+	case a.Username != username:
+		return "", fmt.Errorf("%s: MAS answered with another user", label)
 	case a.DeactivatedAt != nil:
-		return "", errors.New("console account is deactivated in MAS")
+		return "", fmt.Errorf("%s is deactivated in MAS", label)
 	case a.LockedAt != nil:
-		return "", errors.New("console account is locked in MAS")
+		return "", fmt.Errorf("%s is locked in MAS", label)
 	case a.Admin:
-		return "", errors.New("console account has MAS admin; remove it (it needs none)")
+		return "", fmt.Errorf("%s has MAS admin; remove it (it needs none)", label)
 	}
 	var links struct {
 		Data []resource `json:"data"`
 	}
 	if err := c.call(ctx, http.MethodGet, adminPrefix+"upstream-oauth-links?filter[user]="+url.QueryEscape(r.ID)+"&page[first]=1", nil, &links); err != nil {
-		return "", fmt.Errorf("console account: %w", err)
+		return "", fmt.Errorf("%s: %w", label, err)
 	}
 	if len(links.Data) > 0 {
-		return "", errors.New("console account is linked to an upstream identity; refusing to act as a person")
+		return "", fmt.Errorf("%s is linked to an upstream identity; refusing to act as a person", label)
 	}
 	return r.ID, nil
 }

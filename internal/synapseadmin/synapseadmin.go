@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -224,4 +225,109 @@ func (c *Client) DeleteJobs(ctx context.Context, token, id string) ([]DeleteJob,
 		out = append(out, DeleteJob{ID: j.DeleteID, Status: j.Status})
 	}
 	return out, nil
+}
+
+// stateEvent is the part of a state event the inviter check reads.
+type stateEvent struct {
+	Type     string          `json:"type"`
+	RoomID   string          `json:"room_id"`
+	Sender   string          `json:"sender"`
+	StateKey *string         `json:"state_key"`
+	Content  json.RawMessage `json:"content"`
+	Unsigned struct {
+		ReplacesState string `json:"replaces_state"`
+	} `json:"unsigned"`
+}
+
+func (c *Client) state(ctx context.Context, token, room, typ string) ([]stateEvent, error) {
+	var r struct {
+		State []stateEvent `json:"state"`
+	}
+	err := c.do(ctx, token, http.MethodGet, roomPath("v1", room)+"/state?"+url.Values{"type": {typ}}.Encode(), nil, &r)
+	return r.State, err
+}
+
+// AdminInvite reports who invited user into room, and whether that inviter is the room's
+// creator (m.room.create sender or additional_creators) or has power level 100. It walks
+// user's current join back through its own earlier joins (a profile change replaces the join)
+// to the invite it replaced; a join reached any other way has no inviter and is refused.
+// It reads only state events and user's own membership events, never messages.
+func (c *Client) AdminInvite(ctx context.Context, token, room, user string) (inviter string, ok bool, err error) {
+	members, err := c.state(ctx, token, room, "m.room.member")
+	if err != nil {
+		return "", false, err
+	}
+	var prev string
+	for _, e := range members {
+		if e.StateKey != nil && *e.StateKey == user && membership(e) == "join" {
+			prev = e.Unsigned.ReplacesState
+		}
+	}
+	for hops := 0; prev != "" && hops < 20; hops++ {
+		var r struct {
+			Event stateEvent `json:"event"`
+		}
+		if err := c.do(ctx, token, http.MethodGet, prefix+"v1/fetch_event/"+url.PathEscape(prev), nil, &r); err != nil {
+			return "", false, err
+		}
+		e := r.Event
+		if e.Type != "m.room.member" || e.RoomID != room || e.StateKey == nil || *e.StateKey != user {
+			return "", false, nil
+		}
+		m := membership(e)
+		if m == "invite" {
+			inviter = e.Sender
+		}
+		if m != "join" {
+			break
+		}
+		prev = e.Unsigned.ReplacesState
+	}
+	if inviter == "" {
+		return "", false, nil
+	}
+	create, err := c.state(ctx, token, room, "m.room.create")
+	if err != nil || len(create) != 1 {
+		return inviter, false, err
+	}
+	levels, err := c.state(ctx, token, room, "m.room.power_levels")
+	if err != nil {
+		return inviter, false, err
+	}
+	return inviter, roomAdmin(create[0], levels, inviter), nil
+}
+
+func membership(e stateEvent) string {
+	var m struct {
+		Membership string `json:"membership"`
+	}
+	_ = json.Unmarshal(e.Content, &m)
+	return m.Membership
+}
+
+// roomAdmin: a creator, or power level 100 in the room's power levels (users_default otherwise).
+func roomAdmin(create stateEvent, levels []stateEvent, user string) bool {
+	var c struct {
+		Additional []string `json:"additional_creators"`
+	}
+	_ = json.Unmarshal(create.Content, &c)
+	if user == create.Sender || slices.Contains(c.Additional, user) {
+		return true
+	}
+	if len(levels) != 1 {
+		return false
+	}
+	var pl struct {
+		Users   map[string]json.Number `json:"users"`
+		Default json.Number            `json:"users_default"`
+	}
+	if json.Unmarshal(levels[0].Content, &pl) != nil {
+		return false
+	}
+	level, ok := pl.Users[user]
+	if !ok {
+		level = pl.Default
+	}
+	n, err := level.Int64()
+	return err == nil && n >= 100
 }

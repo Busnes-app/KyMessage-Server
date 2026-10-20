@@ -22,6 +22,7 @@ const consoleID = "01J9ZK8V6N3W4X5Y6Z7A8B9C9C"
 // consoleFake is MAS's admin API as the console account sees it. user is nil until created.
 type consoleFake struct {
 	mu           sync.Mutex
+	name         string // the service account's username
 	user         map[string]any
 	hideOnce     bool // the first by-username read misses a user that exists (a create race)
 	linked       bool
@@ -37,7 +38,7 @@ type consoleFake struct {
 
 func newConsoleFake(t *testing.T) *consoleFake {
 	t.Helper()
-	f := &consoleFake{}
+	f := &consoleFake{name: ConsoleUsername}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -63,7 +64,7 @@ func (f *consoleFake) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	p := r.URL.Path
 	switch {
-	case r.Method == http.MethodGet && p == "/api/admin/v1/users/by-username/kymessages-console":
+	case r.Method == http.MethodGet && p == "/api/admin/v1/users/by-username/"+f.name:
 		if f.user == nil || f.hideOnce {
 			f.hideOnce = false
 			http.Error(w, `{"errors":[{"title":"User not found"}]}`, http.StatusNotFound)
@@ -76,7 +77,7 @@ func (f *consoleFake) handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"errors":[{"title":"User already exists"}]}`, http.StatusConflict)
 			return
 		}
-		f.user = map[string]any{"username": "kymessages-console", "admin": false, "locked_at": nil, "deactivated_at": nil}
+		f.user = map[string]any{"username": f.name, "admin": false, "locked_at": nil, "deactivated_at": nil}
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, userDoc())
 	case r.Method == http.MethodGet && p == "/api/admin/v1/upstream-oauth-links":
@@ -304,5 +305,30 @@ func TestConsoleCreationWaiterCanCancel(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.created) != 1 {
 		t.Fatalf("created %d accounts", len(f.created))
+	}
+}
+
+// The notes account is ensured under the console's rules, by its own name.
+func TestEnsureNotesUser(t *testing.T) {
+	f := newConsoleFake(t)
+	f.name = NotesUsername
+	id, err := f.client().EnsureNotesUser(context.Background())
+	if err != nil || id != consoleID || !reflect.DeepEqual(f.created, []string{`{"username":"kymessages-notes"}`}) {
+		t.Fatalf("id %q err %v created %v", id, err, f.created)
+	}
+	f.user["locked_at"] = "2026-10-20T10:00:00Z"
+	if _, err := f.client().EnsureNotesUser(context.Background()); err == nil || !strings.Contains(err.Error(), "notes account is locked in MAS") {
+		t.Fatalf("locked: %v", err)
+	}
+}
+
+func TestPlanExemptsOnlyTheUnlinkedNotesAccount(t *testing.T) {
+	got := Plan([]User{
+		{ID: "n", Username: NotesUsername},                // exempt
+		{ID: "x1", Username: NotesUsername, Subject: "i"}, // lock: linked, so a person
+		{ID: "x2", Username: "kymessages-note"},           // lock: not the exact name
+	}, map[string]string{"i": "inactive"}, nil)
+	if len(got) != 2 || got[0].User.ID != "x1" || got[1].User.ID != "x2" {
+		t.Fatalf("got %+v", got)
 	}
 }
