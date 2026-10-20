@@ -35,7 +35,7 @@ test('production CSP, worker, themes, keyboard, dialog and responsive shell', as
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav).toBeVisible();
-  await expect(page.getByRole('heading', { name: /Welcome/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
   await fits(page);
   const theme = page.getByLabel('Color theme');
   await theme.selectOption('paper');

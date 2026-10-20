@@ -74,27 +74,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
     ...(sync ? [{ title: 'KyIdentity sync', card: sync, Icon: RefreshCw, tab: 'settings', action: 'Open Settings' }] : []),
   ];
   return (
-    <div style={{ maxWidth: '1080px', margin: '0 auto', padding: '32px 20px' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '26px', fontWeight: 'bold', marginBottom: '6px' }}>Welcome, {user?.display_name || user?.username}!</h1>
-        <p style={{ color: 'var(--ink)', fontSize: '15px' }}>{settings?.app_name || 'KyMessages'} operator console.</p>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '20px' }}>
+    <div className="operator-overview">
+      <header className="operator-heading">
+        <h1>Overview</h1>
+        <p>{settings?.app_name || 'KyMessages'} operator console · {user?.display_name || user?.username || 'Administrator'}</p>
+      </header>
+      <p className="operator-boundary">Manage the chat service here. Use your everyday account to open chat and take part in conversations.</p>
+      <div className="operator-summary">
         {cards.map(({ title, card, Icon, tab, action }) => (
-          <section key={tab} className="panel" aria-label={title} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-                <div style={{ padding: '8px', background: 'var(--accent-soft)', borderRadius: '6px', color: 'var(--accent)' }}><Icon size={20} /></div>
-                <h3 style={{ fontSize: '16px' }}>{title}</h3>
-              </div>
-              <p role="status" className={TONE[card.tone]} style={{ fontSize: '14px' }}>{card.text}</p>
-            </div>
-            <div style={{ marginTop: '20px', borderTop: '1px solid var(--line)', paddingTop: '12px' }}>
-              <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'space-between', fontSize: '13px' }} onClick={() => onNavigate(tab)}>
-                <span>{action}</span>
-                <ArrowRight size={14} />
-              </button>
-            </div>
+          <section key={tab} className="operator-row" aria-label={title}>
+            <h2><Icon size={19} aria-hidden="true" />{title}</h2>
+            <p role="status" className={TONE[card.tone]}>{card.text}</p>
+            <button type="button" className="btn-secondary" onClick={() => onNavigate(tab)}>
+              <span>{action}</span><ArrowRight size={14} aria-hidden="true" />
+            </button>
           </section>
         ))}
       </div>
