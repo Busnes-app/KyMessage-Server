@@ -21,6 +21,7 @@ export const NOTICE = 'This meeting is being recorded for note taking.';
 const HELP = 'Anyone in the call can type !notes pause, !notes resume or !notes leave.';
 const SCREENS_HELP = "The room's creator or an admin can type !notes screens on to add shared screens; anyone in the call can type !notes screens off.";
 const MAX_SHOTS = 60;
+const SCREENS_RECHECK_MS = 10_000;
 const ALONE_MS = 30_000; // the call ended for the bot once nobody else is in it this long
 const LATE_LEAD_MS = 3000; // a newcomer's client subscribes and takes keys before the notice
 
@@ -116,8 +117,23 @@ export class Meeting {
 
   want(pub) {
     const screen = pub.source === TrackSource.SOURCE_SCREENSHARE;
-    if (pub.kind !== TrackKind.KIND_AUDIO && !(screen && this.screens)) return this.log(`skipped a ${screen ? 'screen' : 'camera'} track`);
-    if (!pub.subscribed) pub.setSubscribed(true);
+    if (pub.kind === TrackKind.KIND_AUDIO) {
+      if (!pub.subscribed) pub.setSubscribed(true);
+    } else if (screen && this.screens) {
+      // Settings may have changed since the meeting turned snapshots on: ask before each share.
+      this.screensAllowed().then((ok) => {
+        if (ok && this.screens && !this.finished && !pub.subscribed) pub.setSubscribed(true);
+        else if (!ok) this.revoked();
+      }, () => this.log('could not read the snapshot setting; the share is skipped'));
+    } else this.log(`skipped a ${screen ? 'screen' : 'camera'} track`);
+  }
+
+  // revoked ends snapshots in this meeting once Settings no longer allows them (or cannot say).
+  revoked() {
+    if (!this.screens) return;
+    this.setScreens(false);
+    this.say('Shared screens are no longer captured.');
+    this.notice('Shared-screen snapshots were turned off in Settings, so shared screens are no longer captured.').catch(() => {});
   }
 
   // screensAllowed asks KyMessages whether Settings allows shared-screen snapshots.
@@ -131,9 +147,13 @@ export class Meeting {
     return roomAdmin(ev('m.room.create'), ev('m.room.power_levels'), user);
   }
 
-  // setScreens subscribes to every shared screen, or drops them all.
+  // setScreens subscribes to every shared screen, or drops them all. While on, it re-reads the
+  // Settings permission every SCREENS_RECHECK_MS and drops them all once it is gone.
   setScreens(on) {
     this.screens = on;
+    clearInterval(this.recheck);
+    // Fails closed: an unreadable setting ends them too.
+    if (on) this.recheck = setInterval(() => this.screensAllowed().then((ok) => ok || this.revoked(), () => this.revoked()), SCREENS_RECHECK_MS);
     for (const p of this.lk.remoteParticipants.values()) {
       for (const pub of p.trackPublications.values()) {
         if (pub.source !== TrackSource.SOURCE_SCREENSHARE) continue;
@@ -280,6 +300,7 @@ export class Meeting {
     this.finished = true;
     clearTimeout(this.aloneTimer);
     clearTimeout(this.pending);
+    clearInterval(this.recheck);
     this.log(`leaving the call in ${this.room.roomId}: ${reason}`);
     for (const r of this.readers.values()) r.stopped = true;
     for (const id of [...this.shares.keys()]) this.stopShare(id);

@@ -688,11 +688,27 @@ notes_tool hear.mjs /in/notes-heard.wav 'This meeting is being recorded for note
 expect "$(notes_audit notes.call "$notes_room")" granted "audited the bot's call grant"
 expect "$(notes_says 'subscribed to an audio track') $(notes_says 'skipped a camera track')" "yes yes" "the bot took the call's audio and skipped the camera it was offered"
 # Shared-screen snapshots: allowed in the console, then turned on in the call by owen (the
-# room's creator). A screen shared before that is skipped; after it, one snapshot per slide is
-# posted encrypted with the notes and Element shows them. Never a camera.
+# room's creator). A screen shared before that is skipped; slide 1 is taken; Settings then
+# revokes them mid-meeting and nothing more is taken. Posted encrypted, Element shows it. Never a
+# camera.
 expect "$(app_api POST /api/admin/notes/screens/enable | jq -r .outcome)" enabled "the console allowed shared-screen snapshots"
 expect "$(notes_audit notes.screens_enable "$notes_mxid")" enabled "audited notes.screens_enable"
+# Settings revokes snapshots in the middle of that meeting, when the browser asks for it.
+rm -f "$state/screens-revoke" "$state/screens-revoked"
+(
+	for _ in $(seq 1 600); do
+		if [[ -f $state/screens-revoke ]]; then
+			app_api POST /api/admin/notes/screens/disable >/dev/null && touch "$state/screens-revoked"
+			break
+		fi
+		sleep 0.5
+	done
+) &
+revoker=$!
 e2e notesscreens "$owner"
+wait "$revoker"
+expect "$(notes_audit notes.screens_disable "$notes_mxid")" disabled "audited notes.screens_disable in the meeting"
+expect "$(dc logs --no-color notes 2>&1 | grep -c 'took a screen snapshot')" 1 "the bot took no snapshot after Settings revoked them"
 screens_room=$(jq -r .room "$state/notesscreens-$owner.json")
 expect "$(notes_says 'skipped a screen track') $(notes_says 'subscribed to a screen track') $(notes_says 'took a screen snapshot')" "yes yes yes" "the bot skipped the screen until turned on, then took snapshots"
 expect "$(dc logs --no-color notes 2>&1 | grep -c 'subscribed to a camera track')" 0 "the bot never subscribed to a camera"

@@ -30,7 +30,9 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
   track`, `skipped a camera|screen track`).
 - Shared-screen snapshots (plan `2026-10-20-meeting-notes-screens.md`): `!notes screens on` from
   the room's creator or an admin (`rules.roomAdmin` on current state) while `GET /api/notes/config`
-  says `screens`; `!notes screens off` from anyone in the call. Each is spoken and posted, and so
+  says `screens`; `!notes screens off` from anyone in the call. While on, it re-reads that every
+  10 s and before subscribing to each new share; revoked or unreadable (fail closed) drops every
+  screen at once, said out loud and in chat. Snapshots taken before stay in the notes. Each is spoken and posted, and so
   is each share it starts capturing. About one frame a second goes through `rules.thumb` and
   `rules.StillPicture` (changed 0.04, moving 0.01, still 2 s, gap 10 s); at most 60 per meeting,
   none while paused. JPEG (sharp, from raw RGBA only, longest side 1600) in memory; posted after

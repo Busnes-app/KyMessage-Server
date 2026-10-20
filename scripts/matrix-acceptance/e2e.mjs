@@ -715,7 +715,7 @@ async function notesmeeting() {
 }
 
 // Shared-screen snapshots. Chromium's fake screen never holds still, as a playing video would
-// not, so the shared screen here is a canvas of two still slides, switched at the given time.
+// not, so the shared screen here is a canvas of still slides; window.kySlide picks the slide.
 async function slidesForScreenShare(page) {
   await page.addInitScript(() => {
     if (!navigator.mediaDevices) return;
@@ -723,9 +723,8 @@ async function slidesForScreenShare(page) {
       const c = document.createElement('canvas');
       c.width = 1280; c.height = 720;
       const x = c.getContext('2d');
-      const start = Date.now();
       const draw = () => {
-        const second = Date.now() - start > 20000;
+        const second = window.kySlide === 2;
         x.fillStyle = second ? '#1d3557' : '#ffffff'; x.fillRect(0, 0, 1280, 720);
         x.fillStyle = second ? '#ffffff' : '#000000'; x.font = '72px sans-serif';
         x.fillText(second ? 'Slide 2: next steps' : 'Slide 1: budget review', 120, 360);
@@ -743,8 +742,10 @@ const waitNotice = (page, id, text, timeout = 60000) => page.waitForFunction(({ 
   window.mxMatrixClientPeg.get().getRoom(id)?.getLiveTimeline().getEvents().some((e) => e.getContent()?.body?.includes(text)),
   { id, text }, { timeout }).then(() => console.log(`  ok: ${text} decrypted`));
 
-// USER's video call: snapshots refused by the room until turned on; once on, the bot announces
-// the share, and after the hangup posts encrypted snapshots that Element decrypts and shows.
+// USER's video call: a share is skipped until snapshots are turned on; then the bot announces
+// it and takes slide 1. The harness then turns snapshots off in Settings (state/screens-revoke →
+// state/screens-revoked): the bot must say so and take nothing more, from slide 2 or from a new
+// share. After the hangup Element decrypts and shows the one snapshot.
 async function notesscreens() {
   const page = await resume(user, 'agent-owner');
   await slidesForScreenShare(page);
@@ -770,7 +771,19 @@ async function notesscreens() {
   await say('!notes screens on');
   await waitNotice(page, id, 'Shared-screen snapshots turned on by');
   await waitNotice(page, id, "shared screen for the notes");
-  await page.waitForTimeout(30000); // slide 1, then slide 2 after 20 s
+  await page.waitForTimeout(8000); // slide 1 settles and is taken
+  fs.writeFileSync(`${dir}/state/screens-revoke`, '');
+  for (let i = 0; i < 60 && !fs.existsSync(`${dir}/state/screens-revoked`); i++) await page.waitForTimeout(500);
+  await waitNotice(page, id, 'Shared-screen snapshots were turned off in Settings', 30000);
+  const slide = (n) => Promise.all(page.frames().map((f) => f.evaluate((n) => { window.kySlide = n; }, n).catch(() => {})));
+  await slide(2);
+  await page.waitForTimeout(8000);
+  // A share started after the revoke is a new track: it must be skipped too.
+  const share = call.getByRole('switch', { name: /Share screen|Sharing screen/ });
+  await share.click();
+  await page.waitForTimeout(2000);
+  await share.click();
+  await page.waitForTimeout(8000);
   await end.click();
   await end.waitFor({ state: 'hidden' });
   await openRoom(page, id, false);
@@ -778,7 +791,7 @@ async function notesscreens() {
   const notes = await timeline(page).getByText(/Meeting notes: kymatrix-screens-/).last().innerText();
   console.log(`  notes:\n${notes.replace(/^/gm, '    ')}`);
   const shots = (notes.match(/Snapshot \d+ of /g) ?? []).length;
-  check(shots >= 2, `the notes list ${shots} snapshots, one per slide`);
+  check(shots === 1, 'the notes list one snapshot: slide 1, taken before the revoke');
   // Element decrypts each snapshot and shows it.
   // Decrypted images, by size: the snapshots are 1280 px wide, avatars a few dozen.
   await page.waitForFunction((n) => [...document.querySelectorAll('.mx_RoomView_MessageList img')].filter((i) => i.complete && i.naturalWidth >= 300).length >= n,

@@ -36,6 +36,8 @@ without them.
 - In the call, the room's creator or an admin types `!notes screens on`. The bot says, out loud
   and in the chat, that shared screens will be captured. Anyone in the call can type
   `!notes screens off`.
+- Turning snapshots off in Settings also stops them in meetings already running, within 10
+  seconds; snapshots taken before stay.
 - When someone shares a screen, the bot says whose screen it is capturing. It looks at shared
   screens only, never at cameras.
 - It keeps a still picture when the shared screen changes and then holds still for 2 seconds
