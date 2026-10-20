@@ -127,6 +127,8 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 
 **Console.** Changes need a sign-in from the last 10 minutes and are audited.
 - Overview: chat health, users, backups, KyIdentity sync cards.
+- Chat device sign-in and encryption-key verification happen in Element. The console has no
+  device-pairing control; its inherited session-pairing API does not connect Matrix clients.
 - Users: Matrix users with their KyIdentity link and sessions; end one or all sessions. No
   lock or unlock: access is controlled in KyIdentity.
 - Rooms: list, search, members (never messages). Close (final: members removed, rejoin
