@@ -1,5 +1,7 @@
 # KyMessages
 
+**Start here:** [Standalone installation](INSTALL.md). The base container is an operator console, not a chat server or embedded chat client. Team chat additionally needs the Matrix stack (Synapse, MAS, PostgreSQL and Element), HTTPS and KyIdentity. Local administrator sign-in alone does not enable member chat.
+
 Private team conversations, on infrastructure you control.
 
 KyMessages is moving to Matrix for chat, with suite identity and sealed server
