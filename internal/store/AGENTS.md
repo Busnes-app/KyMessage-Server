@@ -60,6 +60,9 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   retains the row as `deleted` for MAS deactivation; it cannot be reactivated.
 - `DirectoryStatuses` projects owned dedicated administrators as inactive for ordinary
   Matrix chat/calls, without changing their console role or independent local operators.
+- `ApplyInstallerDirectory` answers `ErrNotInstallerOwned` for a valid event naming a subject
+  setup did not create. Under setup `insertUser` refuses KyIdentity rows except through
+  `CreateDirectoryUser` (the signed directory's members); `CreateUser` (sign-in, admin) stays refused.
 
 ## Verification
 - `go test -v ./internal/store/...`

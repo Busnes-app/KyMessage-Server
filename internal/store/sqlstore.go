@@ -96,7 +96,7 @@ type userStore struct {
 }
 
 func (u *userStore) CreateUser(ctx context.Context, user *User) error {
-	return u.insertUser(ctx, u.store.db, user)
+	return u.insertUser(ctx, u.store.db, user, false)
 }
 
 // execQuerier is *sql.DB or *sql.Tx.
@@ -119,7 +119,9 @@ func (u *userStore) usernameTaken(ctx context.Context, db execQuerier, username,
 	return err
 }
 
-func (u *userStore) insertUser(ctx context.Context, db execQuerier, user *User) error {
+// insertUser refuses a KyIdentity row under installer setup unless directory: there only the
+// signed directory creates people (members), never sign-in or an admin.
+func (u *userStore) insertUser(ctx context.Context, db execQuerier, user *User, directory bool) error {
 	if err := u.usernameTaken(ctx, db, user.Username, user.ID); err != nil {
 		return err
 	}
@@ -147,13 +149,17 @@ INSERT INTO users (
 	if user.LastLoginAt != nil {
 		lastLogin = sql.NullTime{Time: *user.LastLoginAt, Valid: true}
 	}
+	guarded := user.SSOProvider
+	if directory {
+		guarded = ""
+	}
 
 	result, err := db.ExecContext(ctx, q,
 		user.ID, user.Username, user.Email, user.DisplayName, user.PasswordHash,
 		user.Role, user.Status, user.SSOProvider, user.SSOSubject,
 		user.TOTPSecretEnc, user.TOTPEnabled, user.RecoveryCodesHash,
 		user.PushDeviceID, user.MustChangePassword,
-		user.CreatedAt, user.UpdatedAt, lastLogin, user.SSOProvider,
+		user.CreatedAt, user.UpdatedAt, lastLogin, guarded,
 	)
 	if err != nil {
 		return uniqueError(err)
@@ -359,7 +365,7 @@ func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, ev Di
 }
 
 func (u *userStore) CreateDirectoryUser(ctx context.Context, user *User, ev DirectoryEvent) (bool, error) {
-	return u.directoryWrite(ctx, user, ev, func(tx *sql.Tx) error { return u.insertUser(ctx, tx, user) })
+	return u.directoryWrite(ctx, user, ev, func(tx *sql.Tx) error { return u.insertUser(ctx, tx, user, true) })
 }
 
 func (u *userStore) DeleteDirectoryUser(ctx context.Context, user *User, ev DirectoryEvent) (bool, error) {

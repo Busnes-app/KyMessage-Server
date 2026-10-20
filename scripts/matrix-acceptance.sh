@@ -517,6 +517,63 @@ expect "$(mas_user frank 'deactivated_at IS NULL')" t "frank locked, not deactiv
 pass
 
 # ---------------------------------------------------------------------------------------
+# The sweep alone cuts, as in installer setups, which register no back-channel logout. With it
+# removed from the MAS client, disabling frank makes the sweep lock him and end every MAS
+# session: Synapse refuses his token at its next request (it checks the device MAS then
+# deletes, ahead of its 2-minute introspection cache) and MAS refuses his refresh token.
+# Re-enabling unlocks him for a fresh sign-in; the ended session stays ended.
+step offboard-sweep
+backchannel() {
+	kyid PUT "/api/admin/clients/$KY_MATRIX_MAS_CLIENT_ID" "$(jq -n --arg b "$1" '{backchannelLogoutUri: $b}')" >/dev/null
+	expect "$(kyid GET /api/admin/clients | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.clients[] | select(.id == $c) | .backchannelLogoutUri // ""')" "$1" "the MAS client's back-channel logout is '$1'"
+}
+# refresh TOKEN: MAS's answer to a refresh of frank's Element session, "<status> <error>"; the
+# body stays in state/refresh.json. Element is a public client: its ID is the session's
+# client ULID, from MAS's UUID.
+refresh() {
+	local code
+	code=$(hcurl -o "$state/refresh.json" -w '%{http_code}' -X POST https://auth.kymatrix.test/oauth2/token \
+		--data-urlencode grant_type=refresh_token --data-urlencode "refresh_token=$1" --data-urlencode "client_id=$element_client")
+	echo "$code $(jq -r '.error // "-"' "$state/refresh.json" 2>/dev/null || echo unparsable)"
+}
+frank_sessions() {
+	sql mas "SELECT (SELECT count(*) FROM oauth2_sessions s JOIN users u USING (user_id) WHERE u.username = 'frank' AND s.finished_at IS NULL)
+		+ (SELECT count(*) FROM compat_sessions s JOIN users u USING (user_id) WHERE u.username = 'frank' AND s.finished_at IS NULL)
+		+ (SELECT count(*) FROM user_sessions s JOIN users u USING (user_id) WHERE u.username = 'frank' AND s.finished_at IS NULL)"
+}
+backchannel ''
+kyid PUT "/api/admin/app-registry/$app/assignments/users/${kid[frank]}" >/dev/null
+eventually 60 t "MAS unlocked frank after the re-assignment" mas_user frank 'locked_at IS NULL'
+e2e sweeptoken frank
+read -r refresh_token element_uuid <<EOF_SQL
+$(sql mas "SELECT r.refresh_token, s.oauth2_client_id FROM oauth2_refresh_tokens r JOIN oauth2_sessions s USING (oauth2_session_id) JOIN users u ON u.user_id = s.user_id
+	WHERE u.username = 'frank' AND s.finished_at IS NULL AND r.consumed_at IS NULL AND r.revoked_at IS NULL ORDER BY r.created_at DESC LIMIT 1" | tr '|' ' ')
+EOF_SQL
+element_client=$(python3 -I -c 'import sys, uuid
+n = uuid.UUID(sys.argv[1]).int
+print("".join("0123456789ABCDEFGHJKMNPQRSTVWXYZ"[(n >> 5 * i) & 31] for i in range(25, -1, -1)))' "$element_uuid")
+# Control: before the disable MAS refreshes the session; the new access token is the live one.
+expect "$(refresh "$refresh_token")" '200 -' "MAS refreshes frank's live Element session"
+jq -re .access_token "$state/refresh.json" >"$state/frank.token"
+refresh_token=$(jq -re .refresh_token "$state/refresh.json")
+expect "$(token_status frank)" "200 $(mxid frank)" "frank's refreshed token is live"
+start=$(now_ms)
+kyid PUT "/api/admin/users/${kid[frank]}" '{"status": "disabled"}' >/dev/null
+secs=$(cut_within 30 frank "$start")
+ok "frank's open Element session refused ${secs}s after the disable, by the sweep alone (bound 30s)" | tee -a "$summary"
+eventually 60 t "MAS locked frank" mas_user frank 'locked_at IS NOT NULL'
+eventually 30 0 "the sweep ended every MAS session of frank" frank_sessions
+expect "$(refresh "$refresh_token")" '400 invalid_grant' "MAS refuses frank's refresh token"
+kyid PUT "/api/admin/users/${kid[frank]}" '{"status": "active"}' >/dev/null
+eventually 60 t "MAS unlocked frank after the re-enable" mas_user frank 'locked_at IS NULL'
+expect "$(token_status frank)" '401 M_UNKNOWN_TOKEN' "frank's ended session is not revived by the unlock"
+expect "$(refresh "$refresh_token")" '400 invalid_grant' "nor is his refresh token"
+e2e rejoined frank
+expect "$(token_status frank)" "200 $(mxid frank)" "frank signs in afresh after the re-enable"
+backchannel "$backchannel_uri"
+pass
+
+# ---------------------------------------------------------------------------------------
 step offboard-missed
 e2e token erin
 dc stop --timeout 10 app >/dev/null
@@ -628,6 +685,10 @@ expect "$(app_api POST "/api/admin/matrix/sessions/oauth2/$session/finish" | jq 
 expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=20' | jq -r --arg s "$session" --arg m "@alice.q_ky:$KY_MATRIX_SERVER_NAME" \
 	'[.records[] | select(.action == "matrix.session_end" and .target == $m and .actor == "admin" and (.details | contains($s))) | .outcome] | join(",")')" \
 	already_ended,ended "the audit API shows both session-end rows, newest first"
+# The sweep's session endings in offboard-sweep: frank's, by the system, never by an admin.
+expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=100' | jq -r --arg m "$(mxid frank)" \
+	'[.records[] | select(.action == "matrix.session_end" and .target == $m and .outcome == "ended") | .actor] | unique | join(",")')" \
+	system "the audit API shows the sweep's matrix.session_end rows for frank"
 # KyIdentity sync status after the offboarding steps: their deliveries were accepted and the
 # sweep ran clean (asynchronously, hence the waits). A badly signed delivery is refused and
 # counted in memory only.

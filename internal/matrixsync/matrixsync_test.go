@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,25 +24,32 @@ func TestPlan(t *testing.T) {
 		u("active-open", "a", false, false),                                                         // nothing
 		u("active-locked", "a", true, false),                                                        // unlock
 		u("inactive-open", "i", false, false),                                                       // lock
-		u("inactive-locked", "i", true, false),                                                      // nothing
+		u("inactive-locked", "i", true, false),                                                      // end sessions
 		u("deleted-open", "d", false, false),                                                        // deactivate
 		u("deleted-locked", "d", true, false),                                                       // deactivate
-		u("unknown-open", "x", false, false),                                                        // lock
+		u("unknown-open", "x", false, false),                                                        // lock, end sessions
 		u("nolink-open", "", false, false),                                                          // lock
-		u("nolink-locked", "", true, false),                                                         // nothing
+		u("nolink-locked", "", true, false),                                                         // end sessions
 		u("gone", "d", true, true),                                                                  // never touched again
 		u("revived", "a", true, true),                                                               // deactivated stays deactivated
 		{ID: "multi-open", Username: "multi-open", Subject: "a", Ambiguous: true},                   // lock, though "a" is active
-		{ID: "multi-locked", Username: "multi-locked", Subject: "a", Ambiguous: true, Locked: true}, // nothing
+		{ID: "multi-locked", Username: "multi-locked", Subject: "a", Ambiguous: true, Locked: true}, // end sessions
 	}, dir, nil)
 	want := []Action{
 		{Unlock, u("active-locked", "a", true, false), "active in KyIdentity"},
 		{Lock, u("inactive-open", "i", false, false), "inactive in KyIdentity"},
+		{EndSessions, u("inactive-open", "i", false, false), "inactive in KyIdentity"},
+		{EndSessions, u("inactive-locked", "i", true, false), "inactive in KyIdentity"},
 		{Deactivate, u("deleted-open", "d", false, false), "deleted in KyIdentity"},
 		{Deactivate, u("deleted-locked", "d", true, false), "deleted in KyIdentity"},
 		{Lock, u("unknown-open", "x", false, false), "not known to KyMessages"},
+		{EndSessions, u("unknown-open", "x", false, false), "not known to KyMessages"},
 		{Lock, u("nolink-open", "", false, false), "no KyIdentity link"},
+		{EndSessions, u("nolink-open", "", false, false), "no KyIdentity link"},
+		{EndSessions, u("nolink-locked", "", true, false), "no KyIdentity link"},
 		{Lock, User{ID: "multi-open", Username: "multi-open", Subject: "a", Ambiguous: true}, "linked to several KyIdentity subjects"},
+		{EndSessions, User{ID: "multi-open", Username: "multi-open", Subject: "a", Ambiguous: true}, "linked to several KyIdentity subjects"},
+		{EndSessions, User{ID: "multi-locked", Username: "multi-locked", Subject: "a", Ambiguous: true, Locked: true}, "linked to several KyIdentity subjects"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
@@ -70,8 +78,11 @@ func TestPlanJudgesAgentsByOwner(t *testing.T) {
 		"lock ag-d agent owner deleted in KyIdentity",
 		"lock ag-x agent owner not known to KyMessages",
 		"lock ag-linked inactive in KyIdentity",
+		"session_end ag-linked inactive in KyIdentity",
 		"lock ag-multi linked to several KyIdentity subjects",
+		"session_end ag-multi linked to several KyIdentity subjects",
 		"lock unregistered no KyIdentity link",
+		"session_end unregistered no KyIdentity link",
 	}
 	var lines []string
 	for _, a := range got {
@@ -83,12 +94,14 @@ func TestPlanJudgesAgentsByOwner(t *testing.T) {
 }
 
 type fakeMAS struct {
-	mu     sync.Mutex
-	users  []User
-	calls  []string
-	failOn string // "kind id" that errors
-	listed chan struct{}
-	after  func() // runs after each action
+	mu       sync.Mutex
+	users    []User
+	sessions map[string][]Session // active sessions by user ID
+	ended    map[string]bool      // "kind id": finished earlier, MAS answers already
+	calls    []string
+	failOn   string // "kind id" that errors
+	listed   chan struct{}
+	after    func() // runs after each action
 }
 
 func (f *fakeMAS) Users(context.Context) ([]User, error) {
@@ -115,6 +128,18 @@ func (f *fakeMAS) do(kind Kind, id string) error {
 func (f *fakeMAS) Lock(_ context.Context, id string) error       { return f.do(Lock, id) }
 func (f *fakeMAS) Unlock(_ context.Context, id string) error     { return f.do(Unlock, id) }
 func (f *fakeMAS) Deactivate(_ context.Context, id string) error { return f.do(Deactivate, id) }
+
+func (f *fakeMAS) Sessions(_ context.Context, userID string) ([]Session, error) {
+	if err := f.do("sessions", userID); err != nil {
+		return nil, err
+	}
+	return f.sessions[userID], nil
+}
+
+func (f *fakeMAS) FinishSession(_ context.Context, kind SessionKind, id string) (bool, error) {
+	key := string(kind) + " " + id
+	return f.ended[key], f.do("finish", key)
+}
 
 func newSyncer(t *testing.T, f *fakeMAS) (*Syncer, store.Store) {
 	t.Helper()
@@ -167,7 +192,7 @@ func TestSweepAppliesPlanAndAudits(t *testing.T) {
 	if err := s.Sweep(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"unlock U1", "lock U2", "deactivate U3", "lock U4"}; !reflect.DeepEqual(f.calls, want) {
+	if want := []string{"unlock U1", "lock U2", "sessions U2", "deactivate U3", "lock U4", "sessions U4"}; !reflect.DeepEqual(f.calls, want) {
 		t.Fatalf("calls %v", f.calls)
 	}
 	rows := auditRows(t, st)
@@ -186,6 +211,93 @@ func TestSweepAppliesPlanAndAudits(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("audit rows\n got %v\nwant %v", got, want)
+	}
+}
+
+// Offboarding ends every session of the person, after the lock and also once locked, so a
+// session an earlier sweep missed is still ended; each is audited as matrix.session_end.
+func TestSweepEndsSessionsOfInactivePeople(t *testing.T) {
+	f := &fakeMAS{
+		sessions: map[string][]Session{
+			"U1": {{Kind: OAuth2Session, ID: "keep"}}, // active: never ended
+			"U2": {{Kind: BrowserSession, ID: "b2"}, {Kind: OAuth2Session, ID: "o2"}, {Kind: CompatSession, ID: "c2"}},
+			"U4": {{Kind: OAuth2Session, ID: "o4"}},
+		},
+		ended: map[string]bool{"compat c2": true},
+	}
+	s, st := newSyncer(t, f)
+	f.users[1].Locked = true // bob already locked by an earlier sweep that left his sessions
+	if err := s.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"unlock U1", "sessions U2", "finish browser b2", "finish oauth2 o2", "finish compat c2",
+		"deactivate U3", "lock U4", "sessions U4", "finish oauth2 o4"}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls\n got %q\nwant %q", f.calls, want)
+	}
+	var ends []string
+	for _, r := range auditRows(t, st) {
+		if r.Action == "matrix.session_end" {
+			ends = append(ends, r.Resource+" "+r.Details)
+		}
+	}
+	slices.Sort(ends)
+	wantEnds := []string{
+		`@bob:example.com subject="sub-i" reason="inactive in KyIdentity" session="b2" kind="browser" outcome="ended"`,
+		`@bob:example.com subject="sub-i" reason="inactive in KyIdentity" session="c2" kind="compat" outcome="already_ended"`,
+		`@bob:example.com subject="sub-i" reason="inactive in KyIdentity" session="o2" kind="oauth2" outcome="ended"`,
+		`@dave:example.com subject="" reason="no KyIdentity link" session="o4" kind="oauth2" outcome="ended"`,
+	}
+	if !reflect.DeepEqual(ends, wantEnds) {
+		t.Fatalf("session_end rows\n got %q\nwant %q", ends, wantEnds)
+	}
+	// Converged: nothing left to end, so a sweep acts on no one and writes nothing.
+	f.sessions, f.ended = nil, nil
+	f.users = []User{{ID: "U1", Username: "alice", Subject: "sub-a"}, {ID: "U2", Username: "bob", Subject: "sub-i", Locked: true},
+		{ID: "U4", Username: "dave", Locked: true}}
+	rows := len(auditRows(t, st))
+	if applied, failed, err := s.sweep(context.Background()); applied != 0 || failed != 0 || err != nil || len(auditRows(t, st)) != rows {
+		t.Fatalf("converged sweep: applied %d failed %d err %v", applied, failed, err)
+	}
+}
+
+// A failed listing or finish is audited and counted; the sweep goes on with the next session
+// and the next person, and the next sweep tries again.
+func TestSweepSessionEndFailuresAreAuditedAndRetried(t *testing.T) {
+	f := &fakeMAS{
+		sessions: map[string][]Session{"U2": {{Kind: OAuth2Session, ID: "o2"}, {Kind: CompatSession, ID: "c2"}}, "U4": {{Kind: OAuth2Session, ID: "o4"}}},
+		failOn:   "finish oauth2 o2",
+	}
+	s, st := newSyncer(t, f)
+	applied, failed, err := s.sweep(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "session_end bob oauth2 o2: boom") {
+		t.Fatalf("err %v", err)
+	}
+	// unlock U1, lock U2, finish c2, deactivate U3, lock U4, finish o4; o2 failed.
+	if applied != 6 || failed != 1 {
+		t.Fatalf("applied %d failed %d", applied, failed)
+	}
+	f.failOn = "sessions U4"
+	f.calls = nil
+	if _, failed, err = s.sweep(context.Background()); err == nil || failed != 1 {
+		t.Fatalf("listing failure: failed %d err %v", failed, err)
+	}
+	if !slices.Contains(f.calls, "finish oauth2 o2") {
+		t.Fatalf("the next sweep did not retry o2: %q", f.calls)
+	}
+	var errs []string
+	for _, r := range auditRows(t, st) {
+		if r.Action == "matrix.session_end" && strings.Contains(r.Details, `outcome="error: `) {
+			errs = append(errs, r.Resource+" "+r.Details)
+		}
+	}
+	slices.Sort(errs)
+	want := []string{
+		`@bob:example.com subject="sub-i" reason="inactive in KyIdentity" session="o2" kind="oauth2" outcome="error: boom"`,
+		`@dave:example.com subject="" reason="no KyIdentity link" outcome="error: session_end dave: boom"`,
+	}
+	if !reflect.DeepEqual(errs, want) {
+		t.Fatalf("error rows\n got %q\nwant %q", errs, want)
 	}
 }
 
@@ -208,7 +320,7 @@ func TestSweepAuditsFailuresAndContinues(t *testing.T) {
 	if err := s.Sweep(context.Background()); err == nil {
 		t.Fatal("want error")
 	}
-	if want := []string{"unlock U1", "lock U2", "deactivate U3", "lock U4"}; !reflect.DeepEqual(f.calls, want) {
+	if want := []string{"unlock U1", "lock U2", "sessions U2", "deactivate U3", "lock U4", "sessions U4"}; !reflect.DeepEqual(f.calls, want) {
 		t.Fatalf("calls %v", f.calls)
 	}
 	failed := 0

@@ -801,7 +801,7 @@ async function notesscreens() {
   out({ room: id, shots });
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
+const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

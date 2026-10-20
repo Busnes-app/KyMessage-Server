@@ -2,7 +2,8 @@
 
 ## Purpose
 Keeps Matrix Authentication Service (MAS) in step with KyIdentity's directory as KyMessages
-records it, so offboarding sticks after KyIdentity's back-channel logout cuts sessions.
+records it: offboarding locks and ends every session, with or without KyIdentity's back-channel
+logout (installer setups register none).
 
 ## Ownership
 Owns `Plan` and `Syncer` (`matrixsync.go`), the sweep record (`record.go`) and the MAS admin client (`mas.go`).
@@ -16,10 +17,17 @@ supplies subject → status.
 - Decision table, per non-deactivated MAS user, by the subject of its KyIdentity link:
   active → unlock if locked; deleted → deactivate; inactive or unknown to KyMessages →
   lock if unlocked; no link, or links to more than one subject (`Ambiguous`) → lock if
-  unlocked (fail closed). A registered agent (`Plan`'s `agents`: MAS user ID → owner subject,
+  unlocked (fail closed). Every person locked this way also gets `EndSessions`, locked or not,
+  so a session a failed or earlier sweep left is still ended: `Sessions` (browser, OAuth 2.0,
+  compat), then `FinishSession` each. A lock alone leaves sessions working (MAS: "DOES NOT
+  invalidate any existing session") and MAS 1.26's refresh grant checks only the session, not
+  the lock; a finished session refuses refresh, and MAS's device sync has Synapse delete its
+  device, which Synapse checks on every request ahead of its fixed 2-minute introspection cache
+  (`synapse/api/auth/mas.py`, not configurable), so the next request is refused. Finished
+  sessions never revive; an unlock means a fresh sign-in. A registered agent (`Plan`'s `agents`: MAS user ID → owner subject,
   from `store.Agents()`) that is unlinked and not `Ambiguous` follows its owner instead: owner
   active → unlock if locked; anything else → lock if unlocked, never deactivate (deleting an
-  agent is an admin action). Matching is by MAS user ID, never username. A lock applied by hand in MAS to a user active in KyIdentity is
+  agent is an admin action), and its sessions are not ended: re-enabling the owner restores it. Matching is by MAS user ID, never username. A lock applied by hand in MAS to a user active in KyIdentity is
   undone by the next sweep; operators offboard in KyIdentity.
 - The console account is MAS user `kymessages-console` (`ConsoleUsername`): no password, no
   upstream link, never MAS admin (`can_request_admin`): personal sessions do not need it, and it
@@ -59,8 +67,11 @@ supplies subject → status.
 - `FinishSession` treats MAS's 400 for an ended session as `already`, after reading the session
   back; a 400 whose read-back shows the session live stays an error. `Sessions` returns browser sessions first; an oauth2 session's device comes from its scope.
 - No secret or token appears in errors, logs or audit rows. The sweep's audit actions are exactly
-  `matrix.lock`, `matrix.unlock`, `matrix.deactivate` (`matrix.session_end` is written by
-  `internal/api`), written for success and failure, on a
+  `matrix.lock`, `matrix.unlock`, `matrix.deactivate` (details `subject reason outcome`) and
+  `matrix.session_end`, one per session found (`subject reason session kind outcome`; outcome
+  `ended`, `already_ended` or `error: ...`; a failed listing is one row without session), none
+  when there is nothing to end; the console writes its own `matrix.session_end` (`internal/api`).
+  `applied` and `failed` count each session finished. Rows are written for success and failure, on a
   context detached from the sweep's so a completed action is audited through shutdown. No action
   starts after the sweep's context ends (`TestSweepStopsActingAfterCancel`).
 - After every sweep that shutdown did not interrupt, `Run` writes `matrix_sweep_last` (`SweepRecordKey`, `SweepRecord`: `finished_at`, `ok`, `error` at most 300 bytes of valid UTF-8, `applied` and `failed` MAS actions, `failing_since`, the start of the current failing streak, null when ok). The streak is carried across restarts from the stored record. `record.go` is the only writer; a failed write is logged and never fails the sweep. MAS client errors hold method, path and status, never a token, so the error text is safe to show admins.

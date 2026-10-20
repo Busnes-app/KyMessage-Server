@@ -97,7 +97,9 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 **Offboarding** (driven from KyIdentity; detail in
 [the offboarding design](superpowers/specs/2026-10-01-matrix-offboarding-design.md)).
 - Disable or unassign: back-channel logout ends open Element sessions (bound 30 s, measured
-  0.3-3 s), then KyMessages locks the MAS user. Re-enable unlocks; history stays.
+  0.3-3 s); KyMessages locks the MAS user and ends every MAS session and its refresh token,
+  which alone cuts within the same bound where no back-channel is registered. Re-enable
+  unlocks for a fresh sign-in; history stays.
 - Delete: MAS deactivates without erasing; the user leaves their rooms, their messages stay
   readable. Never reactivated.
 - A signed directory webhook triggers the change; a sweep every 5 minutes repairs failed MAS

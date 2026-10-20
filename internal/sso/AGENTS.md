@@ -28,6 +28,14 @@ Owns the application adapters around KyIdentity OAuth/OIDC login and the HMAC-SH
 - In managed mode the suite sync route uses the installer directory handler: positive
   canonical revisions, exact duplicate digest acceptance, stale/conflicting refusal and
   app claim `kymessage.admin`. Native unmanaged webhook behavior remains independent.
+  A subject setup does not own (`store.ErrNotInstallerOwned`) is a member: the handler passes
+  the verified event to `ApplyMemberEvent`, the native path above with role always `user`
+  (roles ignored), recorded and counted alike; this is the only way a KyIdentity row is
+  created under setup. Members never get a console session (sign-in admits owned identities only).
+  Members fail closed (`applyMember`): `user.deactivated` is an inactive update; `user.deleted`
+  keeps the row as `deleted` and no later event reactivates it; a field an event omits keeps
+  its stored value (a new member without a username takes its subject); any other event type
+  is `ErrMemberRefused`. Equal revisions with another body are acknowledged without effect, as natively.
 
 ## Verification
 - `go test -v ./internal/sso/...`

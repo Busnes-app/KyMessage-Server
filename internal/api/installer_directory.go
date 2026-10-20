@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
+	"github.com/Busnes-app/ky_server_base/internal/sso"
+	"github.com/Busnes-app/ky_server_base/internal/store"
 	protocol "github.com/elimity-com/scim"
 )
 
@@ -63,7 +66,25 @@ func (s *Server) handleInstallerDirectory(w http.ResponseWriter, r *http.Request
 	}
 	sum := sha256.Sum256(append([]byte(event.Type+"\x00"), raw...))
 	digest := hex.EncodeToString(sum[:])
-	if err = s.store.ApplyInstallerDirectory(r.Context(), s.config.SSO.KyIdentityIssuer, subject, event.Type, revision, digest, active, admin); err != nil {
+	err = s.store.ApplyInstallerDirectory(r.Context(), s.config.SSO.KyIdentityIssuer, subject, event.Type, revision, digest, active, admin)
+	if errors.Is(err, store.ErrNotInstallerOwned) {
+		// Someone KyIdentity assigned after setup: an ordinary chat member, no console access.
+		err = s.kyidentity.ApplyMemberEvent(r.Context(), event, raw)
+		switch {
+		case errors.Is(err, sso.ErrSyncMalformed):
+			s.writeError(w, 400, "Invalid directory resource")
+			return
+		case errors.Is(err, sso.ErrSyncUsernameConflict):
+			s.writeError(w, 409, err.Error())
+			return
+		case errors.Is(err, sso.ErrMemberRefused):
+			s.writeError(w, 422, "Directory revision or assigned identity refused")
+			return
+		case err != nil:
+			s.writeError(w, 500, "Directory update failed")
+			return
+		}
+	} else if err != nil {
 		s.writeError(w, 422, "Directory revision or assigned identity refused")
 		return
 	}

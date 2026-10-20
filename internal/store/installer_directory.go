@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// ErrNotInstallerOwned: a valid directory event for a subject installer setup did not create.
+// It is an ordinary member's, for the native directory path (sso.ApplyMemberEvent).
+var ErrNotInstallerOwned = errors.New("directory identity is not owned by installer setup")
+
 // ApplyInstallerDirectory receives authenticated, narrowed directory desired state.
 // It updates only an owned subject and preserves role, local credentials and tickets.
 func (s *SQLStore) ApplyInstallerDirectory(ctx context.Context, issuer, subject, event, version, digest string, active, administrator bool) error {
@@ -32,8 +36,11 @@ func (s *SQLStore) ApplyInstallerDirectory(ctx context.Context, issuer, subject,
 	hash := sha256.Sum256([]byte(issuer + "\x00" + subject))
 	key := "installer.user." + hex.EncodeToString(hash[:])
 	value, err := s.Settings().GetSetting(ctx, key)
+	if errors.Is(err, ErrNotFound) {
+		return ErrNotInstallerOwned
+	}
 	if err != nil {
-		return errors.New("directory identity is not assigned")
+		return err
 	}
 	var owned installerIdentity
 	if json.Unmarshal([]byte(value), &owned) != nil || owned.Issuer != issuer || owned.Subject != subject {
