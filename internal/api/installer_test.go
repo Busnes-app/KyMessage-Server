@@ -170,8 +170,8 @@ func TestInstallerOIDCRejectsUnassignedAndKeepsAdminOutOfChat(t *testing.T) {
 		t.Fatal(statuses, err)
 	}
 	actions := matrixsync.Plan([]matrixsync.User{{ID: "owner-mas", Username: "owner", Subject: "owner"}, {ID: "daily-mas", Username: "daily", Subject: "daily"}}, statuses, nil)
-	if len(actions) != 1 || actions[0].Kind != matrixsync.Lock || actions[0].User.ID != "owner-mas" {
-		t.Fatal("dedicated owner chat not locked", actions)
+	if len(actions) != 2 || actions[0].Kind != matrixsync.Lock || actions[1].Kind != matrixsync.EndSessions || actions[0].User.ID != "owner-mas" || actions[1].User.ID != "owner-mas" {
+		t.Fatal("dedicated owner chat not locked and cut", actions)
 	}
 	for _, sub := range []string{"owner", "daily", "unassigned"} {
 		response := idp.signIn(srv, map[string]any{"sub": sub, "preferred_username": "owner-admin", "email": "owner@example.test", "role": "admin", "auth_time": time.Now().Unix()})
@@ -206,6 +206,121 @@ func TestInstallerOIDCRejectsUnassignedAndKeepsAdminOutOfChat(t *testing.T) {
 	response := idp.signIn(srv, map[string]any{"sub": "owner"})
 	if response.Code == 302 || sessionCookie(response) != nil {
 		t.Fatal("missing credential allowed login")
+	}
+}
+
+// People KyIdentity assigns after setup are ordinary chat members, from its signed directory
+// only: kept active while assigned, cut when unassigned or deleted, never console users.
+func TestInstallerDirectoryAdmitsAssignedMembers(t *testing.T) {
+	ctx := context.Background()
+	_, st, cfg := setupTestServer(t)
+	cfg.Server.AppURL = "https://message.example.test"
+	idp := makeFakeIdP(t, cfg, true)
+	cfg.SSO.AutoProvision = false
+	dir := t.TempDir()
+	clientPath, directoryPath := filepath.Join(dir, "client"), filepath.Join(dir, "directory")
+	for _, path := range []string{clientPath, directoryPath} {
+		if err := os.WriteFile(path, []byte("disposable-private-secret"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := applysetup.Common{Schema: applysetup.Schema, Service: "kymessage", SetupID: "271333e2-c221-4601-b249-563b3d828530", SSO: &applysetup.SSO{IssuerURL: idp.issuer, ClientID: "client", ClientSecretFile: clientPath, DirectorySecretFile: directoryPath, RedirectURI: cfg.Server.AppURL + "/api/sso/kyidentity/callback"}, Admins: []applysetup.Identity{{Issuer: idp.issuer, Subject: "owner", Username: "owner-admin"}}, Everyday: []applysetup.Identity{{Issuer: idp.issuer, Subject: "daily", Username: "daily-user"}}}
+	if _, err := st.ApplyInstaller(ctx, b, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.ApplyInstallerConfiguration(cfg, b); err != nil {
+		t.Fatal(err)
+	}
+	srv := api.NewServer(cfg, st)
+	woken := 0
+	srv.OnDirectoryChange(func() { woken++ })
+	send := func(key []byte, event, id, body string) int {
+		r := httptest.NewRequest("POST", "/api/sso/kyidentity/sync", strings.NewReader(body))
+		h, err := syncauth.Sign(key, time.Now(), event, id, []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Apply(r)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		return w.Code
+	}
+	key := []byte(cfg.SSO.KyIdentityHMACSecret)
+	member := func(name string, active bool, rev int) string {
+		return fmt.Sprintf(`{"id":"member","userName":%q,"emails":[{"value":"member@example.test","primary":true}],"roles":[{"value":"admin","primary":true},{"value":"kymessage.admin"}],"active":%t,"meta":{"version":"W/\"%d\""}}`, name, active, rev)
+	}
+	// plan is the sweep's verdict for member's MAS account in the given lock state.
+	plan := func(locked bool) string {
+		statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kinds []string
+		for _, a := range matrixsync.Plan([]matrixsync.User{{ID: "m", Username: "member", Subject: "member", Locked: locked}}, statuses, nil) {
+			kinds = append(kinds, string(a.Kind))
+		}
+		return strings.Join(kinds, ",")
+	}
+	if got := plan(false); got != "lock,session_end" {
+		t.Fatalf("unknown person: %q", got)
+	}
+	if code := send([]byte("not-the-directory-secret-at-all!"), "user.created", "e0", member("member", true, 1)); code != 401 {
+		t.Fatalf("badly signed: %d", code)
+	}
+	if _, err := st.Users().GetUserBySSO(ctx, "kyidentity", "member"); err == nil {
+		t.Fatal("badly signed event created a member")
+	}
+	if code := send(key, "user.created", "e1", member("member", true, 1)); code != 204 {
+		t.Fatalf("assigned member: %d", code)
+	}
+	u, err := st.Users().GetUserBySSO(ctx, "kyidentity", "member")
+	if err != nil || u.Role != "user" || u.Status != "active" || u.Username != "member" || u.Email != "member@example.test" {
+		t.Fatalf("member %+v %v", u, err)
+	}
+	if got := plan(false); got != "" {
+		t.Fatalf("assigned member: %q", got)
+	}
+	if got := plan(true); got != "unlock" {
+		t.Fatalf("assigned member locked earlier: %q", got)
+	}
+	// A member never reaches the console, whatever role KyIdentity sends.
+	response := idp.signIn(srv, map[string]any{"sub": "member", "preferred_username": "member", "email": "member@example.test", "role": "admin", "auth_time": time.Now().Unix()})
+	if response.Code != 403 || sessionCookie(response) != nil {
+		t.Fatal("member signed in to the console", response.Code, response.Body)
+	}
+	if code := send(key, "user.updated", "e2", member("member", false, 2)); code != 204 {
+		t.Fatalf("unassigned: %d", code)
+	}
+	if got := plan(false); got != "lock,session_end" {
+		t.Fatalf("unassigned member: %q", got)
+	}
+	if code := send(key, "user.updated", "e1-late", member("member", true, 1)); code != 204 || plan(true) != "session_end" {
+		t.Fatalf("an older event revived the member: %d %q", code, plan(true))
+	}
+	if code := send(key, "user.updated", "e3", member("member", true, 3)); code != 204 || plan(true) != "unlock" {
+		t.Fatalf("reassigned: %d %q", code, plan(true))
+	}
+	if code := send(key, "user.created", "c1", `{"id":"clash","userName":"owner-admin","active":true,"meta":{"version":"W/\"1\""}}`); code != 409 {
+		t.Fatalf("username held by the owner: %d", code)
+	}
+	if owner, err := st.Users().GetUserBySSO(ctx, "kyidentity", "owner"); err != nil || owner.Username != "owner-admin" {
+		t.Fatalf("owner %+v %v", owner, err)
+	}
+	if code := send(key, "user.deleted", "e4", `{"id":"member","active":false,"meta":{"version":"W/\"4\""}}`); code != 204 || plan(true) != "deactivate" {
+		t.Fatalf("deleted: %d %q", code, plan(true))
+	}
+	if code := send(key, "user.created", "e5", member("member", true, 5)); code != 204 {
+		t.Fatalf("recreated: %d", code)
+	}
+	// Owned identities still take the installer path: the dedicated admin stays out of chat.
+	if code := send(key, "user.updated", "o1", `{"id":"owner","active":true,"roles":[{"value":"kymessage.admin"}],"meta":{"version":"W/\"1\""}}`); code != 204 {
+		t.Fatalf("owner: %d", code)
+	}
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["owner"] != "inactive" || statuses["member"] != "active" {
+		t.Fatal(statuses, err)
+	}
+	if woken != 7 {
+		t.Fatalf("sweep woken %d times, want once per accepted event", woken)
 	}
 }
 

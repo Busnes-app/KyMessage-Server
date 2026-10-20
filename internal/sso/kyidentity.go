@@ -129,13 +129,27 @@ var revisionPattern = regexp.MustCompile(`^W/"(-1|0|[1-9][0-9]{0,17})"$`)
 // memory (Rejections).
 func (k *KyIdentityClient) HandleSyncWebhook(ctx context.Context, headers syncauth.Headers, body []byte) error {
 	kind, err := k.applySyncWebhook(ctx, headers, body)
+	k.account(ctx, kind, err)
+	return err
+}
+
+// ApplyMemberEvent applies an event the installer directory already verified, for a subject
+// installer setup does not own: an ordinary member, never an administrator, whatever its roles.
+// Ordering, deletion and username conflicts are HandleSyncWebhook's; so is the record.
+func (k *KyIdentityClient) ApplyMemberEvent(ctx context.Context, event syncauth.Event, body []byte) error {
+	err := k.applyEvent(ctx, event, body, true)
+	k.account(ctx, event.Type, err)
+	return err
+}
+
+// account records an acknowledged delivery and counts a refused one.
+func (k *KyIdentityClient) account(ctx context.Context, kind string, err error) {
 	switch {
 	case err == nil:
 		k.recordDelivery(ctx, kind)
 	case errors.Is(err, ErrSyncUnauthorized), errors.Is(err, ErrSyncMalformed), errors.Is(err, ErrSyncUsernameConflict):
 		k.reject(err)
 	}
-	return err
 }
 
 // auditUsernameConflict records a directory username another account holds; merging the two
@@ -168,13 +182,18 @@ func (k *KyIdentityClient) applySyncWebhook(ctx context.Context, headers syncaut
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrSyncUnauthorized, err)
 	}
+	return event.Type, k.applyEvent(ctx, event, body, false)
+}
+
+// applyEvent applies one verified event; member forces the ordinary user role.
+func (k *KyIdentityClient) applyEvent(ctx context.Context, event syncauth.Event, body []byte, member bool) error {
 	var user DirectoryUser
 	if err := json.Unmarshal(body, &user); err != nil || user.ID == "" || user.Meta == nil {
-		return "", ErrSyncMalformed
+		return ErrSyncMalformed
 	}
 	match := revisionPattern.FindStringSubmatch(user.Meta.Version)
 	if match == nil {
-		return "", ErrSyncMalformed
+		return ErrSyncMalformed
 	}
 	revision, _ := strconv.ParseInt(match[1], 10, 64)
 	ev := store.DirectoryEvent{ID: event.ID, Revision: revision}
@@ -183,7 +202,7 @@ func (k *KyIdentityClient) applySyncWebhook(ctx context.Context, headers syncaut
 	defer k.syncMu.Unlock()
 	switch event.Type {
 	case "user.created", "user.updated", "user.mfa_reset":
-		return event.Type, k.upsertDirectoryUser(ctx, user, ev)
+		return k.upsertDirectoryUser(ctx, user, ev, member)
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -192,18 +211,18 @@ func (k *KyIdentityClient) applySyncWebhook(ctx context.Context, headers syncaut
 			existing, err = &store.User{SSOProvider: "kyidentity", SSOSubject: user.ID}, nil
 		}
 		if err != nil {
-			return event.Type, err
+			return err
 		}
 		_, err = k.store.Users().DeleteDirectoryUser(ctx, existing, ev)
-		return event.Type, err
+		return err
 	}
-	return event.Type, nil // other event types (groups) are not for this product
+	return nil // other event types (groups) are not for this product
 }
 
-func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent) error {
+func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool) error {
 	// KyIdentity sends this app's roles when it defines any, else the user's global role.
 	role := "user"
-	if primaryValue(in.Roles) == "admin" {
+	if !member && primaryValue(in.Roles) == "admin" {
 		role = "admin"
 	}
 	status := "inactive"

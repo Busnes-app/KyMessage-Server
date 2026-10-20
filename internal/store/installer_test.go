@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"testing"
@@ -176,5 +177,34 @@ func TestInstallerMFAResetFencesInFlightPairing(t *testing.T) {
 	// A pairing initiated from a pre-reset snapshot is refused.
 	if err = st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "late", UserID: u.ID, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}, snapshot.PasswordHash); err == nil {
 		t.Fatal("pairing created after MFA reset")
+	}
+}
+
+// Under setup, a subject setup did not create is a member: the installer directory hands it to
+// the signed directory path, the only one that may create a KyIdentity row then.
+func TestInstallerDirectoryMembersOnlyThroughTheDirectory(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	b := messageBundle()
+	if _, err := st.ApplyInstaller(ctx, b, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApplyInstallerDirectory(ctx, b.SSO.IssuerURL, "member", "user.created", "1", "m1", true, false); !errors.Is(err, store.ErrNotInstallerOwned) {
+		t.Fatalf("member: %v", err)
+	}
+	if err := st.ApplyInstallerDirectory(ctx, b.SSO.IssuerURL, "member", "user.created", "0", "m0", true, false); err == nil || errors.Is(err, store.ErrNotInstallerOwned) {
+		t.Fatalf("revision 0 reached the member path: %v", err)
+	}
+	member := func(id string) *store.User {
+		return &store.User{ID: id, Username: id, Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: id}
+	}
+	if err := st.Users().CreateUser(ctx, member("signin")); err == nil {
+		t.Fatal("a KyIdentity row created outside the directory under setup")
+	}
+	if ok, err := st.Users().CreateDirectoryUser(ctx, member("member"), store.DirectoryEvent{ID: "e1", Revision: 1}); !ok || err != nil {
+		t.Fatalf("directory member: %v %v", ok, err)
+	}
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["member"] != "active" || statuses["signin"] != "" {
+		t.Fatal(statuses, err)
 	}
 }

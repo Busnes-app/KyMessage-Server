@@ -230,6 +230,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `clientIp`, `proxyHeadersTrusted`, `scheme`, with `no-store`, using native peer trust.
 - `POST /api/installer/directory` and the managed suite sync alias verify the protected
   HMAC credential before owned, revision-fenced authority updates and wake the MAS sweep.
+  A subject setup does not own goes to `sso.ApplyMemberEvent` as an ordinary member: 204,
+  400 malformed, 409 username held by another account, 500 on a store failure
+  (`TestInstallerDirectoryAdmitsAssignedMembers`).
 - Managed owner settings omit ordinary `chat_url`; installer ownership is omitted from
   `extra_settings`. MAS assignment separation remains a central composition gate.
 
