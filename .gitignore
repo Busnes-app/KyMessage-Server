@@ -40,3 +40,7 @@ coverage.out
 # Matrix acceptance harness (scripts/matrix-acceptance.sh)
 scripts/matrix-acceptance/node_modules/
 scripts/matrix-acceptance/artifacts/
+
+# Meeting-notes bot
+notes/node_modules/
+notes/out/

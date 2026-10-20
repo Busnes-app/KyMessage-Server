@@ -30,6 +30,7 @@ type agentMAS struct {
 	activity    map[string]matrixsync.Activity
 	activityErr error
 	mintErr     error
+	rotateErr   error // the regenerate of a live session fails
 	// mintHeld, when set, receives each mint's arrival; the mint then waits for mintGate.
 	mintHeld, mintGate chan struct{}
 	// onRevoke, when set, runs before a revoke is recorded: a concurrent change landing then.
@@ -72,6 +73,9 @@ func (f *fakeMAS) RotateAgentToken(ctx context.Context, userID, deviceID, sessio
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ag.rotateErr != nil {
+		return "", "", f.ag.rotateErr
+	}
 	f.ag.n++
 	f.ag.regenerated = append(f.ag.regenerated, sessionID)
 	return sessionID, fmt.Sprintf("mpt_secret%02d", f.ag.n), nil

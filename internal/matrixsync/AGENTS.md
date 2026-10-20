@@ -29,6 +29,10 @@ supplies subject → status.
   `Plan` skips exactly that username while it has no link and is not `Ambiguous`, so the sweep
   never locks or unlocks it; linked, it is judged as a person. Locking it in MAS cuts the
   console's Synapse admin access.
+- The meeting-notes bot is MAS user `kymessages-notes` (`NotesUsername`), ensured by
+  `EnsureNotesUser` under the console account's rules and exempt from `Plan` on the same terms
+  (unlinked, not ambiguous). `MintNotesToken` is `MintAgentToken` with its own session name;
+  rotate and revoke reuse the agent calls.
 - `AsConsole` mints one MAS personal session per action: scope exactly
   `urn:matrix:client:api:* urn:synapse:admin:*`, `expires_in` 300, `human_name`
   `KyMessages console`. The mint runs on a detached `ConsoleCallTimeout` (10 s) context, so a session MAS creates while

@@ -38,7 +38,7 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   passes it as a secret file to postgres only. The app mounts `./matrix` piece by piece, every
   other secret included (`TestComposeMountsEverySecretButTheSuperusers`; add a new secret there). The capsule leaves it out, so after a
   restore `matrix-init` creates it and keeps every restored secret
-  (`TestInitRegeneratesOnlyAMissingSecret`). `secrets/kybackup_db_password` is the read-only `kybackup` backup role's password;
+  (`TestInitRegeneratesOnlyAMissingSecret`). `secrets/notes_api_secret` authenticates the meeting-notes bot to KyMessages (the app's `KY_MATRIX_NOTES_SECRET_FILE`; the bot's overlay mounts it too); a stack set up before it gets it from one `matrix-init` re-run. `secrets/kybackup_db_password` is the read-only `kybackup` backup role's password;
   `kybackup-role.sql` is idempotent, sorts after `init.sql` for the entrypoint, and operators run it once
   on an existing stack (printed on the second pass). Rotation: deleting `secrets/synapse_db_password` or
   `mas_db_password` makes a new one, but `init.sql` runs only on an empty volume, so

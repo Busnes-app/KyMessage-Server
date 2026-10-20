@@ -27,7 +27,11 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   errcode-less 404 is a routing error and stays an error.
 - No method deletes media. Synapse's room media listing names any local media a plaintext
   event references, including media other rooms use, so it cannot scope a deletion.
-- Messages are never read: no method fetches events.
+- Messages are never read. `AdminInvite` (the meeting-notes inviter check) reads room state by
+  type and fetches only the given user's own earlier membership events, walking joins back to
+  the invite; any other event it is handed (another user, room or type) ends the walk with no
+  inviter. Admin means room creator (`m.room.create` sender or `additional_creators`) or power
+  level 100. Lookup failures are errors, never a verdict.
 
 ## Verification
 - `go test -race ./internal/synapseadmin/`

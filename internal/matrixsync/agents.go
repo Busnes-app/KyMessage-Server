@@ -74,7 +74,16 @@ type personalSession struct {
 // after 90 days unused (ExpireIdleAgents). MAS creates the device on Synapse at once. Detached, as in AsConsole: a session MAS creates
 // while ctx ends is still known, and one returned without a token is revoked.
 func (c *Client) MintAgentToken(ctx context.Context, userID, deviceID string) (string, string, error) {
-	body, err := json.Marshal(map[string]any{"actor_user_id": userID, "human_name": "KyMessages agent", "scope": agentScope(deviceID)})
+	return c.mintDeviceToken(ctx, userID, deviceID, "KyMessages agent")
+}
+
+// MintNotesToken is MintAgentToken for the meeting-notes bot: the same scope, no expiry.
+func (c *Client) MintNotesToken(ctx context.Context, userID, deviceID string) (string, string, error) {
+	return c.mintDeviceToken(ctx, userID, deviceID, "KyMessages meeting notes")
+}
+
+func (c *Client) mintDeviceToken(ctx context.Context, userID, deviceID, name string) (string, string, error) {
+	body, err := json.Marshal(map[string]any{"actor_user_id": userID, "human_name": name, "scope": agentScope(deviceID)})
 	if err != nil {
 		return "", "", err
 	}

@@ -101,7 +101,7 @@ proposed; D8 open. Task 0 done 2026-10-14 (`scripts/agent-probe/probe.sh`, pinne
 - **D7 — No calls, until a Meeting Recording Agent.** (Decided 2026-10-14.) Agents are text
   participants. Already true: an agent has no KyIdentity link, so the call authorizer refuses
   it (`Chat access is disabled`); the RTC test pins it. The sweep's owner rule must never reach
-  `activeCallUsers`. A Meeting Recording Agent is its own later plan; it reopens this decision.
+  `activeCallUsers`. A Meeting Recording Agent is its own later plan; it reopens this decision. Reopened for one server-owned bot by `2026-10-20-meeting-notes.md`; agents stay text-only.
 - **D8 — Display names.** *Open; needs Yoshi.* An agent can rename itself to anything ("Alice
   Admin"). Its MXID always starts with `@agent-`, and the skill asks it to keep its name, but
   nothing enforces that. Options: accept and warn (current); Synapse

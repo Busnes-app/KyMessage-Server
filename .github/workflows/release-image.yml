@@ -1,7 +1,8 @@
 name: publish release image
 
-# A published release vX.Y.Z publishes the immutable :X.Y.Z image, attests and
-# verifies it, then moves :stable. The only workflow that publishes an image.
+# A published release vX.Y.Z publishes the immutable :X.Y.Z images (the server and the
+# meeting-notes bot), attests and verifies each, then moves :stable. The only workflow that
+# publishes an image.
 on:
   release:
     types: [published]
@@ -17,6 +18,16 @@ permissions:
 
 jobs:
   publish:
+    strategy:
+      # One image failing must not leave the other half released unnoticed: each job is red
+      # on its own, and the other still finishes attesting what it pushed.
+      fail-fast: false
+      matrix:
+        include:
+          - image: ghcr.io/busnes-app/kymessage-server
+            context: .
+          - image: ghcr.io/busnes-app/kymessage-notes
+            context: notes
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -26,7 +37,7 @@ jobs:
       attestations: write
       checks: read
     env:
-      IMAGE_NAME: ghcr.io/busnes-app/kymessage-server
+      IMAGE_NAME: ${{ matrix.image }}
     steps:
       # Red, not skipped: a skipped job is green and leaves a release with no image.
       - name: Validate release version
@@ -98,6 +109,7 @@ jobs:
             Vulnerability scan
             End-to-end smoke test
             Docker image build & run
+            Meeting-notes bot (tests & image)
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
@@ -136,7 +148,7 @@ jobs:
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          context: ${{ matrix.context }}
           push: true
           tags: ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.value }}
           provenance: mode=max

@@ -29,3 +29,5 @@
 
 # The frontend stage builds its own assets; never overlay stale embedded output.
 /web/dist/
+# The meeting-notes bot builds from its own context (notes/Dockerfile).
+/notes/

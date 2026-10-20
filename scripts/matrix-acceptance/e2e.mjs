@@ -32,7 +32,9 @@ async function launch(name, profile = `${scenario}-${name}`) {
   const ctx = await chromium.launchPersistentContext(`${dir}/profiles/${profile}`, {
     viewport: { width: 1280, height: 900 },
     permissions: ['camera', 'microphone'],
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--host-resolver-rules=MAP turn.kymatrix.test 127.0.0.1, MAP *.kymatrix.test 127.0.0.1:${port}`],
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--host-resolver-rules=MAP turn.kymatrix.test 127.0.0.1, MAP *.kymatrix.test 127.0.0.1:${port}`,
+      // The notes step's participant speaks a known sentence, and its page records what it hears.
+      ...(process.env.KYMATRIX_ACCEPT_FAKE_AUDIO ? [`--use-file-for-fake-audio-capture=${process.env.KYMATRIX_ACCEPT_FAKE_AUDIO}`, '--autoplay-policy=no-user-gesture-required'] : [])],
   });
   await ctx.addInitScript(({force, turnPort}) => {
     window.kyCallPeers = [];
@@ -614,7 +616,105 @@ async function calls(restored = false) {
   out({group:rooms.group, dm:rooms.dm, video, voice});
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title, owner, agent };
+// Meeting notes (scripts/matrix-acceptance.sh, step notes). USER owns the rooms.
+const NOTES = `@kymessages-notes:${SERVER}`;
+const memberOf = (page, id, who, membership) => page.waitForFunction(({ id, who, membership }) =>
+  window.mxMatrixClientPeg.get().getRoom(id)?.getMember(who)?.membership === membership, { id, who, membership }, { timeout: 120000 });
+const synced = (page) => page.waitForFunction(() => window.mxMatrixClientPeg.get()?.getSyncState() === 'SYNCING', null, { timeout: 60000 });
+
+// A member without power level 100 invites the bot: it refuses in the room and leaves.
+async function notesinvite() {
+  const owner = await resume(user, 'agent-owner');
+  const member = await resume('bob', 'prove-bob');
+  await Promise.all([synced(owner), synced(member)]);
+  const id = await createRoom(owner, `kymatrix-notes-member-${tag}`);
+  await invite(owner, `@bob:${SERVER}`);
+  await memberOf(member, id, `@bob:${SERVER}`, 'invite');
+  await openRoom(member, id, true);
+  await invite(member, NOTES);
+  await sees(owner, "Only the room's creator or an admin can invite meeting notes");
+  await memberOf(owner, id, NOTES, 'leave');
+  console.log('  ok: the bot left the room a member invited it to');
+  out({ room: id });
+}
+
+// USER invites the bot, starts a video call speaking KYMATRIX_ACCEPT_FAKE_AUDIO, pauses and
+// resumes it by chat command, hangs up, and reads the notes. Element Call's decoded audio from
+// the bot goes to state/notes-heard.wav.
+async function notesmeeting() {
+  const page = await resume(user, 'agent-owner');
+  await synced(page);
+  const id = await createRoom(page, `kymatrix-notes-${tag}`);
+  await invite(page, NOTES);
+  await memberOf(page, id, NOTES, 'join');
+  await sees(page, 'Meeting notes will join the next call in this room');
+  // A video call: the bot must take the audio and never subscribe to the camera.
+  await page.getByRole('button', { name: /Video call|Start video call/i }).first().click();
+  const call = page.frameLocator('iframe[title="Element Call"]');
+  const end = call.getByRole('button', { name: 'End call', exact: true });
+  for (let i = 0; i < 30 && !(await end.isVisible()); i++) {
+    for (const b of [page, call].map((p) => p.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first())) if (await b.isVisible()) await b.click();
+    await page.waitForTimeout(1000);
+  }
+  await end.waitFor();
+  console.log('  ok: in the call');
+  // Tap each remote audio track as Element Call decrypted and decoded it.
+  const tap = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
+    window.kyHeard ??= {};
+    for (const pc of window.kyCallPeers ?? []) for (const r of pc.getReceivers()) {
+      if (r.track?.kind !== 'audio' || window.kyHeard[r.track.id]) continue;
+      const ctx = (window.kyAudio ??= new AudioContext());
+      const chunks = (window.kyHeard[r.track.id] = { rate: ctx.sampleRate, chunks: [] }).chunks;
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      proc.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      ctx.createMediaStreamSource(new MediaStream([r.track])).connect(proc);
+      proc.connect(ctx.destination);
+    }
+  }).catch(() => {})));
+  const say = (body) => page.evaluate(({ id, body }) => window.mxMatrixClientPeg.get().sendTextMessage(id, body), { id, body });
+  for (let i = 0; i < 80; i++) {
+    await tap();
+    if (i === 40) await say('!notes pause');
+    if (i === 56) await say('!notes resume');
+    await page.waitForTimeout(500);
+  }
+  let best;
+  for (const f of page.frames()) {
+    const tracks = await f.evaluate(() => Object.values(window.kyHeard ?? {}).map(({ rate, chunks }) => {
+      const pcm = new Int16Array(chunks.reduce((n, c) => n + c.length, 0));
+      let o = 0, energy = 0;
+      for (const c of chunks) for (const v of c) { pcm[o++] = Math.max(-1, Math.min(1, v)) * 32767; energy += v * v; }
+      let bin = '';
+      const bytes = new Uint8Array(pcm.buffer);
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { rate, energy, pcm: btoa(bin) };
+    })).catch(() => []);
+    for (const t of tracks) if (!best || t.energy > best.energy) best = t;
+  }
+  check(best?.energy > 0, 'Element Call decoded audible audio from the bot');
+  const pcm = Buffer.from(best.pcm, 'base64');
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVEfmt ', 8); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(best.rate, 24); h.writeUInt32LE(best.rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(pcm.length, 40);
+  fs.writeFileSync(`${dir}/state/notes-heard.wav`, Buffer.concat([h, pcm]));
+  // Hang up; alone, the bot ends the meeting, posts the notes and leaves.
+  await end.click();
+  await end.waitFor({ state: 'hidden' });
+  await openRoom(page, id, false);
+  await sees(page, 'Meeting notes joined the call. This meeting is being recorded for note taking.');
+  await sees(page, 'Note taking paused by');
+  await sees(page, 'Note taking resumed by');
+  await timeline(page).getByText(/Meeting notes: kymatrix-notes-/).waitFor({ timeout: 180000 });
+  const notes = await timeline(page).getByText(/Meeting notes: kymatrix-notes-/).last().innerText();
+  console.log(`  notes:\n${notes.replace(/^/gm, '    ')}`);
+  check(/budget review moves to tuesday/i.test(notes), "the notes hold the owner's sentence");
+  check(/Paused by .+ until \d\d:\d\d/.test(notes), 'the notes mark the pause');
+  await memberOf(page, id, NOTES, 'leave');
+  console.log('  ok: the bot left the room after the meeting');
+  out({ room: id, heardSeconds: pcm.length / 2 / best.rate });
+}
+
+const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

@@ -45,6 +45,9 @@ type MatrixConfig struct {
 	RTCHost       string `json:"rtc_host"`
 	RTCKey        string `json:"-"`
 	RTCSecret     string `json:"-"`
+	// NotesSecret authenticates the meeting-notes bot to /api/notes/session; "" turns the
+	// feature off. Requires calls (RTCHost).
+	NotesSecret string `json:"-"`
 	// Backups: matrix-init's output and Synapse's media store, both mounted read-only, the
 	// Postgres host on matrix-db, and the read-only kybackup role's password.
 	Dir              string `json:"dir"`
@@ -391,6 +394,16 @@ func matrixFromEnv() (MatrixConfig, error) {
 		}
 	} else if getEnv("KY_MATRIX_RTC_KEY_FILE", "") != "" || getEnv("KY_MATRIX_RTC_SECRET_FILE", "") != "" {
 		return MatrixConfig{}, errors.New("KY_MATRIX_RTC_HOST is required with call secrets")
+	}
+	if f := getEnv("KY_MATRIX_NOTES_SECRET_FILE", ""); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil || len(b) < 32 || len(b) > 256 || strings.ContainsFunc(string(b), unicode.IsControl) {
+			return MatrixConfig{}, errors.New("KY_MATRIX_NOTES_SECRET_FILE must name a readable secret of 32-256 bytes without control characters")
+		}
+		if m.RTCHost == "" {
+			return MatrixConfig{}, errors.New("KY_MATRIX_RTC_HOST is required with KY_MATRIX_NOTES_SECRET_FILE")
+		}
+		m.NotesSecret = string(b)
 	}
 	m.ElementRestartHint = getEnv("KY_MATRIX_ELEMENT_RESTART_HINT", DefaultElementRestartHint)
 	m.SynapseRestartHint = getEnv("KY_MATRIX_SYNAPSE_RESTART_HINT", DefaultSynapseRestartHint)

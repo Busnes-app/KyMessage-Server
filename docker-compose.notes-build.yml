@@ -1,0 +1,11 @@
+# Source build of the meeting-notes bot; append after docker-compose.notes.yml. Tagged
+# kymessages-notes:local so it never occupies the published name.
+services:
+  notes-data-owner:
+    image: kymessages-notes:local
+    pull_policy: never
+  notes:
+    image: kymessages-notes:local
+    pull_policy: build
+    build:
+      context: ./notes

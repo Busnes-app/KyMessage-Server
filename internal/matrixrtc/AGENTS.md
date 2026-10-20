@@ -16,7 +16,7 @@ and the stock LiveKit config. Media encryption stays in Element.
   is the verified Matrix ID, used for eviction; room metadata is the Matrix room ID.
 - Room API requests ignore proxy environment variables and follow no redirects. Errors
   report operation/status without tokens, secrets or response bodies.
-- Active calls are ephemeral: configs and keys are backed up; calls are not recorded or restored.
+- Active calls are ephemeral: configs and keys are backed up; the server records no call and restores none. The meeting-notes bot is an invited participant (`internal/api` notes rules), not server recording.
 
 ## Work Guidance
 Use stock Element and LiveKit. Implement only the client protocol used by the pinned Element

@@ -52,6 +52,10 @@ type MatrixAdmin interface {
 	RotateAgentToken(ctx context.Context, userID, deviceID, sessionID string) (newSessionID, token string, err error)
 	RevokeAgentSession(ctx context.Context, sessionID string) error
 	AgentActivity(ctx context.Context, sessionID string) (matrixsync.Activity, error)
+
+	// The meeting-notes bot (notes_handlers.go).
+	EnsureNotesUser(ctx context.Context) (string, error)
+	MintNotesToken(ctx context.Context, userID, deviceID string) (sessionID, token string, err error)
 }
 
 // RoomAdmin is the Synapse admin surface the console uses; *synapseadmin.Client implements it.
@@ -63,6 +67,7 @@ type RoomAdmin interface {
 	Close(ctx context.Context, token, id string) (string, error)
 	Delete(ctx context.Context, token, id string) (string, error)
 	DeleteJobs(ctx context.Context, token, id string) ([]synapseadmin.DeleteJob, error)
+	AdminInvite(ctx context.Context, token, room, user string) (inviter string, ok bool, err error)
 }
 
 type Server struct {
@@ -102,6 +107,8 @@ type Server struct {
 	fedMu      sync.Mutex
 	fedFailing bool
 	fedErr     string
+	// notesMu serialises the meeting-notes switch and the bot's session requests.
+	notesMu sync.Mutex
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -377,6 +384,12 @@ func (s *Server) routes() {
 	// Revoke cuts access, so it is one click, like narrowing federation.
 	s.mux.HandleFunc("POST /api/admin/agents/{id}/revoke", s.tracked(s.requireAdmin(s.handleAgentRevoke)))
 	s.mux.HandleFunc("DELETE /api/admin/agents/{id}", s.tracked(s.requireFreshAdmin(s.handleAgentDelete)))
+	// Meeting notes. Turning on needs a recent sign-in; turning off cuts access, so one click.
+	// The bot authenticates its session request with matrix-init's notes secret.
+	s.mux.HandleFunc("GET /api/admin/notes", s.requireAdmin(s.handleNotes))
+	s.mux.HandleFunc("POST /api/admin/notes/enable", s.tracked(s.requireFreshAdmin(s.handleNotesEnable)))
+	s.mux.HandleFunc("POST /api/admin/notes/disable", s.tracked(s.requireAdmin(s.handleNotesDisable)))
+	s.mux.HandleFunc("POST /api/notes/session", s.tracked(s.handleNotesSession))
 	s.mux.HandleFunc("GET /api/admin/matrix/rooms", s.requireAdmin(s.handleRooms))
 	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}", s.requireAdmin(s.handleRoom))
 	s.mux.HandleFunc("GET /api/admin/matrix/rooms/{id}/delete-status", s.requireAdmin(s.handleRoomJobs))

@@ -328,6 +328,34 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 			t.Fatal("invalid credential handling", err)
 		}
 	})
+	t.Run("meeting notes secret", func(t *testing.T) {
+		secret := filepath.Join(t.TempDir(), "notes")
+		value := strings.Repeat("n", 64)
+		if err := os.WriteFile(secret, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("KY_MATRIX_NOTES_SECRET_FILE", secret)
+		// Notes join calls: refused without them.
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_MATRIX_RTC_HOST is required") {
+			t.Fatalf("notes without calls: %v", err)
+		}
+		t.Setenv("KY_MATRIX_RTC_HOST", "https://sfu.example.com")
+		t.Setenv("KY_MATRIX_RTC_KEY_FILE", secret)
+		t.Setenv("KY_MATRIX_RTC_SECRET_FILE", secret)
+		cfg, err := config.LoadFromEnv()
+		if err != nil || cfg.Matrix.NotesSecret != value {
+			t.Fatalf("notes secret: %v", err)
+		}
+		if raw, _ := json.Marshal(cfg.Matrix); bytes.Contains(raw, []byte(value)) {
+			t.Fatal("notes secret serialized")
+		}
+		if err := os.WriteFile(secret, []byte("short"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := config.LoadFromEnv(); err == nil || strings.Contains(err.Error(), "short") {
+			t.Fatalf("short notes secret: %v", err)
+		}
+	})
 	// Without the webhook secret every directory delivery is refused, so a KyIdentity disable
 	// or delete never reaches MAS.
 	t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "")

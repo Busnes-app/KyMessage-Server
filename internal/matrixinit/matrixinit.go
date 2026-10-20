@@ -208,6 +208,7 @@ var secretSpecs = []struct {
 	{"mas_admin_client_id", newULID, true},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
 	{"mas_admin_client_secret", hexSecret, true}, // mounted into KyMessages, never in env
 	{"kybackup_db_password", hexSecret, true},    // read-only backup role; KyMessages reads it as a Compose secret
+	{"notes_api_secret", hexSecret, true},        // the meeting-notes bot's key to KyMessages' /api/notes/session
 }
 
 // Run validates in fully, then writes the configuration under dir.
