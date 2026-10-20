@@ -12,7 +12,9 @@ attestation, and only after CI passed on the tagged commit. `docker compose pull
 newer release. To stay on one release, pin it by digest in `KY_IMAGE` after verifying its
 attestation; `docker-compose.yml` has the command.
 
-Protect `.env` with mode 0600 and export `KY_ADMIN_PASSWORD` as above. The container
+Protect `.env` with mode 0600. Set `KY_ADMIN_PASSWORD` using the
+[read-without-echo and export procedure](DEVELOPMENT.md#build-and-inspect-locally)
+so the password stays out of shell history. The container
 never runs as root: create `./data` and `./backups` as yourself and set `KY_UID` and `KY_GID`
 in `.env` to your `id -u` and `id -g` (Compose refuses to start without them). It also drops
 every capability and runs with a read-only root filesystem; only `./data`, `./backups` and a

@@ -18,7 +18,7 @@ an "Open chat" link for members; without it they see a page saying chat is not a
 ## What it can do
 
 - Manage the Matrix stack through the operator console.
-- Use KyIdentity for member sign-in and configured Matrix clients for encrypted chat.
+- Use KyIdentity for member sign-in and Element for chat: **End-to-end encrypted in Element (not independently audited)**. Synapse does not enforce encryption; members should use Element. See [Matrix chat](docs/CHAT-SETUP.md#matrix-chat).
 - Add agents, federation or voice/video calling through their separate setup paths.
 - Keep acceptance gates and complete Matrix/media recovery requirements explicit.
 
