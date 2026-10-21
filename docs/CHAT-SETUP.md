@@ -58,7 +58,9 @@ client secret once, when you register the client the first run describes.
    file is created closed; Settings owns it after.
 3. In KyIdentity, register the printed confidential client (client ID, redirect URI, back-channel
    logout URI, scopes `openid profile email`) and assign the users who may chat. Unassigned
-   users cannot sign in. A user's Matrix ID comes from their KyIdentity email once KyIdentity
+   users cannot sign in: they end on MAS's generic upstream error page, with no hint to ask
+   you, so tell members that this page means they need to be assigned. A user's Matrix ID
+   comes from their KyIdentity email once KyIdentity
    has verified it (the user redeemed an activation or reset link it mailed; configure
    KyIdentity's mail delivery, as a link handed over by hand does not verify): its local part,
    lowercased, with characters outside `[a-z0-9._=-]` replaced by `_`

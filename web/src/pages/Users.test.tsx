@@ -46,6 +46,8 @@ describe('Users', () => {
     expect(await screen.findByText('@alice:example.com')).toBeTruthy();
     expect(screen.getAllByText('Not linked')).toHaveLength(2);
     expect(screen.getByRole('note').textContent).toContain('Access is controlled in KyIdentity');
+    // Information, not a warning or an error: the Busnes accent reads as red.
+    expect(screen.getByRole('note').className).toBe('dr-alert dr-alert-info');
     expect(screen.getByRole('link', { name: /Open KyIdentity/ }).getAttribute('href')).toBe('https://id.example.com');
     expect(screen.queryByRole('button', { name: /lock/i })).toBeNull();
     expect(calls[0]).toBe('GET /api/admin/matrix/users?search=&offset=0&limit=50');

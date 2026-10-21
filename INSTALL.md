@@ -7,6 +7,8 @@ README’s upgrade/restore procedure for an existing instance. Keep its volumes,
 configuration and Compose overlays; do not replace its environment files with examples.
 
 Use Linux with Docker Engine and Docker Compose 2.24 or newer, Git, and permission to use Docker.
+Rootless Podman is not supported yet: it maps the `--user` and `KY_UID` IDs these steps use to
+subordinate host IDs that cannot write the checkout ([#75](https://github.com/Busnes-app/KyMessage-Server/issues/75)).
 Choose a release/revision and use its matching Compose files and documentation. Image tags
 can move: follow the README/Compose attestation and digest-pinning procedure before relying
 on a published image. Source builds use the separate build overlay where provided.

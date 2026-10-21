@@ -163,7 +163,7 @@ export const Users: React.FC = () => {
   return (
     <div className="dr-page">
       <div className="dr-header"><h1>Users</h1></div>
-      <div className="dr-alert dr-alert-warn" role="note">
+      <div className="dr-alert dr-alert-info" role="note">
         <span>
           Access is controlled in KyIdentity, which the sync enforces: lock, unlock or remove people there.{' '}
           {page?.directory_url.startsWith('https://') && (
