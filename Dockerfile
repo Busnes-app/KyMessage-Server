@@ -1,7 +1,7 @@
 # Multi-stage build for kymessages
 
 # Stage 1: Build React PWA Frontend
-FROM node:26-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS frontend-builder
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS frontend-builder
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
