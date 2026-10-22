@@ -1,7 +1,7 @@
 # KyMessages meeting-notes bot. Build context: notes/. glibc base: the LiveKit and ONNX
 # runtimes ship glibc binaries. Models are fetched here at pinned revisions and checked
 # (models.txt); the runtime image never downloads.
-FROM node:26-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS build
+FROM node:26.12.1-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS build
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -15,7 +15,7 @@ COPY models.txt fetch-models.sh ./
 RUN sh fetch-models.sh models.txt /models >/dev/null
 COPY src ./src
 
-FROM node:26-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4
+FROM node:26.12.1-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec
 WORKDIR /app
 COPY --from=build /app/package.json /app/
 COPY --from=build /app/node_modules /app/node_modules
