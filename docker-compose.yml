@@ -9,7 +9,7 @@ services:
     # version tag, never :stable (it moves; resolve the version it should be). The new .env is
     # staged here and renamed over the old one only after a full write, so a failed check never
     # touches your secrets:
-    #   v=0.4.4; i=ghcr.io/busnes-app/kymessage-server \
+    #   v=0.4.5; i=ghcr.io/busnes-app/kymessage-server \
     #     && sha=$(gh api "repos/Busnes-app/KyMessage-Server/commits/refs/tags/v$v" --jq .sha) \
     #     && d=$(docker buildx imagetools inspect "$i:$v" --format '{{.Manifest.Digest}}') \
     #     && gh attestation verify "oci://$i@$d" --repo Busnes-app/KyMessage-Server \
