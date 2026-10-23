@@ -1,5 +1,7 @@
 # KyMessages on the K80/K81 cluster
 
+> Hostnames are placeholders: `example.com` stands for the deployment's mail and Matrix domain, `example.net` for its cluster and LAN domain.
+
 Date: 2026-10-02. Deploys the shipped Matrix stack (`docker-compose.matrix.yml`) to the Ky
 cluster. The manifests and runbook live in `busnes.app/ky-kubernetes/` (not versioned); this spec is their
 design record. That directory's AGENTS.md binds every step (dry-run, Secrets out of band,
@@ -13,14 +15,14 @@ More users are added later with no redeploy.
 
 ## Decisions (owner-approved 2026-10-02)
 
-1. Matrix server name `urlxl.com` (user IDs `@yoshi:urlxl.com`; permanent).
-2. Hostnames: `msg.urlxl.com` (Element), `msg-matrix.urlxl.com` (Synapse), `msg-auth.urlxl.com`
-   (MAS), `msg-admin.urlxl.com` (KyMessages console and app).
-3. The apex `urlxl.com` (today a proxied CNAME to the invalid target `github.com/yoshiofthewire`,
+1. Matrix server name `example.com` (user IDs `@yoshi:example.com`; permanent).
+2. Hostnames: `msg.example.com` (Element), `msg-matrix.example.com` (Synapse), `msg-auth.example.com`
+   (MAS), `msg-admin.example.com` (KyMessages console and app).
+3. The apex `example.com` (today a proxied CNAME to the invalid target `github.com/yoshiofthewire`,
    answering 530) points at the K8 tunnel; only `/.well-known/matrix/client` reaches KyMessages;
    a Cloudflare redirect rule sends every other path to `https://github.com/yoshiofthewire`.
    MX records are untouched.
-4. One real user, no throwaway account. Paired to KyRecovery (`kyrecovery.urlxl.us`) at once.
+4. One real user, no throwaway account. Paired to KyRecovery (`kyrecovery.example.net`) at once.
 
 ## Section 1: workloads, images, storage
 
@@ -56,17 +58,17 @@ More users are added later with no redeploy.
   Postgres 5432, MAS 8080 and 8081, Synapse 8008, Element 8080; Synapse → Postgres, MAS 8080;
   MAS → Postgres, Synapse 8008 (user provisioning).
 - Egress (`kymessages-egress.yaml`): app and MAS get public HTTPS (KyIdentity at
-  `auth.urlxl.com`); the app also gets `192.168.1.91:443` (admin02 Nginx, KyRecovery).
+  `auth.example.com`); the app also gets `192.168.1.91:443` (admin02 Nginx, KyRecovery).
   Synapse gets public HTTPS for push gateways (Element mobile), as in Compose; federation
   and URL previews are off. Element and Postgres get none.
 - `verify-network.sh` adds denials: another Ky app refused by Postgres and `mas-admin`;
   Synapse refused by MAS 8081.
-- Tunnel `HLUSWCK8` routes, in order: `urlxl.com` path `^/\.well-known/matrix/client$` →
-  `kymessages:8080`; `msg-matrix.urlxl.com` path `^/_synapse/(admin|mas)/` → 404;
-  `msg-matrix.urlxl.com` → `synapse:8008`; `msg-auth.urlxl.com` → `mas:8080`; `msg.urlxl.com`
-  → `element:8080`; `msg-admin.urlxl.com` → `kymessages:8080`. MAS 8081 is never routed.
+- Tunnel `HLUSWCK8` routes, in order: `example.com` path `^/\.well-known/matrix/client$` →
+  `kymessages:8080`; `msg-matrix.example.com` path `^/_synapse/(admin|mas)/` → 404;
+  `msg-matrix.example.com` → `synapse:8008`; `msg-auth.example.com` → `mas:8080`; `msg.example.com`
+  → `element:8080`; `msg-admin.example.com` → `kymessages:8080`. MAS 8081 is never routed.
 - DNS: proxied CNAMEs to the tunnel for the four `msg-*` names and the apex. Redirect rule:
-  host `urlxl.com` and path not starting `/.well-known/matrix/` → 301 to
+  host `example.com` and path not starting `/.well-known/matrix/` → 301 to
   `https://github.com/yoshiofthewire`; needs the token's redirect-rule scope. Existing route,
   DNS and rule configs are saved privately before any change.
 - KyMessages change: `KY_MATRIX_ELEMENT_RESTART_HINT` sets the Settings restart command
@@ -89,9 +91,9 @@ More users are added later with no redeploy.
   pairing audit row); compare the pinned key's fingerprint with KyRecovery's ceremony page.
 - **Gate** (all must pass):
   - Health: every component up on its pin.
-  - `https://urlxl.com/.well-known/matrix/client` returns the client JSON; `https://urlxl.com/`
+  - `https://example.com/.well-known/matrix/client` returns the client JSON; `https://example.com/`
     redirects to GitHub; MX unchanged.
-  - Yoshi signs in to Element at `msg.urlxl.com` through KyIdentity, sets up keys, creates an
+  - Yoshi signs in to Element at `msg.example.com` through KyIdentity, sets up keys, creates an
     encrypted room and posts; Postgres (as `kybackup`) holds only `m.room.encrypted` there; a
     second device reads history.
   - Offboarding, reversibly: unassigning Yoshi from the app in KyIdentity refuses their live
@@ -114,9 +116,9 @@ the app image.
 
 ## Risks
 
-- The server name `urlxl.com` is permanent; moving it later means new accounts.
+- The server name `example.com` is permanent; moving it later means new accounts.
 - The apex now depends on the K8 tunnel and a redirect rule; the tunnel being down takes
-  `urlxl.com` with it (today it already answers 530).
+  `example.com` with it (today it already answers 530).
 - The `allow-suite` change touches every app's policy; `verify-network.sh` and each app's
   health path are re-checked, and the old policy is kept for rollback.
 - Single node: K81 loss stops chat until restore from KyRecovery.
