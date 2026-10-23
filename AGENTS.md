@@ -6,7 +6,7 @@ uses the KyMessages identity. Chat is moving to Matrix; the design is
 priority is small teams and encrypted chat, with voice and video calls enabled by default.
 
 - `kymessages` is the binary and local image name; `KY_APP_NAME` defaults to
-  `KyMessages`. `internal/config.AppVersion` is shared by CLI and capsule paths.
+  `KyMessages`. `internal/appversion.String()` is shared by CLI, health and capsule paths.
   Preserve explicit legacy service names for existing pairing pins/capsules.
 - Compose is a loopback local preview by default and runs `ghcr.io/busnes-app/kymessage-server:stable`
   (`KY_IMAGE` pins a verified digest); it never runs an upstream base image. The build overlay
@@ -228,12 +228,24 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - Docker image build and container HTTP check
 - Chromium and Firefox regressions against the built server: production CSP/worker, themes, responsive layout and keyboard dialogs, proof-of-work sign-in on a second server, and the Users and Rooms (Matrix off; Rooms reached from Users by keyboard), Health, Audit, Overview and Settings branding (rename by keyboard, logo upload and resets) pages; these checks remain release gates.
 - Container builds use `npm ci`. CI builds/runs `kymessages:ci` and publishes nothing.
+  The version has one source: `internal/appversion/VERSION` (`X.Y.Z`, the release line;
+  `web/package.json` has no version). Go code calls `appversion.String()`; a release image
+  build sets the tag's full version through `-ldflags -X …/internal/appversion.release`, so
+  images report `X.Y.Z` or `X.Y.Z.N` and source builds report the line.
   `.github/workflows/release-image.yml` is the only publisher: on a published release `vX.Y.Z`
-  it requires every version source (`internal/config/config.go`, `web/package.json`, both
-  `web/package-lock.json` entries) to equal X.Y.Z and every ci.yml job, by name, to have passed
-  on the tagged commit, then pushes `:X.Y.Z` (SBOM, provenance), attests and verifies it, and
-  moves `:stable` only forward and never to a prerelease. A new ci.yml job joins its `REQUIRED`
-  list; its action pins match KyPulse's. Keep the deployed identity gates explicit.
+  or `vX.Y.Z.N` (or a dispatch on a published release's tag) it requires the tag's `X.Y.Z` to
+  equal `internal/appversion/VERSION` and every ci.yml job, by name, to have passed on the
+  tagged commit, then pushes `:X.Y.Z[.N]` of both images (SBOM, provenance), attests and
+  verifies each (identity `release-image.yml@refs/tags/<tag>`), and moves `:stable` only
+  forward and never to a prerelease. A new ci.yml job joins its `REQUIRED` list; its action
+  pins match KyPulse's. Keep the deployed identity gates explicit.
+- `dependency-release.yml` runs daily at 23:00 UTC: if Dependabot commits landed on `master`
+  since the newest release on the current line and the push CI run on `master`'s tip
+  succeeded, it publishes the next `vX.Y.Z.N` (one per day however many PRs merged) and
+  dispatches `release-image.yml` on it, since a `GITHUB_TOKEN` release raises no release
+  event. Run by hand, it releases `master` without the Dependabot condition. It waits while
+  the line in `VERSION` has no `vX.Y.Z` release: bump `VERSION` and publish `vX.Y.Z` by hand
+  for a new line.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
   in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
   (CI: a pinned checkout), runs `matrix-init` twice (proving Compose refuses MAS in between,

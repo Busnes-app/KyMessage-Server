@@ -20,6 +20,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky_server_base/internal/api"
+	"github.com/Busnes-app/ky_server_base/internal/appversion"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/backup/media"
 	"github.com/Busnes-app/ky_server_base/internal/config"
@@ -28,9 +29,6 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"golang.org/x/term"
 )
-
-// appVersion is what the capsule manifest records for this build.
-const appVersion = config.AppVersion
 
 func main() {
 	if len(os.Args) > 1 {
@@ -63,7 +61,7 @@ func main() {
 			runMatrixInitCmd(os.Args[2:])
 			return
 		case "version":
-			fmt.Printf("kymessages %s\n", appVersion)
+			fmt.Printf("kymessages %s\n", appversion.String())
 			return
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
@@ -231,7 +229,7 @@ func waitForBackupWork(ctx context.Context, backgroundDone <-chan struct{}, wait
 
 // runBackup is recoveryclient.Run for the server capsule; tests replace it.
 var runBackup = func(ctx context.Context, cfg *config.Config, rc recoveryclient.RunConfig, s recoveryclient.Settings, client recoveryclient.Depositor) (recoveryclient.Result, error) {
-	return recoveryclient.Run(ctx, rc, s, func() (recoveryclient.Payload, error) { return backup.CollectForRun(ctx, cfg, s, appVersion) }, client)
+	return recoveryclient.Run(ctx, rc, s, func() (recoveryclient.Payload, error) { return backup.CollectForRun(ctx, cfg, s, appversion.String()) }, client)
 }
 
 // runMedia mirrors Matrix media after a capsule run; tests replace it.
@@ -248,7 +246,7 @@ func backupLoop(ctx context.Context, cfg *config.Config, st store.Store, done ch
 	// Run never gets far enough to stamp the attempt on a RunConfig failure, so retrying
 	// would log and audit it every tick forever.
 	// The status route reports the same failure as scheduler_error; this row is the trail.
-	rc, err := backup.RunConfig(cfg, appVersion)
+	rc, err := backup.RunConfig(cfg, appversion.String())
 	if err != nil {
 		log.Printf("[BACKUP] scheduler disabled: %v", err)
 		_ = st.Audit().LogAudit(context.WithoutCancel(ctx), &store.AuditRecord{UserID: "system", Action: schedulerAction,
@@ -390,7 +388,7 @@ func runDeposit(args []string) {
 	}
 	defer st.Close()
 
-	rc, err := backup.RunConfig(cfg, appVersion)
+	rc, err := backup.RunConfig(cfg, appversion.String())
 	if err != nil {
 		log.Fatalf("Backup: %v", err)
 	}
@@ -519,7 +517,7 @@ func runInitAdmin(args []string) {
 
 // collectFiles is what every CLI seal uses; the sealed-only members are safe here and nowhere else.
 func collectFiles(ctx context.Context, cfg *config.Config) recoveryclient.Payload {
-	payload, err := backup.Collect(ctx, cfg, appVersion)
+	payload, err := backup.Collect(ctx, cfg, appversion.String())
 	if err != nil {
 		log.Fatalf("Failed to collect backup files: %v", err)
 	}

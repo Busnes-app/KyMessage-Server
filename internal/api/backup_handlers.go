@@ -15,13 +15,10 @@ import (
 
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky_server_base/internal/appversion"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
-	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
-
-// appVersion is what the capsule manifest records for this build.
-const appVersion = config.AppVersion
 
 // errRecoveryKeyMismatch answers a swapped recovery.pub: the pin in the database and the key
 // on disk disagree, so refuse rather than seal a capsule nobody's custodians can open.
@@ -148,7 +145,7 @@ func (s *Server) handleBackupDrill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	payload, err := backup.Collect(ctx, s.config, appVersion)
+	payload, err := backup.Collect(ctx, s.config, appversion.String())
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
 		s.writeTooLarge(w, err)
 		return
@@ -202,7 +199,7 @@ func (s *Server) handleExportCapsule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	payload, err := backup.Collect(ctx, s.config, appVersion)
+	payload, err := backup.Collect(ctx, s.config, appversion.String())
 	if errors.Is(err, capsule.ErrCapsuleTooLarge) {
 		s.writeTooLarge(w, err)
 		return
@@ -344,7 +341,7 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 	actor := s.actorID(r)
 	ctx := context.WithoutCancel(r.Context())
 
-	rc, err := backup.RunConfig(s.config, appVersion)
+	rc, err := backup.RunConfig(s.config, appversion.String())
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to prepare backup configuration")
 		return
@@ -355,7 +352,7 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 	unlock, err := backup.Lock(s.config.Database.DataDir)
 	if err == nil {
 		res, err = recoveryclient.Run(ctx, rc, settings, func() (recoveryclient.Payload, error) {
-			return backup.CollectForRun(ctx, s.config, settings, appVersion)
+			return backup.CollectForRun(ctx, s.config, settings, appversion.String())
 		}, s.recovery)
 		unlock()
 	}
@@ -545,7 +542,7 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 		"paired":                 false,
 		"key_pinned":             false,
 		"app_name":               s.config.Server.AppName,
-		"app_version":            appVersion,
+		"app_version":            appversion.String(),
 		"allow_private_recovery": s.config.Backup.AllowPrivateRecovery,
 		// Only the SQLite path can snapshot a database into a capsule; the screen says so.
 		"database_driver": s.config.Database.Driver,
@@ -578,7 +575,7 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
 	s.scheduleStatus(ctx, out)
 	// The scheduler builds the same RunConfig from the same immutable config at start and, if
 	// it fails, stops for the life of the process (cmd/server backupLoop).
-	if _, err := backup.RunConfig(s.config, appVersion); err != nil {
+	if _, err := backup.RunConfig(s.config, appversion.String()); err != nil {
 		out["scheduler_error"] = "Scheduled backups are off until the configuration is fixed and the server restarted: " + recoveryclient.AuditSafe(err.Error())
 	}
 	if s.config.Backup.Dir != "" {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Busnes-app/ky_server_base/internal/config"
+	"github.com/Busnes-app/ky_server_base/internal/appversion"
 	"github.com/Busnes-app/ky_server_base/internal/health"
 	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
 )
@@ -21,7 +21,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), healthTimeout)
 	defer cancel()
 	probes := []health.Probe{
-		{Name: "kymessages", Run: func(context.Context) (string, error) { return config.AppVersion, nil }},
+		{Name: "kymessages", Run: func(context.Context) (string, error) { return appversion.String(), nil }},
 		{Name: "database", Run: func(ctx context.Context) (string, error) { return "", s.store.Ping(ctx) }},
 	}
 	m := s.config.Matrix
