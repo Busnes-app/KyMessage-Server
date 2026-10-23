@@ -160,9 +160,6 @@ const DefaultElementRestartHint = "docker compose restart element"
 // DefaultSynapseRestartHint is the Compose command; a cluster sets KY_MATRIX_SYNAPSE_RESTART_HINT.
 const DefaultSynapseRestartHint = "docker compose restart synapse"
 
-// AppVersion is shared by the CLI and every capsule-producing path.
-const AppVersion = "0.4.4"
-
 // LoadFromEnv initializes a Config struct populated from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
 	if err := rejectLegacyEnvironment(); err != nil {

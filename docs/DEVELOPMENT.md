@@ -65,8 +65,13 @@ The smoke CI job also runs `python3 scripts/backup-acceptance.py`, a three-minut
 disposable test of actual scheduler ticks, local-copy failures and live schedule
 changes.
 CI builds/runs the container, checks dependencies and verifies committed frontend
-assets; it publishes nothing. Publishing a GitHub release `vX.Y.Z` runs
-`.github/workflows/release-image.yml`: it refuses a tag that disagrees with any version source
-(`internal/config/config.go`, `web/package.json`, `web/package-lock.json`) or a commit on which
-any CI job did not pass, then publishes `:X.Y.Z`, attests and verifies it, and moves `:stable`
+assets; it publishes nothing. The version lives only in `internal/appversion/VERSION`
+(`X.Y.Z`). Publishing a GitHub release `vX.Y.Z` or `vX.Y.Z.N` runs
+`.github/workflows/release-image.yml`: it refuses a tag whose `X.Y.Z` disagrees with
+`internal/appversion/VERSION` or a commit on which any CI job did not pass, then publishes
+`:X.Y.Z[.N]` with that version compiled in, attests and verifies it, and moves `:stable`
 unless the release is a prerelease or older than the newest one.
+`.github/workflows/dependency-release.yml` publishes the next `vX.Y.Z.N` once a day when
+Dependabot changes merged since the last release and CI on `master` is green; run it by hand
+to release `master` immediately. A new line starts with a hand-published `vX.Y.Z` after
+bumping `VERSION`.
