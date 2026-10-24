@@ -125,7 +125,8 @@ encrypt.
   Matrix acceptance job (encrypted storage, closed server); backup acceptance and the smoke test,
   on every push and pull request.
 - **Static analysis:** `go vet`, `govulncheck`, strict TypeScript (`tsc`), `shellcheck` on the
-  scripts.
+  scripts, and GitHub CodeQL (default setup, configured in the repository settings rather than a
+  workflow file) for Go, JavaScript/TypeScript, Python and Actions.
 - **Dynamic analysis:** the race detector, the browser regressions and the Matrix acceptance run.
 - **Releases:** attested images and a repeatable server binary ([VERIFYING-RELEASES.md](VERIFYING-RELEASES.md)).
 
