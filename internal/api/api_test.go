@@ -276,8 +276,7 @@ func TestPairRemoteStoresTheRecoveryKey(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	cookie := loginAs(t, srv, st, "alice", "admin")
 	req.AddCookie(cookie)
-	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -338,8 +337,7 @@ func TestPairRemoteStoresTheRecoveryKey(t *testing.T) {
 	req2 := httptest.NewRequest("POST", "/api/backup/pair-remote", bytes.NewReader(body))
 	req2.Header.Set("Content-Type", "application/json")
 	req2.AddCookie(cookie)
-	req2.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req2.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req2)
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusConflict {
@@ -764,8 +762,7 @@ func adminPost(t *testing.T, srv *api.Server, session *http.Cookie, path string)
 	t.Helper()
 	req := httptest.NewRequest("POST", path, nil)
 	req.AddCookie(session)
-	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	return w
@@ -947,8 +944,7 @@ func TestDepositOutlivesTheRequest(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/api/backup/deposit", nil).WithContext(reqCtx)
 	req.AddCookie(loginAs(t, srv, st, "alice", "admin"))
-	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

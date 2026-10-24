@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strings"
@@ -86,18 +85,8 @@ func (sm *SessionManager) IssueDerivedSession(ctx context.Context, w http.Respon
 		Domain:   sm.config.CookieDomain,
 	})
 
-	// Generate CSRF token for state-modifying endpoints
-	csrfToken := crypto.RandomHex(24)
-	http.SetCookie(w, &http.Cookie{
-		Name:     CookieName(CSRFCookieName, sm.config),
-		Value:    csrfToken,
-		Path:     "/",
-		Expires:  sess.ExpiresAt,
-		HttpOnly: false, // Read by JS to put into X-CSRF-Token header
-		Secure:   sm.config.CookieSecure,
-		SameSite: http.SameSiteLaxMode,
-		Domain:   sm.config.CookieDomain,
-	})
+	// The CSRF token is bound to this session (CSRFToken), never a free-standing random value.
+	sm.writeCSRFCookie(w, rawToken, sess.ExpiresAt)
 
 	return sess, rawToken, nil
 }
@@ -158,13 +147,49 @@ func (sm *SessionManager) HasSessionCookie(r *http.Request) bool {
 	return err == nil && cookie.Value != ""
 }
 
-func (sm *SessionManager) ValidateCSRF(r *http.Request) bool {
-	cookie, err := r.Cookie(CookieName(CSRFCookieName, sm.config))
-	if err != nil || cookie.Value == "" {
-		return false
+// SessionToken is the raw session token the request's cookie presents, or "".
+func (sm *SessionManager) SessionToken(r *http.Request) string {
+	if cookie, err := r.Cookie(CookieName(SessionCookieName, sm.config)); err == nil {
+		return cookie.Value
 	}
-	header := r.Header.Get(HeaderCSRF)
-	return len(header) == len(cookie.Value) && subtle.ConstantTimeCompare([]byte(header), []byte(cookie.Value)) == 1
+	return ""
+}
+
+// CSRFToken is derived from the session token under the server secret, so only the
+// session's own page can know it. The "ky-csrf:" label keeps it apart from the PoW
+// challenge signatures, whose payload always starts with a hex salt.
+func (sm *SessionManager) CSRFToken(rawSession string) string {
+	return crypto.ComputeHMACSHA256([]byte("ky-csrf:"+rawSession), sm.config.SessionSecret)
+}
+
+// ValidateCSRF compares the header, in constant time, with the token recomputed from the
+// session cookie. The CSRF cookie only carries the value to the SPA: a pair planted from a
+// sibling subdomain, or copied from another session, proves nothing.
+func (sm *SessionManager) ValidateCSRF(r *http.Request) bool {
+	raw, header := sm.SessionToken(r), r.Header.Get(HeaderCSRF)
+	return raw != "" && header != "" && crypto.VerifyHMACSHA256([]byte("ky-csrf:"+raw), sm.config.SessionSecret, header)
+}
+
+// RefreshCSRF rewrites the CSRF cookie for the presented session cookie: a lost cookie, or
+// one from before tokens were bound to the session. A request authenticated by a Bearer
+// token for another session gets nothing.
+func (sm *SessionManager) RefreshCSRF(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	if raw := sm.SessionToken(r); raw != "" && crypto.SHA256Hex([]byte(raw)) == sess.TokenHash {
+		sm.writeCSRFCookie(w, raw, sess.ExpiresAt)
+	}
+}
+
+func (sm *SessionManager) writeCSRFCookie(w http.ResponseWriter, rawSession string, expires time.Time) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     CookieName(CSRFCookieName, sm.config),
+		Value:    sm.CSRFToken(rawSession),
+		Path:     "/",
+		Expires:  expires,
+		HttpOnly: false, // Read by JS to put into X-CSRF-Token header
+		Secure:   sm.config.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		Domain:   sm.config.CookieDomain,
+	})
 }
 
 // RevokeSession deletes the active session and clears the browser cookies.

@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
-	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/branding"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/health"
@@ -115,8 +114,7 @@ func rawDo(t *testing.T, srv *api.Server, session *http.Cookie, method, path, co
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
 	req.AddCookie(session)
-	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	return w

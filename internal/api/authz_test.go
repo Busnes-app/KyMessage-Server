@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
+	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -54,13 +56,35 @@ func loginAs(t *testing.T, srv *api.Server, st store.Store, username, role strin
 	return nil
 }
 
+// testSessionSecret is the KY_SESSION_SECRET every test server in this package loads
+// (TestMain), so a test can derive the CSRF token bound to any session it holds.
+const testSessionSecret = "api-test-session-secret-0123456789abcdef"
+
+func TestMain(m *testing.M) {
+	if os.Getenv("KY_SESSION_SECRET") == "" {
+		_ = os.Setenv("KY_SESSION_SECRET", testSessionSecret)
+	}
+	os.Exit(m.Run())
+}
+
+// addCSRF sends the CSRF token bound to the request's session cookie, as the web app does.
+func addCSRF(t *testing.T, req *http.Request) {
+	t.Helper()
+	c, err := req.Cookie(auth.SessionCookieName)
+	if err != nil {
+		t.Fatal("addCSRF: request has no session cookie")
+	}
+	token := auth.NewSessionManager(nil, config.SecurityConfig{SessionSecret: os.Getenv("KY_SESSION_SECRET")}).CSRFToken(c.Value)
+	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: token})
+	req.Header.Set(auth.HeaderCSRF, token)
+}
+
 func do(t *testing.T, srv *api.Server, method, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
-		req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-		req.Header.Set(auth.HeaderCSRF, "test-csrf")
+		addCSRF(t, req)
 	}
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
