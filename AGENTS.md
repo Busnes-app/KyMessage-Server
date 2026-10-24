@@ -216,6 +216,7 @@ When the user requests a durable behavior change, record it here or in the relev
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh` and `scripts/check-compose-matrix.sh`
+- `release binary is repeatable` (Go job): builds `./cmd/server` the way the Dockerfile does (`-trimpath`, from `git archive` copies, committed `web/dist`) in two directories and requires identical bytes. Keep the Dockerfile's `go build` and that step in step; `docs/VERIFYING-RELEASES.md` gives users the same command for both release images
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - Bounded fuzzing (`go test -fuzz=… -fuzztime=Nx`, one step per target) of `FuzzClientIP`,
   `FuzzParseTrustedProxies`, `FuzzSetBrand` and `FuzzDecodeIndex`; a crasher kept under
@@ -399,4 +400,4 @@ The K80/K81 deployment is owned by `busnes.app/ky-kubernetes` (spec `docs/superp
 
 ## README and topic guides
 
-Keep `README.md` as the concise product overview and navigation. Detailed procedures live in `docs/DEVELOPMENT.md`, `docs/RUNNING.md`, `docs/CHAT-SETUP.md`, `docs/CALLS.md`, `docs/FEDERATION.md`, `docs/CHAT-AGENTS.md`, `docs/OPERATOR-CONSOLE.md`, `docs/KUBERNETES.md`. Update the owning topic guide and preserve README links when a procedure changes. Commands in these guides run from the repository root.
+Keep `README.md` as the concise product overview and navigation. Detailed procedures live in `docs/DEVELOPMENT.md`, `docs/RUNNING.md`, `docs/CHAT-SETUP.md`, `docs/CALLS.md`, `docs/FEDERATION.md`, `docs/CHAT-AGENTS.md`, `docs/OPERATOR-CONSOLE.md`, `docs/KUBERNETES.md`, `docs/VERIFYING-RELEASES.md`, `docs/ASSURANCE-CASE.md`. `CONTRIBUTING.md` owns the contribution process, test policy and coding standard. `docs/ASSURANCE-CASE.md` is updated in the same change as any trust boundary, security requirement or code path it lists; `docs/VERIFYING-RELEASES.md` when `release-image.yml`, either Dockerfile's build or the image layout changes. Update the owning topic guide and preserve README links when a procedure changes. Commands in these guides run from the repository root.

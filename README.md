@@ -36,3 +36,6 @@ an "Open chat" link for members; without it they see a page saying chat is not a
 - [Chat agents](docs/CHAT-AGENTS.md) — Agents. <a id="agents"></a>
 - [Operator console](docs/OPERATOR-CONSOLE.md) — Operator console. <a id="operator-console"></a>
 - [Kubernetes](docs/KUBERNETES.md) — Kubernetes (Ky cluster). <a id="kubernetes-ky-cluster"></a>
+- [Verifying releases](docs/VERIFYING-RELEASES.md) — Check both release images' signatures and source commit, and rebuild the server binary to the same bytes.
+- [Assurance case](docs/ASSURANCE-CASE.md) — Threat model, trust boundaries, and why the security requirements are met.
+- [Contributing](CONTRIBUTING.md) — How to report bugs, propose changes, the test policy and the coding standard.
