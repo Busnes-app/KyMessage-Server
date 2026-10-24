@@ -10,7 +10,8 @@ Compose runs the published image `ghcr.io/busnes-app/kymessage-server:stable`, t
 release. Each release `vX.Y.Z` is also published as `:X.Y.Z` with an SBOM and a build
 attestation, and only after CI passed on the tagged commit. `docker compose pull` moves to a
 newer release. To stay on one release, pin it by digest in `KY_IMAGE` after verifying its
-attestation; `docker-compose.yml` has the command.
+attestation; `docker-compose.yml` has the command. [Verifying releases](VERIFYING-RELEASES.md) covers both
+images and rebuilding the server binary to compare hashes.
 
 Protect `.env` with mode 0600. Set `KY_ADMIN_PASSWORD` using the
 [read-without-echo and export procedure](DEVELOPMENT.md#build-and-inspect-locally)
