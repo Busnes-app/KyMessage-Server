@@ -302,11 +302,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	user, _, err := s.sessions.AuthenticateRequest(r)
+	user, sess, err := s.sessions.AuthenticateRequest(r)
 	if err != nil {
 		s.writeJSON(w, http.StatusOK, map[string]bool{"authenticated": false})
 		return
 	}
+	s.sessions.RefreshCSRF(w, r, sess)
 
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,

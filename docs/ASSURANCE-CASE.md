@@ -92,7 +92,7 @@ encrypt.
 | Broken authentication, credential stuffing | Passwords of at least 12 characters, hashed by `ky-primitives/password`; 10 failures per client and 100 per account per 15 minutes; proof-of-work challenges, each spent once | `internal/auth/policy.go`, `internal/api/auth_handlers.go`, `internal/auth` |
 | Session theft from storage | Only the SHA-256 of the session token is stored; cookies are `HttpOnly`, `SameSite=Lax`, and `__Host-` prefixed when secure and host-only | `internal/auth/session.go` |
 | Device pairing takeover | 24-byte random QR secret, 90-second lifetime, sent only in request bodies, consumed atomically | `internal/devices/devices.go` |
-| CSRF | Double-submit token compared in constant time on every state-changing request that carries a session cookie, except sign-in, MFA and the signed directory webhook; `SameSite=Lax` session cookie | `internal/auth/session.go` (`ValidateCSRF`), `internal/api/server.go` (`csrfExempt`) |
+| CSRF | Session-bound token: every state-changing request that carries a session cookie must send `X-CSRF-Token` equal to HMAC-SHA256(`KY_SESSION_SECRET`, session cookie), compared in constant time; the `ky_csrf` cookie only tells the web app the value and is never trusted, so a pair planted from a sibling subdomain or copied from another session is refused. Sign-in, MFA and the signed directory webhook are exempt; the routes that mint a session require `application/json`, which a cross-site form cannot send without a failing preflight. `SameSite=Lax` session cookie | `internal/auth/session.go` (`ValidateCSRF`), `internal/api/server.go` (`csrfExempt`) |
 | Cross-origin data theft | Credentialed CORS only for the exact app origin; call-grant paths get `*` without credentials and a 16 KiB body cap; preflight from another origin refused | `internal/api/server.go` |
 | Broken access control | Admin routes wrapped in `requireAdmin` and pinned by `TestPrivilegedEndpointsRequireAdmin`; unknown `/api/` paths are a JSON 404, never a false 200 (`TestUnknownAPIPathIsNotAcknowledged`) | `internal/api/server.go`, `internal/api/authz_test.go`, `internal/api/directory_webhook_test.go` |
 | Cross-site scripting | CSP `script-src 'self'` and `frame-ancestors 'none'`, `X-Frame-Options: DENY`; no `dangerouslySetInnerHTML` in `web/src`; logos must be PNG and are re-encoded so no ancillary chunk survives (SVG refused) | `internal/api/server.go`, `internal/branding/branding.go` |
@@ -106,10 +106,6 @@ encrypt.
 ## Residual risk
 
 - **Chat encryption is Element's, unaudited and not enforced by Synapse.** See the scope note above.
-- **The CSRF token is not bound to the session.** It is a random value compared with its own
-  cookie. With `__Host-` cookies (HTTPS, no `KY_COOKIE_DOMAIN`) a sibling subdomain cannot plant
-  it; when `KY_COOKIE_DOMAIN` is set, a page on another subdomain of that domain could, and
-  `SameSite=Lax` does not stop same-site requests.
 - **TOTP secrets are sealed without associated data**, so a sealed value copied to another user's
   row would still open.
 - **Rate limits are process-local** (single-instance release target), and the per-client limiter

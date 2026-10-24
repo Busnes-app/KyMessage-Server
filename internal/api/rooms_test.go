@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
-	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/health"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"github.com/Busnes-app/ky_server_base/internal/synapseadmin"
@@ -544,8 +543,7 @@ func TestRoomDeleteBodyIsStrict(t *testing.T) {
 		req := httptest.NewRequest("POST", roomPath(rGroup)+"/delete", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.AddCookie(admin)
-		req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-		req.Header.Set(auth.HeaderCSRF, "test-csrf")
+		addCSRF(t, req)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {

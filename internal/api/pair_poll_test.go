@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -97,8 +96,7 @@ func TestPairPollFromASessionNeedsCSRF(t *testing.T) {
 
 	req = httptest.NewRequest("POST", "/api/devices/pair/poll", bytes.NewReader(body))
 	req.AddCookie(cookie)
-	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

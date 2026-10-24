@@ -131,20 +131,24 @@ func TestSecureCookiesUseHostPrefix(t *testing.T) {
 	if body := me(session); !strings.Contains(body, `"authenticated":true`) {
 		t.Fatalf("the prefixed session cookie did not authenticate: %s", body)
 	}
-	theme := func(csrfName string) int {
+	// The CSRF cookie carries no trust: the header must be the token bound to the session.
+	theme := func(csrfName, value string) int {
 		req := httptest.NewRequest("POST", "/api/settings/theme", strings.NewReader(`{"theme":"oled"}`))
 		req.AddCookie(session)
-		req.AddCookie(&http.Cookie{Name: csrfName, Value: csrf.Value})
-		req.Header.Set("X-CSRF-Token", csrf.Value)
+		req.AddCookie(&http.Cookie{Name: csrfName, Value: value})
+		req.Header.Set("X-CSRF-Token", value)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 		return w.Code
 	}
-	if code := theme("ky_csrf"); code != http.StatusForbidden {
-		t.Fatalf("an unprefixed CSRF cookie passed: %d", code)
+	if code := theme("ky_csrf", "planted"); code != http.StatusForbidden {
+		t.Fatalf("a planted unprefixed CSRF pair passed: %d", code)
 	}
-	if code := theme("__Host-ky_csrf"); code != http.StatusOK {
-		t.Fatalf("the prefixed CSRF cookie failed: %d", code)
+	if code := theme("__Host-ky_csrf", "planted"); code != http.StatusForbidden {
+		t.Fatalf("a planted prefixed CSRF pair passed: %d", code)
+	}
+	if code := theme("__Host-ky_csrf", csrf.Value); code != http.StatusOK {
+		t.Fatalf("the session's own CSRF token failed: %d", code)
 	}
 
 	flow := httptest.NewRecorder()

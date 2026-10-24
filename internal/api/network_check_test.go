@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
-	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 )
 
@@ -22,8 +21,7 @@ func networkCheck(t *testing.T, srv *api.Server, session *http.Cookie, remote, h
 		req.Header.Set(k, v)
 	}
 	req.AddCookie(session)
-	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: "test-csrf"})
-	req.Header.Set(auth.HeaderCSRF, "test-csrf")
+	addCSRF(t, req)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
