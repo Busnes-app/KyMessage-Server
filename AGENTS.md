@@ -217,6 +217,9 @@ When the user requests a durable behavior change, record it here or in the relev
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
 - `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh` and `scripts/check-compose-matrix.sh`
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
+- Bounded fuzzing (`go test -fuzz=… -fuzztime=Nx`, one step per target) of `FuzzClientIP`,
+  `FuzzParseTrustedProxies`, `FuzzSetBrand` and `FuzzDecodeIndex`; a crasher kept under
+  `testdata/fuzz/<Target>/` replays in the normal test run
 - Frontend vitest suite, then typecheck/build plus a check that committed `web/dist` matches source, untracked files included (it is embedded in the binary)
 - `govulncheck` and `npm audit --audit-level=high`
 - `scripts/backup-acceptance.py` starts its own loopback process and disposable
