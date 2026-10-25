@@ -1,56 +1,56 @@
 # Contributing to KyMessages
 
-[Product overview](README.md) · [Development](docs/DEVELOPMENT.md) · [Assurance case](docs/ASSURANCE-CASE.md)
+KyMessages provides private team conversations on infrastructure you control. Contributions must preserve authenticated, membership-scoped access and the self-hosting contract.
 
-## Reporting bugs and asking for features
+## Before contributing
 
-Open a [GitHub issue](https://github.com/Busnes-app/KyMessage-Server/issues). Say which
-version you run (the image tag, or `internal/appversion/VERSION` for a source build), whether the
-Matrix overlay is on, what you did, what you expected and what happened. Leave passwords, tokens,
-keys and message contents out of the issue.
+Read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md),
+the [README](README.md), and any AGENTS.md in the subtree you are about to
+touch. Open an issue before proposing a feature larger than a bug fix or
+documentation change.
 
-**Security problems are not issues.** Report them privately through the repository's
-**Security** tab → **Report a vulnerability**, as the
-[Busnes-app security policy](https://github.com/Busnes-app/.github/blob/main/SECURITY.md)
-describes.
+Keep changes small, reuse existing code, and fix the shared root cause rather
+than the reported symptom. New non-trivial logic ships with a runnable test or
+self-check.
 
-## Making a change
+## Security requirements
 
-1. Branch from `master` and open a pull request against `master`. `master` takes changes only
-   through pull requests.
-2. Read [AGENTS.md](AGENTS.md) and every AGENTS.md on the way to the files you change. They are
-   binding: a change that alters a contract, workflow or verification updates the nearest owning
-   AGENTS.md (and its parents' indexes) in the same pull request, and a changed procedure updates
-   its topic guide under `docs/`. Product scope changes start from [docs/PRODUCT.md](docs/PRODUCT.md).
-3. Every CI job in `.github/workflows/ci.yml` must pass before a pull request can merge;
-   `release-image.yml` will not publish a commit on which one failed. Run `make ci` and the checks
-   in [Development → Verification](docs/DEVELOPMENT.md#verification) locally first.
-4. If you change `web/`, commit the rebuilt `web/dist`: it is embedded in the binary, and CI fails
-   when it does not match a fresh `npm run build`.
-5. Describe what changed and how you checked it in the pull request.
+- Every message read and write is authorized against the authenticated identity and the conversation's membership.
+- Removing a member revokes their future access; they keep only what they already received.
+- Destructive actions require an explicit user action.
+- Do not add telemetry, phone-home, analytics, or unconfigured third-party
+  services.
+- Do not add silent security fallbacks; fail closed with a readable error and a
+  remediation step.
+- Name and document any security trade-off in [SECURITY.md](SECURITY.md) before
+  it merges.
 
-## Tests
+## Verification
 
-New behaviour comes with a test that exercises it: Go tests next to the code (they run on SQLite
-and PostgreSQL), Vitest for web logic, Playwright browser regressions for console flows, and
-`node --test` for the meeting-notes bot. A security change also needs a test for the attack it
-stops, not only the happy path; the tests named in the
-[assurance case](docs/ASSURANCE-CASE.md#common-weaknesses-and-how-they-are-countered) show the
-pattern.
+Run the checks that apply to the files you changed, and the repository's
+full required checks before hand-off. Record the exact commands and their
+results in the pull request.
 
-## Coding standard
+## AI attribution
 
-Contributions follow these style guides. CI enforces the parts a tool can check, so a style
-failure is a red build, not a review comment.
+AI-assisted contributions are welcome; undisclosed ones are not. Disclose
+material AI assistance in the pull request — the tool, what it changed, and what
+you personally ran, read, and verified — and add a commit trailer naming any
+tool that materially contributed. You are the author of the code you submit for
+every purpose, regardless of how it was produced.
 
-| Language | Style guide | Enforced by |
-|---|---|---|
-| Go | [Effective Go](https://go.dev/doc/effective_go) and the [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments) | `gofmt` (must list nothing), `go vet ./...` and `go mod tidy` with no diff, in the `Go build, vet & tests (SQLite)` job (`make lint` and `make tidy-check` locally) |
-| TypeScript (`web/`) | The TypeScript compiler in `strict` mode | `tsc -b` in `npm run build`, `Frontend typecheck & build` job |
-| Shared browser UI (`web/src/ky-ui/`) | Generated from Busnes-app/ky-ui; never edited here | `node src/ky-ui/check-vendor.mjs`, run before `npm test` and `npm run build` |
-| Shell (`scripts/`) | Code that passes [ShellCheck](https://www.shellcheck.net/) | `shellcheck` in the `End-to-end smoke test` job |
-| Compose files | The hardening in [AGENTS.md](AGENTS.md) (non-root, no capabilities, read-only, explicit binds) | `scripts/check-compose-proxy.sh` and `scripts/check-compose-matrix.sh` in the Go job |
+## Pull requests
 
-The meeting-notes bot's JavaScript (`notes/`) and the Python acceptance scripts have no linter;
-keep to the style of the file you are editing. Prefer the standard library and the shared
-`ky-primitives` packages to new dependencies.
+Branch off `main` with a focused name, and use a Conventional Commit subject
+(`fix:`, `feat:`, `docs:`, `refactor:`, `test:`, or `chore:`). The pull request
+explains why the change exists, the verification performed, the security impact,
+and any known limitations.
+
+Every pull request gets an adversarial review pass; see
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md#hostile-reviews-are-about-code-never-people)
+for what that is and the boundary it keeps.
+
+## Licence
+
+KyMessages is licensed under the MIT License. See [LICENSE.txt](LICENSE.txt).
+
