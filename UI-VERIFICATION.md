@@ -83,3 +83,11 @@ Stage 06 correction and final capture (2026-10-26), `kymessages-06-*` in the sam
 Checks:
 
 - Passed: `make ci` (157 frontend tests; smoke on port 18097, 85 checks) and `test:browser` 7/7.
+
+Stage 08: navigation hover fix (2026-10-26, finding F1 of the council runtime-source review).
+
+- **Defect.** Hovering an unselected navigation row filled it with the primary-button accent. Text contrast was 2.53:1 in Busnes Light and 1.94:1 in Busnes Dark.
+- **Fix.** The global button hover now excludes `.ky-nav-item`. The hovered row is now `rgb(227,225,217)` (12.27:1) in Light and `rgb(43,56,58)` (10.57:1) in Dark. The selected row is unchanged under the pointer.
+- **Evidence.** Captures `kymessages-08-{before,after}-*` come from the real signed-in app on a disposable server. The vendored ky-ui files are unchanged.
+- **Regression test.** `ui.spec.mjs` fails on the pre-fix CSS in all 6 Chromium and Firefox projects and passes with the fix.
+- **Checks.** `test:browser` 7/7. `make ci` passes (157 tests; smoke on port 18097).

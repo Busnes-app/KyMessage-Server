@@ -201,7 +201,8 @@ button, .btn {
   text-decoration: none;
   transition: background-color .15s ease, border-color .15s ease, color .15s ease, transform .1s ease;
 }
-button:hover:not(:disabled), .btn:hover { background: color-mix(in srgb, var(--accent) 86%, var(--ink-strong)); }
+/* Same (0,2,1) specificity, minus nav rows: their hover is the neutral ky-ui surface, never the accent. */
+button:not(:where(.ky-nav-item)):hover:not(:disabled), .btn:hover { background: color-mix(in srgb, var(--accent) 86%, var(--ink-strong)); }
 button:active:not(:disabled), .btn:active { transform: translateY(1px); }
 button:disabled, .btn:disabled { background: var(--panel-hover); color: var(--ink); border-color: var(--line); cursor: not-allowed; }
 
