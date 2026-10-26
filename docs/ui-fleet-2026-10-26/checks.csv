@@ -1,0 +1,5 @@
+product,check,command,result,exit,head,start_utc,end_utc,notes
+kymessages,make ci,make ci,pass,0,d9c0f1d,2026-10-26T11:43:48Z,2026-10-26T11:47:52Z,"tidy-check, gofmt/vet/compose-proxy, go test -race (0 cached), npm ci + vitest 161/161, smoke"
+kymessages,browser server build,go build -o .browser/server ./cmd/server,pass,0,d9c0f1d,2026-10-26T11:59:02Z,2026-10-26T11:59:02Z,
+kymessages,npm run test:browser,npm run test:browser,pass,0,d9c0f1d,2026-10-26T11:59:02Z,2026-10-26T12:00:06Z,"13 passed in 1.0m (Chromium x4 + Firefox light-1280/dark-390), incl. appearance.spec.mjs x6; earlier attempt could not bind :5391 (another worker held it)"
+kymessages,committed web/dist current,git status --short -- web/dist,pass,0,d9c0f1d,2026-10-26T11:47:54Z,2026-10-26T11:47:54Z,git status --short -- web/dist empty after builds
