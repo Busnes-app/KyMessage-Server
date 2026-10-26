@@ -833,6 +833,7 @@ func TestDetachedTrackingCoversADepositInFlight(t *testing.T) {
 }
 
 // Routes that move, pin, disable or export the recovery trust root need a recent sign-in.
+// A deposit does not: it only seals to the key already pinned (TestDepositNeedsAdminNotStepUp).
 // The pin is write-once, so a stolen long-lived session that pinned its own key first would
 // own every later capsule.
 func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
@@ -841,7 +842,7 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	priv, _ := recoverykey.Generate()
 	pub := priv.Public()
 	for _, rt := range []struct{ method, path string }{
-		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
+		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"},
 		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
 	} {
 		w := adminDo(t, srv, stale, rt.method, rt.path, pinBody(pub, 2, 3))
@@ -870,7 +871,7 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	}
 	derived := &http.Cookie{Name: auth.SessionCookieName, Value: paired.Token}
 	for _, rt := range []struct{ method, path string }{
-		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
+		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"},
 		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
 	} {
 		w := adminDo(t, srv, derived, rt.method, rt.path, pinBody(pub, 2, 3))
@@ -882,6 +883,44 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 		if w := adminDo(t, srv, stale, "GET", path, nil); w.Code != http.StatusOK {
 			t.Errorf("GET %s should not need step-up: %d", path, w.Code)
 		}
+	}
+}
+
+// A manual deposit seals only to the key the server already pinned, so it cannot redirect or
+// reveal data: an admin whose sign-in is older than the step-up window may run one, as in the
+// rest of the suite. A member may not, and export still needs a fresh sign-in.
+func TestDepositNeedsAdminNotStepUp(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	cfg.Backup.Dir = filepath.Join(t.TempDir(), "capsules")
+	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
+	priv, _ := recoverykey.Generate()
+	if w := adminDo(t, srv, loginAs(t, srv, st, "alice", "admin"), "POST", "/api/backup/pin-key", pinBody(priv.Public(), 2, 3)); w.Code != http.StatusOK {
+		t.Fatalf("pin: %d %s", w.Code, w.Body.String())
+	}
+	stale := staleAdmin(t, st)
+
+	if w := adminDo(t, srv, loginAs(t, srv, st, "bob", "user"), "POST", "/api/backup/deposit", nil); w.Code != http.StatusForbidden {
+		t.Errorf("member deposit: got %d %s", w.Code, w.Body.String())
+	}
+	if w := adminDo(t, srv, stale, "POST", "/api/backup/export-capsule", nil); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
+		t.Errorf("export with an 11-minute-old session: got %d %s", w.Code, w.Body.String())
+	}
+	w := adminDo(t, srv, stale, "POST", "/api/backup/deposit", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("deposit with an 11-minute-old admin session: got %d %s", w.Code, w.Body.String())
+	}
+	var res recoveryclient.Result
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil || res.LocalPath == "" {
+		t.Fatalf("deposit result %+v: %v", res, err)
+	}
+	var ok bool
+	for _, rec := range auditRows(t, st, "admin.backup_run") {
+		if rec.UserID == "usr_old" && rec.Resource == res.Manifest.CapsuleID && strings.Contains(rec.Details, `outcome="success"`) {
+			ok = true
+		}
+	}
+	if !ok {
+		t.Error("no successful admin.backup_run row for the stale admin's deposit")
 	}
 }
 
