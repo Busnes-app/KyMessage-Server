@@ -924,6 +924,40 @@ func TestDepositNeedsAdminNotStepUp(t *testing.T) {
 	}
 }
 
+// A deposit into a full backup directory prunes the oldest copy. A stolen long-lived session
+// must not be able to erase recovery points that way, so that deposit needs a fresh sign-in.
+func TestStaleDepositCannotPruneLocalCopies(t *testing.T) {
+	srv, st, cfg := setupSQLiteServer(t)
+	cfg.Backup.Dir = filepath.Join(t.TempDir(), "capsules")
+	cfg.Backup.Keep = 1
+	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
+	fresh := loginAs(t, srv, st, "alice", "admin")
+	priv, _ := recoverykey.Generate()
+	if w := adminDo(t, srv, fresh, "POST", "/api/backup/pin-key", pinBody(priv.Public(), 2, 3)); w.Code != http.StatusOK {
+		t.Fatalf("pin: %d %s", w.Code, w.Body.String())
+	}
+	if w := adminDo(t, srv, fresh, "POST", "/api/backup/deposit", nil); w.Code != http.StatusOK {
+		t.Fatalf("first deposit: %d %s", w.Code, w.Body.String())
+	}
+	before, err := os.ReadDir(cfg.Backup.Dir)
+	if err != nil || len(before) != 1 {
+		t.Fatalf("after first deposit: %v %v", before, err)
+	}
+
+	w := adminDo(t, srv, staleAdmin(t, st), "POST", "/api/backup/deposit", nil)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
+		t.Fatalf("stale deposit into a full directory: got %d %s", w.Code, w.Body.String())
+	}
+	after, err := os.ReadDir(cfg.Backup.Dir)
+	if err != nil || len(after) != 1 || after[0].Name() != before[0].Name() {
+		t.Fatalf("the stale deposit touched the backup directory: %v %v", after, err)
+	}
+
+	if w := adminDo(t, srv, fresh, "POST", "/api/backup/deposit", nil); w.Code != http.StatusOK {
+		t.Fatalf("fresh deposit into a full directory: %d %s", w.Code, w.Body.String())
+	}
+}
+
 // A settings write failing after the key file lands leaves a pin that refuses other keys but
 // has no record. Status must say so instead of reporting nothing pinned.
 func TestStatusReportsHalfWrittenPin(t *testing.T) {

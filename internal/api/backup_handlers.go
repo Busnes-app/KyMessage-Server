@@ -114,6 +114,24 @@ func (s *Server) actorID(r *http.Request) string {
 	return user.ID
 }
 
+// staleSession reports whether the request's sign-in is older than the step-up window.
+// A session that no longer authenticates counts as stale.
+func (s *Server) staleSession(r *http.Request) (*store.User, bool) {
+	user, sess, err := s.sessions.AuthenticateRequest(r)
+	if err != nil {
+		return &store.User{}, true
+	}
+	return user, time.Since(sess.CreatedAt) > stepUpWindow
+}
+
+// depositPrunes reports whether one more local copy would delete the oldest beyond Keep.
+// Any admin may deposit, but erasing a recovery point needs a recent sign-in. A directory
+// that cannot be read counts as full.
+func depositPrunes(rc recoveryclient.RunConfig) bool {
+	copies, err := recoveryclient.ListLocalCopies(rc.BackupDir, rc.AppName)
+	return err != nil || (rc.BackupDir != "" && len(copies) >= rc.Keep)
+}
+
 // backupLock takes backup.Lock for a drill or export, answering 409 while another run, deposit,
 // export or drill holds it, so at most one payload is in memory.
 func (s *Server) backupLock(w http.ResponseWriter) (func(), bool) {
@@ -351,6 +369,11 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 	var res recoveryclient.Result
 	unlock, err := backup.Lock(s.config.Database.DataDir)
 	if err == nil {
+		if user, stale := s.staleSession(r); stale && depositPrunes(rc) {
+			unlock()
+			s.writeStepUp(w, user)
+			return
+		}
 		res, err = recoveryclient.Run(ctx, rc, settings, func() (recoveryclient.Payload, error) {
 			return backup.CollectForRun(ctx, s.config, settings, appversion.String())
 		}, s.recovery)
