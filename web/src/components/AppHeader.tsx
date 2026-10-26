@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot } from 'lucide-react';
-import { ThemeSwitcher } from './ThemeSwitcher';
+import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot, Palette, House } from 'lucide-react';
 
 interface AppHeaderProps {
   appName: string;
@@ -20,10 +19,16 @@ const adminItems = [
   { id: 'scim', label: 'Directory & SCIM', icon: Users },
   { id: 'backup', label: 'Backup & recovery', icon: Archive },
   { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+];
+// Members land on their account page (tab `dashboard`) and choose a theme under Appearance.
+const memberItems = [
+  { id: 'dashboard', label: 'Home', icon: House },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
 ];
 // Admin pages are refused server-side for non-admins; navigation only mirrors that.
 export function navItemsFor(role: string) {
-  return role === 'admin' ? adminItems : [];
+  return role === 'admin' ? adminItems : memberItems;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabChange, user, onLogout }) => {
@@ -61,8 +66,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
           })}
         </nav>
       <div className="app-header-actions">
-        <ThemeSwitcher />
-
         {user && (
           <div className="app-user">
             <div className="app-user-copy">
