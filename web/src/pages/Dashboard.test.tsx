@@ -73,3 +73,11 @@ it('shows a sync warning in the warning tone', async () => {
   const text = await within(await screen.findByRole('region', { name: 'KyIdentity sync' })).findByText(/^Needs attention: /);
   expect(text.className).toBe('dr-warn');
 });
+
+it('invents no sync row when the server cannot be reached', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+  render(<Dashboard settings={null} user={null} onNavigate={() => {}} />);
+  expect(await screen.findAllByText('Unavailable: the server could not be reached')).toHaveLength(3);
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).startsWith('/api/admin/matrix/sync-status'))).toBe(true));
+  expect(screen.queryByRole('region', { name: 'KyIdentity sync' })).toBeNull();
+});

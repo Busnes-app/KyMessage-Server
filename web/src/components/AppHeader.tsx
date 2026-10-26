@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot } from 'lucide-react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
@@ -28,6 +28,13 @@ export function navItemsFor(role: string) {
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabChange, user, onLogout }) => {
   const navItems = navItemsFor(user?.role ?? '');
+  const name = user?.display_name || user?.username;
+  const role = user?.role === 'admin' ? 'Administrator' : 'Everyday account';
+  const navRef = useRef<HTMLElement>(null);
+  // Phones scroll the navigation sideways: keep the current page's row in view, also after Overview links.
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeTab]);
 
   return (
     <header className="app-header">
@@ -36,7 +43,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
           <span>{appName || 'KyMessages'}</span>
         </div>
 
-        <nav className="app-nav" aria-label="Primary">
+        <nav ref={navRef} className="app-nav" aria-label="Primary">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
@@ -47,7 +54,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
                 className={active ? 'ky-nav-item active' : 'ky-nav-item'}
                 aria-current={active ? 'page' : undefined}
               >
-                <Icon size={16} />
+                <Icon size={16} aria-hidden="true" />
                 <span>{item.label}</span>
               </button>
             );
@@ -59,16 +66,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
         {user && (
           <div className="app-user">
             <div className="app-user-copy">
-              <div style={{ fontWeight: 600, color: 'var(--ink-strong)' }}>{user.display_name || user.username}</div>
-              <div style={{ fontSize: '11px', color: 'var(--ink)' }}>{user.role}</div>
+              <div className="app-user-name">{name}</div>
+              {role !== name && <div className="app-user-role">{role}</div>}
             </div>
-            <button
-              className="btn-secondary app-logout"
-              onClick={onLogout}
-              title="Sign out"
-              aria-label="Sign out"
-            >
-              <LogOut size={16} />
+            <button type="button" className="btn-ghost app-logout" onClick={onLogout}>
+              <LogOut size={16} aria-hidden="true" />
+              <span className="app-logout-label">Sign out</span>
             </button>
           </div>
         )}

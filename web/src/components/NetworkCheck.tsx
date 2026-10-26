@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 type Check = {peer_ip: string; client_ip: string; forwarded_trusted: boolean; forwarded_proto: string; app_url_https: boolean; host_matches: boolean; trusted_proxies_narrow: boolean};
 function parse(v: unknown): Check {
@@ -7,7 +8,12 @@ function parse(v: unknown): Check {
   const b = (x: unknown) => { if (typeof x !== 'boolean') throw new Error('bad'); return x; };
   return {peer_ip: s(c.peer_ip), client_ip: s(c.client_ip), forwarded_trusted: b(c.forwarded_trusted), forwarded_proto: s(c.forwarded_proto), app_url_https: b(c.app_url_https), host_matches: b(c.host_matches), trusted_proxies_narrow: b(c.trusted_proxies_narrow)};
 }
-const mark = (pass: boolean, good: string, bad: string) => <li>{pass ? `Pass: ${good}` : `Warn: ${bad}`}</li>;
+const mark = (pass: boolean, good: string, bad: string) => (
+  <li className={pass ? 'dr-check dr-ok' : 'dr-check dr-warn'}>
+    {pass ? <CheckCircle2 size={16} aria-hidden="true" /> : <AlertTriangle size={16} aria-hidden="true" />}
+    <span>{pass ? `Pass: ${good}` : `Warn: ${bad}`}</span>
+  </li>
+);
 
 // Confirms how this request reached the server; see docs/Reverse_Proxy_Networking.md.
 export function NetworkCheck() {
@@ -23,7 +29,7 @@ export function NetworkCheck() {
   if (check === 'error') return <p role="alert">Network check unavailable.</p>;
   return <section aria-labelledby="network-check"><h3 id="network-check">Network path</h3>
     <p>Your address as seen by the server: {check.client_ip} (direct peer {check.peer_ip}).</p>
-    <ul>
+    <ul className="dr-status-list">
       {mark(check.forwarded_trusted, 'the request came through a trusted proxy', 'the direct peer is not in KY_TRUSTED_PROXIES; forwarded headers are ignored')}
       {mark(check.forwarded_trusted && check.forwarded_proto === 'https', 'the proxy reports https', 'no trusted X-Forwarded-Proto: https from the proxy')}
       {mark(check.app_url_https, 'KY_APP_URL is https', 'KY_APP_URL is not https')}

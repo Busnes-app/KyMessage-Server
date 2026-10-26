@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Loader2, LogOut, Search, X } from 'lucide-react';
-import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
+import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, count, iso, obj, oneOf, str } from '../dto';
+import { ChatNotSetUp } from '../components/ChatNotSetUp';
 
 const STATUSES = ['active', 'locked', 'deactivated', 'not_linked'] as const;
 const KINDS = ['oauth2', 'compat', 'browser'] as const;
@@ -35,7 +36,6 @@ export function parseSessions(v: unknown): MatrixSession[] {
 const STATUS_LABEL: Record<MatrixUser['status'], string> = { active: 'Active', locked: 'Locked', deactivated: 'Deactivated', not_linked: 'Not linked' };
 const KIND_LABEL: Record<MatrixSession['kind'], string> = { oauth2: 'Matrix app', compat: 'Legacy login', browser: 'Account web' };
 const PAGE = 50;
-const errorText = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
 const when = (at: string | null) => (at ? new Date(at).toLocaleString() : '—');
 
 const UserSessions: React.FC<{ user: MatrixUser; onClose: () => void }> = ({ user, onClose }) => {
@@ -155,7 +155,7 @@ export const Users: React.FC = () => {
     return (
       <div className="dr-page">
         <div className="dr-header"><h1>Users</h1></div>
-        <p role="status">Chat (Matrix) is not set up on this server.</p>
+        <ChatNotSetUp />
       </div>
     );
   }

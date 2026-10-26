@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Loader2, Lock, Search, Trash2, X } from 'lucide-react';
-import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
+import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, bool, count, obj, oneOf, str } from '../dto';
+import { ChatNotSetUp } from '../components/ChatNotSetUp';
 
 const JOB_STATUSES = ['scheduled', 'active', 'complete', 'failed', 'cancelled', 'unknown'] as const;
 const JOIN_RULES = ['public', 'invite', 'knock', 'restricted', 'knock_restricted', 'private', 'other', ''] as const;
@@ -45,7 +46,6 @@ const MAX_POLLS = 90;
 // A status read can fail in passing (a slow mint, a restart); give up after this many in a row.
 const MAX_POLL_FAILURES = 3;
 const RUNNING: readonly RoomJob['status'][] = ['scheduled', 'active'];
-const errorText = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
 const roomPath = (id: string) => `/api/admin/matrix/rooms/${encodeURIComponent(id)}`;
 const label = (r: RoomRow) => r.name || 'Unnamed room';
 const access = (r: RoomRow) => (r.public ? 'Public' : r.join_rule === 'invite' ? 'Invite only' : r.join_rule || '—');
@@ -231,7 +231,7 @@ export const Rooms: React.FC<{ pollMs?: number }> = ({ pollMs = 2000 }) => {
     return (
       <div className="dr-page">
         <div className="dr-header"><h1>Rooms</h1></div>
-        <p role="status">Chat (Matrix) is not set up on this server.</p>
+        <ChatNotSetUp />
       </div>
     );
   }

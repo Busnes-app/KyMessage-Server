@@ -163,6 +163,15 @@ function mockRoutes(status: Record<string, unknown>, writes: { url: string; body
 }
 
 describe('Backup trust-root changes and malformed answers', () => {
+  it('shows an empty local directory and an idle schedule without a success badge', async () => {
+    mockRoutes(UNPINNED, [], {});
+    render(<Backup />);
+    const empty = await screen.findByText('0 of 7');
+    expect(empty.className).not.toContain('badge-success');
+    expect(screen.getByText('Idle until a key is pinned')).toBeTruthy();
+    expect(screen.getByText('Daily', { selector: '.badge' }).className).not.toContain('badge-success');
+  });
+
   it('derives the key ID the server uses', async () => {
     expect(await recoveryKeyID(fixture.PublicKey)).toBe(fixture.KeyID);
     expect(await recoveryKeyID('not base64!')).toBeNull();

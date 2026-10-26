@@ -53,6 +53,14 @@ export async function errorMessage(res: Response, fallback: string): Promise<str
   return typeof error === 'string' && error ? error : `${fallback} (HTTP ${res.status})`;
 }
 
+/** fetch rejects with a TypeError ("Failed to fetch", "NetworkError…", "Load failed") when the request never reached the server. */
+export const unreachable = (err: unknown) => err instanceof TypeError && /fetch|network|load failed/i.test(err.message);
+
+/** A thrown error as text: what failed and how to recover when the server was not reached. */
+export const errorText = (err: unknown, fallback: string) =>
+  unreachable(err) ? `${fallback}: the server could not be reached. Check the connection and try again.`
+    : err instanceof Error && err.message ? err.message : fallback;
+
 /** True for the 404 the Matrix routes answer when chat is not set up. */
 export async function isMatrixDisabled(res: Response): Promise<boolean> {
   if (res.status !== 404) return false;

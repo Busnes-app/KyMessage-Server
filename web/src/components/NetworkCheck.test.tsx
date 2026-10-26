@@ -16,7 +16,7 @@ it('warns on an untrusted proxy, plain HTTP, a host mismatch and a subnet trust 
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({...ok, forwarded_trusted: false, forwarded_proto: '', app_url_https: false, host_matches: false, trusted_proxies_narrow: false})));
   render(<NetworkCheck />);
   expect(await screen.findAllByText(/^Warn:/)).toHaveLength(5);
-  expect(screen.getByText('Warn: KY_TRUSTED_PROXIES is empty or includes a subnet; any address in it can forge client IPs')).toBeTruthy();
+  expect(screen.getByText('Warn: KY_TRUSTED_PROXIES is empty or includes a subnet; any address in it can forge client IPs').closest('li')?.className).toContain('dr-warn');
 });
 it('passes a trust list of single addresses', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(ok)));

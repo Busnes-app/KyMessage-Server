@@ -153,7 +153,7 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
               <span>Logo (PNG, at most 1 MiB and 1024×1024)</span>
               <input type="file" accept="image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </label>
-            <button type="button" disabled={busy || !file} onClick={upload}>Upload logo</button>
+            <button type="button" className="btn-secondary" disabled={busy || !file} onClick={upload}>Upload logo</button>
             <button type="button" className="btn-secondary" disabled={busy || !state.logo.custom}
               onClick={() => void change('/api/admin/branding/logo', { method: 'DELETE' }, 'Logo reset to the KyMessages stamp.')}>
               Reset logo

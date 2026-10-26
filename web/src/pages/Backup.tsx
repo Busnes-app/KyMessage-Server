@@ -15,7 +15,7 @@ import {
   Unlink,
   XCircle,
 } from 'lucide-react';
-import { adminFetch, errorMessage } from '../api';
+import { adminFetch, errorMessage, errorText } from '../api';
 import { arr, bool, count, iso, obj, opt, str } from '../dto';
 
 export interface DepositReceipt {
@@ -245,7 +245,6 @@ export async function recoveryKeyID(publicKey: string): Promise<string | null> {
   return Array.from(sum, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
 
 const Alert: React.FC<{ kind: 'error' | 'warn' | 'success'; children: React.ReactNode }> = ({ kind, children }) => (
   <div className={`dr-alert dr-alert-${kind}`} role={kind === 'success' ? 'status' : 'alert'}>
@@ -473,6 +472,12 @@ export const Backup: React.FC = () => {
   const scheduleOn = (status?.interval_sec ?? 0) > 0;
   const copies = status?.local_copies ?? [];
   const newestLocal = copies[0];
+  // Green only for copies that exist: a set directory with none written, or a list the server did not send, is not a success.
+  const localBadge: [tone: 'success' | 'danger' | 'muted', text: string] =
+    !hasLocal ? ['muted', 'Off']
+      : status?.local_error ? ['danger', 'Error']
+      : !status?.local_copies ? ['muted', 'Unknown']
+      : [copies.length ? 'success' : 'muted', `${copies.length} of ${status.local_keep}`];
 
   return (
     <div className="dr-page">
@@ -524,7 +529,7 @@ export const Backup: React.FC = () => {
         <div className="dr-fact">
           <div className="dr-fact-label">
             <span>Local copies</span>
-            <Badge tone={hasLocal ? 'success' : 'muted'}>{hasLocal ? `${copies.length} of ${status?.local_keep}` : 'Off'}</Badge>
+            <Badge tone={localBadge[0]}>{localBadge[1]}</Badge>
           </div>
           <div className="dr-fact-value dr-mono">{status?.local_dir ?? 'KY_BACKUP_DIR not set'}</div>
           <div className="dr-fact-note">{status?.local_error ?? (newestLocal ? `Newest ${when(newestLocal.created_at)}` : hasLocal ? 'Nothing written yet' : '')}</div>
@@ -532,9 +537,12 @@ export const Backup: React.FC = () => {
         <div className="dr-fact">
           <div className="dr-fact-label">
             <span>Schedule</span>
-            <Badge tone={scheduleOn ? 'success' : 'danger'}>{every(status?.interval_sec)}</Badge>
+            <Badge tone={!scheduleOn ? 'danger' : canBackUp ? 'success' : 'muted'}>{every(status?.interval_sec)}</Badge>
           </div>
-          <div className="dr-fact-value">{scheduleOn && status?.next_run_at ? `Next ${when(status.next_run_at)}` : 'Manual only'}</div>
+          <div className="dr-fact-value">
+            {!scheduleOn ? 'Manual only' : !keyPinned ? 'Idle until a key is pinned' : !canBackUp ? 'Idle until capsules have a destination'
+              : status?.next_run_at ? `Next ${when(status.next_run_at)}` : 'Next run not scheduled'}
+          </div>
           <div className="dr-fact-note">Counts from the last attempt, successful or not</div>
         </div>
       </div>
@@ -546,7 +554,7 @@ export const Backup: React.FC = () => {
           {status.last_run.outcome !== 'success' && ' Check the service logs for details; existing copies are listed above.'}
           {status.last_run.capsule_id && <> Capsule: <code>{status.last_run.capsule_id}</code>.</>}
         </Alert>
-      ) : status && !status.last_run_error && <p className="text-muted">No recorded backup attempts.</p>}
+      ) : status && !status.last_run_error && <p className="dr-hint">No recorded backup attempts.</p>}
 
       {status?.capsule_size && (
         <Alert kind={status.capsule_size.warning ? 'warn' : 'success'}>
@@ -584,8 +592,8 @@ export const Backup: React.FC = () => {
         </div>
         <p className="dr-hint">
           One sealed capsule goes to every destination above: the local directory, and KyRecovery when paired. Download saves the same
-          capsule to this browser instead. Nothing on this server can open a capsule; that takes {status?.threshold ?? 'k'} custodian cards
-          together.
+          capsule to this browser instead. Nothing on this server can open a capsule; that takes{' '}
+          {status?.threshold ? `${status.threshold} custodian cards` : 'the custodian cards'} together.
         </p>
         <div className="dr-hint">A capsule carries</div>
         <ul className="dr-members">
@@ -642,7 +650,7 @@ export const Backup: React.FC = () => {
               ))}
             </select>
           </label>
-          <button type="submit" disabled={scheduleSaving || scheduleSec === (status?.interval_sec ?? -1)}>
+          <button type="submit" className="btn-secondary" disabled={scheduleSaving || scheduleSec === (status?.interval_sec ?? -1)}>
             {scheduleSaving ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
             <span>Save</span>
           </button>
@@ -686,7 +694,7 @@ export const Backup: React.FC = () => {
                   required
                 />
               </label>
-              <button type="submit" disabled={pairing}>
+              <button type="submit" className="btn-secondary" disabled={pairing}>
                 {pairing ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />}
                 <span>{paired ? 'Re-pair' : 'Pair'}</span>
               </button>
@@ -734,7 +742,7 @@ export const Backup: React.FC = () => {
                     <span>Of</span>
                     <input type="number" min={2} max={255} value={pinN} onChange={(e) => setPinN(e.target.value)} required />
                   </label>
-                  <button type="submit" disabled={pinning}>
+                  <button type="submit" className="btn-secondary" disabled={pinning}>
                     {pinning ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
                     <span>Pin key</span>
                   </button>
