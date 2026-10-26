@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, Archive, ArrowRight, MessageSquare, RefreshCw } from 'lucide-react';
-import { isMatrixDisabled } from '../api';
+import { isMatrixDisabled, unreachable } from '../api';
 import { parseHealth } from './Health';
 import { parseUsersPage } from './Users';
 import { backupAttempt } from './Backup';
@@ -14,6 +14,8 @@ interface DashboardProps {
 interface Card { text: string; tone: 'success' | 'warning' | 'danger' | 'muted' }
 const OUTCOME = { success: 'Succeeded', warning: 'Needs attention', failure: 'Failed', unknown: 'Outcome unavailable' } as const;
 const checking: Card = { text: 'Checking…', tone: 'muted' };
+const unavailable = (err: unknown) =>
+  `Unavailable: ${unreachable(err) ? 'the server could not be reached' : err instanceof Error ? err.message : 'request failed'}`;
 const TONE: Record<Card['tone'], string> = { success: 'dr-ok', warning: 'dr-warn', danger: 'dr-danger', muted: '' };
 
 export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate }) => {
@@ -28,7 +30,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
     const get = (path: string) => fetch(path, { signal: controller.signal, cache: 'no-store' });
     const settle = (set: (c: Card) => void, work: Promise<Card>) =>
       work.then(set, (err: unknown) => {
-        if (!controller.signal.aborted) set({ text: `Unavailable: ${err instanceof Error ? err.message : 'request failed'}`, tone: 'danger' });
+        if (!controller.signal.aborted) set({ text: unavailable(err), tone: 'danger' });
       });
     void settle(setHealth, get('/api/admin/health').then(async (res): Promise<Card> => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -62,7 +64,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
         setSync(syncCard(parseSyncStatus(await res.json())));
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setSync({ text: `Unavailable: ${err instanceof Error ? err.message : 'request failed'}`, tone: 'danger' });
+        // Unreached, the server never said Matrix is on: show no sync row rather than invent one.
+        if (!controller.signal.aborted && !unreachable(err)) setSync({ text: unavailable(err), tone: 'danger' });
       });
     return () => controller.abort();
   }, []);
@@ -74,8 +77,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ settings, user, onNavigate
     ...(sync ? [{ title: 'KyIdentity sync', card: sync, Icon: RefreshCw, tab: 'settings', action: 'Open Settings' }] : []),
   ];
   return (
-    <div className="operator-overview">
-      <header className="operator-heading">
+    <div className="dr-page">
+      <header className="dr-header">
         <h1>Overview</h1>
         <p>{settings?.app_name || 'KyMessages'} operator console · {user?.display_name || user?.username || 'Administrator'}</p>
       </header>

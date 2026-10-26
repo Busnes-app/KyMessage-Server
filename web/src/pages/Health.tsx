@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, RefreshCw, XCircle } from 'lucide-react';
-import { errorMessage } from '../api';
+import { errorMessage, errorText } from '../api';
 import { arr, bool, obj, oneOf, str } from '../dto';
 import { NetworkCheck } from '../components/NetworkCheck';
 
@@ -36,6 +36,7 @@ export const Health: React.FC = () => {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(true);
+  const [round, setRound] = useState(0);
   const check = useCallback(async (signal?: AbortSignal) => {
     setChecking(true);
     try {
@@ -44,7 +45,8 @@ export const Health: React.FC = () => {
       setReport(parseHealth(await res.json()));
       setError('');
     } catch (err) {
-      if (!signal?.aborted) setError(err instanceof Error && err.message ? err.message : 'Health check failed');
+      // A failed check leaves status unknown: never keep an older report on screen as if current.
+      if (!signal?.aborted) { setReport(null); setError(errorText(err, 'Health check failed')); }
     } finally {
       if (!signal?.aborted) setChecking(false);
     }
@@ -59,12 +61,13 @@ export const Health: React.FC = () => {
     <div className="dr-page">
       <div className="dr-header">
         <h1>Health</h1>
-        <button type="button" className="btn-secondary" onClick={() => void check()} disabled={checking}>
+        <button type="button" className="btn-secondary" onClick={() => { setRound((r) => r + 1); void check(); }} disabled={checking}>
           <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
           <span>Check again</span>
         </button>
       </div>
       {error && <div className="dr-alert dr-alert-error" role="alert"><XCircle size={16} /><span>{error}</span></div>}
+      {!report && !error && <p className="dr-hint" role="status">Checking components…</p>}
       {report && !report.matrix && <p className="dr-hint">Chat (Matrix) is not set up: only KyMessages and its database are checked.</p>}
       {report && (
         <section className="dr-facts" aria-label="Components">
@@ -87,7 +90,8 @@ export const Health: React.FC = () => {
           ))}
         </section>
       )}
-      <section className="panel dr-section"><NetworkCheck /></section>
+      {/* Check again re-runs the network check too (remount), so its marks are never older than the page. */}
+      <section className="panel dr-section"><NetworkCheck key={round} /></section>
     </div>
   );
 };

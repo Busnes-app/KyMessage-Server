@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings as SettingsIcon, Database, Palette } from 'lucide-react';
+import { Database, Palette } from 'lucide-react';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
@@ -11,71 +11,51 @@ interface SettingsProps {
   settings: SiteSettings | null;
   /** Re-reads /api/settings so the shell shows a new name. */
   onBrandingChanged: () => void;
+  /** Account security, shown after the instance settings. */
+  children?: React.ReactNode;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged }) => {
+export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged, children }) => {
   const driver = settings?.db_driver;
   return (
-    <div style={{ maxWidth: '1080px', margin: '0 auto', padding: '32px 20px' }}>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <SettingsIcon size={24} style={{ color: 'var(--accent)' }} />
-          <span>System Settings & Architecture</span>
-        </h1>
-        <p style={{ color: 'var(--ink)', fontSize: '14px', marginTop: '4px' }}>
-          Database, color theme defaults, and instance configuration.
-        </p>
+    <div className="dr-page">
+      <div className="dr-header">
+        <h1>System Settings & Architecture</h1>
+        <p>Database, appearance and instance configuration.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: '20px' }}>
-        {/* Pluggable Database Card */}
-        <div className="panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <Database size={20} style={{ color: 'var(--accent)' }} />
-            <h3 style={{ fontSize: '16px' }}>Database</h3>
-          </div>
-          <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
-            The supported deployment is SQLite on a single instance.
+      {/* One flat surface: each section is divided by a rule, never boxed inside another. */}
+      <div className="dr-settings">
+        <section className="panel dr-section" aria-labelledby="settings-database">
+          <h3 id="settings-database"><Database size={16} aria-hidden="true" /> Database</h3>
+          <p className="dr-hint">The supported deployment is SQLite on a single instance.</p>
+          <p className="dr-pair">
+            <span>Active storage driver</span>
+            <span className="badge badge-accent font-mono">{driver ?? 'unknown'}</span>
           </p>
-
-          <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '6px', padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-              <span style={{ color: 'var(--ink)' }}>Active storage driver:</span>
-              <span className="badge badge-accent font-mono">{driver ?? 'unknown'}</span>
-            </div>
-          </div>
           {driver !== 'sqlite' && (
-            <div className="dr-alert dr-alert-warn" role="alert" style={{ marginTop: '12px' }}>
+            <div className="dr-alert dr-alert-warn" role="alert">
               <span>
                 {driver ? `This server runs on ${driver}.` : 'The database driver is unknown.'} Only SQLite is supported, and
                 backup capsules can snapshot only SQLite: no capsule carries this database.
               </span>
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Appearance */}
-        <div className="panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <Palette size={20} style={{ color: 'var(--accent)' }} />
-            <h3 style={{ fontSize: '16px' }}>Appearance</h3>
-          </div>
-          <p style={{ color: 'var(--ink)', fontSize: '13px', marginBottom: '16px' }}>
-            Color tokens: Patina Ky (`#0d0f14`/`#4deeea`), Cyber, Nord, Paper, OLED with Space Grotesk and IBM Plex Mono fonts.
+        <section className="panel dr-section" aria-labelledby="settings-appearance">
+          <h3 id="settings-appearance"><Palette size={16} aria-hidden="true" /> Appearance</h3>
+          <p className="dr-hint">
+            Busnes Light and Busnes Dark follow this device&rsquo;s setting until you choose a theme. The choice is kept in this browser only.
           </p>
+          <ThemeSwitcher />
+        </section>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--ink)' }}>Active Color Palette:</span>
-            <ThemeSwitcher />
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
         <BrandingPanel onChanged={onBrandingChanged} />
         <SyncPanel />
         <FederationPanel />
         <NotesPanel />
+        {children}
       </div>
     </div>
   );

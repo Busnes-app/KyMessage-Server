@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bot, Copy, Download, KeyRound, Trash2, X } from 'lucide-react';
-import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
+import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, bool, count, iso, obj, oneOf, opt, str } from '../dto';
+import { ChatNotSetUp } from '../components/ChatNotSetUp';
 
 const TOKEN_STATES = ['active', 'revoked', 'expired'] as const;
 export interface AgentOwner { id: string; username: string; display_name: string; mxid: string; status: string }
@@ -57,7 +58,6 @@ const STATE_BADGE: Record<Agent['token_state'], { label: string; badge: string }
   expired: { label: 'Expired', badge: 'badge badge-danger' },
 };
 const SKILL = '/api/admin/agents/skill';
-const errorText = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
 const agentPath = (id: string) => `/api/admin/agents/${encodeURIComponent(id)}`;
 const ownerName = (o: AgentOwner) => o.display_name || o.username || 'Unknown member';
 
@@ -190,7 +190,7 @@ export const Agents: React.FC = () => {
     return (
       <div className="dr-page">
         <div className="dr-header"><h1>Agents</h1></div>
-        <p role="status">Chat (Matrix) is not set up on this server.</p>
+        <ChatNotSetUp />
       </div>
     );
   }

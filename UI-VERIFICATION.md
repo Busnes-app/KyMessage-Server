@@ -53,3 +53,41 @@ Run npm ci, npm test (where configured), and npm run build in web/, then start t
 ## Approved interface polish — 2026-10-19
 
 See [UI-POLISH.md](UI-POLISH.md) for the implemented changes, preservation scope, checks, actual before/after screenshots and disposable capture conditions. Earlier captures above remain historical evidence.
+
+## Suite cohesion redesign — 2026-10-26
+
+Staged shell, task-view and form changes toward the ky-ui design contract (ky-ui 0.3.0 tokens). Before/after captures for every stage (1280×900 and 390×844, Busnes Light and Dark, disposable loopback server with real sign-in, Matrix not configured), per-stage source patches, image hashes and computed focus/contrast/control/overflow measurements are in the ky-ui council directory `reviews/2026-10-26-council/` (`kymessages-implementation.md`). MemberHome and Element chat were not captured there; see that file for the gap.
+
+Stage 05 usability refinement (2026-10-26), with captures `kymessages-05-{before,after}-*` and notes in that council directory:
+
+- Audit stacks each record as labelled lines on phones, and the desktop columns fit without sideways scrolling.
+- Busnes Light marks the selected navigation row with the panel surface, and keeps it under the pointer.
+- Network-check lines carry a status icon and colour.
+- Backup shows an empty local directory and an idle schedule without a success badge.
+- Overview rows share one grid.
+- Transport failures say the server could not be reached.
+
+Loading and offline states were captured from real CDP latency and an offline browser context, with no mocked responses.
+
+Checks:
+
+- Passed: `make ci` (155 frontend tests, smoke 85 checks), `test:browser` 7/7, and a Chromium and Firefox keyboard and semantics check of the phone Audit table.
+- Not run: WebKit, because host libraries are missing.
+
+Stage 06 correction and final capture (2026-10-26), `kymessages-06-*` in the same council directory:
+
+- **Health:** a failed recheck no longer leaves an earlier report's green Up badges, or the network marks, on screen.
+- **Overview:** an unreachable server no longer adds a KyIdentity sync row.
+- **Final set:** `kymessages-06-after-*` holds 78 images from one source and binary. It covers every console and auth surface Matrix-off can reach, plus loading and offline states, in Busnes Light and Dark at 1280×900 and 390×844.
+
+Checks:
+
+- Passed: `make ci` (157 frontend tests; smoke on port 18097, 85 checks) and `test:browser` 7/7.
+
+Stage 08: navigation hover fix (2026-10-26, finding F1 of the council runtime-source review).
+
+- **Defect.** Hovering an unselected navigation row filled it with the primary-button accent. Text contrast was 2.53:1 in Busnes Light and 1.94:1 in Busnes Dark.
+- **Fix.** The global button hover now excludes `.ky-nav-item`. The hovered row is now `rgb(227,225,217)` (12.27:1) in Light and `rgb(43,56,58)` (10.57:1) in Dark. The selected row is unchanged under the pointer.
+- **Evidence.** Captures `kymessages-08-{before,after}-*` come from the real signed-in app on a disposable server. The vendored ky-ui files are unchanged.
+- **Regression test.** `ui.spec.mjs` fails on the pre-fix CSS in all 6 Chromium and Firefox projects and passes with the fix.
+- **Checks.** `test:browser` 7/7. `make ci` passes (157 tests; smoke on port 18097).

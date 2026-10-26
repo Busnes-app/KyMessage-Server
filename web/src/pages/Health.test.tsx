@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Health } from './Health';
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
@@ -56,4 +56,24 @@ it('names Synapse admin access and shows why it is down, without a version', asy
   expect(within(list).getByText('Synapse admin access (console)')).toBeTruthy();
   expect(within(list).getByText('console account is locked in MAS')).toBeTruthy();
   expect(within(list).queryByText('Version unknown')).toBeNull();
+});
+
+it('says the server could not be reached when the request never arrives', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+  render(<Health />);
+  expect(await screen.findByText('Health check failed: the server could not be reached. Check the connection and try again.')).toBeTruthy();
+});
+
+it('drops an earlier report when a recheck fails, so nothing reads as freshly up', async () => {
+  serve(json({ matrix: false, components: [c('kymessages', { version: '0.1.0-dev' }), c('database')] }));
+  render(<Health />);
+  expect(within(await screen.findByRole('region', { name: 'Components' })).getAllByText('Up')).toHaveLength(2);
+  expect(await screen.findAllByText(/^Pass: /)).toHaveLength(5);
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+  expect(await screen.findByText(/^Health check failed: the server could not be reached/)).toBeTruthy();
+  expect(await screen.findByText('Network check unavailable.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Components' })).toBeNull());
+  expect(screen.queryByText('Up')).toBeNull();
+  expect(screen.queryByText(/^Pass: /)).toBeNull();
 });

@@ -5,6 +5,25 @@ async function fits(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
+// A nav row's surface once its transitions end: background composited over the sidebar, text
+// contrast against it, and the rail.
+async function navSurface(locator) {
+  return locator.evaluate(async (el) => {
+    // A cancelled transition rejects `finished`; wait until none is running.
+    for (let i = 0; i < 10 && el.getAnimations().length; i++) await Promise.allSettled(el.getAnimations().map((a) => a.finished));
+    const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+    const rgba = (c) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = '#000'; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+    const lum = (c) => c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+      .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const cs = getComputedStyle(el);
+    const under = rgba(cs.getPropertyValue('--sidebar-start').trim() || '#fff');
+    const own = rgba(cs.backgroundColor);
+    const bg = own.slice(0, 3).map((v, i) => Math.round(v * own[3] / 255 + under[i] * (1 - own[3] / 255)));
+    const [hi, lo] = [lum(rgba(cs.color)), lum(bg)].sort((a, b) => b - a);
+    return { background: bg.join(','), ratio: (hi + 0.05) / (lo + 0.05), rail: cs.boxShadow };
+  });
+}
+
 test('production CSP, worker, themes, keyboard and responsive shell', async ({ page, context }, testInfo) => {
   const violations = [];
   const pairingRequests = [];
@@ -58,6 +77,22 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 246, 240)');
   await page.emulateMedia({ colorScheme: testInfo.project.use.colorScheme });
+  // Busnes Light or Dark (from the OS) at this width: hovering an idle nav row gives a neutral
+  // surface with readable text (the global primary-button hover once filled it with the accent),
+  // and hovering the selected row keeps its surface and rail.
+  const overview = nav.getByRole('button', { name: 'Overview', exact: true });
+  const users = nav.getByRole('button', { name: 'Users', exact: true });
+  await expect(overview).toHaveAttribute('aria-current', 'page');
+  await page.mouse.move(0, 0);
+  const idleAtRest = await navSurface(users);
+  const selectedAtRest = await navSurface(overview);
+  await users.hover();
+  const idleHover = await navSurface(users);
+  expect(idleHover.background).not.toBe(idleAtRest.background);
+  expect(idleHover.ratio).toBeGreaterThanOrEqual(4.5);
+  await overview.hover();
+  expect(await navSurface(overview)).toEqual(selectedAtRest);
+  await page.mouse.move(0, 0);
   await nav.getByRole('button').first().focus();
   await page.keyboard.press('Tab');
   await expect(nav.getByRole('button').nth(1)).toBeFocused();

@@ -38,21 +38,27 @@ export function ChangePassword({ onComplete, onLogout }: ChangePasswordProps) {
   }
 
   return (
-    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
-      <form onSubmit={submit} className="panel" style={{ width: '100%', maxWidth: 440 }}>
+    <main className="auth-page">
+      <form onSubmit={submit} className="panel auth-card auth-column">
         <h1>Change your password</h1>
-        <p>Replace your temporary password before continuing. Use at least 12 characters. You will sign in again afterward.</p>
-        <label htmlFor="current-password">Current password</label>
-        <input id="current-password" type="password" autoComplete="current-password" required maxLength={1024}
-          value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
-        <label htmlFor="new-password">New password</label>
-        <input id="new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
-          value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-        <label htmlFor="confirm-password">Confirm new password</label>
-        <input id="confirm-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
-          value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
-        {error && <p role="alert">{error}</p>}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
+        <p className="dr-hint">Replace your temporary password before continuing. Use at least 12 characters. You will sign in again afterward.</p>
+        {error && <p role="alert" className="dr-alert dr-alert-error">{error}</p>}
+        <div className="auth-field">
+          <label htmlFor="current-password">Current password</label>
+          <input id="current-password" type="password" autoComplete="current-password" required maxLength={1024}
+            value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="new-password">New password</label>
+          <input id="new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
+            value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="confirm-password">Confirm new password</label>
+          <input id="confirm-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
+            value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+        </div>
+        <div className="dr-actions">
           <button type="submit" disabled={busy}>{busy ? 'Changing password…' : 'Change password'}</button>
           <button type="button" className="btn-secondary" disabled={busy} onClick={onLogout}>Sign out</button>
         </div>

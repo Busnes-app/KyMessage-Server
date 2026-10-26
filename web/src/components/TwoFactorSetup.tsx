@@ -79,56 +79,54 @@ export const TwoFactorSetup: React.FC = () => {
     </label>
   );
   return (
-    <div style={{ maxWidth: '1080px', margin: '0 auto', padding: '0 20px 32px' }}>
-      <section className="panel dr-section" aria-label="Account security">
-        <div className="panel-header">
-          <h3><KeyRound size={16} /> Account security</h3>
+    <section className="panel dr-section" aria-label="Account security">
+      <div className="panel-header">
+        <h3><KeyRound size={16} /> Account security</h3>
+      </div>
+      <p className="dr-hint">
+        Two-factor sign-in asks for a code from an authenticator app after your password, at every sign-in and every confirmation. Changes need a sign-in from the last 10 minutes.
+      </p>
+
+      {stage.kind === 'codes' && (
+        <div className="dr-alert dr-alert-warn" role="status">
+          <p>Two-factor sign-in is on. Save these recovery codes somewhere safe: each signs in once without your phone, and they are not shown again.</p>
+          <ul aria-label="Recovery codes" className="font-mono">
+            {stage.codes.map((c) => <li key={c}>{c}</li>)}
+          </ul>
+          <button type="button" onClick={() => setStage({ kind: 'idle' })}>I have saved them</button>
         </div>
-        <p className="dr-hint">
-          Two-factor sign-in asks for a code from an authenticator app after your password, at every sign-in and every confirmation. Changes need a sign-in from the last 10 minutes.
-        </p>
+      )}
 
-        {stage.kind === 'codes' && (
-          <div className="dr-alert dr-alert-warn" role="status">
-            <p>Two-factor sign-in is on. Save these recovery codes somewhere safe: each signs in once without your phone, and they are not shown again.</p>
-            <ul aria-label="Recovery codes" className="font-mono">
-              {stage.codes.map((c) => <li key={c}>{c}</li>)}
-            </ul>
-            <button type="button" onClick={() => setStage({ kind: 'idle' })}>I have saved them</button>
-          </div>
-        )}
-
-        {stage.kind === 'enrolling' && (
-          <form className="dr-row" onSubmit={(e) => { e.preventDefault(); void confirm(); }}>
-            <img src={stage.qr} width={200} height={200} alt="QR code for your authenticator app" />
-            <div>
-              <p className="dr-hint">Scan the code, or enter this key: <code>{stage.secret}</code></p>
-              {codeField('Code from the app')}
-              <div className="dr-actions">
-                <button type="submit" disabled={busy || !code.trim()}>Turn on</button>
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => setStage({ kind: 'idle' })}>Cancel</button>
-              </div>
+      {stage.kind === 'enrolling' && (
+        <form className="dr-row" onSubmit={(e) => { e.preventDefault(); void confirm(); }}>
+          <img src={stage.qr} width={200} height={200} alt="QR code for your authenticator app" />
+          <div>
+            <p className="dr-hint">Scan the code, or enter this key: <code>{stage.secret}</code></p>
+            {codeField('Code from the app')}
+            <div className="dr-actions">
+              <button type="submit" disabled={busy || !code.trim()}>Turn on</button>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={() => setStage({ kind: 'idle' })}>Cancel</button>
             </div>
-          </form>
-        )}
-
-        {stage.kind === 'idle' && !enabled && (
-          <div className="dr-row">
-            <span>Two-factor sign-in is off.</span>
-            <button type="button" disabled={busy} onClick={() => void begin()}>Set up two-factor sign-in</button>
           </div>
-        )}
+        </form>
+      )}
 
-        {stage.kind === 'idle' && enabled && (
-          <form className="dr-row" onSubmit={(e) => { e.preventDefault(); void disable(); }}>
-            <span>Two-factor sign-in is on.</span>
-            {codeField('Code or recovery code')}
-            <button type="submit" className="btn-secondary" disabled={busy || !code.trim()}>Turn off</button>
-          </form>
-        )}
+      {stage.kind === 'idle' && !enabled && (
+        <div className="dr-row">
+          <span>Two-factor sign-in is off.</span>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void begin()}>Set up two-factor sign-in</button>
+        </div>
+      )}
 
-        {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
-      </section>
-    </div>
+      {stage.kind === 'idle' && enabled && (
+        <form className="dr-row" onSubmit={(e) => { e.preventDefault(); void disable(); }}>
+          <span>Two-factor sign-in is on.</span>
+          {codeField('Code or recovery code')}
+          <button type="submit" className="btn-secondary" disabled={busy || !code.trim()}>Turn off</button>
+        </form>
+      )}
+
+      {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
+    </section>
   );
 };

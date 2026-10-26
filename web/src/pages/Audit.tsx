@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { errorMessage } from '../api';
+import { errorMessage, errorText } from '../api';
 import { arr, count, iso, obj, str } from '../dto';
 
 export interface AuditRecord { id: number; at: string; actor: string; action: string; target: string; outcome: string; details: string; ip: string }
@@ -19,6 +19,7 @@ export function parseAudit(v: unknown): AuditPage {
 
 const KINDS = [['', 'All'], ['auth', 'Sign-in'], ['backup', 'Backup'], ['branding', 'Branding'], ['matrix', 'Matrix'], ['scim', 'SCIM']] as const;
 const PAGE = 50;
+const COLUMNS = ['When', 'Who', 'What', 'Target', 'Outcome', 'Details', 'IP'];
 const bad = (outcome: string) => /^(error|failure|refused)/.test(outcome);
 
 export const Audit: React.FC = () => {
@@ -40,7 +41,7 @@ export const Audit: React.FC = () => {
         setError('');
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(err instanceof Error && err.message ? err.message : 'Could not read the audit log');
+        if (!controller.signal.aborted) setError(errorText(err, 'Could not read the audit log'));
       });
     return () => controller.abort();
   }, [kind, offset]);
@@ -61,20 +62,21 @@ export const Audit: React.FC = () => {
       {page && (
         <section className="panel dr-section" aria-label="Audit records">
           <div className="console-table-wrap">
-            <table className="console-table">
-              <thead>
-                <tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Target</th><th scope="col">Outcome</th><th scope="col">Details</th><th scope="col">IP</th></tr>
+            {/* Phones stack each record as labelled lines; explicit roles keep table semantics where display changes drop them (WebKit). */}
+            <table className="console-table audit-table" role="table">
+              <thead role="rowgroup">
+                <tr role="row">{COLUMNS.map((c) => <th key={c} scope="col" role="columnheader">{c}</th>)}</tr>
               </thead>
-              <tbody>
+              <tbody role="rowgroup">
                 {page.records.map((r) => (
-                  <tr key={r.id}>
-                    <td>{new Date(r.at).toLocaleString()}</td>
-                    <td>{r.actor}</td>
-                    <td className="dr-mono">{r.action}</td>
-                    <td className="dr-mono">{r.target || '—'}</td>
-                    <td className={bad(r.outcome) ? 'dr-danger' : ''}>{r.outcome || '—'}</td>
-                    <td className="dr-mono" style={{ fontSize: '12px', color: 'var(--ink)' }}>{r.details || '—'}</td>
-                    <td className="dr-mono">{r.ip || '—'}</td>
+                  <tr key={r.id} role="row">
+                    <td role="cell" data-label="When">{new Date(r.at).toLocaleString()}</td>
+                    <td role="cell" data-label="Who">{r.actor}</td>
+                    <td role="cell" data-label="What" className="dr-mono">{r.action}</td>
+                    <td role="cell" data-label="Target" className="dr-mono">{r.target || '—'}</td>
+                    <td role="cell" data-label="Outcome" className={bad(r.outcome) ? 'dr-danger' : ''}>{r.outcome || '—'}</td>
+                    <td role="cell" data-label="Details" className="dr-mono dr-muted">{r.details || '—'}</td>
+                    <td role="cell" data-label="IP" className="dr-mono">{r.ip || '—'}</td>
                   </tr>
                 ))}
               </tbody>

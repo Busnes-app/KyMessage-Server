@@ -20,3 +20,11 @@ it('member gets no admin navigation', () => {
 it('admin sees the admin pages', () => {
   expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'agents', 'rooms', 'health', 'audit', 'scim', 'backup', 'settings']);
 });
+
+it('names the account and its role once', () => {
+  const { rerender } = render(<AppHeader appName="KyMessages" activeTab="dashboard" onTabChange={() => {}} user={{ username: 'admin', display_name: 'Administrator', role: 'admin' }} onLogout={() => {}} />);
+  expect(screen.getAllByText('Administrator')).toHaveLength(1);
+  rerender(<AppHeader appName="KyMessages" activeTab="dashboard" onTabChange={() => {}} user={{ username: 'alice', role: 'user' }} onLogout={() => {}} />);
+  expect(screen.getByText('alice')).toBeTruthy();
+  expect(screen.getByText('Everyday account')).toBeTruthy();
+});

@@ -100,30 +100,22 @@ export const CaptchaWidget: React.FC<CaptchaProps> = ({ onToken, round }) => {
   }, [round, expired]);
 
   return (
-    <div
-      style={{
-        background: 'var(--panel)',
-        border: '1px solid var(--line)',
-        borderRadius: '6px',
-        padding: '12px',
-        margin: '12px 0',
-      }}
-    >
+    <div className="auth-check">
       {status === 'working' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)' }}>
-          <Loader2 size={16} className="animate-spin" style={{ color: 'var(--accent)' }} />
+        <div>
+          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
           <span>Verifying security check ({progress}%)...</span>
         </div>
       )}
       {status === 'done' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--success)' }}>
-          <ShieldCheck size={16} />
+        <div className="dr-ok">
+          <ShieldCheck size={16} aria-hidden="true" />
           <span>Security check verified.</span>
         </div>
       )}
       {status === 'failed' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--danger)' }}>
-          <AlertCircle size={16} />
+        <div className="dr-danger">
+          <AlertCircle size={16} aria-hidden="true" />
           <span>{errorMsg}</span>
         </div>
       )}
