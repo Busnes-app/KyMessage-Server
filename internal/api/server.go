@@ -355,10 +355,12 @@ func (s *Server) routes() {
 	// CSRF check covers a download that carries the whole instance.
 	// Routes that move, pin, disable or export the recovery trust root also need a recent
 	// sign-in, so a stolen or long-lived session cannot redirect every future capsule.
+	// A deposit only seals to the key already pinned, so it needs an admin, not a recent sign-in,
+	// unless it would prune a local copy (depositPrunes).
 	s.mux.HandleFunc("POST /api/backup/drill", s.tracked(s.requireAdmin(s.handleBackupDrill)))
 	s.mux.HandleFunc("POST /api/backup/export-capsule", s.tracked(s.requireFreshAdmin(s.handleExportCapsule)))
 	s.mux.HandleFunc("POST /api/backup/pair-remote", s.tracked(s.requireFreshAdmin(s.handlePairRemoteRecovery)))
-	s.mux.HandleFunc("POST /api/backup/deposit", s.tracked(s.requireFreshAdmin(s.handleRunBackup)))
+	s.mux.HandleFunc("POST /api/backup/deposit", s.tracked(s.requireAdmin(s.handleRunBackup)))
 	s.mux.HandleFunc("DELETE /api/backup/pairing", s.tracked(s.requireFreshAdmin(s.handleUnpair)))
 	s.mux.HandleFunc("POST /api/backup/pin-key", s.tracked(s.requireFreshAdmin(s.handlePinKey)))
 	s.mux.HandleFunc("PUT /api/backup/schedule", s.requireFreshAdmin(s.handleSetSchedule))

@@ -28,6 +28,7 @@ import (
 
 // An IdP may silently reuse an old login, so an SSO session is only as fresh as the signed
 // auth_time. Old or missing auth_time must not pass backup step-up; a fresh one must.
+// Deposit needs no step-up (TestDepositNeedsAdminNotStepUp), so it is not listed.
 func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	_, st, cfg := setupTestServer(t)
 	if err := st.Users().CreateUser(context.Background(), &store.User{
@@ -53,7 +54,7 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 
 	priv, _ := recoverykey.Generate()
 	routes := []struct{ method, path string }{
-		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"}, {"POST", "/api/backup/deposit"},
+		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"},
 		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
 		{"POST", "/api/admin/matrix/sessions/oauth2/01J9ZK8V6N3W4X5Y6Z7A8B9C1A/finish"},
 	}
