@@ -1,6 +1,5 @@
 import React from 'react';
-import { Database, Palette } from 'lucide-react';
-import { ThemeSwitcher } from '../components/ThemeSwitcher';
+import { Database } from 'lucide-react';
 import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
 import { FederationPanel } from '../components/FederationPanel';
@@ -21,7 +20,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged,
     <div className="dr-page">
       <div className="dr-header">
         <h1>System Settings & Architecture</h1>
-        <p>Database, appearance and instance configuration.</p>
+        <p>Database and instance configuration. Themes are under Appearance.</p>
       </div>
 
       {/* One flat surface: each section is divided by a rule, never boxed inside another. */}
@@ -41,14 +40,6 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged,
               </span>
             </div>
           )}
-        </section>
-
-        <section className="panel dr-section" aria-labelledby="settings-appearance">
-          <h3 id="settings-appearance"><Palette size={16} aria-hidden="true" /> Appearance</h3>
-          <p className="dr-hint">
-            Busnes Light and Busnes Dark follow this device&rsquo;s setting until you choose a theme. The choice is kept in this browser only.
-          </p>
-          <ThemeSwitcher />
         </section>
 
         <BrandingPanel onChanged={onBrandingChanged} />

@@ -91,3 +91,7 @@ Stage 08: navigation hover fix (2026-10-26, finding F1 of the council runtime-so
 - **Evidence.** Captures `kymessages-08-{before,after}-*` come from the real signed-in app on a disposable server. The vendored ky-ui files are unchanged.
 - **Regression test.** `ui.spec.mjs` fails on the pre-fix CSS in all 6 Chromium and Firefox projects and passes with the fix.
 - **Checks.** `test:browser` 7/7. `make ci` passes (157 tests; smoke on port 18097).
+
+## Fleet Appearance picker — 2026-10-26
+
+KyMessages gained an Appearance page for every role (members get Home and Appearance rows; Match system plus the 22-theme suite catalog as native radio cards, saved `ky_theme` IDs kept); the header and Settings theme selects are gone. Staged before/after captures at 1280×900 and 390×844 in OS light and dark, with source patches, binary and asset hashes and per-file measurements, are in [docs/ui-fleet-2026-10-26/](docs/ui-fleet-2026-10-26/README.md) (`manifest.json`, `captures.csv`, `checks.csv`). They are scratch captures with synthetic data and carry no rating.

@@ -8,17 +8,17 @@ it.each(['admin', 'user'])('keeps theme and sign-out controls without console de
   const onLogout = vi.fn();
   render(<AppHeader appName="KyMessages" activeTab="dashboard" onTabChange={() => {}} user={{ username: 'alice', role }} onLogout={onLogout} />);
   expect(screen.queryByRole('button', { name: /pair device/i })).toBeNull();
-  expect(screen.getByLabelText('Color theme')).toBeTruthy();
+  expect(screen.queryByLabelText('Color theme')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
   expect(onLogout).toHaveBeenCalledOnce();
 });
 
-it('member gets no admin navigation', () => {
-  expect(navItemsFor('user')).toEqual([]);
-  expect(navItemsFor('manager')).toEqual([]);
+it('member gets Home and Appearance, no admin navigation', () => {
+  expect(navItemsFor('user').map(i => i.id)).toEqual(['dashboard', 'appearance']);
+  expect(navItemsFor('manager').map(i => i.id)).toEqual(['dashboard', 'appearance']);
 });
 it('admin sees the admin pages', () => {
-  expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'agents', 'rooms', 'health', 'audit', 'scim', 'backup', 'settings']);
+  expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'agents', 'rooms', 'health', 'audit', 'scim', 'backup', 'settings', 'appearance']);
 });
 
 it('names the account and its role once', () => {

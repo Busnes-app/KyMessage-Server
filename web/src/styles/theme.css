@@ -101,6 +101,13 @@
   --success: #10b981;
 }
 
+/* The suite palettes (ky-ui themes.js sets their colours inline) have no status colours;
+   tint Busnes ones toward the palette's ink, as KyPost does, so they read on light and dark. */
+:root[data-theme]:not([data-theme^="busnes-"], [data-theme="patina"], [data-theme="cyber"], [data-theme="nord"], [data-theme="paper"], [data-theme="oled"]) {
+  --danger: color-mix(in srgb, var(--ky-danger) 50%, var(--ink-strong));
+  --success: color-mix(in srgb, var(--ky-success) 50%, var(--ink-strong));
+}
+
 /* ---------- Global Layout ---------- */
 
 * {
@@ -137,7 +144,6 @@ h1 { font-size: var(--ky-type-title); font-weight: 600; line-height: 1.25; lette
    the panel-hover cream, so there hover darkens and the selected row lifts to the panel. */
 :root[data-theme="busnes-light"] .app-header { --panel-hover: color-mix(in srgb, var(--ink-strong) 7%, var(--sidebar-start)); --accent-soft: var(--panel); }
 .app-header-actions { display: grid; gap: var(--ky-space-3); margin-top: auto; }
-.app-header-actions .theme-selector { width: 100%; }
 .app-user { display: grid; gap: var(--ky-space-2); border-top: 1px solid var(--line); padding-top: var(--ky-space-3); }
 .app-user-copy { min-width: 0; padding-inline: var(--ky-space-3) var(--ky-space-2); line-height: 1.4; }
 .app-user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ky-type-nav); font-weight: 600; color: var(--ink-strong); }
@@ -154,7 +160,6 @@ button.app-logout:hover:not(:disabled) { color: var(--ink-strong); }
   .app-nav { grid-column: 1 / -1; grid-row: 2; flex-direction: row; overflow-x: auto; }
   .app-nav button { width: auto; flex: 0 0 auto; padding-inline: var(--ky-space-3); white-space: nowrap; }
   .app-header-actions { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: var(--ky-space-2); margin-top: 0; }
-  .app-header-actions .theme-selector { width: 8.75rem; }
   .app-user { border-top: 0; padding: 0; }
   .app-user-copy, .app-logout-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }

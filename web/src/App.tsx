@@ -14,9 +14,12 @@ import { Audit } from './pages/Audit';
 import { ConfirmItsYou } from './components/ConfirmItsYou';
 import { TwoFactorSetup } from './components/TwoFactorSetup';
 import { MemberHome } from './pages/MemberHome';
+import { Appearance } from './pages/Appearance';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
 import './ky-ui/navigation.css';
+import './ky-ui/appearance.css';
+import './ky-ui/appearance-themes.css';
 import { errorMessage, secureFetch } from './api';
 import { parseSettings, parseUser, type SessionUser, type SiteSettings } from './dto';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -129,7 +132,8 @@ export const App: React.FC = () => {
 
       <main className="app-main">
         <ErrorBoundary key={activeTab}>
-        {!isAdmin && <MemberHome user={user} chatUrl={settings?.chat_url ?? ''} onLogout={handleLogout} />}
+        {activeTab === 'appearance' && <Appearance />}
+        {!isAdmin && activeTab !== 'appearance' && <MemberHome user={user} chatUrl={settings?.chat_url ?? ''} onLogout={handleLogout} />}
         {isAdmin && activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
         {isAdmin && activeTab === 'users' && <Users />}
         {isAdmin && activeTab === 'agents' && <Agents />}

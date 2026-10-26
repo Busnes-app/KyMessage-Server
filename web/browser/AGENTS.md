@@ -21,6 +21,7 @@ This directory owns test setup, disposable server launch and UI assertions. The 
 - Login allows 10 failed attempts per account and client per 15 minutes (successes do not count); only `dark-390` and `firefox-light-1280` try a wrong password. Do not relax the limiter; budget failures before adding projects.
 - The suite also covers Users, Agents and Rooms (Matrix off; Agents then Rooms by keyboard from Users), Health, the Audit kind filter with keyboard navigation and the Overview, at every project.
 - Settings Branding at every project: reset to defaults first (a failed project must not break the next on the shared server), a 64-character name typed by keyboard (the header wraps it), a PNG upload previewed by digest with `/app-icon.png` served `no-cache`, then both resets. With Matrix off there is no KyIdentity sync panel.
+- `appearance.spec.mjs` signs in as `admin` at every project and opens Appearance: Match system checked, arrow keys move the native radio selection with a visible focus outline, Sky (a light suite palette) keeps idle and hovered navigation text ≥ 4.5:1 (annotations) and survives a reload, Busnes Dark clears the inline palette and colour scheme, and Match system follows the emulated OS again; no CSP violations.
 - Screenshots and failure traces live in ignored `test-results/` and CI artifacts, not production assets.
 
 ## Work Guidance

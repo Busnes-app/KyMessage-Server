@@ -1,0 +1,202 @@
+// Fleet Appearance staged captures for KyCalendar and KyMessages (2026-10-26).
+// Adapted from ky-ui reviews/2026-10-26-council/source-stages/kycalendar/capture-08.mjs.txt and
+// /tmp/ky-ui-council-baseline/messages.mjs: disposable SQLite server built from the worktree, real
+// init-admin/create-user via stdin, real login and password change, fixed clock, synthetic events.
+// No auth/CSRF/CSP bypass, no mocks. Theme: no saved choice (OS-following Busnes, context colorScheme)
+// unless a surface picks a named theme through the product's own Appearance radios.
+// Usage: node capture-base.mjs <kycalendar|kymessages> <stage e.g. 00-before> <surface,...>
+process.env.TZ = 'America/Chicago';
+import { randomBytes, createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+
+const [product, stage, surfaceArg] = process.argv.slice(2);
+const P = {
+  kycalendar: { repo: 'KyCalendar', port: '5697', user: 'walter', signIn: 'Sign in' },
+  kymessages: { repo: 'KyMessage-Server', port: '5698', user: 'admin', signIn: 'Sign In' },
+}[product];
+if (!P || !stage || !surfaceArg) throw new Error('usage: capture-base.mjs <product> <stage> <surfaces>');
+const wt = `/home/yoshi/git/busnes.app/${P.repo}/.claude/worktrees/fleet-appearance`;
+const OUT = `${wt}/docs/ui-fleet-2026-10-26/screenshots`;
+const binary = `/tmp/fleet-appearance-scratch/${product}/server-${process.env.BUILD ?? stage.split('-')[1]}`;
+const NOW = new Date('2026-10-27T10:15:00-05:00');
+const SUNDAY = new Date('2026-10-25T00:00:00-05:00');
+const { chromium, request } = await import(`${wt}/web/node_modules/@playwright/test/index.mjs`);
+const baseURL = `http://127.0.0.1:${P.port}`;
+const dir = await mkdtemp(join(tmpdir(), `fleet-appearance-${product}-`));
+const env = {
+  PATH: process.env.PATH, KY_APP_URL: baseURL, KY_HOST: '127.0.0.1', KY_PORT: P.port, KY_DB_DRIVER: 'sqlite',
+  KY_DATA_DIR: join(dir, 'data'), [product === 'kycalendar' ? 'KYCALENDAR_BACKUP_DIR' : 'KY_BACKUP_DIR']: join(dir, 'backups'),
+  KY_CAPTCHA_PROVIDER: 'none', KY_TRUSTED_PROXIES: '127.0.0.1',
+};
+const secret = () => `Fleet-${randomBytes(18).toString('base64url')}9!`;
+const pw = { adminInit: secret(), admin: secret(), walterInit: secret(), walter: secret() };
+const run = (args, input) => {
+  const r = spawnSync(binary, args, { cwd: dir, env, input: `${input}\n`, stdio: ['pipe', 'inherit', 'inherit'] });
+  if (r.status !== 0) throw new Error(`${args[0]} exited ${r.status}`);
+};
+const waitReady = async () => {
+  for (const end = Date.now() + 30000; Date.now() < end; await new Promise((r) => setTimeout(r, 250))) {
+    try { if ((await fetch(baseURL)).ok) return; } catch { /* starting */ }
+  }
+  throw new Error('server not ready');
+};
+async function apiSession(username, password) {
+  const api = await request.newContext({ baseURL, extraHTTPHeaders: { 'X-Forwarded-For': '198.51.100.250' } });
+  await api.get('/');
+  const login = await api.post('/api/auth/login', { data: { username, password } });
+  if (!login.ok()) throw new Error(`${username} login ${login.status()}`);
+  const csrf = (await api.storageState()).cookies.find((c) => c.name === 'ky_csrf')?.value;
+  return { api, headers: { 'X-CSRF-Token': csrf } };
+}
+async function replacePassword(username, current, next) {
+  const { api, headers } = await apiSession(username, current);
+  try {
+    const r = await api.post('/api/auth/change-password', { headers, data: { current_password: current, new_password: next } });
+    if (!r.ok()) throw new Error(`${username} change-password ${r.status()}`);
+  } finally { await api.dispose(); }
+}
+
+let server;
+const results = [];
+try {
+  run(['init-admin'], pw.adminInit);
+  if (product === 'kycalendar') run(['create-user', '-username', 'walter'], pw.walterInit);
+  server = spawn(binary, [], { cwd: dir, env, stdio: ['ignore', 'ignore', 'inherit'] });
+  console.log(`server pid ${server.pid} port ${P.port} data ${dir}`);
+  await waitReady();
+  await replacePassword('admin', pw.adminInit, pw.admin);
+  if (product === 'kycalendar') { await replacePassword('walter', pw.walterInit, pw.walter); await seed(); }
+
+  const browser = await chromium.launch();
+  let client = 0;
+  const open = async (user, scheme, width, height) => {
+    const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme, timezoneId: 'America/Chicago', locale: 'en-US', serviceWorkers: 'block', extraHTTPHeaders: { 'X-Forwarded-For': `198.51.100.${++client}` } });
+    const page = await ctx.newPage();
+    await page.clock.setFixedTime(NOW);
+    await page.goto(`${baseURL}/`);
+    await page.getByLabel('Username').fill(user);
+    await page.getByLabel('Password', { exact: true }).fill(user === 'admin' ? pw.admin : pw.walter);
+    await page.getByRole('button', { name: P.signIn, exact: true }).click();
+    await page.getByRole('navigation', { name: 'Primary' }).or(page.locator('main h1')).first().waitFor();
+    if (user === 'walter') await page.locator('.fc-event, .fc-list-event').first().waitFor();
+    await settle(page);
+    return { ctx, page };
+  };
+  const nav = async (page, name) => {
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
+    await settle(page);
+  };
+  const appearance = (user) => async (p) => {
+    await nav(p, 'Appearance');
+    await p.getByRole('heading', { level: 1, name: 'Appearance' }).waitFor();
+  };
+  // Named themes are chosen with the product's own radio card, then the page is re-read.
+  const named = (theme, then) => async (p) => {
+    await appearance()(p);
+    await p.getByRole('radio', { name: new RegExp(`^${theme}\\b`) }).check();
+    await settle(p);
+    if (then) await then(p);
+  };
+  const steps = product === 'kycalendar'
+    ? {
+        calendar: ['walter', async () => {}],
+        settings: ['admin', async (p) => nav(p, 'Settings')],
+        appearance: ['walter', appearance('walter')],
+        'admin-appearance': ['admin', appearance('admin')],
+        'ocean-appearance': ['walter', named('Ocean')],
+        'ocean-calendar': ['walter', named('Ocean', (p) => nav(p, 'Calendar'))],
+        'sky-calendar': ['walter', named('Sky', (p) => nav(p, 'Calendar'))],
+        'paper-calendar': ['walter', named('Paper Clean', (p) => nav(p, 'Calendar'))],
+      }
+    : {
+        overview: ['admin', async () => {}],
+        settings: ['admin', async (p) => nav(p, 'Settings & DB')],
+        appearance: ['admin', appearance('admin')],
+        'ocean-appearance': ['admin', named('Ocean')],
+        'ocean-overview': ['admin', named('Ocean', (p) => nav(p, 'Overview'))],
+        'sky-overview': ['admin', named('Sky', (p) => nav(p, 'Overview'))],
+      };
+  for (const scheme of (process.env.SCHEMES ?? 'light,dark').split(',')) {
+    for (const [w, h, label] of (process.env.DESKTOP_ONLY ? [[1280, 900, 'desktop']] : [[1280, 900, 'desktop'], [390, 844, 'mobile']])) {
+      for (const s of surfaceArg.split(',')) {
+        if (!steps[s]) throw new Error(`unknown surface ${s}`);
+        const [user, step] = steps[s];
+        const { ctx, page } = await open(user, scheme, w, h);
+        await step(page);
+        await page.mouse.move(0, 0);
+        await settle(page);
+        results.push(await shot(page, `${product}-${stage}-${s}-${label}-${scheme}`, { surface: s, user: user === 'admin' ? 'administrator' : 'everyday', os_scheme: scheme, viewport: `${w}x${h}` }));
+        await ctx.close();
+      }
+    }
+  }
+  await browser.close();
+  await writeFile(`/tmp/fleet-appearance-scratch/${product}/captures-${stage}-${Date.now()}.json`, JSON.stringify({
+    product, stage, captured: new Date().toISOString(), browser: `chromium ${browser.version()}`,
+    playwright: (await import(`${wt}/web/node_modules/@playwright/test/package.json`, { with: { type: 'json' } })).default.version,
+    clock: NOW.toISOString(), timezone: 'America/Chicago', locale: 'en-US', binary,
+    binary_sha256: createHash('sha256').update(await (await import('node:fs/promises')).readFile(binary)).digest('hex'),
+    fixture: product === 'kycalendar'
+      ? 'disposable SQLite; admin (no data) and everyday walter: default Calendar + Personal #3f7f6e, 13 synthetic events, week of 2026-10-25'
+      : 'disposable SQLite; administrator only, Matrix not configured (members sign in through KyIdentity SSO only)',
+    files: results,
+  }, null, 2) + '\n');
+  console.log(`wrote ${results.length} captures`);
+} finally {
+  if (server && server.exitCode === null) { server.kill('SIGTERM'); await new Promise((r) => server.once('exit', r)); }
+  await rm(dir, { recursive: true, force: true });
+}
+
+async function settle(page) {
+  await page.waitForLoadState('networkidle');
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(400);
+}
+
+async function shot(page, name, meta) {
+  await mkdir(OUT, { recursive: true });
+  const buf = await page.screenshot({ path: `${OUT}/${name}.png` });
+  const m = await page.evaluate(() => ({
+    overflow_px: document.documentElement.scrollWidth - innerWidth,
+    h1: [...document.querySelectorAll('h1')].map((h) => h.textContent.trim()),
+    data_theme: document.documentElement.dataset.theme ?? null,
+    checked: document.querySelector('.ky-appearance-radio:checked')?.value ?? null,
+    radios: document.querySelectorAll('.ky-appearance-radio').length,
+    inline_style_attrs: document.querySelectorAll('.ky-appearance [style]:not([style=""])').length,
+    empty_style_attrs: document.querySelectorAll('.ky-appearance [style=""]').length,
+  }));
+  console.log(`${name}.png ${JSON.stringify(m)}`);
+  return { file: `${name}.png`, sha256: createHash('sha256').update(buf).digest('hex'), ...meta, ...m };
+}
+
+async function seed() {
+  const { api, headers } = await apiSession('walter', pw.walter);
+  try {
+    const ok = async (res, what) => { if (!res.ok()) throw new Error(`${what}: ${res.status()} ${await res.text()}`); return res.status() === 204 ? null : res.json(); };
+    const cals = await ok(await api.get('/api/calendars'), 'list calendars');
+    const work = cals[0];
+    const home = await ok(await api.post('/api/calendars', { headers, data: { name: 'Personal', color: '#3f7f6e', description: '' } }), 'create Personal');
+    const at = (day, h, m = 0) => { const d = new Date(SUNDAY); d.setDate(d.getDate() + day); d.setHours(h, m, 0, 0); return d.toISOString(); };
+    const date = (day) => { const d = new Date(SUNDAY); d.setDate(d.getDate() + day); return d.toLocaleDateString('en-CA'); };
+    const timed = (cal, title, day, h1, m1, h2, m2, extra = {}) => ({ cal, body: { title, location: '', description: '', all_day: false, zone: 'America/Chicago', repeat: { freq: '' }, start: at(day, h1, m1), end: at(day, h2, m2), ...extra } });
+    const events = [
+      timed(work.id, 'Team standup', 1, 9, 0, 9, 15, { repeat: { freq: 'weekly', weekdays: ['MO', 'TU', 'WE', 'TH', 'FR'] }, location: 'Video call' }),
+      timed(work.id, 'Design review: onboarding', 2, 10, 0, 11, 30, { location: 'Room 2B' }),
+      timed(work.id, 'Vendor call', 2, 14, 0, 14, 45),
+      timed(home.id, 'Lunch with Priya', 3, 12, 0, 13, 0, { location: 'Corner Bistro' }),
+      timed(work.id, 'Quarterly planning', 4, 13, 0, 15, 30, { location: 'Main conference room' }),
+      timed(home.id, 'Dentist', 5, 8, 0, 8, 45),
+      timed(work.id, 'Sprint retro', 5, 15, 0, 16, 0),
+      timed(home.id, 'Climbing gym', 2, 18, 0, 19, 30),
+      timed(home.id, 'Farmers market', 6, 9, 0, 10, 30),
+      timed(work.id, 'Early flight to Denver', 3, 5, 30, 7, 0),
+      timed(work.id, 'Overnight deploy window', 4, 22, 0, 23, 30),
+      { cal: work.id, body: { title: 'Release freeze', location: '', description: '', all_day: true, repeat: { freq: '' }, start: date(4), end: date(6) } },
+      { cal: home.id, body: { title: "Sam's birthday", location: '', description: '', all_day: true, repeat: { freq: '' }, start: date(3), end: date(4) } },
+    ];
+    for (const e of events) await ok(await api.post(`/api/calendars/${encodeURIComponent(e.cal)}/events`, { headers, data: e.body }), `event ${e.body.title}`);
+  } finally { await api.dispose(); }
+}

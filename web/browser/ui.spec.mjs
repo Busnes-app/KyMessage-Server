@@ -60,22 +60,29 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(nav).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
   await fits(page);
-  const theme = page.getByLabel('Color theme');
-  await theme.selectOption('paper');
+  // Themes are chosen on the Appearance page; the shell carries no theme select.
+  await expect(page.getByLabel('Color theme')).toHaveCount(0);
+  const appearance = (p) => p.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Appearance', exact: true }).click();
+  const theme = (p, name) => p.getByRole('radio', { name: new RegExp(`^${name}`) }).check();
+  await appearance(page);
+  await theme(page, 'Paper Clean');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 250, 252)');
-  await theme.selectOption('busnes-dark');
+  await theme(page, 'Busnes Dark');
   await page.reload();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 35, 38)');
   const other = await context.newPage();
   await other.goto('/');
-  await other.getByLabel('Color theme').selectOption('busnes-light');
+  await appearance(other);
+  await theme(other, 'Busnes Light');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 246, 240)');
   await other.close();
-  await theme.selectOption('system');
+  await appearance(page);
+  await theme(page, 'Match system');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 35, 38)');
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 246, 240)');
+  await nav.getByRole('button', { name: 'Overview', exact: true }).click();
   await page.emulateMedia({ colorScheme: testInfo.project.use.colorScheme });
   // Busnes Light or Dark (from the OS) at this width: hovering an idle nav row gives a neutral
   // surface with readable text (the global primary-button hover once filled it with the accent),
