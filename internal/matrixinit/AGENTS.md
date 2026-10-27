@@ -34,7 +34,11 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   regenerated. A kept hex or ULID secret (`token` in `secretSpecs`) holding any whitespace or
   control character (a trailing newline included) is refused naming the file
   (`TestInitRefusesKeptTokenWithWhitespace`): configs render it byte for byte while the app trims
-  what it reads; the PEM keys keep their newlines. `secrets/postgres_password` (Postgres superuser) is never rendered; Compose
+  what it reads; the PEM keys keep their newlines. A kept key below its floor (`check` in
+  `secretSpecs`: `mas_signing_rsa` an unencrypted RSA PEM of 2048+ bits, `mas_encryption`
+  exactly 32 bytes hex, the LiveKit, macaroon and form HMAC keys 32+ bytes) is refused naming the
+  file, left byte for byte and no config is rendered (`TestInitRefusesWeakKeptKeys`); never
+  regenerate it to pass. `docs/STRONG-CRYPTO.md` lists these floors. `secrets/postgres_password` (Postgres superuser) is never rendered; Compose
   passes it as a secret file to postgres only. The app mounts `./matrix` piece by piece, every
   other secret included (`TestComposeMountsEverySecretButTheSuperusers`; add a new secret there). The capsule leaves it out, so after a
   restore `matrix-init` creates it and keeps every restored secret
@@ -98,7 +102,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   API keys, explicit media IP and TCP 7881/UDP 7882, with auto-create off; own-endpoint
   STUN prevents third-party fallback. Optional `KY_MATRIX_TURN_HOST`, `_CERT_FILE`, `_KEY_FILE`
   form one complete block. Validate bounded regular PEM files, private key permissions,
-  matching pair, hostname and current validity before any output mutation. ACME source
+  matching pair, hostname, current validity and key strength (every certificate in the file
+  RSA-2048+, ECDSA or Ed25519; `TestTurnTLSRefusesWeakChainKeys`) before any output mutation. ACME source
   symlinks are supported. Copy both TLS files privately into `livekit` using rename; only
   restart after a successful run. LiveKit mounts this entire directory read-only for renewal.
   TURN internally listens on 5349, advertises 443, offers own-endpoint STUN/UDP TURN on 3478, allocates UDP 30000–30100 and denies all

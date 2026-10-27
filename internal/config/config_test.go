@@ -463,3 +463,25 @@ func TestAdminUsernameFromEnv(t *testing.T) {
 		}
 	}
 }
+
+// KY_SESSION_SECRET keys the CSRF and proof-of-work HMACs: a supplied one below 16 bytes
+// fails startup in every environment; 16 bytes and the generated default load.
+func TestSessionSecretKeyFloor(t *testing.T) {
+	for _, tc := range []struct {
+		secret string
+		ok     bool
+	}{{strings.Repeat("s", 15), false}, {strings.Repeat("s", 16), true}, {"", true}} {
+		t.Setenv("KY_DATA_DIR", t.TempDir())
+		t.Setenv("KY_SESSION_SECRET", tc.secret)
+		cfg, err := config.LoadFromEnv()
+		if (err == nil) != tc.ok {
+			t.Fatalf("%d-byte secret: %v", len(tc.secret), err)
+		}
+		if err != nil && !strings.Contains(err.Error(), "at least 16 bytes") {
+			t.Fatalf("error does not state the floor: %v", err)
+		}
+		if err == nil && len(cfg.Security.SessionSecret) < config.MinSessionSecretBytes {
+			t.Fatalf("loaded a %d-byte session secret", len(cfg.Security.SessionSecret))
+		}
+	}
+}

@@ -1,0 +1,6 @@
+# Supported strong-key profile (docs/STRONG-CRYPTO.md). Append to the existing COMPOSE_FILE
+# chain in .env; it keeps data, keys, image/build, network and DNS choices as they are.
+services:
+  app:
+    environment:
+      GODEBUG: fips140=on

@@ -19,6 +19,8 @@ and disclosure.
 ## Deployment requirements
 
 - Run behind HTTPS; never add a default that downgrades to cleartext.
+- To refuse keys below NIST's 2030 minimums on every Go TLS connection too, use the supported
+  profile in [docs/STRONG-CRYPTO.md](docs/STRONG-CRYPTO.md).
 - Keep the database and backups private; stop the server before copying the data directory.
 - Configure rate limits for login and message-send endpoints.
 
@@ -33,4 +35,5 @@ request.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution and review requirements
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community expectations
 - [README.md](README.md) — what this project is and how to run it
+- [docs/STRONG-CRYPTO.md](docs/STRONG-CRYPTO.md) — key-size rules and the supported strong-key TLS profile
 

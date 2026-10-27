@@ -69,6 +69,15 @@ jobs:
       - name: Tests with race detector and coverage
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
+      # docs/STRONG-CRYPTO.md: the whole suite again under the supported strong-key profile.
+      - name: Tests under the strong-key profile
+        env:
+          GODEBUG: fips140=on
+        run: go test -race -count=1 ./...
+
+      - name: Strong-key overlay preserves Compose configuration
+        run: python3 docs/check-strong-crypto-compose.py
+
       - name: Coverage summary
         run: |
           go tool cover -func=coverage.out | tail -n 1 | tee -a "$GITHUB_STEP_SUMMARY"

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { MatrixRTCSessionEvent } from 'matrix-js-sdk/lib/matrixrtc/index.js';
 import sharp from 'sharp';
-import { Segmenter, StillPicture, Throttle, formatNotes, chunks, roomAdmin, thumb, userOf } from './rules.mjs';
+import { Segmenter, StillPicture, Throttle, formatNotes, chunks, mediaKeyOK, roomAdmin, thumb, userOf } from './rules.mjs';
 import { encrypt } from './attach.mjs';
 import { speak, transcribe, RATE } from './speech.mjs';
 import { resample, toInt16, toFloat } from './audio.mjs';
@@ -59,6 +59,7 @@ export class Meeting {
   async start() {
     this.startedAt = Date.now();
     this.session.on(MatrixRTCSessionEvent.EncryptionKeyChanged, this.onKey = (key, index, _m, identity) => {
+      if (!mediaKeyOK(key)) return this.log('refused a media key shorter than 128 bits');
       const k = { key, index, identity };
       this.keys.push(k);
       if (this.lk) this.setKey(k);

@@ -40,7 +40,11 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
   type `application/octet-stream`. E2EE: GCM, HKDF, salt `LKFrameEncryptionKey`, ratchet
   window 10, key ring 256 (Element Call's MatrixKeyProvider). Keys are set with a hand-built FFI
   `SetKeyRequest`: rtc-node 1.1.0's `KeyProvider.setKey` drops the key. Re-check this on any
-  `@livekit/rtc-node` bump.
+  `@livekit/rtc-node` bump. A member's media key below 16 bytes is never set
+  (`rules.mediaKeyOK`); matrix-js-sdk passes on any length.
+- TLS: the shipped overlay keeps every connection on the private network over plain HTTP/WS;
+  `GODEBUG` does not reach Node. A TLS endpoint for `NOTES_*_URL` is outside the strong-key
+  profile (`docs/STRONG-CRYPTO.md`, measured Node behaviour there).
 - Notice: spoken (Kokoro) and posted on joining; spoken again for each later participant, at most
   once per `noticeIntervalMs` (60 s, `rules.Throttle`), deferred rather than dropped.
 - Commands (`rules.parseCommand`): `!notes pause|resume|leave|stop|help` from a member with a
