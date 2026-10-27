@@ -48,7 +48,8 @@ encrypt.
    in `KY_TRUSTED_PROXIES` and ignores `X-Real-IP`; rate limits and session binding use it
    (`internal/auth`).
 2. **KyIdentity → KyMessages.** OIDC sign-in with PKCE `S256` and verified ID tokens
-   (`internal/sso/oauth.go`); the suite webhook verified by `ky-primitives/syncauth` (signed
+   (`internal/sso/oauth.go`), whose JWKS may hold no RSA key below 2048 bits
+   (`internal/sso/jwks_strength.go`); the suite webhook verified by `ky-primitives/syncauth` (signed
    event headers, five-minute window) before any change (`internal/sso/kyidentity.go`); SCIM with a
    bearer token, acting only on SCIM-provisioned rows (`internal/scim`).
 3. **KyMessages → MAS and Synapse.** Admin API clients that follow no redirects
@@ -81,7 +82,9 @@ encrypt.
 - **Separation of privilege.** Local accounts can add TOTP; a password installed by `init-admin`
   or an operator reset must be replaced before privileged use.
 - **Open design.** Only published algorithms: AES-256-GCM, SHA-256, HMAC, Argon2id through
-  `ky-primitives/password`, OIDC with PKCE, Matrix and MSC4195 call identifiers.
+  `ky-primitives/password`, OIDC with PKCE, Matrix and MSC4195 call identifiers. Key sizes meet
+  NIST's 2030 minimums, and smaller ones are refused; [STRONG-CRYPTO.md](STRONG-CRYPTO.md) lists
+  each key and the `GODEBUG=fips140=on` TLS profile.
 - **Psychological acceptability.** The encryption label says exactly what is and is not audited;
   `init-admin` reads the password from stdin, never argv.
 

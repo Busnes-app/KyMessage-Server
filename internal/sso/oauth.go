@@ -30,6 +30,7 @@ type oauthFlow struct {
 	clientSecret string
 	mu           sync.Mutex
 	provider     *oidc.Provider
+	verifier     *oidc.IDTokenVerifier
 }
 
 func newOAuthFlow(issuer, clientID, clientSecret string) *oauthFlow {
@@ -44,10 +45,18 @@ func (f *oauthFlow) getProvider(ctx context.Context) (*oidc.Provider, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, idpTimeout)
 	defer cancel()
-	provider, err := oidc.NewProvider(idpContext(ctx), f.issuer)
+	ctx = idpContext(ctx)
+	provider, err := oidc.NewProvider(ctx, f.issuer)
 	if err != nil {
 		return nil, err
 	}
+	jwksClient := *ctx.Value(oauth2.HTTPClient).(*http.Client)
+	base := jwksClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	jwksClient.Transport = strongJWKSTransport{base: base}
+	f.verifier = provider.VerifierContext(oidc.ClientContext(ctx, &jwksClient), &oidc.Config{ClientID: f.clientID})
 	f.provider = provider
 	return provider, nil
 }
@@ -82,7 +91,7 @@ func (f *oauthFlow) exchange(ctx context.Context, code, verifier, redirectURI, e
 
 func (f *oauthFlow) exchangeIDToken(ctx context.Context, code, verifier, redirectURI, expectedNonce string) (*oidc.IDToken, error) {
 	ctx = idpContext(ctx)
-	config, provider, err := f.config(ctx, redirectURI)
+	config, _, err := f.config(ctx, redirectURI)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +103,7 @@ func (f *oauthFlow) exchangeIDToken(ctx context.Context, code, verifier, redirec
 	if !ok || rawIDToken == "" {
 		return nil, errors.New("missing id_token in token response")
 	}
-	idToken, err := provider.Verifier(&oidc.Config{ClientID: f.clientID}).Verify(ctx, rawIDToken)
+	idToken, err := f.verifier.Verify(ctx, rawIDToken)
 	if err != nil || expectedNonce == "" || idToken.Nonce != expectedNonce {
 		return nil, ErrInvalidIDToken
 	}

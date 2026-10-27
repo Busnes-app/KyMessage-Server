@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { roomAdmin, parseCommand, Throttle, userOf, Segmenter, formatNotes, chunks, thumb, StillPicture } from '../src/rules.mjs';
+import { roomAdmin, parseCommand, Throttle, userOf, Segmenter, formatNotes, chunks, thumb, StillPicture, mediaKeyOK } from '../src/rules.mjs';
 
 const create = { sender: '@alice:x', content: { additional_creators: ['@carol:x'] } };
 const levels = { content: { users: { '@dana:x': 100, '@bob:x': 50 }, users_default: 0 } };
@@ -118,4 +118,10 @@ test('formatNotes lists snapshots but not as speakers', () => {
   const text = formatNotes({ room: 'T', start, end: start, entries: [{ at: start, who: 'Alice', shot: 1 }] });
   assert.match(text, /Speakers: none/);
   assert.match(text, /\[14:00\] Snapshot 1 of Alice's shared screen \(posted below\)/);
+});
+
+test('mediaKeyOK: call media keys below 128 bits are refused', () => {
+  assert.equal(mediaKeyOK(new Uint8Array(16)), true);
+  assert.equal(mediaKeyOK(new Uint8Array(32)), true);
+  for (const k of [new Uint8Array(15), new Uint8Array(0), undefined, null]) assert.equal(mediaKeyOK(k), false, String(k?.length));
 });

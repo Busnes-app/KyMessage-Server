@@ -150,6 +150,9 @@ type CaptchaConfig struct {
 // and uploads it, and KyRecovery admits 60 deposits per token per 15 minutes.
 const MinDepositInterval = 15 * time.Minute
 
+// MinSessionSecretBytes is the shortest KY_SESSION_SECRET accepted.
+const MinSessionSecretBytes = 16
+
 // DefaultAppName is the service name an unconfigured instance runs under. Capsules are sealed
 // under it, so the restore CLI has to agree with it without loading a whole Config.
 const DefaultAppName = "KyMessages"
@@ -188,6 +191,10 @@ func LoadFromEnv() (*Config, error) {
 	}
 	if sessionSecret == "" {
 		sessionSecret = generateRandomHex(32)
+	}
+	// It is the CSRF and proof-of-work HMAC key: below 128 bits it is refused, never padded.
+	if len(sessionSecret) < MinSessionSecretBytes {
+		return nil, fmt.Errorf("KY_SESSION_SECRET must be at least %d bytes (openssl rand -hex 32)", MinSessionSecretBytes)
 	}
 
 	encryptionKey, ok, err := keyfile.FromEnv("KY_ENCRYPTION_KEY", 32)

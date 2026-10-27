@@ -27,6 +27,10 @@ export class Throttle {
   spoke(now) { this.last = now; }
 }
 
+// mediaKeyOK: a member's call media key must hold at least 128 bits (Element Call sends 16
+// bytes). matrix-js-sdk passes on whatever length it receives.
+export const mediaKeyOK = (key) => (key?.length ?? 0) >= 16;
+
 // userOf: the Matrix user of an Element Call LiveKit identity "@user:server:DEVICE".
 export function userOf(identity) {
   const i = identity.lastIndexOf(':');

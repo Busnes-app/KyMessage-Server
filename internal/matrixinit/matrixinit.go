@@ -6,6 +6,7 @@ package matrixinit
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -187,28 +188,30 @@ func httpsURL(raw string) (*url.URL, error) {
 // secretSpecs are written once under secrets/. The provider ID is not secret but must be
 // just as stable: KyIdentity's redirect URI embeds it.
 // A token (hex or ULID) is rendered byte for byte, while the app trims what it reads, so a kept
-// one must hold no whitespace or control character; the PEM keys hold newlines.
+// one must hold no whitespace or control character; the PEM keys hold newlines. check, when
+// set, refuses a kept cryptographic key below its strength floor.
 var secretSpecs = []struct {
 	name  string
 	gen   func() ([]byte, error)
 	token bool
+	check func(string) error
 }{
-	{"livekit_api_key", hexSecret, true},
-	{"livekit_api_secret", hexSecret, true},
-	{"synapse_db_password", hexSecret, true},
-	{"mas_db_password", hexSecret, true},
-	{"postgres_password", hexSecret, true}, // superuser; a Compose secret, never rendered
-	{"synapse_macaroon_secret_key", hexSecret, true},
-	{"synapse_form_secret", hexSecret, true},
-	{"mas_synapse_shared_secret", hexSecret, true},
-	{"mas_encryption", hexSecret, true}, // MAS requires exactly 32 bytes, hex encoded
-	{"mas_signing_rsa", rsaKeyPEM, false},
-	{"mas_signing_ec", ecKeyPEM, false},
-	{"upstream_provider_id", newULID, true},
-	{"mas_admin_client_id", newULID, true},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
-	{"mas_admin_client_secret", hexSecret, true}, // mounted into KyMessages, never in env
-	{"kybackup_db_password", hexSecret, true},    // read-only backup role; KyMessages reads it as a Compose secret
-	{"notes_api_secret", hexSecret, true},        // the meeting-notes bot's key to KyMessages' /api/notes/session
+	{"livekit_api_key", hexSecret, true, nil},
+	{"livekit_api_secret", hexSecret, true, hmacKey}, // LiveKit's HS256 key; the app requires 32 bytes too
+	{"synapse_db_password", hexSecret, true, nil},
+	{"mas_db_password", hexSecret, true, nil},
+	{"postgres_password", hexSecret, true, nil}, // superuser; a Compose secret, never rendered
+	{"synapse_macaroon_secret_key", hexSecret, true, hmacKey},
+	{"synapse_form_secret", hexSecret, true, hmacKey},
+	{"mas_synapse_shared_secret", hexSecret, true, nil},
+	{"mas_encryption", hexSecret, true, masEncryptionKey},
+	{"mas_signing_rsa", rsaKeyPEM, false, rsaSigningKey},
+	{"mas_signing_ec", ecKeyPEM, false, nil}, // every curve MAS reads is 256 bits or more
+	{"upstream_provider_id", newULID, true, nil},
+	{"mas_admin_client_id", newULID, true, nil},       // KyMessages' MAS admin client; set KY_MATRIX_ADMIN_CLIENT_ID to it
+	{"mas_admin_client_secret", hexSecret, true, nil}, // mounted into KyMessages, never in env
+	{"kybackup_db_password", hexSecret, true, nil},    // read-only backup role; KyMessages reads it as a Compose secret
+	{"notes_api_secret", hexSecret, true, nil},        // the meeting-notes bot's key to KyMessages' /api/notes/session
 }
 
 // Run validates in fully, then writes the configuration under dir.
@@ -267,6 +270,11 @@ func Run(in Input, dir string) (Result, error) {
 		}
 		if spec.token && strings.ContainsFunc(s[spec.name], func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
 			return Result{}, fmt.Errorf("%s: contains whitespace or control characters (a trailing newline counts); restore it from backup byte for byte", rel)
+		}
+		if spec.check != nil {
+			if err := spec.check(s[spec.name]); err != nil {
+				return Result{}, fmt.Errorf("%s: %w; it is kept as is: restore the original from backup", rel, err)
+			}
 		}
 	}
 	if _, err := ensure(filepath.Join("synapse", "signing.key"), synapseSigningKey); err != nil {
@@ -503,6 +511,55 @@ func synapseSigningKey() ([]byte, error) {
 	return fmt.Appendf(nil, "ed25519 a_%s %s\n", hex.EncodeToString(id), base64.RawStdEncoding.EncodeToString(seed)), nil
 }
 
+// hmacKey is the floor for kept HMAC keys: 32 bytes, as generated.
+func hmacKey(v string) error {
+	if len(v) < 32 {
+		return errors.New("an HMAC key must be at least 32 bytes")
+	}
+	return nil
+}
+
+// masEncryptionKey is MAS's AES-256 key: exactly 32 bytes, hex encoded.
+func masEncryptionKey(v string) error {
+	if b, err := hex.DecodeString(v); err != nil || len(b) != 32 {
+		return errors.New("must be 64 hex digits (a 32-byte key)")
+	}
+	return nil
+}
+
+// rsaSigningKey refuses a kept MAS signing key that is not an unencrypted RSA PEM of 2048
+// bits or more: MAS itself signs with any RSA size it is given.
+func rsaSigningKey(v string) error {
+	block, _ := pem.Decode([]byte(v))
+	if block == nil {
+		return errors.New("not a PEM private key")
+	}
+	k, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		p8, err8 := x509.ParsePKCS8PrivateKey(block.Bytes)
+		var ok bool
+		if k, ok = p8.(*rsa.PrivateKey); err8 != nil || !ok {
+			return errors.New("not an unencrypted RSA private key")
+		}
+	}
+	return strongPublicKey(&k.PublicKey)
+}
+
+// strongPublicKey refuses an RSA key below 2048 bits and any key that is not RSA, ECDSA or
+// Ed25519. x509 parses no ECDSA curve below P-224.
+func strongPublicKey(pub any) error {
+	switch k := pub.(type) {
+	case *rsa.PublicKey:
+		if k.N.BitLen() < 2048 {
+			return fmt.Errorf("RSA-%d is below the 2048-bit minimum", k.N.BitLen())
+		}
+	case *ecdsa.PublicKey, ed25519.PublicKey:
+	default:
+		return fmt.Errorf("unsupported %T key", pub)
+	}
+	return nil
+}
+
 func rsaKeyPEM() ([]byte, error) {
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -586,6 +643,15 @@ func loadTurnTLS(in Input) ([]byte, []byte, error) {
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {
 		return nil, nil, errors.New("TURN certificate is invalid")
+	}
+	for _, der := range pair.Certificate {
+		c, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, nil, errors.New("TURN certificate chain is invalid")
+		}
+		if err := strongPublicKey(c.PublicKey); err != nil {
+			return nil, nil, fmt.Errorf("TURN certificate %q: %w", c.Subject.CommonName, err)
+		}
 	}
 	if err := leaf.VerifyHostname(in.TurnHost); err != nil {
 		return nil, nil, errors.New("TURN certificate does not cover the TURN hostname")
