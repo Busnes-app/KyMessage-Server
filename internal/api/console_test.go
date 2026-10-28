@@ -45,6 +45,7 @@ type fakeMAS struct {
 	consoleErr  error
 	consoleHang chan struct{}
 	consoleRuns int
+	versions    int
 	// consoleLate hands fn an already ended context, as after a slow console setup.
 	consoleLate bool
 
@@ -118,7 +119,12 @@ func (f *fakeMAS) FinishSession(_ context.Context, kind matrixsync.SessionKind, 
 	return already, nil
 }
 
-func (f *fakeMAS) Version(context.Context) (string, error) { return health.Pins["mas"], nil }
+func (f *fakeMAS) Version(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.versions++
+	return health.Pins["mas"], nil
+}
 
 // setupMatrixServer: four MAS users (active, locked, deactivated, unlinked) and a KyIdentity
 // directory in which sub-a is active, sub-b disabled and sub-c unknown.

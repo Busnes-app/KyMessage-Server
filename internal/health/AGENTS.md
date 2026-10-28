@@ -2,7 +2,7 @@
 
 ## Purpose
 Probes KyMessages, its database and (with Matrix) Synapse, MAS, Element, LiveKit and Postgres once per
-request, and compares running versions with the versions Compose pins.
+request for the admin Health page, and compares running versions with the versions Compose pins.
 
 ## Ownership
 Owns `Check`, the per-component probes, `ComposeTargets`, the source links and `pins.go`
@@ -17,6 +17,7 @@ Owns `Check`, the per-component probes, `ComposeTargets`, the source links and `
 - Synapse: `/health` then the unauthenticated `/_synapse/admin/v1/server_version`. MAS: discovery
   (MAS's health resource is on no listener) then the admin API version. Element: `/version`.
   Postgres: `SHOW server_version` as `kybackup` on database `synapse`.
+- `Live` turns a probe into a liveness check for the public `/healthz`: a component that answered is up even when its version is unknown.
 - The HTTP client ignores proxy variables and follows no redirects. Errors carry no credential:
   `Check` redacts the secrets it is given; the Postgres DSN never appears in an error.
 - `livekit` (built in `internal/api`) checks authenticated `ListRooms`; the API exposes no

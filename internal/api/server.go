@@ -84,6 +84,7 @@ type Server struct {
 	rooms            RoomAdmin
 	roomBudget       time.Duration // a room change's steps before its final Close or Delete
 	matrixTargets    health.Targets
+	healthz          func() http.Handler // public ky.health/1, built on first use, after SetMatrixAdmin
 	probeHTTP        *http.Client
 	fedHTTP          *http.Client // other homeservers: public addresses only
 	fedBaseForTest   func(name string) string
@@ -233,6 +234,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
 	}
 	s.rooms = synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
+	s.healthz = sync.OnceValue(s.suiteHealth)
 	s.roomBudget = roomChangeTimeout
 
 	if cfg.Matrix.RTCHost != "" {
@@ -319,6 +321,8 @@ func (s *Server) requestIP(r *http.Request) string {
 }
 
 func (s *Server) routes() {
+	// Public ky.health/1 for KyPulse: status and check names only, never error text.
+	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { s.healthz().ServeHTTP(w, r) })
 	// Deliberate public, narrow forwarded-header self-check. Directory verifies HMAC itself.
 	s.mux.HandleFunc("GET /api/installer/network", s.handleInstallerNetwork)
 	s.mux.HandleFunc("POST /api/installer/directory", s.handleInstallerDirectory)

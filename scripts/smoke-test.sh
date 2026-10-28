@@ -86,6 +86,7 @@ echo "==> HTTP with default PoW captcha"
 start_server pow
 check "GET / serves the PWA" "$(status "$BASE/")" "200"
 contains "index.html has react root" "$(curl -s "$BASE/")" 'id="root"'
+contains "public /healthz speaks ky.health/1" "$(curl -s "$BASE/healthz")" '"schema":"ky.health/1","service":"kymessages","status":"ok"'
 check "SPA fallback for unknown route" "$(status "$BASE/settings/deep/link")" "200"
 check "login blocked without captcha token" \
   "$(status -X POST -H 'Content-Type: application/json' -d '{"username":"admin","password":"'"$ADMIN_PASS"'"}' "$BASE/api/auth/login")" "403"
