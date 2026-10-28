@@ -28,6 +28,12 @@ an "Open chat" link for members; without it they see a page saying chat is not a
 - Add agents, federation or voice/video calling through their separate setup paths.
 - Keep acceptance gates and complete Matrix/media recovery requirements explicit.
 
+## License
+
+KyMessages is released under the [MIT License](LICENSE.txt).
+
+[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/KyMessage-Server/branch/master)](https://octocounts.com/github/Busnes-app/KyMessage-Server/tree/master)
+
 ## Documentation
 
 - [Development](docs/DEVELOPMENT.md) — Build and inspect locally, Local container build, Verification. <a id="build-and-inspect-locally"></a><a id="local-container-build"></a><a id="verification"></a>
