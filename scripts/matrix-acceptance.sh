@@ -728,6 +728,11 @@ fi
 # sweep ran clean (asynchronously, hence the waits). A badly signed delivery is refused and
 # counted in memory only.
 sync_status() { app_api GET /api/admin/matrix/sync-status | jq -r "$1"; }
+# The start-up sweep ran before MAS was up. Offboarding's directory events (and offboard-missed's
+# restart) wake it again; without them, a profile change in KyIdentity does, for the unused erin.
+if skipped offboard-missed; then
+	kyid PUT "/api/admin/users/${kid[erin]}" '{"displayName": "Erin"}' >/dev/null
+fi
 eventually 60 true "sync status shows an accepted KyIdentity webhook" sync_status '.webhook.kind // "none" | startswith("user.")'
 eventually 60 "true null" "sync status shows an ok sweep" sync_status '"\(.sweep.ok) \(.sweep.failing_since)"'
 expect "$(sync_status .kyidentity_url)" "$KY_KYIDENTITY_ISSUER" "sync status links KyIdentity"
