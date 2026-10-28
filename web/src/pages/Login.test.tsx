@@ -68,3 +68,10 @@ it('labels its fields for assistive technology and password managers', () => {
   expect(screen.getByLabelText('Password').getAttribute('autocomplete')).toBe('current-password');
   expect(screen.queryByText('Cloud Mobile First Base Platform')).toBeNull();
 });
+
+it('offers Single Sign On once, as the KyIdentity link', () => {
+  stubServer();
+  render(<Login onSuccess={vi.fn()} appName="KyMessages" />);
+  expect(screen.getByRole('link', { name: 'Continue with Single Sign On' }).getAttribute('href')).toBe('/api/sso/kyidentity/login');
+  expect(screen.getAllByText(/Single Sign/)).toHaveLength(1);
+});
