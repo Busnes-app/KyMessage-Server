@@ -246,7 +246,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   verifies each (identity `release-image.yml@refs/tags/<tag>`), and moves `:stable` only
   forward and never to a prerelease. A new ci.yml job joins its `REQUIRED` list; its action
   pins match KyPulse's. Keep the deployed identity gates explicit.
-- `dependency-release.yml` runs daily at 23:00 UTC: if Dependabot commits landed on `master`
+- `dependency-release.yml` runs daily at 22:17 UTC: if Dependabot commits landed on `master`
   since the newest release on the current line and the push CI run on `master`'s tip
   succeeded, it publishes the next `vX.Y.Z.N` (one per day however many PRs merged) and
   dispatches `release-image.yml` on it, since a `GITHUB_TOKEN` release raises no release
@@ -254,7 +254,10 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   the line in `VERSION` has no `vX.Y.Z` release: bump `VERSION` and publish `vX.Y.Z` by hand
   for a new line.
 - `scripts/matrix-acceptance.sh` (CI job `matrix-acceptance`, `make matrix-acceptance`, not
-  in `make ci`) gates the E2EE claim. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
+  in `make ci`) gates the E2EE claim. CI runs it as two parallel legs that both set up the stack
+  and run `prove` and `console`: one with `MATRIX_ACCEPT_SKIP="notes agents"`, the other skipping
+  `closed` through `admin-isolation` and stopping after `agents`; `matrix-acceptance` passes only
+  when both did. `MATRIX_ACCEPT_PREBUILT=1` takes the three images CI built with a layer cache. It builds a throwaway KyIdentity from `KYIDENTITY_SRC`
   (CI: a pinned checkout), runs `matrix-init` twice (proving Compose refuses MAS in between,
   then saving the issued secret to the 0600 file) and the Matrix overlay as Compose project
   `kymatrix-accept-<pid>` (own network and volumes; its exit trap runs `down -v` on that

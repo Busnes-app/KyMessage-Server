@@ -18,8 +18,8 @@ env:
   NODE_VERSION: "26"
 
 jobs:
-  go:
-    name: Go build, vet & tests (SQLite)
+  go-default:
+    name: Go SQLite (default)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,12 +69,6 @@ jobs:
       - name: Tests with race detector and coverage
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
-      # docs/STRONG-CRYPTO.md: the whole suite again under the supported strong-key profile.
-      - name: Tests under the strong-key profile
-        env:
-          GODEBUG: fips140=on
-        run: go test -race -count=1 ./...
-
       - name: Strong-key overlay preserves Compose configuration
         run: python3 docs/check-strong-crypto-compose.py
 
@@ -87,12 +81,37 @@ jobs:
           name: coverage
           path: coverage.out
 
+  go-strong-key:
+    name: Go SQLite (strong-key profile, fuzzing)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # docs/STRONG-CRYPTO.md: the whole suite again under the supported strong-key profile.
+      - name: Tests under the strong-key profile
+        env:
+          GODEBUG: fips140=on
+        run: go test -race -count=1 ./...
+
       # Bounded fuzzing, roughly 10-20 s per target. Minimising a new input may take the
       # default 60 s and stalls the exec count meanwhile, so it is capped at 5 s.
       - run: go test -fuzz=FuzzClientIP -fuzztime=200000x -fuzzminimizetime=5s ./internal/auth
       - run: go test -fuzz=FuzzParseTrustedProxies -fuzztime=600000x -fuzzminimizetime=5s ./internal/config
       - run: go test -fuzz=FuzzSetBrand -fuzztime=400000x -fuzzminimizetime=5s ./internal/branding
       - run: go test -fuzz=FuzzDecodeIndex -fuzztime=800000x -fuzzminimizetime=5s ./internal/backup/media
+
+  # The required SQLite check: green only when both legs are.
+  go:
+    name: Go build, vet & tests (SQLite)
+    needs: [go-default, go-strong-key]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}" = true
 
   postgres:
     name: Go tests (PostgreSQL)
@@ -178,6 +197,13 @@ jobs:
       - run: npm run build
         working-directory: web
       - run: go build -o .browser/server ./cmd/server
+      - id: playwright
+        run: echo "version=$(jq -r '.packages["node_modules/playwright"].version' web/package-lock.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-firefox
+      # Still run on a cache hit: --with-deps installs the system libraries.
       - run: npx playwright install --with-deps chromium firefox
         working-directory: web
       - run: npm run test:browser
@@ -189,11 +215,23 @@ jobs:
           path: web/test-results/
           retention-days: 7
 
-  matrix-acceptance:
-    name: Matrix acceptance (encrypted storage, closed server)
+  # Two halves of scripts/matrix-acceptance.sh in parallel. Both set the stack up and run
+  # prove and console; every other step runs in exactly one of them.
+  matrix-acceptance-legs:
+    name: Matrix acceptance (${{ matrix.part }})
     runs-on: ubuntu-latest
     # Measured locally: 434s (backup, restore and console rooms included); headroom for slower runners and image pulls.
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: offboarding, backup and restore
+            skip: notes agents
+            stop-after: ""
+          - part: notes and agents
+            skip: closed offboard-cut offboard-reactivate offboard-delete offboard-delete-locked offboard-unassign offboard-sweep offboard-missed admin-isolation
+            stop-after: agents
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -215,23 +253,64 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: scripts/matrix-acceptance/package-lock.json
+      - id: playwright
+        run: echo "version=$(jq -r '.packages["node_modules/playwright"].version' scripts/matrix-acceptance/package-lock.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
       # The script runs npm ci itself; install the browser for the version its lockfile pins.
-      - run: npx --yes "playwright@$(jq -r '.packages["node_modules/playwright"].version' package-lock.json)" install --with-deps chromium
+      # Still run on a cache hit: --with-deps installs the system libraries.
+      - run: npx --yes "playwright@${{ steps.playwright.outputs.version }}" install --with-deps chromium
         working-directory: scripts/matrix-acceptance
+      # The script's three images, from the same sources, through the layer cache. Only the
+      # first leg writes it; release-image.yml never reads it.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: kymatrix-accept-app:ci
+          cache-from: type=gha,scope=kymessages
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: kyidentity-src
+          load: true
+          tags: kymatrix-accept-kyidentity:ci
+          cache-from: type=gha,scope=kyidentity
+          cache-to: ${{ matrix.stop-after == '' && 'type=gha,scope=kyidentity,mode=max' || '' }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: notes
+          load: true
+          tags: kymatrix-accept-notes:ci
+          cache-from: type=gha,scope=kymessages-notes
       - name: TURN TLS certificate tools
         run: sudo apt-get update && sudo apt-get install -y libnss3-tools
       - name: Matrix acceptance
         env:
           KYIDENTITY_SRC: ${{ github.workspace }}/kyidentity-src
           MATRIX_ACCEPT_REPRODUCE: "1"
+          MATRIX_ACCEPT_PREBUILT: "1"
+          MATRIX_ACCEPT_SKIP: ${{ matrix.skip }}
+          MATRIX_ACCEPT_STOP_AFTER: ${{ matrix.stop-after }}
           MATRIX_ACCEPT_ARTIFACTS: ${{ runner.temp }}/matrix-acceptance
         run: bash scripts/matrix-acceptance.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: matrix-acceptance-traces
+          name: matrix-acceptance-traces-${{ strategy.job-index }}
           path: ${{ runner.temp }}/matrix-acceptance/
           retention-days: 7
+
+  # The required check: green only when both halves are.
+  matrix-acceptance:
+    name: Matrix acceptance (encrypted storage, closed server)
+    needs: matrix-acceptance-legs
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}" = true
 
   security:
     name: Vulnerability scan
@@ -265,8 +344,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build image
-        run: docker build -t kymessages:ci .
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: kymessages:ci
+          cache-from: type=gha,scope=kymessages
+          cache-to: type=gha,scope=kymessages,mode=max
 
       - name: Container serves the app
         run: |
@@ -304,8 +390,15 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
         working-directory: notes
 
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build image
-        run: docker build -t kymessages-notes:ci notes
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: notes
+          load: true
+          tags: kymessages-notes:ci
+          cache-from: type=gha,scope=kymessages-notes
+          cache-to: type=gha,scope=kymessages-notes,mode=max
 
       # As shipped: offline, read-only, no capability. Kokoro must speak the notice and Whisper
       # in the same image must hear it back from the baked models.
