@@ -51,6 +51,18 @@ type versionUnknown struct{ err error }
 
 func (v versionUnknown) Error() string { return "version unknown: " + v.err.Error() }
 
+// Live is run as a liveness check: a component that answered is up even when its version
+// could not be read.
+func Live(run func(context.Context) (string, error)) func(context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := run(ctx)
+		if errors.As(err, new(versionUnknown)) {
+			return nil
+		}
+		return err
+	}
+}
+
 // Check runs every probe in parallel, each under its own timeout, and returns results in
 // probe order. It returns by the deadline even when a probe ignores its context; that
 // probe is reported down and its late answer is discarded.
