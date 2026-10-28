@@ -37,7 +37,11 @@
 # Env: KYIDENTITY_SRC (KyIdentity-server checkout, default ../KyIdentity-server),
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
 # MATRIX_ACCEPT_ARTIFACTS (traces and logs on failure, default scripts/matrix-acceptance/artifacts),
-# MATRIX_ACCEPT_STOP_AFTER (a step name: stop there, for iterating on one step).
+# MATRIX_ACCEPT_STOP_AFTER (a step name: stop there, for iterating on one step),
+# MATRIX_ACCEPT_SKIP (space-separated step names to skip: closed, offboard-*, admin-isolation,
+# notes, agents; CI splits the run in two this way),
+# MATRIX_ACCEPT_PREBUILT=1 (use kymatrix-accept-{app,kyidentity,notes}:ci, already built from the
+# same sources, instead of building the three images; CI builds them with a layer cache).
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -49,6 +53,10 @@ project=kymatrix-accept-$$
 kyid_image=$project-kyidentity:local
 app_image=kymatrix-accept-app:$$
 notes_image=kymatrix-accept-notes:$$
+prebuilt=${MATRIX_ACCEPT_PREBUILT:-0}
+if [[ $prebuilt == 1 ]]; then
+	app_image=kymatrix-accept-app:ci kyid_image=kymatrix-accept-kyidentity:ci notes_image=kymatrix-accept-notes:ci
+fi
 
 for tool in docker go node npm openssl curl jq certutil python3; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
@@ -106,6 +114,9 @@ step() {
 	current=$1 t0=$SECONDS
 	echo "== $1"
 }
+# skipped STEP: STEP is in MATRIX_ACCEPT_SKIP. wanted STEP guards a skippable step's body.
+skipped() { [[ " ${MATRIX_ACCEPT_SKIP:-} " == *" $1 "* ]]; }
+wanted() { ! skipped "$1" || { echo "== skipping $1"; return 1; }; }
 pass() { printf 'PASS %-19s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$summary"; }
 
 cleanup() {
@@ -180,9 +191,13 @@ matrix_init() {
 # ---------------------------------------------------------------------------------------
 step build
 go build -C "$repo" -o "$scratch/kymessages" ./cmd/server
-docker build -q -t "$app_image" "$repo" >/dev/null
-docker build -q -t "$kyid_image" "$kyid_src" >/dev/null
-docker build -q -t "$notes_image" "$repo/notes" >/dev/null
+if [[ $prebuilt == 1 ]]; then
+	docker image inspect "$app_image" "$kyid_image" "$notes_image" >/dev/null
+else
+	docker build -q -t "$app_image" "$repo" >/dev/null
+	docker build -q -t "$kyid_image" "$kyid_src" >/dev/null
+	docker build -q -t "$notes_image" "$repo/notes" >/dev/null
+fi
 npm ci --prefix "$here" --no-audit --no-fund --silent
 ok "kymessages (binary and image), the notes bot, KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
 pass
@@ -385,6 +400,7 @@ expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users
 pass
 
 # ---------------------------------------------------------------------------------------
+if wanted closed; then
 step closed
 for q in '' '?kind=guest'; do
 	expect "$(answer POST "https://matrix.kymatrix.test/_matrix/client/v3/register$q" -H 'Content-Type: application/json' -d '{}')" \
@@ -419,6 +435,7 @@ expect "$(sql mas "SELECT count(*) FROM users WHERE username = 'mallory'")" 0 "n
 expect "$(sql mas "SELECT count(*) FROM upstream_oauth_links WHERE subject = '${kid[mallory]}'")" 0 "no upstream link for mallory"
 expect "$(sql synapse "SELECT count(*) FROM users WHERE name LIKE '@mallory%'")" 0 "no Synapse user for mallory"
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Offboarding. The cut is KyIdentity's back-channel logout into MAS, timed against a live
@@ -466,6 +483,7 @@ cut() {
 }
 mas_user() { sql mas "SELECT $2 FROM users WHERE username = '$1'"; }
 
+if wanted offboard-cut; then
 step offboard-cut
 e2e room carol
 e2e token carol
@@ -473,15 +491,19 @@ cut carol
 e2e disabled carol
 eventually 60 t "MAS locked carol" mas_user carol 'locked_at IS NOT NULL'
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
+if wanted offboard-reactivate; then
 step offboard-reactivate
 kyid PUT "/api/admin/users/${kid[carol]}" '{"status": "active"}' >/dev/null
 eventually 60 t "MAS unlocked carol" mas_user carol 'locked_at IS NULL'
 e2e reread carol
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
+if wanted offboard-delete; then
 step offboard-delete
 e2e room dave
 kyid DELETE "/api/admin/users/${kid[dave]}" >/dev/null
@@ -491,9 +513,11 @@ eventually 60 leave "dave left his rooms" sql synapse \
 	"SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '@dave:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1"
 e2e reads dave
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Deleting someone already locked still deactivates them.
+if wanted offboard-delete-locked; then
 step offboard-delete-locked
 kyid PUT "/api/admin/users/${kid[carol]}" '{"status": "disabled"}' >/dev/null
 eventually 60 t "MAS locked carol again" mas_user carol 'locked_at IS NOT NULL'
@@ -502,9 +526,11 @@ eventually 60 t "MAS deactivated the locked carol" mas_user carol 'deactivated_a
 eventually 60 leave "carol left her rooms" sql synapse \
 	"SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '@carol:$KY_MATRIX_SERVER_NAME' ORDER BY e.stream_ordering DESC LIMIT 1"
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Unassigning from the MAS client cuts like a disable and locks, without deactivating.
+if wanted offboard-unassign; then
 step offboard-unassign
 e2e token frank
 expect "$(token_status frank)" "200 $(mxid frank)" "frank's captured Element token is live"
@@ -515,6 +541,7 @@ ok "frank's open Element session refused ${secs}s after the unassign (bound 30s)
 eventually 60 t "MAS locked frank after the unassign" mas_user frank 'locked_at IS NOT NULL'
 expect "$(mas_user frank 'deactivated_at IS NULL')" t "frank locked, not deactivated"
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # The sweep alone cuts, as in installer setups, which register no back-channel logout. With it
@@ -522,6 +549,7 @@ pass
 # session: Synapse refuses his token at its next request (it checks the device MAS then
 # deletes, ahead of its 2-minute introspection cache) and MAS refuses his refresh token.
 # Re-enabling unlocks him for a fresh sign-in; the ended session stays ended.
+if wanted offboard-sweep; then
 step offboard-sweep
 backchannel() {
 	kyid PUT "/api/admin/clients/$KY_MATRIX_MAS_CLIENT_ID" "$(jq -n --arg b "$1" '{backchannelLogoutUri: $b}')" >/dev/null
@@ -572,8 +600,10 @@ e2e rejoined frank
 expect "$(token_status frank)" "200 $(mxid frank)" "frank signs in afresh after the re-enable"
 backchannel "$backchannel_uri"
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
+if wanted offboard-missed; then
 step offboard-missed
 e2e token erin
 dc stop --timeout 10 app >/dev/null
@@ -612,9 +642,11 @@ else
 	false
 fi
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Synapse is on default and matrix-db, not matrix-admin.
+if wanted admin-isolation; then
 step admin-isolation
 rc=0
 dc run --rm --no-deps --entrypoint curl synapse -sS -m 5 -o /dev/null http://mas:8081/ 2>/dev/null || rc=$?
@@ -623,6 +655,7 @@ rc=0
 dc run --rm --no-deps --entrypoint curl synapse -sS -m 5 -o /dev/null http://mas-admin:8081/ 2>/dev/null || rc=$?
 expect "$rc" 6 "mas-admin does not resolve for synapse"
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 jar=$state/app.cookies
@@ -686,15 +719,21 @@ expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=20' | jq -r --arg s "$
 	'[.records[] | select(.action == "matrix.session_end" and .target == $m and .actor == "admin" and (.details | contains($s))) | .outcome] | join(",")')" \
 	already_ended,ended "the audit API shows both session-end rows, newest first"
 # The sweep's session endings in offboard-sweep: frank's, by the system, never by an admin.
-expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=100' | jq -r --arg m "$(mxid frank)" \
-	'[.records[] | select(.action == "matrix.session_end" and .target == $m and .outcome == "ended") | .actor] | unique | join(",")')" \
-	system "the audit API shows the sweep's matrix.session_end rows for frank"
+if ! skipped offboard-sweep; then
+	expect "$(app_api GET '/api/admin/audit?kind=matrix&limit=100' | jq -r --arg m "$(mxid frank)" \
+		'[.records[] | select(.action == "matrix.session_end" and .target == $m and .outcome == "ended") | .actor] | unique | join(",")')" \
+		system "the audit API shows the sweep's matrix.session_end rows for frank"
+fi
 # KyIdentity sync status after the offboarding steps: their deliveries were accepted and the
 # sweep ran clean (asynchronously, hence the waits). A badly signed delivery is refused and
 # counted in memory only.
 sync_status() { app_api GET /api/admin/matrix/sync-status | jq -r "$1"; }
-eventually 60 true "sync status shows an accepted KyIdentity webhook" sync_status '.webhook.kind // "none" | startswith("user.")'
-eventually 60 "true null" "sync status shows an ok sweep" sync_status '"\(.sweep.ok) \(.sweep.failing_since)"'
+# Only after the offboarding steps: the start-up sweep runs before MAS is up, and their
+# directory events wake the clean sweep these checks see.
+if ! skipped offboard-sweep; then
+	eventually 60 true "sync status shows an accepted KyIdentity webhook" sync_status '.webhook.kind // "none" | startswith("user.")'
+	eventually 60 "true null" "sync status shows an ok sweep" sync_status '"\(.sweep.ok) \(.sweep.failing_since)"'
+fi
 expect "$(sync_status .kyidentity_url)" "$KY_KYIDENTITY_ISSUER" "sync status links KyIdentity"
 rejected=$(sync_status .rejected.count)
 expect "$(status POST "$KY_APP_URL/api/sso/kyidentity/sync" -H 'Content-Type: application/scim+json' \
@@ -712,6 +751,7 @@ pass
 # Call decrypts and decodes it; Whisper in the bot's image must hear it), post it, take the
 # pause and resume commands, and after the hangup post notes holding his sentence and the pause,
 # then leave. All of it stored encrypted; turning notes off ends the bot's session.
+if wanted notes; then
 step notes
 owner=owen
 owner_mxid=$(mxid "$owner")
@@ -784,6 +824,7 @@ expect "$(app_api POST /api/admin/notes/disable | jq -r .outcome)" disabled "the
 eventually 30 yes "turning notes off ended the bot's session" notes_says 'the session ended'
 dc rm -sf notes >/dev/null
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Agents. Before the backup: the restored app's sign-in budget (10 per account per 15 minutes)
@@ -792,6 +833,7 @@ pass
 # as the rooms step's live-session check needs. agent.mjs is a real encrypting client
 # (matrix-js-sdk, Rust crypto) signed in with the token alone; its crypto store is kept across
 # runs. Idle expiry (D3) is covered by Go unit tests, not here.
+if wanted agents; then
 step agents
 agent_name=agent-accept agent_mxid=@agent-accept:$KY_MATRIX_SERVER_NAME owner=owen
 owner_mxid=$(mxid "$owner")
@@ -907,6 +949,7 @@ expect "$(agent_audit agent.delete)" deleted "audited agent.delete"
 eventually 30 '401 M_UNKNOWN_TOKEN' "the deleted agent's token refused" agent_whoami "$(cat "$state/agent.token")"
 expect "$(sql mas "SELECT count(*) FROM personal_sessions s JOIN users u ON u.user_id = s.actor_user_id WHERE u.username = '$agent_name' AND s.revoked_at IS NULL")" 0 "no agent session left live"
 pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Server backup: the operator's admin API and `kymessages deposit`, sealed to a throwaway
