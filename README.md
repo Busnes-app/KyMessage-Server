@@ -2,7 +2,6 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15925/badge)](https://www.bestpractices.dev/projects/15925)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Busnes-app/KyMessage-Server/badge)](https://scorecard.dev/viewer/?uri=github.com/Busnes-app/KyMessage-Server)
-[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/KyMessage-Server/branch/master)](https://octocounts.com/github/Busnes-app/KyMessage-Server/tree/master)
 
 **Start here:** [Standalone installation](INSTALL.md). The base container is an operator console, not a chat server or embedded chat client. Team chat additionally needs the Matrix stack (Synapse, MAS, PostgreSQL and Element), HTTPS and KyIdentity. Local administrator sign-in alone does not enable member chat.
 
@@ -28,6 +27,12 @@ an "Open chat" link for members; without it they see a page saying chat is not a
 - Use KyIdentity for member sign-in and Element for chat: **End-to-end encrypted in Element (not independently audited)**. Synapse does not enforce encryption; members should use Element. See [Matrix chat](docs/CHAT-SETUP.md#matrix-chat).
 - Add agents, federation or voice/video calling through their separate setup paths.
 - Keep acceptance gates and complete Matrix/media recovery requirements explicit.
+
+## License
+
+KyMessages is released under the [MIT License](LICENSE.txt).
+
+[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/KyMessage-Server/branch/master)](https://octocounts.com/github/Busnes-app/KyMessage-Server/tree/master)
 
 ## Documentation
 
