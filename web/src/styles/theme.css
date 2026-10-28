@@ -508,6 +508,9 @@ dialog.modal-window::backdrop {
 /* Words wrap whole; only an unbroken token (a hash, a long name) may break. */
 .console-table td { padding: .625rem .75rem; border-bottom: 1px solid var(--line); color: var(--ink-strong); vertical-align: top; overflow-wrap: break-word; }
 .console-table td.dr-mono { font-size: var(--ky-type-meta); }
+/* Row actions stay on one line; long IDs break anywhere so they, not the actions, give way (#46). */
+.console-table td button { white-space: nowrap; }
+.console-table:not(.audit-table) .dr-mono { overflow-wrap: anywhere; }
 /* Audit fits its panel: dates stay on one line, and hashes and details may break anywhere. */
 .audit-table td:first-child { white-space: nowrap; }
 .audit-table td:nth-child(4), .audit-table td:nth-child(6) { overflow-wrap: anywhere; }
