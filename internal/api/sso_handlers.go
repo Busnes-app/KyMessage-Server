@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
@@ -157,7 +158,8 @@ func (s *Server) handleKyIdentitySyncWebhook(w http.ResponseWriter, r *http.Requ
 
 	switch err := s.kyidentity.HandleSyncWebhook(r.Context(), syncauth.FromRequest(r), body); {
 	case errors.Is(err, sso.ErrSyncUnauthorized):
-		log.Printf("[SSO] directory webhook refused: %v", err)
+		// The reason is derived from request headers; keep it on one log line.
+		log.Printf("[SSO] directory webhook refused: %s", strings.NewReplacer("\n", "", "\r", "").Replace(err.Error()))
 		s.writeError(w, http.StatusUnauthorized, "Directory webhook not authenticated")
 		return
 	case errors.Is(err, sso.ErrSyncMalformed):
