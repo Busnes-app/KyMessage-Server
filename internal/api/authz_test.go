@@ -11,6 +11,7 @@ import (
 
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky_server_base/internal/api"
+	"github.com/Busnes-app/ky_server_base/internal/appversion"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -118,7 +119,7 @@ func TestSettingsExposureByRole(t *testing.T) {
 	if anon["app_name"] == nil || anon["captcha_provider"] == nil {
 		t.Errorf("anonymous settings must keep the login screen working, got %v", anon)
 	}
-	for _, secret := range []string{"extra_settings", "db_driver"} {
+	for _, secret := range []string{"extra_settings", "db_driver", "app_version"} {
 		if _, found := anon[secret]; found {
 			t.Errorf("anonymous settings leaked %q: %v", secret, anon)
 		}
@@ -130,6 +131,9 @@ func TestSettingsExposureByRole(t *testing.T) {
 	member := decode(do(t, srv, "GET", "/api/settings", loginAs(t, srv, st, "bob", "user")))
 	if member["db_driver"] == nil {
 		t.Errorf("authenticated settings should include db_driver, got %v", member)
+	}
+	if member["app_version"] != appversion.String() {
+		t.Errorf("authenticated settings should include app_version %q, got %v", appversion.String(), member["app_version"])
 	}
 	if _, found := member["extra_settings"]; found {
 		t.Errorf("non-admin settings leaked extra_settings: %v", member)

@@ -120,6 +120,7 @@ export const App: React.FC = () => {
     <div className="app-shell">
       <AppHeader
         appName={settings?.app_name || 'KyMessages'}
+        appVersion={settings?.app_version}
         activeTab={activeTab}
         onTabChange={(t) => setActiveTab(t)}
         user={user}
