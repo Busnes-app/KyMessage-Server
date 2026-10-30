@@ -148,6 +148,21 @@ h1 { font-size: var(--ky-type-title); font-weight: 600; line-height: 1.25; lette
 .app-user-copy { min-width: 0; padding-inline: var(--ky-space-3) var(--ky-space-2); line-height: 1.4; }
 .app-user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ky-type-nav); font-weight: 600; color: var(--ink-strong); }
 .app-user-role { color: var(--ink); font-size: var(--ky-type-meta); }
+
+/* Licence line and About dialog, shared with KyPost. */
+.sidebar-footer { font-size: 0.75rem; color: var(--ink); padding-left: var(--ky-space-3); white-space: nowrap; }
+.sidebar-footer p { margin: 0; }
+button.license-link { display: inline; min-height: 0; height: auto; margin: 0; padding: 0; border: none; border-radius: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; }
+button.license-link:hover:not(:disabled) { background: none; color: var(--ink-strong); }
+dialog.modal-window.license-window { width: min(720px, 96vw); max-width: min(720px, 96vw); max-height: 90vh; padding: 16px; flex-direction: column; gap: 12px; }
+dialog.modal-window.license-window[open] { display: flex; }
+.license-window-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.license-window-title { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.license-title-main { display: flex; align-items: baseline; gap: 10px; }
+.license-app-name { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; }
+.license-version-badge { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; padding: 2px 8px; border-radius: 999px; color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.license-title-sub { margin: 0; font-size: 0.82rem; opacity: 0.7; }
+.license-text { width: 100%; flex: 1; min-height: 320px; resize: vertical; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.4; white-space: pre; background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 /* Sign out uses the navigation row's geometry so the sidebar reads as one list. */
 button.app-logout { justify-content: flex-start; padding: 0 var(--ky-space-2) 0 var(--ky-space-3); color: var(--ink); font-size: var(--ky-type-nav); font-weight: 500; }
 button.app-logout:hover:not(:disabled) { color: var(--ink-strong); }
@@ -161,6 +176,7 @@ button.app-logout:hover:not(:disabled) { color: var(--ink-strong); }
   .app-nav button { width: auto; flex: 0 0 auto; padding-inline: var(--ky-space-3); white-space: nowrap; }
   .app-header-actions { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: var(--ky-space-2); margin-top: 0; }
   .app-user { border-top: 0; padding: 0; }
+  .sidebar-footer { grid-column: 1 / -1; padding: 0 0 var(--ky-space-2); }
   .app-user-copy, .app-logout-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 

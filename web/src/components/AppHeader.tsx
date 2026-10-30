@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
+import { LicenseFooter } from './LicenseFooter';
 import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot, Palette, House } from 'lucide-react';
 
 interface AppHeaderProps {
   appName: string;
+  appVersion?: string;
   activeTab: string;
   onTabChange: (tab: string) => void;
   user: any;
@@ -31,7 +33,7 @@ export function navItemsFor(role: string) {
   return role === 'admin' ? adminItems : memberItems;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabChange, user, onLogout }) => {
+export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, activeTab, onTabChange, user, onLogout }) => {
   const navItems = navItemsFor(user?.role ?? '');
   const name = user?.display_name || user?.username;
   const role = user?.role === 'admin' ? 'Administrator' : 'Everyday account';
@@ -79,6 +81,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, activeTab, onTabC
           </div>
         )}
       </div>
+      <LicenseFooter appVersion={appVersion} />
     </header>
 
   );

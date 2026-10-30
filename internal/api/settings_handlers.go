@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Busnes-app/ky_server_base/internal/appversion"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/sso"
 )
@@ -49,6 +50,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	out["scim_enabled"] = s.config.SCIM.Enabled
 	out["db_driver"] = s.config.Database.Driver
+	// Signed-in only: the About dialog shows it; anonymous callers learn no version.
+	out["app_version"] = appversion.String()
 
 	// extra_settings holds secrets such as the SCIM bearer token. The KyRecovery pairing
 	// token is sealed at rest and never leaves the process in either form: an admin can see
