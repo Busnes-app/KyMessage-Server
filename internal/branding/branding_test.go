@@ -218,7 +218,7 @@ func TestPatchElementConfigSetsTheHomePage(t *testing.T) {
 	const home = "https://admin.example.com/element-home.html"
 	for in, want := range map[string]string{
 		`{"brand":"Acme","a": 1}`: `{"embedded_pages":{"home_url":"https://admin.example.com/element-home.html"},"brand":"Acme","a": 1}`,
-		`{"brand":"Acme","embedded_pages": { "home_url": "https://old.example.com/x" }}`: `{"brand":"Acme","embedded_pages": {"home_url":"https://admin.example.com/element-home.html"}}`,
+		`{"brand":"Acme","embedded_pages": { "home_url": "https://old.example.com/x" }}`:                   `{"brand":"Acme","embedded_pages": {"home_url":"https://admin.example.com/element-home.html"}}`,
 		`{"brand":"Acme","embedded_pages": { "home_url": "https://admin.example.com/element-home.html" }}`: `{"brand":"Acme","embedded_pages": { "home_url": "https://admin.example.com/element-home.html" }}`,
 	} {
 		p := writeConfig(t, in)
