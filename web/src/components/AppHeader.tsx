@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { LicenseFooter } from './LicenseFooter';
+import { AppRail } from './AppRail';
+import type { SuiteApp } from '../dto';
 import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot, Palette, House } from 'lucide-react';
 
 interface AppHeaderProps {
@@ -11,6 +13,7 @@ interface AppHeaderProps {
   onTabChange: (tab: string) => void;
   user: any;
   onLogout: () => void;
+  suiteApps?: SuiteApp[];
 }
 
 const adminItems = [
@@ -35,7 +38,7 @@ export function navItemsFor(role: string) {
   return role === 'admin' ? adminItems : memberItems;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoCustom = true, activeTab, onTabChange, user, onLogout }) => {
+export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoCustom = true, activeTab, onTabChange, user, onLogout, suiteApps = [] }) => {
   const navItems = navItemsFor(user?.role ?? '');
   const role = user?.role === 'admin' ? 'Administrator' : 'Everyday account';
   // A display name that repeats the role line says nothing; show the username instead.
@@ -79,6 +82,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoC
         })}
       </nav>
       <div className="ky-sidebar-foot">
+        <AppRail apps={suiteApps} />
         {user && (
           <div className="ky-user">
             <div className="ky-user-copy">

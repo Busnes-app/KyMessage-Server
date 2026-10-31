@@ -13,9 +13,9 @@
 # Images are the official upstream builds, pinned by tag and digest, configured only by files.
 # Postgres, Synapse and MAS run as the owner of ./matrix (KY_MATRIX_UID/GID, printed by
 # matrix-init) so its 0600 files stay unreadable to anyone else.
-# Element's page loads the logo from <KY_ADMIN_HOST>/app-icon.png. Its nginx sends no CSP
-# header and its own meta CSP allows img-src *; a proxy in front must not add an img-src that
-# excludes the admin host. Route https://<server name>/.well-known/matrix/{client,server} to the
+# Element's page loads the logo from <KY_ADMIN_HOST>/app-icon.png and its home page and marks
+# from <KY_ADMIN_HOST>/element-home*. Its nginx sends no CSP header and its own meta CSP allows
+# img-src * and connect-src *; a proxy in front must not add either that excludes the admin host. Route https://<server name>/.well-known/matrix/{client,server} to the
 # app (the server file answers only while federation is open).
 x-hardening: &hardening
   restart: unless-stopped

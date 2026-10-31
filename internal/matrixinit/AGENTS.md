@@ -126,11 +126,12 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   `allow_public_rooms_over_federation` (`TestFederationFileOwnsOnlyListenersAndAllowList`).
 - Element contacts no third party: integrations are null, `UIFeature.widgets` off, `jitsi.preferred_domain` is `jitsi.invalid`
   (Element keeps its `meet.element.io` default for an object set to null, so the
-  unresolvable name makes any Jitsi start fail closed), help links and the logo
-  (`/app-icon.png`) point at the admin host, desktop-build promotion is off. No rendered
+  unresolvable name makes any Jitsi start fail closed), help links, the logo
+  (`/app-icon.png`) and `embedded_pages.home_url` (`/element-home.html`, served by the console,
+  `internal/api`) point at the admin host, desktop-build promotion is off. No rendered
   value may name `element.io` or `vector.im`.
-- Element themes "Busnes Light"/"Busnes Dark" copy `web/src/ky-ui/tokens.css`; keep them
-  in step. `default_theme` is the light one, but Element's device-only `use_system_theme`
+- Element themes "Busnes Light"/"Busnes Dark" copy `web/src/ky-ui/tokens.css` (`warning-color` is
+  its `--ky-danger-light`/`-dark`); keep them in step. `default_theme` is the light one, but Element's device-only `use_system_theme`
   (default on, not settable by config) makes browsers with a colour-scheme preference start
   on built-in light/dark; the Busnes themes are one click away in Appearance.
 - AGPL rule: Synapse, MAS and Element are configured only through these files, never
