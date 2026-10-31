@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 import { arr, bool, obj, opt, str } from '../dto';
+import { PageHead } from '../components/PageHead';
 
 interface SCIMUser { id: string; username: string; display_name: string; email: string; status: string }
 export interface SCIMDirectory { enabled: boolean; token_set: boolean; users: SCIMUser[] }
@@ -41,12 +42,7 @@ export const SCIMAdmin: React.FC = () => {
 
   return (
     <div className="dr-page">
-      <div className="dr-header">
-        <h1>SCIM 2.0 Directory & Inbound Provisioning</h1>
-        <p>
-          RFC 7643 and RFC 7644 inbound provisioning from an identity provider.
-        </p>
-      </div>
+      <PageHead title="Directory & SCIM" lede="SCIM 2.0 (RFC 7643 and RFC 7644) inbound provisioning from an identity provider." />
 
       {error && <div className="dr-alert dr-alert-error" role="alert" style={{ marginBottom: '24px' }}><span>{error}</span></div>}
 

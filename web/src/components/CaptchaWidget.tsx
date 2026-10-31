@@ -100,25 +100,10 @@ export const CaptchaWidget: React.FC<CaptchaProps> = ({ onToken, round }) => {
   }, [round, expired]);
 
   return (
-    <div className="auth-check">
-      {status === 'working' && (
-        <div>
-          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-          <span>Verifying security check ({progress}%)...</span>
-        </div>
-      )}
-      {status === 'done' && (
-        <div className="dr-ok">
-          <ShieldCheck size={16} aria-hidden="true" />
-          <span>Security check verified.</span>
-        </div>
-      )}
-      {status === 'failed' && (
-        <div className="dr-danger">
-          <AlertCircle size={16} aria-hidden="true" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-    </div>
+    <p className="ky-auth-check" data-ky-state={status === 'done' ? 'passed' : status === 'failed' ? 'failed' : undefined} aria-live="polite">
+      {status === 'working' && <><Loader2 className="animate-spin" aria-hidden="true" /><span>Verifying security check ({progress}%)...</span></>}
+      {status === 'done' && <><ShieldCheck aria-hidden="true" /><span>Security check verified.</span></>}
+      {status === 'failed' && <><AlertCircle aria-hidden="true" /><span>{errorMsg}</span></>}
+    </p>
   );
 };

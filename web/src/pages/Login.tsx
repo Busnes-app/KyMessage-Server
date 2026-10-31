@@ -7,13 +7,17 @@ import { parseUser, type SessionUser } from '../dto';
 interface LoginProps {
   onSuccess: (user: SessionUser) => void;
   appName: string;
+  /** KyIdentity SSO is configured: offer it under a divider. */
+  ssoEnabled?: boolean;
+  /** An admin-uploaded logo is never inverted in dark schemes. */
+  logoCustom?: boolean;
 }
 
 interface MFAChallenge {
   mfa_token: string;
 }
 
-export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
+export const Login: React.FC<LoginProps> = ({ onSuccess, appName, ssoEnabled = false, logoCustom = true }) => {
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [captchaToken, setCaptchaToken] = useState<string>('');
@@ -96,40 +100,31 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
   };
 
   return (
-    <div className="auth-page">
-      <div className="auth-theme">
-        <ThemeSwitcher />
-      </div>
-
-      <div className="auth-column">
-        <div className="auth-brand">
-          <img src="/app-icon.png" width={56} height={56} alt="" />
+    <main className="ky-auth">
+      <div className="ky-auth-theme"><ThemeSwitcher /></div>
+      <div className="ky-auth-body">
+        <div className="ky-auth-brand">
+          <img className={logoCustom ? 'ky-mark' : 'ky-mark ky-mark-stamp'} src="/app-icon.png" width={56} height={56} alt="" />
           <h1>{appName || 'KyMessages'}</h1>
+          <p>Team chat on your own server.</p>
         </div>
 
-        <div className="panel auth-card">
-          {error && (
-            <div role="alert" className="dr-alert dr-alert-error">
-              <AlertCircle size={16} aria-hidden="true" />
-              <span>{error}</span>
-            </div>
-          )}
+        <div className="ky-auth-card">
+          {error && <p role="alert" className="ky-auth-error"><AlertCircle size={16} aria-hidden="true" /><span>{error}</span></p>}
 
           {mfaChallenge ? (
             <form onSubmit={handleMFASubmit}>
-              <h2>Two-Factor Verification</h2>
-              <p className="dr-hint">
+              <h2>Two-factor verification</h2>
+              <p className="ky-auth-note">
                 {isRecoveryCode ? 'Enter one of your single-use recovery codes.' : 'Enter the 6-digit code from your authenticator app.'}
               </p>
-
-              <div className="auth-field">
-                <label htmlFor="login-mfa-code">
-                  {isRecoveryCode ? 'Recovery Code' : 'Authenticator Code'}
-                </label>
+              <div className="ky-auth-field">
+                <label htmlFor="login-mfa-code">{isRecoveryCode ? 'Recovery code' : 'Authenticator code'}</label>
                 <input
                   id="login-mfa-code"
-                  className="auth-code"
+                  className="ky-code-input"
                   type="text"
+                  inputMode={isRecoveryCode ? 'text' : 'numeric'}
                   autoComplete="one-time-code"
                   autoFocus
                   value={mfaCode}
@@ -138,63 +133,41 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName }) => {
                   required
                 />
               </div>
-
-              <button type="submit" className="btn-block" disabled={loading}>
-                {loading ? 'Verifying...' : 'Verify & Sign In'}
+              <button type="submit" className="ky-auth-submit" disabled={loading}>
+                {loading ? 'Verifying…' : 'Verify and sign in'}
               </button>
-
-              <div className="auth-switch">
-                <button type="button" className="btn-ghost" onClick={() => setIsRecoveryCode(!isRecoveryCode)}>
-                  {isRecoveryCode ? 'Use Authenticator App' : 'Use a Recovery Code'}
-                </button>
-              </div>
+              <button type="button" className="ky-auth-link" onClick={() => setIsRecoveryCode(!isRecoveryCode)}>
+                {isRecoveryCode ? 'Use your authenticator app' : 'Use a recovery code'}
+              </button>
             </form>
           ) : (
             <form onSubmit={handleLogin}>
-              <div className="auth-field">
+              <div className="ky-auth-field">
                 <label htmlFor="login-username">Username</label>
-                <input
-                  id="login-username"
-                  type="text"
-                  autoComplete="username"
-                  autoFocus
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
-                  required
-                />
+                <input id="login-username" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus
+                  value={username} onChange={(e) => setUsername(e.target.value)} required />
               </div>
-
-              <div className="auth-field">
+              <div className="ky-auth-field">
                 <label htmlFor="login-password">Password</label>
-                <input
-                  id="login-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  required
-                />
+                <input id="login-password" type="password" autoComplete="current-password"
+                  value={password} onChange={(e) => setPassword(e.target.value)} required />
               </div>
-
               <CaptchaWidget onToken={setCaptchaToken} round={captchaRound} />
-
-              <button type="submit" className="btn-block auth-submit" disabled={loading}>
-                <LogIn size={16} aria-hidden="true" />
-                <span>{loading ? 'Signing in...' : 'Sign In'}</span>
+              <button type="submit" className="ky-auth-submit" disabled={loading}>
+                <LogIn aria-hidden="true" />
+                <span>{loading ? 'Signing in…' : 'Sign in'}</span>
               </button>
-
-              <div className="auth-sso">
-                <a href="/api/sso/kyidentity/login" className="btn btn-secondary btn-block">
-                  <Key size={16} aria-hidden="true" />
+              {ssoEnabled && <>
+                <hr className="ky-auth-divider" />
+                <a href="/api/sso/kyidentity/login" className="ky-auth-sso">
+                  <Key aria-hidden="true" />
                   <span>Continue with Single Sign On</span>
                 </a>
-              </div>
+              </>}
             </form>
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 };

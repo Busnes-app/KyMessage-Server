@@ -6,7 +6,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const renderWith = (db_driver?: string) => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'x', code: 'matrix_disabled' }), { status: 404 })));
-  return render(<Settings settings={{ app_name: 'KyMessages', chat_url: '', db_driver }} onBrandingChanged={vi.fn()} />);
+  return render(<Settings settings={{ app_name: 'KyMessages', chat_url: '', sso_enabled: false, logo_custom: false, db_driver }} onBrandingChanged={vi.fn()} />);
 };
 
 it('warns on PostgreSQL instead of claiming support', () => {
@@ -26,4 +26,9 @@ it('does not pretend an unknown driver is SQLite', () => {
   renderWith(undefined);
   expect(screen.getByText('unknown')).toBeTruthy();
   expect(screen.getByText(/The database driver is unknown/)).toBeTruthy();
+});
+
+it('titles the page as the navigation names it', () => {
+  renderWith('sqlite');
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Settings');
 });

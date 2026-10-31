@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Type } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ImageUp, Type } from 'lucide-react';
+import { MoreMenu } from './MoreMenu';
 import { adminFetch, errorMessage } from '../api';
 import { bool, count, obj, str } from '../dto';
 
@@ -64,7 +65,7 @@ export function staleServed(b: Branding): string | null {
 export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const [state, setState] = useState<Branding | null>(null);
   const [name, setName] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState('');
@@ -107,7 +108,9 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
   };
   const saveName = (value: string, done: string) =>
     void change('/api/admin/branding/name', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: value }) }, done);
-  const upload = () => {
+  // Choosing a file uploads it: one control, no separate confirm step.
+  const upload = (file: File | undefined) => {
+    if (picker.current) picker.current.value = '';
     if (!file) return;
     if (file.size > MAX_LOGO_BYTES) {
       setMessage('');
@@ -129,16 +132,12 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
       </p>
       {state && (
         <>
-          <form className="dr-row" onSubmit={(e) => { e.preventDefault(); saveName(name, 'Name saved.'); }}>
+          <form className="branding-name" onSubmit={(e) => { e.preventDefault(); saveName(name, 'Name saved.'); }}>
             <label className="dr-field">
               <span>Product name</span>
               <input value={name} placeholder={state.default_name} autoComplete="off" onChange={(e) => setName(e.target.value)} />
             </label>
-            <button type="submit" disabled={busy}>Save name</button>
-            <button type="button" className="btn-secondary" disabled={busy || !state.stored_name}
-              onClick={() => saveName('', `Name reset to ${state.default_name}.`)}>
-              Use default ({state.default_name})
-            </button>
+            <button type="submit" className="btn-secondary" disabled={busy}>Save name</button>
           </form>
           {notice && <div className="dr-alert dr-alert-warn" role="alert">{notice}</div>}
           {served !== null && (
@@ -146,18 +145,30 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
               Element shows &ldquo;{served}&rdquo; until it restarts{state.element?.restart_hint && <>: <code>{state.element.restart_hint}</code></>}
             </div>
           )}
-          <div className="dr-row">
+          <div className="branding-logo">
             {/* By digest: the CSP allows no object URLs. */}
-            <img src={`/app-icon.png?v=${state.logo.custom ? state.logo.sha256 : 'default'}`} width={56} height={56} alt="Current logo" />
-            <label className="dr-field">
-              <span>Logo (PNG, at most 1 MiB and 1024×1024)</span>
-              <input type="file" accept="image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            </label>
-            <button type="button" className="btn-secondary" disabled={busy || !file} onClick={upload}>Upload logo</button>
-            <button type="button" className="btn-secondary" disabled={busy || !state.logo.custom}
-              onClick={() => void change('/api/admin/branding/logo', { method: 'DELETE' }, 'Logo reset to the KyMessages stamp.')}>
-              Reset logo
+            <img src={`/app-icon.png?v=${state.logo.custom ? state.logo.sha256 : 'default'}`} width={48} height={48} alt="Current logo" />
+            <div className="branding-logo-copy">
+              <span className="branding-logo-label">Logo</span>
+              <span className="dr-muted">{state.logo.custom ? 'Custom' : 'KyMessages stamp'} · PNG, at most 1 MiB and 1024×1024</span>
+            </div>
+            <input ref={picker} type="file" accept="image/png" hidden aria-label="Logo (PNG, at most 1 MiB and 1024×1024)"
+              onChange={(e) => upload(e.target.files?.[0])} />
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => picker.current?.click()}>
+              <ImageUp size={16} aria-hidden="true" /><span>Upload logo</span>
             </button>
+            <MoreMenu label="More branding actions">
+              {(close) => <>
+                <button type="button" role="menuitem" className="ky-menu-item" disabled={busy || !state.logo.custom}
+                  onClick={() => { close(); void change('/api/admin/branding/logo', { method: 'DELETE' }, 'Logo reset to the KyMessages stamp.'); }}>
+                  Reset logo
+                </button>
+                <button type="button" role="menuitem" className="ky-menu-item" disabled={busy || !state.stored_name}
+                  onClick={() => { close(); saveName('', `Name reset to ${state.default_name}.`); }}>
+                  Use default name ({state.default_name})
+                </button>
+              </>}
+            </MoreMenu>
           </div>
         </>
       )}

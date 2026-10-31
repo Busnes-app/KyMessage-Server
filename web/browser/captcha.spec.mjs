@@ -14,14 +14,14 @@ test('proof-of-work sign-in: one challenge while idle, a fresh one after a wrong
 
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('IncorrectPassword123!');
-  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Invalid credentials');
   await expect(page.getByText('Security check verified.')).toBeVisible({ timeout: 20000 });
   await page.waitForTimeout(3000);
   expect(challenges).toBe(2);
 
   await page.getByLabel('Password').fill('BrowserInitial123!');
-  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   // The bootstrap password must be replaced first, so a working sign-in lands here.
   await expect(page.getByRole('heading', { name: 'Change your password' })).toBeVisible();
 });

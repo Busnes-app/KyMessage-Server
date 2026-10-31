@@ -5,6 +5,8 @@ import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, Mess
 interface AppHeaderProps {
   appName: string;
   appVersion?: string;
+  /** An admin-uploaded logo is never inverted in dark schemes. */
+  logoCustom?: boolean;
   activeTab: string;
   onTabChange: (tab: string) => void;
   user: any;
@@ -20,7 +22,7 @@ const adminItems = [
   { id: 'audit', label: 'Audit', icon: ScrollText },
   { id: 'scim', label: 'Directory & SCIM', icon: Users },
   { id: 'backup', label: 'Backup & recovery', icon: Archive },
-  { id: 'settings', label: 'Settings & DB', icon: SettingsIcon },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon },
   { id: 'appearance', label: 'Appearance', icon: Palette },
 ];
 // Members land on their account page (tab `dashboard`) and choose a theme under Appearance.
@@ -33,10 +35,11 @@ export function navItemsFor(role: string) {
   return role === 'admin' ? adminItems : memberItems;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, activeTab, onTabChange, user, onLogout }) => {
+export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoCustom = true, activeTab, onTabChange, user, onLogout }) => {
   const navItems = navItemsFor(user?.role ?? '');
-  const name = user?.display_name || user?.username;
   const role = user?.role === 'admin' ? 'Administrator' : 'Everyday account';
+  // A display name that repeats the role line says nothing; show the username instead.
+  const name = user?.display_name && user.display_name !== role ? user.display_name : user?.username;
   const navRef = useRef<HTMLElement>(null);
   // Phones scroll the navigation sideways: keep the current page's row in view, also after Overview links.
   useEffect(() => {
@@ -46,7 +49,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, activ
   return (
     <header className="app-header">
       <div className="app-brand">
-          <img src="/app-icon.png" width={28} height={28} alt="" />
+          <img className={logoCustom ? 'ky-mark' : 'ky-mark ky-mark-stamp'} src="/app-icon.png" width={28} height={28} alt="" />
           <span>{appName || 'KyMessages'}</span>
         </div>
 
@@ -67,21 +70,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, activ
             );
           })}
         </nav>
-      <div className="app-header-actions">
+      <div className="app-sidebar-foot">
         {user && (
-          <div className="app-user">
-            <div className="app-user-copy">
-              <div className="app-user-name">{name}</div>
-              {role !== name && <div className="app-user-role">{role}</div>}
+          <div className="ky-user">
+            <div className="ky-user-copy">
+              <p className="ky-user-name">{name}</p>
+              <p className="ky-user-role">{role}</p>
             </div>
-            <button type="button" className="btn-ghost app-logout" onClick={onLogout}>
-              <LogOut size={16} aria-hidden="true" />
-              <span className="app-logout-label">Sign out</span>
+            <button type="button" className="ky-user-signout" onClick={onLogout}>
+              <LogOut size={16} aria-hidden="true" />Sign out
             </button>
           </div>
         )}
+        <LicenseFooter appVersion={appVersion} />
       </div>
-      <LicenseFooter appVersion={appVersion} />
     </header>
 
   );

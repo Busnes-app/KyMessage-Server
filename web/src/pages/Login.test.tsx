@@ -48,14 +48,14 @@ it('fetches exactly one new challenge after a failed sign-in, and sends each tok
   await screen.findByText('Security check verified.');
   fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'WrongPassword1!' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   expect((await screen.findByRole('alert')).textContent).toContain('Invalid credentials');
   await waitFor(() => expect(server.challenges()).toBe(2));
   await screen.findByText('Security check verified.');
   await settle();
   expect(server.challenges()).toBe(2);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   await waitFor(() => expect(server.logins).toHaveLength(2));
   const [first, second] = server.logins.map((l) => JSON.parse(atob(String(l.captcha_token))).salt);
   expect([first, second]).toEqual(['salt1', 'salt2']);
@@ -69,9 +69,16 @@ it('labels its fields for assistive technology and password managers', () => {
   expect(screen.queryByText('Cloud Mobile First Base Platform')).toBeNull();
 });
 
-it('offers Single Sign On once, as the KyIdentity link', () => {
+it('offers no Single Sign On when it is not configured', () => {
   stubServer();
   render(<Login onSuccess={vi.fn()} appName="KyMessages" />);
+  expect(screen.queryByText(/Single Sign/)).toBeNull();
+  expect(screen.queryByRole('separator')).toBeNull();
+});
+
+it('offers Single Sign On once, as the KyIdentity link', () => {
+  stubServer();
+  render(<Login onSuccess={vi.fn()} appName="KyMessages" ssoEnabled />);
   expect(screen.getByRole('link', { name: 'Continue with Single Sign On' }).getAttribute('href')).toBe('/api/sso/kyidentity/login');
   expect(screen.getAllByText(/Single Sign/)).toHaveLength(1);
 });

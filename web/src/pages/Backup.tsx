@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { adminFetch, errorMessage, errorText } from '../api';
 import { arr, bool, count, iso, obj, opt, str } from '../dto';
+import { PageHead } from '../components/PageHead';
 
 export interface DepositReceipt {
   capsule_id: string;
@@ -481,13 +482,11 @@ export const Backup: React.FC = () => {
 
   return (
     <div className="dr-page">
-      <div className="dr-header">
-        <h1>Backup &amp; recovery</h1>
-        <button type="button" className="btn-secondary" onClick={fetchStatus} disabled={loadingStatus}>
-          <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} />
+      <PageHead title="Backup & recovery"
+        action={<button type="button" className="btn-secondary" onClick={fetchStatus} disabled={loadingStatus}>
+          <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} aria-hidden="true" />
           <span>Refresh</span>
-        </button>
-      </div>
+        </button>} />
 
       {statusError && <Alert kind="error">{statusError}</Alert>}
       {status?.scheduler_error && <Alert kind="error">Automatic backups are not running: {status.scheduler_error}</Alert>}

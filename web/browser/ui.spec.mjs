@@ -50,12 +50,12 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   // project leaves room for only two wrong passwords, one per theme, width and browser.
   if (['dark-390', 'firefox-light-1280'].includes(testInfo.project.name)) {
     await page.getByLabel('Password').fill('IncorrectPassword123!');
-    await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Invalid credentials');
     await fits(page);
   }
   await page.getByLabel('Password').fill('BrowserUpdated456!');
-  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await expect(nav).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
@@ -63,17 +63,17 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   // Themes are chosen on the Appearance page; the shell carries no theme select.
   await expect(page.getByLabel('Color theme')).toHaveCount(0);
   const appearance = (p) => p.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Appearance', exact: true }).click();
-  const theme = (p, name) => p.getByRole('radio', { name: new RegExp(`^${name}`) }).check();
+  const theme = (p, pair, mode) => p.getByRole('group', { name: pair }).getByRole('radio', { name: mode, exact: true }).check();
   await appearance(page);
-  await theme(page, 'Paper Clean');
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 250, 252)');
-  await theme(page, 'Busnes Dark');
+  await theme(page, 'Nord', 'Light');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(236, 239, 244)');
+  await theme(page, 'Busnes', 'Dark');
   await page.reload();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 35, 38)');
   const other = await context.newPage();
   await other.goto('/');
   await appearance(other);
-  await theme(other, 'Busnes Light');
+  await theme(other, 'Busnes', 'Light');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 246, 240)');
   await other.close();
   await appearance(page);
@@ -104,9 +104,9 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await page.keyboard.press('Tab');
   await expect(nav.getByRole('button').nth(1)).toBeFocused();
   await expect(nav.getByRole('button').nth(1)).toHaveCSS('outline-style', 'solid');
-  await nav.getByRole('button', { name: 'Settings & DB' }).click();
-  await expect(nav.getByRole('button', { name: 'Settings & DB' })).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'System Settings & Architecture' })).toBeVisible();
+  await nav.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(nav.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible();
   await fits(page);
   await expect(page.getByRole('button', { name: 'Pair Device' })).toHaveCount(0);
   expect(pairingRequests).toEqual([]);
@@ -129,13 +129,17 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(branding).toBeVisible();
   await expect(page.getByRole('region', { name: 'KyIdentity sync' })).toHaveCount(0);
   await expect(branding.getByLabel('Product name')).toBeVisible();
-  const resetName = branding.getByRole('button', { name: /^Use default/ });
+  // One Upload logo button; the two resets sit in the ⋯ menu.
+  const more = branding.getByRole('button', { name: 'More branding actions' });
+  const resetName = branding.getByRole('menuitem', { name: /^Use default name/ });
+  const resetLogo = branding.getByRole('menuitem', { name: 'Reset logo' });
   if (await resetName.isEnabled()) {
+    await more.click();
     await resetName.click();
     await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
   }
-  const resetLogo = branding.getByRole('button', { name: 'Reset logo' });
   if (await resetLogo.isEnabled()) {
+    await more.click();
     await resetLogo.click();
     await expect(branding.getByRole('status')).toContainText('Logo reset');
   }
@@ -147,16 +151,21 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(page.locator('.app-brand')).toContainText(brandName);
   await fits(page);
   const icon = await readFile(new URL('../public/app-icon-192.png', import.meta.url));
+  await expect(branding.getByRole('button', { name: 'Upload logo' })).toBeVisible();
+  // Choosing the file is the upload.
   await branding.getByLabel(/^Logo/).setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: icon });
-  await branding.getByRole('button', { name: 'Upload logo' }).click();
   await expect(branding.getByRole('status')).toContainText('Logo saved');
   await expect(branding.getByAltText('Current logo')).toHaveAttribute('src', /^\/app-icon\.png\?v=[0-9a-f]{64}$/);
   expect(await page.evaluate(async () => (await fetch('/app-icon.png')).headers.get('cache-control'))).toBe('no-cache');
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('branding.png'), fullPage: true });
-  await branding.getByRole('button', { name: 'Reset logo' }).click();
+  await more.click();
+  await resetLogo.click();
   await expect(branding.getByAltText('Current logo')).toHaveAttribute('src', '/app-icon.png?v=default');
-  await branding.getByRole('button', { name: /^Use default/ }).focus();
+  // By keyboard: the menu opens on the first enabled item, now Use default name.
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(resetName).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
   await expect(page.locator('.app-brand')).toHaveText('KyMessages');

@@ -9,7 +9,7 @@ it('opens the About dialog with the version and licence, and closes it', () => {
   render(<LicenseFooter appVersion="0.5.1" />);
   const year = new Date().getFullYear();
   fireEvent.click(screen.getByRole('button', { name: `© ${year} · MIT License` }));
-  const dialog = screen.getByRole('dialog', { name: 'KyMessages' });
+  const dialog = screen.getByRole('dialog', { name: 'About KyMessages' });
   expect(dialog.textContent).toContain('v0.5.1');
   expect(dialog.textContent).toContain('Developed by Busnes.app');
   expect((screen.getByLabelText('MIT License') as HTMLTextAreaElement).value).toBe(mitLicenseText);

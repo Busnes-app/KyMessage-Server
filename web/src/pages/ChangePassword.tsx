@@ -38,31 +38,34 @@ export function ChangePassword({ onComplete, onLogout }: ChangePasswordProps) {
   }
 
   return (
-    <main className="auth-page">
-      <form onSubmit={submit} className="panel auth-card auth-column">
-        <h1>Change your password</h1>
-        <p className="dr-hint">Replace your temporary password before continuing. Use at least 12 characters. You will sign in again afterward.</p>
-        {error && <p role="alert" className="dr-alert dr-alert-error">{error}</p>}
-        <div className="auth-field">
-          <label htmlFor="current-password">Current password</label>
-          <input id="current-password" type="password" autoComplete="current-password" required maxLength={1024}
-            value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+    <main className="ky-auth">
+      <div className="ky-auth-body">
+        <div className="ky-auth-brand">
+          <h1>Change your password</h1>
+          <p>Replace your temporary password before continuing.</p>
         </div>
-        <div className="auth-field">
-          <label htmlFor="new-password">New password</label>
-          <input id="new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
-            value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-        </div>
-        <div className="auth-field">
-          <label htmlFor="confirm-password">Confirm new password</label>
-          <input id="confirm-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
-            value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
-        </div>
-        <div className="dr-actions">
-          <button type="submit" disabled={busy}>{busy ? 'Changing password…' : 'Change password'}</button>
-          <button type="button" className="btn-secondary" disabled={busy} onClick={onLogout}>Sign out</button>
-        </div>
-      </form>
+        <form onSubmit={submit} className="ky-auth-card">
+          <p className="ky-auth-note">Use at least 12 characters. You will sign in again afterward.</p>
+          {error && <p role="alert" className="ky-auth-error">{error}</p>}
+          <div className="ky-auth-field">
+            <label htmlFor="current-password">Current password</label>
+            <input id="current-password" type="password" autoComplete="current-password" required maxLength={1024}
+              value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+          </div>
+          <div className="ky-auth-field">
+            <label htmlFor="new-password">New password</label>
+            <input id="new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
+              value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+          </div>
+          <div className="ky-auth-field">
+            <label htmlFor="confirm-password">Confirm new password</label>
+            <input id="confirm-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024}
+              value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+          </div>
+          <button type="submit" className="ky-auth-submit" disabled={busy}>{busy ? 'Changing password…' : 'Change password'}</button>
+          <button type="button" className="ky-auth-link" disabled={busy} onClick={onLogout}>Sign out</button>
+        </form>
+      </div>
     </main>
   );
 }

@@ -18,6 +18,7 @@ import { Appearance } from './pages/Appearance';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
 import './ky-ui/navigation.css';
+import './ky-ui/shell.css';
 import './ky-ui/appearance.css';
 import './ky-ui/appearance-themes.css';
 import { errorMessage, secureFetch } from './api';
@@ -96,6 +97,8 @@ export const App: React.FC = () => {
       {errorAlert}
       <Login
         appName={settings?.app_name || 'KyMessages'}
+        ssoEnabled={settings?.sso_enabled ?? false}
+        logoCustom={settings?.logo_custom ?? true}
         onSuccess={(u) => {
           setNotice('');
           setError('');
@@ -121,6 +124,7 @@ export const App: React.FC = () => {
       <AppHeader
         appName={settings?.app_name || 'KyMessages'}
         appVersion={settings?.app_version}
+        logoCustom={settings?.logo_custom ?? true}
         activeTab={activeTab}
         onTabChange={(t) => setActiveTab(t)}
         user={user}

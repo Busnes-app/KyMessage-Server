@@ -5,6 +5,7 @@ import { SyncPanel } from '../components/SyncPanel';
 import { FederationPanel } from '../components/FederationPanel';
 import { NotesPanel } from '../components/NotesPanel';
 import type { SiteSettings } from '../dto';
+import { PageHead } from '../components/PageHead';
 
 interface SettingsProps {
   settings: SiteSettings | null;
@@ -18,10 +19,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged,
   const driver = settings?.db_driver;
   return (
     <div className="dr-page">
-      <div className="dr-header">
-        <h1>System Settings & Architecture</h1>
-        <p>Database and instance configuration. Themes are under Appearance.</p>
-      </div>
+      <PageHead title="Settings" lede="Server options and your sign-in security. Themes are under Appearance." />
 
       {/* One flat surface: each section is divided by a rule, never boxed inside another. */}
       <div className="dr-settings">
@@ -46,8 +44,8 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged,
         <SyncPanel />
         <FederationPanel />
         <NotesPanel />
-        {children}
       </div>
+      {children}
     </div>
   );
 };
