@@ -4,6 +4,7 @@ import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, bool, count, iso, obj, oneOf, opt, str } from '../dto';
 import { ChatNotSetUp } from '../components/ChatNotSetUp';
 import { PageHead } from '../components/PageHead';
+import { Status, type Tone } from '../components/Status';
 
 const TOKEN_STATES = ['active', 'revoked', 'expired'] as const;
 export interface AgentOwner { id: string; username: string; display_name: string; mxid: string; status: string }
@@ -53,10 +54,10 @@ export const AGENT_WARNINGS = [
   'An agent can change its display name to anything; its Matrix ID always starts with @agent-. Offboarding the owner locks the agent in about 2 minutes.',
 ];
 
-const STATE_BADGE: Record<Agent['token_state'], { label: string; badge: string }> = {
-  active: { label: 'Active', badge: 'badge badge-success' },
-  revoked: { label: 'Revoked', badge: 'badge' },
-  expired: { label: 'Expired', badge: 'badge badge-danger' },
+const STATE_BADGE: Record<Agent['token_state'], { label: string; tone?: Tone }> = {
+  active: { label: 'Active', tone: 'success' },
+  revoked: { label: 'Revoked' },
+  expired: { label: 'Expired', tone: 'danger' },
 };
 const SKILL = '/api/admin/agents/skill';
 const agentPath = (id: string) => `/api/admin/agents/${encodeURIComponent(id)}`;
@@ -68,7 +69,7 @@ function LastUsed({ agent, idleDays }: { agent: Agent; idleDays: number }) {
   return (
     <>
       <div>{agent.last_used_at ? new Date(agent.last_used_at).toLocaleString() : 'never'}</div>
-      {left !== null && <span className="badge badge-accent">{left === 0 ? 'Expires today unless used' : `Expires in ${left} day${left === 1 ? '' : 's'} unless used`}</span>}
+      {left !== null && <Status>{left === 0 ? 'Expires today unless used' : `Expires in ${left} day${left === 1 ? '' : 's'} unless used`}</Status>}
     </>
   );
 }
@@ -228,8 +229,8 @@ export const Agents: React.FC = () => {
                       <td className="dr-mono">{a.device_id}</td>
                       <td><LastUsed agent={a} idleDays={list.idle_days} /></td>
                       <td>
-                        <span className={STATE_BADGE[a.token_state].badge}>{STATE_BADGE[a.token_state].label}</span>
-                        {a.locked && <> <span className="badge badge-danger" title="The owner was offboarded">Locked</span></>}
+                        <Status tone={STATE_BADGE[a.token_state].tone}>{STATE_BADGE[a.token_state].label}</Status>
+                        {a.locked && <> <Status tone="danger" title="The owner was offboarded">Locked</Status></>}
                       </td>
                       <td>
                         <div className="dr-actions">

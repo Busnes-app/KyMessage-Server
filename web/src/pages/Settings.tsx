@@ -28,7 +28,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged,
           <p className="dr-hint">The supported deployment is SQLite on a single instance.</p>
           <p className="dr-pair">
             <span>Active storage driver</span>
-            <span className="badge badge-accent font-mono">{driver ?? 'unknown'}</span>
+            <span className="badge font-mono">{driver ?? 'unknown'}</span>
           </p>
           {driver !== 'sqlite' && (
             <div className="dr-alert dr-alert-warn" role="alert">

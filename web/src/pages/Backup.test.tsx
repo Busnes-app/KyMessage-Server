@@ -167,9 +167,10 @@ describe('Backup trust-root changes and malformed answers', () => {
     mockRoutes(UNPINNED, [], {});
     render(<Backup />);
     const empty = await screen.findByText('0 of 7');
-    expect(empty.className).not.toContain('badge-success');
+    expect(empty.className).toBe('ky-status');
+    expect(empty.hasAttribute('data-ky-status')).toBe(false);
     expect(screen.getByText('Waiting for recovery key')).toBeTruthy();
-    expect(screen.getByText('Daily', { selector: '.badge' }).className).not.toContain('badge-success');
+    expect(screen.getByText('Daily', { selector: '.ky-status' }).hasAttribute('data-ky-status')).toBe(false);
   });
 
   it('derives the key ID the server uses', async () => {

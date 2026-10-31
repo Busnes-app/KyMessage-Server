@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Copy, Globe, RefreshCw, Trash2 } from 'lucide-react';
 import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
 import { arr, bool, obj, oneOf, str } from '../dto';
+import { Status as StatusPill, type Tone } from './Status';
 
 const LEVELS = ['closed', 'manual', 'curated'] as const;
 export type Level = (typeof LEVELS)[number];
@@ -64,18 +65,18 @@ export function wideningWarnings(to: Level): string[] {
   return w;
 }
 
-const STATUS_TEXT: Record<Status, { label: string; badge: string; hint?: string }> = {
-  connected: { label: 'Connected', badge: 'badge badge-success' },
-  not_allowed: { label: 'Not allowed yet', badge: 'badge badge-accent', hint: 'Both servers must list each other, and Synapse must restart after a change.' },
-  federation_off: { label: 'Their federation is off', badge: 'badge badge-accent', hint: 'That server does not accept federation.' },
-  unreachable: { label: 'Unreachable', badge: 'badge badge-danger', hint: 'Check the name, and that the server publishes /.well-known/matrix/server on a public address.' },
-  unknown: { label: 'Unknown', badge: 'badge' },
+const STATUS_TEXT: Record<Status, { label: string; tone?: Tone; hint?: string }> = {
+  connected: { label: 'Connected', tone: 'success' },
+  not_allowed: { label: 'Not allowed yet', hint: 'Both servers must list each other, and Synapse must restart after a change.' },
+  federation_off: { label: 'Their federation is off', hint: 'That server does not accept federation.' },
+  unreachable: { label: 'Unreachable', tone: 'danger', hint: 'Check the name, and that the server publishes /.well-known/matrix/server on a public address.' },
+  unknown: { label: 'Unknown' },
 };
 
 function StatusBadge({ status }: { status?: Status }) {
-  if (!status) return <span className="badge">Not checked</span>;
+  if (!status) return <StatusPill>Not checked</StatusPill>;
   const s = STATUS_TEXT[status];
-  return <span className={s.badge} title={s.hint}>{s.label}</span>;
+  return <StatusPill tone={s.tone} title={s.hint}>{s.label}</StatusPill>;
 }
 
 /** Settings' "Federation" panel; nothing at all when chat is not set up. */
@@ -168,7 +169,7 @@ export const FederationPanel: React.FC = () => {
     <section className="panel dr-section" aria-label="Federation">
       <div className="panel-header">
         <h3><Globe size={16} /> Federation</h3>
-        {state && <span className={open ? 'badge badge-accent' : 'badge'}>{LEVEL_TEXT[state.level].label}</span>}
+        {state && <StatusPill>{LEVEL_TEXT[state.level].label}</StatusPill>}
       </div>
       <p className="dr-hint">
         Lets people here chat with people on other Matrix servers you allow. Both servers must add each other. Changes apply after Synapse restarts; widening needs a sign-in from the last 10 minutes.
@@ -245,7 +246,7 @@ export const FederationPanel: React.FC = () => {
                       `${e.target.checked ? 'Allowed' : 'Removed'} ${p.name}.`)} />
                   <span>
                     <code className="dr-mono">{p.name}</code> — {p.operator}
-                    {p.open_signup && <span className="badge badge-accent" title="Anyone can register there, so strangers can invite your members.">Open sign-up</span>}
+                    {p.open_signup && <StatusPill title="Anyone can register there, so strangers can invite your members.">Open sign-up</StatusPill>}
                     {p.ticked && <StatusBadge status={statuses[p.name]} />}
                   </span>
                 </label>
