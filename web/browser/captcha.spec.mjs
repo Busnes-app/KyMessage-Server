@@ -8,7 +8,7 @@ test('proof-of-work sign-in: one challenge while idle, a fresh one after a wrong
     if (new URL(request.url()).pathname === '/api/auth/pow-challenge') challenges++;
   });
   await page.goto('/');
-  await expect(page.getByText('Security check verified.')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('Browser check passed')).toBeVisible({ timeout: 20000 });
   await page.waitForTimeout(3000);
   expect(challenges).toBe(1);
 
@@ -16,7 +16,7 @@ test('proof-of-work sign-in: one challenge while idle, a fresh one after a wrong
   await page.getByLabel('Password').fill('IncorrectPassword123!');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Invalid credentials');
-  await expect(page.getByText('Security check verified.')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('Browser check passed')).toBeVisible({ timeout: 20000 });
   await page.waitForTimeout(3000);
   expect(challenges).toBe(2);
 

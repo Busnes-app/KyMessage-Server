@@ -149,7 +149,7 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await page.keyboard.type(brandName);
   await page.keyboard.press('Enter');
   await expect(branding.getByRole('status')).toContainText('Name saved');
-  await expect(page.locator('.app-brand')).toContainText(brandName);
+  await expect(page.locator('.ky-brand')).toContainText(brandName);
   await fits(page);
   const icon = await readFile(new URL('../public/app-icon-192.png', import.meta.url));
   await expect(branding.getByRole('button', { name: 'Upload logo' })).toBeVisible();
@@ -170,7 +170,7 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await resetName.focus();
   await page.keyboard.press('Enter');
   await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
-  await expect(page.locator('.app-brand')).toHaveText('KyMessages');
+  await expect(page.locator('.ky-brand')).toHaveText('KyMessages');
   expect(violations).toEqual([]);
   const fixture = JSON.parse(await readFile(new URL('../../internal/backup/testdata/pairing-v050.json', import.meta.url), 'utf8'));
   const pinned = await page.evaluate(async publicKey => {

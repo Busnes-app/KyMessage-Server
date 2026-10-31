@@ -2,13 +2,13 @@ import React, { useRef } from 'react';
 import mitLicenseText from '../mit.txt?raw';
 
 // The suite's licence line and About dialog (ky-ui shell markup).
-export const LicenseFooter: React.FC<{ appVersion?: string }> = ({ appVersion }) => {
+export const LicenseFooter: React.FC<{ appVersion?: string; className?: string }> = ({ appVersion, className }) => {
   const dialog = useRef<HTMLDialogElement>(null);
   const year = new Date().getFullYear();
   const close = () => dialog.current?.close();
 
   return (
-    <div className="ky-license">
+    <footer className={className}>
       <button type="button" className="ky-license-link" onClick={() => dialog.current?.showModal()}>
         &copy; {year} &middot; MIT License
       </button>
@@ -24,6 +24,6 @@ export const LicenseFooter: React.FC<{ appVersion?: string }> = ({ appVersion })
         </div>
         <textarea className="ky-about-license" readOnly value={mitLicenseText} aria-label="MIT License" />
       </dialog>
-    </div>
+    </footer>
   );
 };

@@ -35,7 +35,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it('solves one challenge per mount, not one per render', async () => {
   const server = stubServer();
   render(<Login onSuccess={vi.fn()} appName="KyMessages" />);
-  await screen.findByText('Security check verified.');
+  await screen.findByText('Browser check passed');
   await settle();
   fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
   await settle();
@@ -45,13 +45,13 @@ it('solves one challenge per mount, not one per render', async () => {
 it('fetches exactly one new challenge after a failed sign-in, and sends each token once', async () => {
   const server = stubServer();
   render(<Login onSuccess={vi.fn()} appName="KyMessages" />);
-  await screen.findByText('Security check verified.');
+  await screen.findByText('Browser check passed');
   fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'WrongPassword1!' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   expect((await screen.findByRole('alert')).textContent).toContain('Invalid credentials');
   await waitFor(() => expect(server.challenges()).toBe(2));
-  await screen.findByText('Security check verified.');
+  await screen.findByText('Browser check passed');
   await settle();
   expect(server.challenges()).toBe(2);
 
@@ -69,16 +69,16 @@ it('labels its fields for assistive technology and password managers', () => {
   expect(screen.queryByText('Cloud Mobile First Base Platform')).toBeNull();
 });
 
-it('offers no Single Sign On when it is not configured', () => {
+it('offers no single sign-on when it is not configured', () => {
   stubServer();
   render(<Login onSuccess={vi.fn()} appName="KyMessages" />);
-  expect(screen.queryByText(/Single Sign/)).toBeNull();
+  expect(screen.queryByText(/single sign-on/i)).toBeNull();
   expect(screen.queryByRole('separator')).toBeNull();
 });
 
-it('offers Single Sign On once, as the KyIdentity link', () => {
+it('offers single sign-on once, as the KyIdentity link', () => {
   stubServer();
   render(<Login onSuccess={vi.fn()} appName="KyMessages" ssoEnabled />);
-  expect(screen.getByRole('link', { name: 'Continue with Single Sign On' }).getAttribute('href')).toBe('/api/sso/kyidentity/login');
-  expect(screen.getAllByText(/Single Sign/)).toHaveLength(1);
+  expect(screen.getByRole('link', { name: 'Continue with single sign-on' }).getAttribute('href')).toBe('/api/sso/kyidentity/login');
+  expect(screen.getAllByText(/single sign-on/i)).toHaveLength(1);
 });

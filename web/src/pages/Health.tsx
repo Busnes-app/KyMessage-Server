@@ -59,7 +59,7 @@ export const Health: React.FC = () => {
   }, [check]);
 
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Health" lede="Each component of the console and of chat, with its version and network path."
         action={<button type="button" className="btn-secondary" onClick={() => { setRound((r) => r + 1); void check(); }} disabled={checking}>
           <RefreshCw size={14} className={checking ? 'animate-spin' : ''} aria-hidden="true" />

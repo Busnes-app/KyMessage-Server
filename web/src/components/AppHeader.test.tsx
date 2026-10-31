@@ -9,8 +9,11 @@ it.each(['admin', 'user'])('keeps theme and sign-out controls without console de
   render(<AppHeader appName="KyMessages" activeTab="dashboard" onTabChange={() => {}} user={{ username: 'alice', role }} onLogout={onLogout} />);
   expect(screen.queryByRole('button', { name: /pair device/i })).toBeNull();
   expect(screen.queryByLabelText('Color theme')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-  expect(onLogout).toHaveBeenCalledOnce();
+  // The sidebar row and the phone header's icon (CSS shows one at a time) both sign out.
+  const signOuts = screen.getAllByRole('button', { name: 'Sign out' });
+  expect(signOuts).toHaveLength(2);
+  signOuts.forEach((button) => fireEvent.click(button));
+  expect(onLogout).toHaveBeenCalledTimes(2);
 });
 
 it('member gets Home and Appearance, no admin navigation', () => {

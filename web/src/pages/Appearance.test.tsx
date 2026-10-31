@@ -27,7 +27,7 @@ describe('Appearance', () => {
     expect(new Set(radios.map((r) => r.name)).size).toBe(1);
     expect(mode('Busnes', 'Match system').checked).toBe(true);
     expect(document.querySelector('.ky-appearance [style]')).toBeNull();
-    expect(screen.getByText(/Match system follows your device’s light or dark setting, Light or Dark fixes the mode/)).toBeTruthy();
+    expect(screen.getByText(/Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only./)).toBeTruthy();
   });
 
   it('marks the selected mode with a check', async () => {

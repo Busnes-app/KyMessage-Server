@@ -47,30 +47,38 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoC
   }, [activeTab]);
 
   return (
-    <header className="app-header">
-      <div className="app-brand">
+    <header className="ky-sidebar">
+      <div className="ky-mobile-head">
+        <div className="ky-brand">
           <img className={logoCustom ? 'ky-mark' : 'ky-mark ky-mark-stamp'} src="/app-icon.png" width={28} height={28} alt="" />
           <span>{appName || 'KyMessages'}</span>
         </div>
+        {user && (
+          <button type="button" className="ky-mobile-signout" aria-label="Sign out" onClick={onLogout}>
+            <LogOut aria-hidden="true" />
+          </button>
+        )}
+      </div>
 
-        <nav ref={navRef} className="app-nav" aria-label="Primary">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onTabChange(item.id)}
-                className={active ? 'ky-nav-item active' : 'ky-nav-item'}
-                aria-current={active ? 'page' : undefined}
-              >
-                <Icon size={16} aria-hidden="true" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      <div className="app-sidebar-foot">
+      <nav ref={navRef} className="ky-nav" aria-label="Primary">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onTabChange(item.id)}
+              className="ky-nav-item"
+              aria-current={active ? 'page' : undefined}
+            >
+              <Icon aria-hidden="true" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+      <div className="ky-sidebar-foot">
         {user && (
           <div className="ky-user">
             <div className="ky-user-copy">
@@ -78,13 +86,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoC
               <p className="ky-user-role">{role}</p>
             </div>
             <button type="button" className="ky-user-signout" onClick={onLogout}>
-              <LogOut size={16} aria-hidden="true" />Sign out
+              <LogOut aria-hidden="true" />Sign out
             </button>
           </div>
         )}
         <LicenseFooter appVersion={appVersion} />
       </div>
     </header>
-
   );
 };

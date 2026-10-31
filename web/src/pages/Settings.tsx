@@ -18,7 +18,7 @@ interface SettingsProps {
 export const Settings: React.FC<SettingsProps> = ({ settings, onBrandingChanged, children }) => {
   const driver = settings?.db_driver;
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Settings" lede="Server options and your sign-in security. Themes are under Appearance." />
 
       {/* One flat surface: each section is divided by a rule, never boxed inside another. */}

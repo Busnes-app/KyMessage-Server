@@ -154,7 +154,7 @@ export const Users: React.FC = () => {
 
   if (disabled) {
     return (
-      <div className="dr-page">
+      <div>
         <PageHead title="Users" />
         <ChatNotSetUp />
       </div>
@@ -162,7 +162,7 @@ export const Users: React.FC = () => {
   }
   const last = page ? Math.min(page.offset + page.users.length, page.total) : 0;
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Users" />
       <div className="dr-alert dr-alert-info" role="note">
         <span>
