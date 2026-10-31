@@ -18,6 +18,7 @@ import {
 import { adminFetch, errorMessage, errorText } from '../api';
 import { arr, bool, count, iso, obj, opt, str } from '../dto';
 import { PageHead } from '../components/PageHead';
+import { Status, type Tone } from '../components/Status';
 
 export interface DepositReceipt {
   capsule_id: string;
@@ -254,10 +255,6 @@ const Alert: React.FC<{ kind: 'error' | 'warn' | 'success'; children: React.Reac
   </div>
 );
 
-const Badge: React.FC<{ tone: 'success' | 'accent' | 'danger' | 'muted'; children: React.ReactNode }> = ({ tone, children }) => (
-  <span className={tone === 'muted' ? 'badge dr-badge-muted' : `badge badge-${tone}`}>{children}</span>
-);
-
 export const Backup: React.FC = () => {
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
@@ -474,11 +471,11 @@ export const Backup: React.FC = () => {
   const copies = status?.local_copies ?? [];
   const newestLocal = copies[0];
   // Green only for copies that exist: a set directory with none written, or a list the server did not send, is not a success.
-  const localBadge: [tone: 'success' | 'danger' | 'muted', text: string] =
-    !hasLocal ? ['muted', 'Off']
+  const localBadge: [tone: Tone | undefined, text: string] =
+    !hasLocal ? [undefined, 'Off']
       : status?.local_error ? ['danger', 'Error']
-      : !status?.local_copies ? ['muted', 'Unknown']
-      : [copies.length ? 'success' : 'muted', `${copies.length} of ${status.local_keep}`];
+      : !status?.local_copies ? [undefined, 'Unknown']
+      : [copies.length ? 'success' : undefined, `${copies.length} of ${status.local_keep}`];
 
   return (
     <div>
@@ -508,7 +505,7 @@ export const Backup: React.FC = () => {
         <div className="dr-fact">
           <div className="dr-fact-label">
             <span>Recovery key</span>
-            <Badge tone={keyPinned ? 'success' : 'danger'}>{keyPinned ? 'Pinned' : 'None'}</Badge>
+            <Status tone={keyPinned ? 'success' : 'danger'}>{keyPinned ? 'Pinned' : 'None'}</Status>
           </div>
           <div className="dr-fact-value dr-mono">{status?.recovery_key_id ?? '—'}</div>
           <div className="dr-fact-note">
@@ -518,7 +515,7 @@ export const Backup: React.FC = () => {
         <div className="dr-fact">
           <div className="dr-fact-label">
             <span>KyRecovery</span>
-            <Badge tone={paired ? 'success' : 'muted'}>{paired ? 'Paired' : 'Not paired'}</Badge>
+            <Status tone={paired ? 'success' : undefined}>{paired ? 'Paired' : 'Not paired'}</Status>
           </div>
           <div className="dr-fact-value">{paired ? status?.recovery_url : 'No off-site copy'}</div>
           <div className="dr-fact-note">
@@ -528,7 +525,7 @@ export const Backup: React.FC = () => {
         <div className="dr-fact">
           <div className="dr-fact-label">
             <span>Local copies</span>
-            <Badge tone={localBadge[0]}>{localBadge[1]}</Badge>
+            <Status tone={localBadge[0]}>{localBadge[1]}</Status>
           </div>
           <div className="dr-fact-value dr-mono">{status?.local_dir ?? 'KY_BACKUP_DIR not set'}</div>
           <div className="dr-fact-note">{status?.local_error ?? (newestLocal ? `Newest ${when(newestLocal.created_at)}` : hasLocal ? 'Nothing written yet' : '')}</div>
@@ -536,7 +533,7 @@ export const Backup: React.FC = () => {
         <div className="dr-fact">
           <div className="dr-fact-label">
             <span>Schedule</span>
-            <Badge tone={!scheduleOn ? 'danger' : canBackUp ? 'success' : 'muted'}>{every(status?.interval_sec)}</Badge>
+            <Status tone={!scheduleOn ? 'danger' : canBackUp ? 'success' : undefined}>{every(status?.interval_sec)}</Status>
           </div>
           <div className="dr-fact-value">
             {!scheduleOn ? 'Manual only' : !keyPinned ? 'Waiting for recovery key' : !canBackUp ? 'Waiting for a destination'
@@ -617,7 +614,7 @@ export const Backup: React.FC = () => {
         {drillResult && (
           <div className="dr-drill">
             <div>
-              Restore drill <Badge tone={drillResult.passed ? 'success' : 'danger'}>{drillResult.passed ? 'passed' : 'failed'}</Badge>{' '}
+              Restore drill <Status tone={drillResult.passed ? 'success' : 'danger'}>{drillResult.passed ? 'passed' : 'failed'}</Status>{' '}
               <span className="dr-hint">{drillResult.duration_ms} ms</span>
             </div>
             {drillResult.error_message && <div className="dr-danger">{drillResult.error_message}</div>}
@@ -668,7 +665,7 @@ export const Backup: React.FC = () => {
             <h3>
               <Server size={16} /> KyRecovery
             </h3>
-            <Badge tone={paired ? 'success' : 'muted'}>{paired ? 'Paired' : 'Not paired'}</Badge>
+            <Status tone={paired ? 'success' : undefined}>{paired ? 'Paired' : 'Not paired'}</Status>
           </div>
           <p className="dr-hint">
             KyRecovery keeps capsules it cannot open, off this host. In its dashboard, generate a pairing code for this service and enter it
@@ -714,7 +711,7 @@ export const Backup: React.FC = () => {
             <h3>
               <KeyRound size={16} /> Recovery key by hand
             </h3>
-            <Badge tone={keyPinned ? 'success' : 'danger'}>{keyPinned ? 'Pinned' : 'None'}</Badge>
+            <Status tone={keyPinned ? 'success' : 'danger'}>{keyPinned ? 'Pinned' : 'None'}</Status>
           </div>
           {keyPinned ? (
             <p className="dr-hint">

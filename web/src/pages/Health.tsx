@@ -4,6 +4,7 @@ import { errorMessage, errorText } from '../api';
 import { arr, bool, obj, oneOf, str } from '../dto';
 import { NetworkCheck } from '../components/NetworkCheck';
 import { PageHead } from '../components/PageHead';
+import { Status } from '../components/Status';
 
 export interface HealthComponent { name: string; status: 'up' | 'down'; version: string; pinned: string; mismatch: boolean; source: string; error: string }
 export interface HealthReport { matrix: boolean; components: HealthComponent[] }
@@ -74,7 +75,7 @@ export const Health: React.FC = () => {
             <div key={c.name} className="dr-fact">
               <div className="dr-fact-label">
                 <span>{LABEL[c.name] ?? c.name}</span>
-                <span className={c.status === 'up' ? 'badge badge-success' : 'badge badge-danger'}>{c.status === 'up' ? 'Up' : 'Down'}</span>
+                <Status tone={c.status === 'up' ? 'success' : 'danger'}>{c.status === 'up' ? 'Up' : 'Down'}</Status>
               </div>
               <div className="dr-fact-value dr-mono">{c.version || (VERSIONLESS.has(c.name) ? '' : 'Version unknown')}</div>
               {c.mismatch && <div className="dr-fact-note dr-danger">Compose pins {c.pinned}; this is not the pinned version.</div>}

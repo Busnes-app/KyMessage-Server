@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { KeyRound } from 'lucide-react';
 import { adminFetch, errorMessage } from '../api';
 import { arr, bool, obj, str } from '../dto';
+import { Status } from './Status';
 
 type Stage =
   | { kind: 'idle' }
@@ -113,7 +114,7 @@ export const TwoFactorSetup: React.FC = () => {
       {stage.kind === 'idle' && !enabled && (
         <div className="dr-state-row">
           <span className="dr-state-label">Two-factor sign-in</span>
-          <span className="badge badge-warning" role="status">Off</span>
+          <Status tone="warning" role="status">Off</Status>
           <button type="button" disabled={busy} onClick={() => void begin()}>Set up two-factor sign-in</button>
         </div>
       )}
@@ -122,7 +123,7 @@ export const TwoFactorSetup: React.FC = () => {
         <>
           <div className="dr-state-row">
             <span className="dr-state-label">Two-factor sign-in</span>
-            <span className="badge badge-success" role="status">On</span>
+            <Status tone="success" role="status">On</Status>
           </div>
           <form className="dr-row dr-form" onSubmit={(e) => { e.preventDefault(); void disable(); }}>
             {codeField('Code or recovery code')}

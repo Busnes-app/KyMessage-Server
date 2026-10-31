@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Mic } from 'lucide-react';
 import { adminFetch, errorMessage, isMatrixDisabled } from '../api';
 import { bool, obj, str } from '../dto';
+import { Status } from './Status';
 
 export interface NotesStatus { available: boolean; enabled: boolean; screens: boolean; user: string; checkin: string }
 
@@ -83,7 +84,7 @@ export const NotesPanel: React.FC = () => {
     <section className="panel dr-section" aria-label="Meeting notes">
       <div className="panel-header">
         <h3><Mic size={16} /> Meeting notes</h3>
-        {status?.available && <span className={status.enabled ? 'badge badge-success' : 'badge'}>{status.enabled ? 'On' : 'Off'}</span>}
+        {status?.available && <Status tone={status.enabled ? 'success' : undefined}>{status.enabled ? 'On' : 'Off'}</Status>}
       </div>
       {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
       {status && !status.available && (
@@ -101,7 +102,7 @@ export const NotesPanel: React.FC = () => {
           <Switch on={status.enabled} busy={busy} warnings={NOTES_WARNINGS} onChange={change('', 'meeting notes')} />
           {status.enabled && (
             <div className="dr-section">
-              <h4>Shared-screen snapshots <span className={status.screens ? 'badge badge-success' : 'badge'}>{status.screens ? 'Allowed' : 'Off'}</span></h4>
+              <h4>Shared-screen snapshots <Status tone={status.screens ? 'success' : undefined}>{status.screens ? 'Allowed' : 'Off'}</Status></h4>
               <p>Lets the bot add still pictures of shared screens to the notes, when a meeting turns them on.</p>
               <Switch on={status.screens} busy={busy} warnings={SCREENS_WARNINGS} onChange={change('screens/', 'shared-screen snapshots')} />
             </div>

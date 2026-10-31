@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { errorMessage, isMatrixDisabled } from '../api';
 import { bool, count, iso, obj, str } from '../dto';
+import { Status, type Tone } from './Status';
 
 export interface SyncStatus {
   webhook: { at: string; kind: string } | null;
@@ -84,7 +85,7 @@ export function syncCard(s: SyncStatus): { text: string; tone: 'success' | 'warn
 }
 
 const LABEL: Record<SyncState, string> = { ok: 'Working', warning: 'Needs attention', failing: 'Failing' };
-const BADGE: Record<SyncState, string> = { ok: 'badge badge-success', warning: 'badge badge-accent', failing: 'badge badge-danger' };
+const TONE: Record<SyncState, Tone> = { ok: 'success', warning: 'warning', failing: 'danger' };
 
 /** Settings' "KyIdentity sync" panel; nothing at all when chat is not set up. */
 export const SyncPanel: React.FC = () => {
@@ -109,7 +110,7 @@ export const SyncPanel: React.FC = () => {
     <section className="panel dr-section" aria-label="KyIdentity sync">
       <div className="panel-header">
         <h3><RefreshCw size={16} /> KyIdentity sync</h3>
-        {state && <span className={BADGE[state]}>{LABEL[state]}</span>}
+        {state && <Status tone={TONE[state]}>{LABEL[state]}</Status>}
       </div>
       {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
       {status && (

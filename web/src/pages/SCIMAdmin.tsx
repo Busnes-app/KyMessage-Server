@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 import { arr, bool, obj, opt, str } from '../dto';
 import { PageHead } from '../components/PageHead';
+import { Status } from '../components/Status';
 
 interface SCIMUser { id: string; username: string; display_name: string; email: string; status: string }
 export interface SCIMDirectory { enabled: boolean; token_set: boolean; users: SCIMUser[] }
@@ -96,9 +97,9 @@ export const SCIMAdmin: React.FC = () => {
                     <td>{u.display_name || '—'}</td>
                     <td className="dr-muted">{u.email || '—'}</td>
                     <td>
-                      <span className={`badge badge-${u.status === 'active' ? 'success' : 'danger'}`}>
+                      <Status tone={u.status === 'active' ? 'success' : 'danger'}>
                         {u.status === 'active' ? 'Active' : u.status}
-                      </span>
+                      </Status>
                     </td>
                   </tr>
                 ))}

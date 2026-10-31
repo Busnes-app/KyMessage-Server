@@ -141,7 +141,7 @@ input[type='file']::file-selector-button { font: inherit; font-size: var(--ky-ty
 
 /* ---------- Badges ---------- */
 
-/* Status always pairs a tone with its word; tints come from the theme's own status colors. */
+/* A neutral fact, such as the database driver. States are ky-ui's .ky-status (components/Status.tsx). */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -151,14 +151,11 @@ input[type='file']::file-selector-button { font: inherit; font-size: var(--ky-ty
   line-height: 1.4;
   padding: 0 var(--ky-space-2);
   border-radius: 999px;
-  border: 1px solid currentColor;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-strong);
+  background: var(--panel-hover);
   white-space: nowrap;
 }
-.badge-success { color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--panel)); }
-.badge-danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--panel)); }
-/* Neutral fact, such as the database driver: not a status and not the accent. */
-.badge-accent { color: var(--ink-strong); background: var(--panel-hover); border-color: var(--line-strong); }
-.badge-warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--panel)); }
 
 /* ---------- Dialogs ---------- */
 
@@ -234,7 +231,6 @@ dialog.modal-window::backdrop { background: rgb(12 12 18 / 0.68); }
 .dr-alert-info { background: var(--panel-hover); border-color: var(--line-strong); }
 .dr-alert-success { color: var(--success); border-color: var(--success); background: color-mix(in srgb, var(--success) 8%, var(--panel)); }
 .dr-alert-success svg { color: var(--success); }
-.dr-badge-muted { background: var(--panel-hover); color: var(--ink); border-color: var(--line-strong); }
 
 .dr-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--ky-space-3); margin-bottom: var(--ky-space-4); }
 .dr-fact { background: var(--panel); border: 1px solid var(--line); border-radius: var(--ky-control-radius); padding: var(--ky-space-3); display: flex; flex-direction: column; gap: var(--ky-space-1); }
