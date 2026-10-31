@@ -95,3 +95,9 @@ Stage 08: navigation hover fix (2026-10-26, finding F1 of the council runtime-so
 ## Fleet Appearance picker — 2026-10-26
 
 KyMessages gained an Appearance page for every role (members get Home and Appearance rows; Match system plus the 22-theme suite catalog as native radio cards, saved `ky_theme` IDs kept); the header and Settings theme selects are gone. Staged before/after captures at 1280×900 and 390×844 in OS light and dark, with source patches, binary and asset hashes and per-file measurements, are in [docs/ui-fleet-2026-10-26/](docs/ui-fleet-2026-10-26/README.md) (`manifest.json`, `captures.csv`, `checks.csv`). They are scratch captures with synthetic data and carry no rating.
+
+## Suite design pass — 2026-10-31
+
+ky-ui 0.6.0 shell and palette pairs; Overview readiness checklist; Settings branding and account security. Before and after captures are in `docs/ui-suite-2026-10-31/screenshots/` (`kymessages-00-before-*`, `kymessages-01-after-*`): Busnes Light and Dark at 1440×900, phone at 390×844, from a disposable SQLite server with Matrix not configured, so the Overview, Settings and sign-in show their unconfigured states (no SSO issuer, no Matrix panels). The Matrix-on Overview and Settings were not captured. Every captured state kept document width within the viewport.
+
+Checks on this branch: `make ci` (tidy, gofmt, vet, compose checks, `go test -race ./...` at 76.9% coverage, 170 vitest tests, smoke), `npm run test:browser` (13 Chromium and Firefox tests), `npm audit --audit-level=high`, and a clean `web/dist` after a rebuild.
