@@ -37,7 +37,7 @@ test('Appearance: palette pairs in one native radio group, and the return to Bus
   await expect(light).toBeChecked();
   await expect(light).toBeFocused();
   // One ring, on the segment; the selected segment carries a check.
-  const segment = page.locator('.appearance-mode', { has: light });
+  const segment = light.locator('xpath=..');
   await expect(segment).toHaveCSS('outline-style', 'solid');
   await expect(light).toHaveCSS('outline-style', 'none');
   await expect(segment.locator('svg')).toHaveCount(1);

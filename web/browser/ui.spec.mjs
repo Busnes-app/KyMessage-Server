@@ -77,7 +77,7 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 246, 240)');
   await other.close();
   await appearance(page);
-  await theme(page, 'Match system');
+  await theme(page, 'Busnes', 'Match system');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 35, 38)');
   await page.emulateMedia({ colorScheme: 'light' });
@@ -131,8 +131,9 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(branding.getByLabel('Product name')).toBeVisible();
   // One Upload logo button; the two resets sit in the ⋯ menu.
   const more = branding.getByRole('button', { name: 'More branding actions' });
-  const resetName = branding.getByRole('menuitem', { name: /^Use default name/ });
-  const resetLogo = branding.getByRole('menuitem', { name: 'Reset logo' });
+  // A closed popover is hidden: find its items regardless, click them only once it is open.
+  const resetName = branding.getByRole('menuitem', { name: /^Use default name/, includeHidden: true });
+  const resetLogo = branding.getByRole('menuitem', { name: 'Reset logo', includeHidden: true });
   if (await resetName.isEnabled()) {
     await more.click();
     await resetName.click();
