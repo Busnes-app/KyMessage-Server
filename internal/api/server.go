@@ -110,6 +110,9 @@ type Server struct {
 	fedErr     string
 	// notesMu serialises the meeting-notes switch and the bot's session requests.
 	notesMu sync.Mutex
+	// suiteCache holds KyIdentity's app list per subject ("" for Element's home page).
+	suiteMu    sync.Mutex
+	suiteCache map[string]suiteAppsEntry
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -407,6 +410,7 @@ func (s *Server) routes() {
 
 	// Settings & Theme. The read endpoint tiers its own payload by role.
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)
+	s.mux.HandleFunc("GET /api/suite/apps", s.handleSuiteApps)
 	s.mux.HandleFunc("/api/settings/theme", s.requireAdmin(s.handleSetTheme))
 
 	// Branding. Any admin reads it; changes need a recent sign-in, run detached and are audited.
@@ -442,6 +446,8 @@ func (s *Server) routes() {
 	// Embedded React PWA Frontend. /app-icon.png is the admin's logo when one is set; public.
 	static := web.Handler()
 	s.mux.HandleFunc("GET /app-icon.png", s.appIcon(static))
+	s.mux.HandleFunc("GET "+ElementHomePath, s.handleElementHome)
+	s.mux.HandleFunc("GET "+elementMarkPrefix+"{id}", s.handleElementMark)
 	s.mux.Handle("/", static)
 }
 

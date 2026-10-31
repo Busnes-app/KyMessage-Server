@@ -82,7 +82,7 @@ func (e *fakeElement) restart() {
 	e.body = b
 }
 
-// elementWith is elementJSON with brand set to name, as PatchElementBrand writes it.
+// elementWith is elementJSON with brand set to name, as PatchElementConfig writes it.
 func elementWith(name string) string {
 	return strings.Replace(elementJSON, `"KyMessages"`, fmt.Sprintf("%q", name), 1)
 }

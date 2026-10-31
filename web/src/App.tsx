@@ -16,6 +16,7 @@ import { TwoFactorSetup } from './components/TwoFactorSetup';
 import { MemberHome } from './pages/MemberHome';
 import { Appearance } from './pages/Appearance';
 import { LicenseFooter } from './components/LicenseFooter';
+import { AppRail } from './components/AppRail';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
 import './ky-ui/navigation.css';
@@ -23,7 +24,7 @@ import './ky-ui/shell.css';
 import './ky-ui/appearance.css';
 import './ky-ui/appearance-themes.css';
 import { errorMessage, secureFetch } from './api';
-import { parseSettings, parseUser, type SessionUser, type SiteSettings } from './dto';
+import { parseSettings, parseSuiteApps, parseUser, type SessionUser, type SiteSettings, type SuiteApp } from './dto';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 export const App: React.FC = () => {
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [settings, setSettings] = useState<SiteSettings | null>(null);
+  const [suiteApps, setSuiteApps] = useState<SuiteApp[]>([]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -59,6 +61,18 @@ export const App: React.FC = () => {
 
     checkAuth();
   }, []);
+
+  // The app rail: fetched once per sign-in; any failure leaves it out.
+  const signedIn = user !== null && !user.must_change_password;
+  useEffect(() => {
+    setSuiteApps([]);
+    if (!signedIn) return;
+    let live = true;
+    fetch('/api/suite/apps')
+      .then(async (r) => (r.ok ? parseSuiteApps(await r.json()) : []))
+      .then((apps) => { if (live) setSuiteApps(apps); }, () => {});
+    return () => { live = false; };
+  }, [signedIn, user?.username]);
 
   // /api/settings returns more fields once authenticated, so re-read it after login.
   const loadSettings = async () => {
@@ -130,6 +144,7 @@ export const App: React.FC = () => {
         onTabChange={(t) => setActiveTab(t)}
         user={user}
         onLogout={handleLogout}
+        suiteApps={suiteApps}
       />
 
       {isAdmin && <ConfirmItsYou />}
@@ -152,7 +167,7 @@ export const App: React.FC = () => {
           <Settings settings={settings} onBrandingChanged={() => void loadSettings()}><TwoFactorSetup /></Settings>
         )}
         </ErrorBoundary>
-        <LicenseFooter className="ky-content-foot" appVersion={settings?.app_version} />
+        <LicenseFooter className="ky-content-foot" appVersion={settings?.app_version}><AppRail apps={suiteApps} /></LicenseFooter>
       </main>
     </div>
   );

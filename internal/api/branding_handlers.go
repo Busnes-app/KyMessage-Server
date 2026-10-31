@@ -58,7 +58,8 @@ func (s *Server) elementConfig() string {
 	return filepath.Join(s.config.Matrix.Dir, "element", "config.json")
 }
 
-// ReconcileBrand sets Element's brand to the effective name. brandMu makes it the file's only
+// ReconcileBrand sets Element's brand to the effective name and, with an https console, its
+// home page to ElementHomePath, so installs whose config predates it get it too. brandMu makes it the file's only
 // writer in this process: the name handler and cmd/server's maintenance tick both call it, and
 // two in-place writers could interleave into invalid JSON. It writes only on change, never
 // creates the file, and logs a failure once per streak. No-op without Matrix.
@@ -70,9 +71,13 @@ func (s *Server) ReconcileBrand(ctx context.Context) error {
 	defer s.brandMu.Unlock()
 	name, err := s.effectiveName(ctx)
 	if err == nil {
+		home := ""
+		if strings.HasPrefix(s.config.Server.AppURL, "https://") {
+			home = s.config.Server.AppURL + ElementHomePath
+		}
 		var changed bool
-		if changed, err = branding.PatchElementBrand(s.elementConfig(), name); changed {
-			log.Printf("[BRANDING] Element brand set to %q", name)
+		if changed, err = branding.PatchElementConfig(s.elementConfig(), name, home); changed {
+			log.Printf("[BRANDING] Element config set: brand %q, home page %q", name, home)
 		}
 	}
 	switch {

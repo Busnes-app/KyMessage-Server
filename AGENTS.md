@@ -158,7 +158,7 @@ When the user requests a durable behavior change, record it here or in the relev
   `restore-matrix` mount `matrix-media` with `nocopy`: otherwise Docker re-copies the image's
   root-owned `/media` onto the empty volume at each mount and undoes `synapse-media-owner`.
   The app's read-write paths under `./matrix` are `./matrix/element/config.json`, its only
-  mount of `./matrix/element`, where the console sets Element's `brand` in place, and
+  mount of `./matrix/element`, where the console sets Element's `brand` and `embedded_pages` (its home page, `/element-home.html` on the console) in place, and
   `./matrix/federation/federation.yaml` (Synapse's listeners and allow-list, see
   `internal/matrixinit/AGENTS.md`), which it writes as their owner `KY_MATRIX_UID`, with no
   capability; the check holds the app to those two files (with the
@@ -350,7 +350,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 - [internal/scim/AGENTS.md](internal/scim/AGENTS.md): SCIM 2.0 user and group provisioning engine.
 - [internal/matrixrtc/AGENTS.md](internal/matrixrtc/AGENTS.md): Element Call authorization hashes, scoped LiveKit grants and room management.
 - [internal/matrixinit/AGENTS.md](internal/matrixinit/AGENTS.md): `kymessages matrix-init` config generation for Synapse, MAS, Element and Postgres; write-once secrets.
-- [internal/branding/AGENTS.md](internal/branding/AGENTS.md): Product name validation, PNG normalisation and the in-place Element `brand` patch behind console settings.
+- [internal/branding/AGENTS.md](internal/branding/AGENTS.md): Product name validation, PNG normalisation and the in-place Element `brand` and home-page patch behind console settings.
 - [internal/matrixsync/AGENTS.md](internal/matrixsync/AGENTS.md): MAS admin client and sweep that locks, unlocks and deactivates Matrix users from the KyIdentity directory.
 - [internal/synapseadmin/AGENTS.md](internal/synapseadmin/AGENTS.md): Synapse admin API client for the console, used with 5-minute console sessions.
 - [internal/health/AGENTS.md](internal/health/AGENTS.md): Per-request component probes, version pins generated from docker-compose.matrix.yml, upstream source links.

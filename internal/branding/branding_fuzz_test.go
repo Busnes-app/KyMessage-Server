@@ -9,7 +9,7 @@ import (
 
 // FuzzSetBrand patches arbitrary Element config bodies. A body setBrand accepts comes back
 // as valid JSON whose brand ParseBrand reads as the name, with every other top-level key's
-// bytes untouched; patching it again is a no-op, which is what lets PatchElementBrand skip
+// bytes untouched; patching it again is a no-op, which is what lets PatchElementConfig skip
 // the write. A body it refuses ParseBrand refuses too.
 func FuzzSetBrand(f *testing.F) {
 	for _, s := range [][2]string{

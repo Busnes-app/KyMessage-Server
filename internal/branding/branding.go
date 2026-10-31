@@ -85,12 +85,13 @@ func NormalizePNG(b []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// PatchElementBrand sets the top-level "brand" of Element's config.json at path to name and
-// changes no other byte. It writes only when that changes the file, and through the existing
-// inode (no create, rename or chmod): a single-file bind mount keeps the inode it was given.
-// A missing, non-regular or unparseable file, or one that is not a JSON object, is refused
-// untouched. Callers serialise writers; a reader can see the file mid-write.
-func PatchElementBrand(path, name string) (bool, error) {
+// PatchElementConfig sets the top-level "brand" of Element's config.json at path to name and,
+// when homeURL is set, "embedded_pages" to {"home_url": homeURL}, and changes no other byte.
+// It writes only when that changes the file, and through the existing inode (no create, rename
+// or chmod): a single-file bind mount keeps the inode it was given. A missing, non-regular or
+// unparseable file, or one that is not a JSON object, is refused untouched. Callers serialise
+// writers; a reader can see the file mid-write.
+func PatchElementConfig(path, name, homeURL string) (bool, error) {
 	fi, err := os.Lstat(path)
 	if err != nil {
 		return false, err
@@ -103,6 +104,12 @@ func PatchElementBrand(path, name string) (bool, error) {
 		return false, err
 	}
 	patched, err := setBrand(old, name)
+	if err == nil && homeURL != "" {
+		var pages []byte
+		if pages, err = json.Marshal(map[string]string{"home_url": homeURL}); err == nil {
+			patched, err = setTop(patched, "embedded_pages", pages)
+		}
+	}
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
@@ -135,7 +142,7 @@ func ElementBrand(path string) (string, error) {
 
 // ParseBrand returns the top-level "brand" of an Element config.json body, "" when absent.
 func ParseBrand(b []byte) (string, error) {
-	spans, err := brandSpans(b)
+	spans, err := topSpans(b, "brand")
 	if err != nil {
 		return "", err
 	}
@@ -152,9 +159,9 @@ func ParseBrand(b []byte) (string, error) {
 
 type span struct{ start, end int }
 
-// brandSpans returns the byte range of every top-level "brand" value in b, which must be one
-// JSON object.
-func brandSpans(b []byte) ([]span, error) {
+// topSpans returns the byte range of every top-level key value in b, which must be one JSON
+// object.
+func topSpans(b []byte, key string) ([]span, error) {
 	if !json.Valid(b) {
 		return nil, errors.New("is not valid JSON")
 	}
@@ -164,7 +171,7 @@ func brandSpans(b []byte) ([]span, error) {
 	}
 	var spans []span
 	for dec.More() {
-		key, err := dec.Token()
+		k, err := dec.Token()
 		if err != nil {
 			return nil, err
 		}
@@ -172,11 +179,11 @@ func brandSpans(b []byte) ([]span, error) {
 		if err := dec.Decode(&v); err != nil {
 			return nil, err
 		}
-		if key == "brand" {
+		if k == key {
 			end := int(dec.InputOffset())
 			s := span{end - len(v), end}
 			if s.start < 0 || !bytes.Equal(b[s.start:s.end], v) {
-				return nil, errors.New("could not locate the brand value")
+				return nil, fmt.Errorf("could not locate the %s value", key)
 			}
 			spans = append(spans, s)
 		}
@@ -186,11 +193,17 @@ func brandSpans(b []byte) ([]span, error) {
 
 // setBrand replaces every top-level brand value with name, or inserts one first.
 func setBrand(b []byte, name string) ([]byte, error) {
-	spans, err := brandSpans(b)
+	v, err := json.Marshal(name)
 	if err != nil {
 		return nil, err
 	}
-	v, err := json.Marshal(name)
+	return setTop(b, "brand", v)
+}
+
+// setTop replaces every top-level key value not already equal to v (compact JSON), or inserts
+// one first. Equal values keep their bytes, so a re-rendered file is not rewritten.
+func setTop(b []byte, key string, v []byte) ([]byte, error) {
+	spans, err := topSpans(b, key)
 	if err != nil {
 		return nil, err
 	}
@@ -200,10 +213,15 @@ func setBrand(b []byte, name string) ([]byte, error) {
 		if bytes.TrimSpace(b[i:])[0] == '}' {
 			sep = nil
 		}
-		return slices.Concat(b[:i], []byte(`"brand":`), v, sep, b[i:]), nil
+		k, _ := json.Marshal(key)
+		return slices.Concat(b[:i], k, []byte(":"), v, sep, b[i:]), nil
 	}
 	out := b
 	for i := len(spans) - 1; i >= 0; i-- {
+		var cur bytes.Buffer
+		if json.Compact(&cur, out[spans[i].start:spans[i].end]) == nil && bytes.Equal(cur.Bytes(), v) {
+			continue
+		}
 		out = slices.Concat(out[:spans[i].start], v, out[spans[i].end:])
 	}
 	return out, nil

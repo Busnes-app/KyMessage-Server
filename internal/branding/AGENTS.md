@@ -4,7 +4,7 @@
 Pure checks and the one file edit behind the console's product name and logo.
 
 ## Ownership
-Owns `branding.go`: `ValidateName`, `NormalizePNG`, `PatchElementBrand`, `ElementBrand`,
+Owns `branding.go`: `ValidateName`, `NormalizePNG`, `PatchElementConfig`, `ElementBrand`,
 `ParseBrand`.
 `internal/api` owns the routes, storage, `/app-icon.png` and `Server.ReconcileBrand`;
 `cmd/server` decides when the reconcile runs.
@@ -18,8 +18,9 @@ Owns `branding.go`: `ValidateName`, `NormalizePNG`, `PatchElementBrand`, `Elemen
   before decoding, then decodes and re-encodes, so no ancillary chunk (text, EXIF, ICC, APNG)
   survives. Every other format is refused (SVG can carry script); so is a re-encoding over
   `MaxLogoBytes`.
-- `PatchElementBrand` changes only the bytes of every top-level `brand` value (inserting one
-  first when absent), writes only when that changes the file, and writes through the existing
+- `PatchElementConfig` changes only the bytes of every top-level `brand` value and, given a home
+  URL, every top-level `embedded_pages` value (`{"home_url":...}`; a value already equal as compact
+  JSON keeps its bytes) (inserting one first when absent), writes only when that changes the file, and writes through the existing
   inode (`O_WRONLY|O_TRUNC`; no create, rename or chmod): Compose binds that single file into
   Element and the app, and a bind keeps the inode it was given. A missing, non-regular,
   invalid or non-object file is refused untouched. A reader can see the file mid-write (an

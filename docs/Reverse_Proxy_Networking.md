@@ -133,8 +133,9 @@ client and do not block that path. MAS's admin port 8081 is never routed.
 A dashboard-managed tunnel takes the same hostname-to-service pairs as public hostnames. Route
 no other MAS port, no Postgres and nothing else on the server-name host. MAS's public listener
 is 8080, and the compatibility login is not served on it; its admin listener, 8081, binds only
-to `mas-admin` on the internal `matrix-admin` network and is never routed. Element loads its logo
-from `KY_ADMIN_HOST`; do not add a proxy-side `img-src` that excludes it.
+to `mas-admin` on the internal `matrix-admin` network and is never routed. Element loads its logo,
+home page and app marks from `KY_ADMIN_HOST`; do not add a proxy-side `img-src` or `connect-src`
+that excludes it.
 
 KyMessages sends HSTS (`includeSubDomains`) only for requests to its own `KY_APP_URL` host,
 never on the server-name host, so plain-http services under the apex keep working.

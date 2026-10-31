@@ -15,6 +15,7 @@
     "logo_link_url": {{ q .In.ChatHost }},
     "auth_footer_links": []
   },
+  "embedded_pages": { "home_url": {{ q (print .In.AdminHost "/element-home.html") }} },
   "help_url": {{ q (print .In.AdminHost "/") }},
   "help_encryption_url": {{ q (print .In.AdminHost "/") }},
   "help_key_storage_url": {{ q (print .In.AdminHost "/") }},
@@ -39,7 +40,7 @@
         "colors": {
           "accent-color": "#bf3f18",
           "primary-color": "#bf3f18",
-          "warning-color": "#b42318",
+          "warning-color": "#a8174e",
           "sidebar-color": "#f2efe7",
           "roomlist-background-color": "#f2efe7",
           "roomlist-text-color": "#182326",
@@ -58,7 +59,7 @@
         "colors": {
           "accent-color": "#f5865f",
           "primary-color": "#f5865f",
-          "warning-color": "#ff8176",
+          "warning-color": "#ff8fb1",
           "sidebar-color": "#1f2b2e",
           "roomlist-background-color": "#1f2b2e",
           "roomlist-text-color": "#f2efe8",

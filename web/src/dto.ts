@@ -54,3 +54,12 @@ export function parseSettings(v: unknown): SiteSettings {
   const o = obj(v);
   return { app_name: str(o.app_name), chat_url: opt(o.chat_url, str) ?? '', sso_enabled: o.sso_enabled === true, logo_custom: o.logo_custom !== false, db_driver: opt(o.db_driver, (d) => str(d, 32)), app_version: opt(o.app_version, (d) => str(d, 32)) };
 }
+
+export interface SuiteApp { id: string; name: string; url: string }
+/** /api/suite/apps: KyIdentity's launch links, https only (a non-https entry is dropped). */
+export function parseSuiteApps(v: unknown): SuiteApp[] {
+  return arr(obj(v).apps).map((a) => {
+    const o = obj(a);
+    return { id: str(o.id, 128), name: str(o.name, 255), url: str(o.url, 2048) };
+  }).filter((a) => a.url.startsWith('https://'));
+}

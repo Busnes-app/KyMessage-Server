@@ -176,3 +176,9 @@ Upgrading a stack from before Matrix backups:
 3. `docker compose pull app` (or rebuild with the build overlay), keep `KY_BACKUP_DIR` set, and optionally set
    `KY_BACKUP_MEDIA_FULL_KEEP`.
 4. `docker compose up -d`. The first scheduled run then backs up Matrix.
+
+Element's Home view (no room open) shows "Welcome to KyMessages" and links to the other suite
+apps KyIdentity lists, served by the console at `<KY_ADMIN_HOST>/element-home.html` (Element's
+`embedded_pages.home_url`). Each app still asks KyIdentity whether the person may open it.
+On a stack set up before this page, the console adds `home_url` to `matrix/element/config.json`
+within a minute of upgrading; `docker compose restart element` then shows it.

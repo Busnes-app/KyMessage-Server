@@ -384,6 +384,10 @@ func TestElementIsBrandedAndContactsNoThirdParty(t *testing.T) {
 		br["logo_link_url"] != "https://chat.example.com" {
 		t.Errorf("branding: %v %v", el["brand"], br)
 	}
+	// The console serves Element's home page (internal/api ElementHomePath).
+	if pages, _ := el["embedded_pages"].(map[string]any); len(pages) != 1 || pages["home_url"] != "https://admin.example.com/element-home.html" {
+		t.Errorf("embedded_pages: %v", el["embedded_pages"])
+	}
 	if links, ok := br["auth_footer_links"].([]any); !ok || len(links) != 0 {
 		t.Errorf("auth_footer_links: %v", br["auth_footer_links"])
 	}

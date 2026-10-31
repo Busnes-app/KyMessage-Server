@@ -152,14 +152,14 @@ func writeConfig(t *testing.T, body string) string {
 	return p
 }
 
-func TestPatchElementBrandChangesOnlyTheBrandInPlace(t *testing.T) {
+func TestPatchElementConfigChangesOnlyTheBrandInPlace(t *testing.T) {
 	p := writeConfig(t, elementConfig)
 	if err := os.Chmod(p, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.Stat(p)
 	name := `Acme "Chat" <ops>`
-	changed, err := PatchElementBrand(p, name)
+	changed, err := PatchElementConfig(p, name, "")
 	if err != nil || !changed {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
@@ -182,7 +182,7 @@ func TestPatchElementBrandChangesOnlyTheBrandInPlace(t *testing.T) {
 	if err := os.Chtimes(p, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := PatchElementBrand(p, name); err != nil || changed {
+	if changed, err := PatchElementConfig(p, name, ""); err != nil || changed {
 		t.Fatalf("second patch: changed=%v err=%v", changed, err)
 	}
 	if fi, _ := os.Stat(p); !fi.ModTime().Equal(old) {
@@ -190,14 +190,14 @@ func TestPatchElementBrandChangesOnlyTheBrandInPlace(t *testing.T) {
 	}
 }
 
-func TestPatchElementBrandAddsAMissingKeyAndPatchesDuplicates(t *testing.T) {
+func TestPatchElementConfigAddsAMissingKeyAndPatchesDuplicates(t *testing.T) {
 	for in, want := range map[string]string{
 		`{"a": 1}`: `{"brand":"Acme","a": 1}`,
 		`{ }`:      `{"brand":"Acme" }`,
 		`{"brand": "x", "b": {"brand": "nested"}, "brand": "y"}`: `{"brand": "Acme", "b": {"brand": "nested"}, "brand": "Acme"}`,
 	} {
 		p := writeConfig(t, in)
-		if _, err := PatchElementBrand(p, "Acme"); err != nil {
+		if _, err := PatchElementConfig(p, "Acme", ""); err != nil {
 			t.Fatalf("%s: %v", in, err)
 		}
 		if got, _ := os.ReadFile(p); string(got) != want {
@@ -212,15 +212,35 @@ func TestPatchElementBrandAddsAMissingKeyAndPatchesDuplicates(t *testing.T) {
 	}
 }
 
-func TestPatchElementBrandRefusesAndLeavesTheFileAlone(t *testing.T) {
+// The home page is added or corrected beside the brand; matrix-init's spacing of the same
+// value is left byte for byte, so a re-rendered file is not rewritten.
+func TestPatchElementConfigSetsTheHomePage(t *testing.T) {
+	const home = "https://admin.example.com/element-home.html"
+	for in, want := range map[string]string{
+		`{"brand":"Acme","a": 1}`: `{"embedded_pages":{"home_url":"https://admin.example.com/element-home.html"},"brand":"Acme","a": 1}`,
+		`{"brand":"Acme","embedded_pages": { "home_url": "https://old.example.com/x" }}`: `{"brand":"Acme","embedded_pages": {"home_url":"https://admin.example.com/element-home.html"}}`,
+		`{"brand":"Acme","embedded_pages": { "home_url": "https://admin.example.com/element-home.html" }}`: `{"brand":"Acme","embedded_pages": { "home_url": "https://admin.example.com/element-home.html" }}`,
+	} {
+		p := writeConfig(t, in)
+		changed, err := PatchElementConfig(p, "Acme", home)
+		if err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		if got, _ := os.ReadFile(p); string(got) != want || changed != (in != want) {
+			t.Errorf("%s: got %s (changed %v), want %s", in, got, changed, want)
+		}
+	}
+}
+
+func TestPatchElementConfigRefusesAndLeavesTheFileAlone(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "config.json")
-	if _, err := PatchElementBrand(missing, "Acme"); !errors.Is(err, os.ErrNotExist) {
+	if _, err := PatchElementConfig(missing, "Acme", ""); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("missing: %v", err)
 	}
 	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
 		t.Error("a missing config was created")
 	}
-	if _, err := PatchElementBrand(t.TempDir(), "Acme"); err == nil {
+	if _, err := PatchElementConfig(t.TempDir(), "Acme", ""); err == nil {
 		t.Error("a directory was accepted")
 	}
 	for name, body := range map[string]string{
@@ -231,7 +251,7 @@ func TestPatchElementBrandRefusesAndLeavesTheFileAlone(t *testing.T) {
 		"empty":       ``,
 	} {
 		p := writeConfig(t, body)
-		if _, err := PatchElementBrand(p, "Acme"); err == nil {
+		if _, err := PatchElementConfig(p, "Acme", ""); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 		if got, _ := os.ReadFile(p); string(got) != body {

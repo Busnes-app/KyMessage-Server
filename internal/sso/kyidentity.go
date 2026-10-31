@@ -14,6 +14,7 @@ import (
 
 	"github.com/Busnes-app/ky-primitives/applysetup"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky-primitives/suitedir"
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/crypto"
@@ -323,4 +324,22 @@ func (k *KyIdentityClient) currentFlow(ctx context.Context) (*oauthFlow, error) 
 		return nil, err
 	}
 	return newOAuthFlow(managed.IssuerURL, managed.ClientID, secret), nil
+}
+
+// SuiteDirectory is a suite directory client on the effective KyIdentity settings, the same
+// ones sign-in uses (an installer setup's secret file is read each call), or nil when suite
+// sign-in is off or unconfigured.
+func (k *KyIdentityClient) SuiteDirectory() (*suitedir.Client, error) {
+	if !k.config.Enabled || k.config.KyIdentityIssuer == "" {
+		return nil, nil
+	}
+	c := &suitedir.Client{Issuer: k.config.KyIdentityIssuer, ClientID: k.config.KyIdentityClientID, ClientSecret: k.config.KyIdentitySecret}
+	if m := k.config.Installer; m != nil {
+		secret, err := applysetup.Secret(m.ClientSecretFile)
+		if err != nil {
+			return nil, err
+		}
+		c.Issuer, c.ClientID, c.ClientSecret = m.IssuerURL, m.ClientID, secret
+	}
+	return c, nil
 }
