@@ -2,12 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/Busnes-app/ky_server_base/internal/appversion"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/sso"
+	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
 type ThemeUpdateRequest struct {
@@ -28,15 +30,19 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		name = s.config.Server.AppName
 	}
+	// The shell inverts only the built-in stamp in dark schemes; on a read error assume a custom logo.
+	_, logoErr := s.store.Settings().GetSetting(r.Context(), brandLogoKey)
 
-	// Public tier: what the login screen needs before a session exists.
+	// Public tier: what the login screen needs before a session exists. sso_enabled means usable,
+	// not merely switched on (the default): the sign-in page offers SSO only then.
 	out := map[string]any{
 		"app_name":         name,
 		"app_url":          s.config.Server.AppURL,
 		"theme":            theme,
 		"captcha_provider": s.config.Captcha.Provider,
-		"sso_enabled":      s.config.SSO.Enabled,
+		"sso_enabled":      s.config.SSO.Enabled && s.config.SSO.KyIdentityIssuer != "",
 		"chat_url":         s.config.Matrix.ChatHost,
+		"logo_custom":      !errors.Is(logoErr, store.ErrNotFound),
 	}
 
 	user, _, err := s.sessions.AuthenticateRequest(r)
