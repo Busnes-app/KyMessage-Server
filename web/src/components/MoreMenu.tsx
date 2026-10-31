@@ -2,7 +2,8 @@ import React, { useEffect, useId, useRef } from 'react';
 import { Ellipsis } from 'lucide-react';
 
 // A ⋯ button and a native popover under it (KyYard's row menu). Escape and an outside click
-// close it; scrolling closes it so it never detaches. Arrow keys move between items.
+// close it; a scroll that moves the trigger closes it so it never detaches. Arrow keys move
+// between items.
 export function MoreMenu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
   const menu = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -11,12 +12,18 @@ export function MoreMenu({ label, children }: { label: string; children: (close:
   useEffect(() => {
     const el = menu.current;
     if (!el) return;
-    const onScroll = () => close();
+    let at: DOMRect | null = null;
+    // A scroll event can land after opening for a scroll that happened before it (focusing the
+    // trigger scrolls it into view): close only when the trigger has actually moved.
+    const onScroll = () => {
+      const now = trigger.current?.getBoundingClientRect();
+      if (!at || !now || now.top !== at.top || now.left !== at.left) close();
+    };
     const toggled = (event: Event) => {
       const open = (event as ToggleEvent).newState === 'open';
       trigger.current?.setAttribute('aria-expanded', String(open));
       if (!open) { window.removeEventListener('scroll', onScroll, true); return; }
-      const at = trigger.current!.getBoundingClientRect();
+      at = trigger.current!.getBoundingClientRect();
       const below = at.bottom + 4 + el.offsetHeight <= window.innerHeight;
       el.style.top = `${below ? at.bottom + 4 : Math.max(8, at.top - 4 - el.offsetHeight)}px`;
       el.style.left = `${Math.max(8, at.right - el.offsetWidth)}px`;
