@@ -97,7 +97,7 @@ export const SCIMAdmin: React.FC = () => {
                     <td>{u.display_name || '—'}</td>
                     <td className="dr-muted">{u.email || '—'}</td>
                     <td>
-                      <Status tone={u.status === 'active' ? 'success' : 'danger'}>
+                      <Status tone={u.status === 'active' ? 'success' : undefined}>
                         {u.status === 'active' ? 'Active' : u.status}
                       </Status>
                     </td>
