@@ -48,9 +48,9 @@ export function parseUser(v: unknown): SessionUser {
   };
 }
 
-export interface SiteSettings { app_name: string; chat_url: string; db_driver?: string; app_version?: string }
+export interface SiteSettings { app_name: string; chat_url: string; sso_enabled: boolean; logo_custom: boolean; db_driver?: string; app_version?: string }
 /** The /api/settings fields the shell uses; the rest is tiered by role and not read here. */
 export function parseSettings(v: unknown): SiteSettings {
   const o = obj(v);
-  return { app_name: str(o.app_name), chat_url: opt(o.chat_url, str) ?? '', db_driver: opt(o.db_driver, (d) => str(d, 32)), app_version: opt(o.app_version, (d) => str(d, 32)) };
+  return { app_name: str(o.app_name), chat_url: opt(o.chat_url, str) ?? '', sso_enabled: o.sso_enabled === true, logo_custom: o.logo_custom !== false, db_driver: opt(o.db_driver, (d) => str(d, 32)), app_version: opt(o.app_version, (d) => str(d, 32)) };
 }

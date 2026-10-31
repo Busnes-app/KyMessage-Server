@@ -1,36 +1,28 @@
 import React, { useRef } from 'react';
 import mitLicenseText from '../mit.txt?raw';
 
-// The suite's licence line and About dialog, as in KyPost.
+// The suite's licence line and About dialog (ky-ui shell markup).
 export const LicenseFooter: React.FC<{ appVersion?: string }> = ({ appVersion }) => {
   const dialog = useRef<HTMLDialogElement>(null);
   const year = new Date().getFullYear();
   const close = () => dialog.current?.close();
 
   return (
-    <div className="sidebar-footer">
-      <p>
-        <button type="button" className="license-link" onClick={() => dialog.current?.showModal()}>
-          &copy; {year} &middot; MIT License
-        </button>
-      </p>
-      <dialog
-        ref={dialog}
-        className="modal-window license-window"
-        aria-labelledby="license-app-name"
-      >
-        <div className="license-window-header">
-          <div className="license-window-title">
-            <div className="license-title-main">
-              <span id="license-app-name" className="license-app-name">KyMessages</span>
-              {appVersion ? <span className="license-version-badge">v{appVersion}</span> : null}
-            </div>
-            <p className="license-title-sub">Developed by Busnes.app</p>
-            <p className="license-title-sub">&copy; {year} &middot; Licensed under the MIT License</p>
+    <div className="ky-license">
+      <button type="button" className="ky-license-link" onClick={() => dialog.current?.showModal()}>
+        &copy; {year} &middot; MIT License
+      </button>
+      <dialog ref={dialog} className="ky-about" aria-label="About KyMessages"
+        onClick={(event) => { if (event.target === dialog.current) close(); }}>
+        <div className="ky-about-head">
+          <div>
+            <h2 className="ky-about-name">KyMessages{appVersion ? <span className="ky-about-version">v{appVersion}</span> : null}</h2>
+            <p className="ky-about-meta">Developed by Busnes.app</p>
+            <p className="ky-about-meta">&copy; {year} &middot; Licensed under the MIT License</p>
           </div>
-          <button type="button" className="btn-ghost" onClick={close}>Close</button>
+          <button type="button" className="ky-about-close" onClick={close}>Close</button>
         </div>
-        <textarea className="license-text" readOnly value={mitLicenseText} aria-label="MIT License" />
+        <textarea className="ky-about-license" readOnly value={mitLicenseText} aria-label="MIT License" />
       </dialog>
     </div>
   );

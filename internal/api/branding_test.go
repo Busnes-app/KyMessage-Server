@@ -240,6 +240,11 @@ func TestBrandNameSavedWhenElementCannotBeWritten(t *testing.T) {
 func TestLogoUploadNormalisesServesAndResets(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	admin := loginAs(t, srv, st, "root", "admin")
+	// Public: the sign-in page inverts only the built-in stamp in dark schemes.
+	logoCustom := func() any { return decode[map[string]any](t, do(t, srv, "GET", "/api/settings", nil))["logo_custom"] }
+	if got := logoCustom(); got != false {
+		t.Fatalf("logo_custom before upload: %v", got)
+	}
 	saved := decode[brandingBody](t, rawDo(t, srv, admin, "PUT", "/api/admin/branding/logo", "image/png", withTextChunk(testPNG(t, 32, 32))))
 	if !saved.Logo.Custom || len(saved.Logo.SHA256) != 64 || saved.Logo.Size == 0 {
 		t.Fatalf("%+v", saved)
@@ -272,9 +277,15 @@ func TestLogoUploadNormalisesServesAndResets(t *testing.T) {
 	if strings.Contains(do(t, srv, "GET", "/api/settings", admin).Body.String(), "brand_logo") {
 		t.Fatal("the logo rides on /api/settings")
 	}
+	if got := logoCustom(); got != true {
+		t.Fatalf("logo_custom after upload: %v", got)
+	}
 	// Reset: a browser revalidating its custom copy must get the stamp back.
 	if got := decode[brandingBody](t, adminDo(t, srv, admin, "DELETE", "/api/admin/branding/logo", nil)); got.Logo.Custom {
 		t.Fatalf("after reset: %+v", got)
+	}
+	if got := logoCustom(); got != false {
+		t.Fatalf("logo_custom after reset: %v", got)
 	}
 	embedded, err := os.ReadFile("../../web/dist/app-icon.png")
 	if err != nil {
@@ -446,6 +457,23 @@ func TestBrandNameNeverRenamesTheService(t *testing.T) {
 }
 
 // Review Focus 1: the logo would ride on every admin page load.
+func TestSettingsOfferSSOOnlyWhenUsable(t *testing.T) {
+	srv, _, cfg := setupTestServer(t)
+	sso := func() any { return decode[map[string]any](t, do(t, srv, "GET", "/api/settings", nil))["sso_enabled"] }
+	cfg.SSO.Enabled, cfg.SSO.KyIdentityIssuer = true, ""
+	if got := sso(); got != false {
+		t.Fatalf("enabled without an issuer: sso_enabled %v", got)
+	}
+	cfg.SSO.KyIdentityIssuer = "https://id.example.com"
+	if got := sso(); got != true {
+		t.Fatalf("enabled with an issuer: sso_enabled %v", got)
+	}
+	cfg.SSO.Enabled = false
+	if got := sso(); got != false {
+		t.Fatalf("disabled: sso_enabled %v", got)
+	}
+}
+
 func TestSettingsCarryTheEffectiveNameButNotTheLogo(t *testing.T) {
 	ctx := context.Background()
 	srv, st, _ := setupTestServer(t)

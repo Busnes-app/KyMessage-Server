@@ -3,6 +3,7 @@ import { ExternalLink, Loader2, LogOut, Search, X } from 'lucide-react';
 import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, count, iso, obj, oneOf, str } from '../dto';
 import { ChatNotSetUp } from '../components/ChatNotSetUp';
+import { PageHead } from '../components/PageHead';
 
 const STATUSES = ['active', 'locked', 'deactivated', 'not_linked'] as const;
 const KINDS = ['oauth2', 'compat', 'browser'] as const;
@@ -154,7 +155,7 @@ export const Users: React.FC = () => {
   if (disabled) {
     return (
       <div className="dr-page">
-        <div className="dr-header"><h1>Users</h1></div>
+        <PageHead title="Users" />
         <ChatNotSetUp />
       </div>
     );
@@ -162,7 +163,7 @@ export const Users: React.FC = () => {
   const last = page ? Math.min(page.offset + page.users.length, page.total) : 0;
   return (
     <div className="dr-page">
-      <div className="dr-header"><h1>Users</h1></div>
+      <PageHead title="Users" />
       <div className="dr-alert dr-alert-info" role="note">
         <span>
           Access is controlled in KyIdentity, which the sync enforces: lock, unlock or remove people there.{' '}

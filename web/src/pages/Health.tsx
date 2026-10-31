@@ -3,6 +3,7 @@ import { ExternalLink, RefreshCw, XCircle } from 'lucide-react';
 import { errorMessage, errorText } from '../api';
 import { arr, bool, obj, oneOf, str } from '../dto';
 import { NetworkCheck } from '../components/NetworkCheck';
+import { PageHead } from '../components/PageHead';
 
 export interface HealthComponent { name: string; status: 'up' | 'down'; version: string; pinned: string; mismatch: boolean; source: string; error: string }
 export interface HealthReport { matrix: boolean; components: HealthComponent[] }
@@ -59,13 +60,11 @@ export const Health: React.FC = () => {
 
   return (
     <div className="dr-page">
-      <div className="dr-header">
-        <h1>Health</h1>
-        <button type="button" className="btn-secondary" onClick={() => { setRound((r) => r + 1); void check(); }} disabled={checking}>
-          <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
+      <PageHead title="Health" lede="Each component of the console and of chat, with its version and network path."
+        action={<button type="button" className="btn-secondary" onClick={() => { setRound((r) => r + 1); void check(); }} disabled={checking}>
+          <RefreshCw size={14} className={checking ? 'animate-spin' : ''} aria-hidden="true" />
           <span>Check again</span>
-        </button>
-      </div>
+        </button>} />
       {error && <div className="dr-alert dr-alert-error" role="alert"><XCircle size={16} /><span>{error}</span></div>}
       {!report && !error && <p className="dr-hint" role="status">Checking components…</p>}
       {report && !report.matrix && <p className="dr-hint">Chat (Matrix) is not set up: only KyMessages and its database are checked.</p>}

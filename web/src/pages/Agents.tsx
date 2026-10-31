@@ -3,6 +3,7 @@ import { Bot, Copy, Download, KeyRound, Trash2, X } from 'lucide-react';
 import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, bool, count, iso, obj, oneOf, opt, str } from '../dto';
 import { ChatNotSetUp } from '../components/ChatNotSetUp';
+import { PageHead } from '../components/PageHead';
 
 const TOKEN_STATES = ['active', 'revoked', 'expired'] as const;
 export interface AgentOwner { id: string; username: string; display_name: string; mxid: string; status: string }
@@ -189,7 +190,7 @@ export const Agents: React.FC = () => {
   if (disabled) {
     return (
       <div className="dr-page">
-        <div className="dr-header"><h1>Agents</h1></div>
+        <PageHead title="Agents" />
         <ChatNotSetUp />
       </div>
     );
@@ -197,10 +198,8 @@ export const Agents: React.FC = () => {
   const valid = NAME.test(name) && owner !== '';
   return (
     <div className="dr-page">
-      <div className="dr-header">
-        <h1>Agents</h1>
-        <a href={SKILL} download className="btn btn-secondary"><Download size={14} /><span>Download skill</span></a>
-      </div>
+      <PageHead title="Agents"
+        action={<a href={SKILL} download className="btn btn-secondary"><Download size={14} aria-hidden="true" /><span>Download skill</span></a>} />
       <p className="dr-hint">
         Agents are OpenClaw or Hermes Agent bots that chat as their own Matrix account. Each belongs to a member; offboarding
         that member locks the agent. A token unused for {list?.idle_days ?? 90} days is revoked.

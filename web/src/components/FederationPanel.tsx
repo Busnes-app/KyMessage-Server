@@ -190,7 +190,7 @@ export const FederationPanel: React.FC = () => {
                 <strong>Before choosing {LEVEL_TEXT[pending].label}:</strong>
                 <ul>{wideningWarnings(pending).map((w) => <li key={w}>{w}</li>)}</ul>
                 <div className="dr-actions">
-                  <button type="button" disabled={busy} onClick={() => setLevel(pending)}>Allow {LEVEL_TEXT[pending].label}</button>
+                  <button type="button" className="btn-secondary" disabled={busy} onClick={() => setLevel(pending)}>Allow {LEVEL_TEXT[pending].label}</button>
                   <button type="button" className="btn-secondary" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
                 </div>
               </div>
@@ -208,7 +208,7 @@ export const FederationPanel: React.FC = () => {
                   <span>Add a server</span>
                   <input value={name} placeholder="partner.example" autoComplete="off" spellCheck={false} onChange={(e) => setName(e.target.value)} />
                 </label>
-                <button type="submit" disabled={busy || !name.trim()}>Add server</button>
+                <button type="submit" className="btn-secondary" disabled={busy || !name.trim()}>Add server</button>
                 <button type="button" className="btn-secondary" disabled={checking} onClick={() => void check()}>
                   <RefreshCw size={14} /><span>{checking ? 'Checking…' : 'Check connections'}</span>
                 </button>

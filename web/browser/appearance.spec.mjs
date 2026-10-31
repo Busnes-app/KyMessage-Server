@@ -12,7 +12,7 @@ const contrast = (locator) => locator.evaluate(async (el) => {
   return (hi + 0.05) / (lo + 0.05);
 });
 
-test('Appearance: native radio cards, named palettes and the return to Busnes', async ({ browser }, testInfo) => {
+test('Appearance: palette pairs in one native radio group, and the return to Busnes', async ({ browser }, testInfo) => {
   const { viewport, colorScheme } = testInfo.project.use;
   const context = await browser.newContext({ viewport, colorScheme });
   const page = await context.newPage();
@@ -21,41 +21,47 @@ test('Appearance: native radio cards, named palettes and the return to Busnes', 
   await page.goto('/');
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('BrowserUpdated456!');
-  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   const nav = page.getByRole('navigation', { name: 'Primary' });
   await nav.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Appearance' })).toBeVisible();
-  const system = page.getByRole('radio', { name: /^Match system/ });
+  const mode = (pair, name) => page.getByRole('group', { name: pair }).getByRole('radio', { name, exact: true });
+  const system = mode('Busnes', 'Match system');
   await expect(system).toBeChecked();
+  await expect(page.getByRole('group', { name: 'Theme' }).getByRole('group')).toHaveCount(6);
 
   // Arrow keys move the native group's selection, which applies and saves straight away.
   await system.focus();
   await page.keyboard.press('ArrowDown');
-  const light = page.getByRole('radio', { name: /^Busnes Light/ });
+  const light = mode('Busnes', 'Light');
   await expect(light).toBeChecked();
   await expect(light).toBeFocused();
-  await expect(page.locator('.ky-appearance-option', { has: light })).toHaveCSS('outline-style', 'solid');
+  // One ring, on the segment; the selected segment carries a check.
+  const segment = light.locator('xpath=..');
+  await expect(segment).toHaveCSS('outline-style', 'solid');
+  await expect(light).toHaveCSS('outline-style', 'none');
+  await expect(segment.locator('svg')).toHaveCount(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   // A light suite palette: idle and hovered navigation rows stay readable.
-  await page.getByRole('radio', { name: /^Sky/ }).check();
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(223, 241, 255)');
+  await mode('Ocean', 'Light').check();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 249, 251)');
   for (const name of ['Overview', 'Users']) {
     const row = nav.getByRole('button', { name, exact: true });
     await page.mouse.move(0, 0);
     const idle = await contrast(row);
     await row.hover();
     const hover = await contrast(row);
-    testInfo.annotations.push({ type: `Sky ${name}`, description: `idle ${idle.toFixed(2)}, hover ${hover.toFixed(2)}` });
+    testInfo.annotations.push({ type: `Ocean Light ${name}`, description: `idle ${idle.toFixed(2)}, hover ${hover.toFixed(2)}` });
     expect(idle).toBeGreaterThanOrEqual(4.5);
     expect(hover).toBeGreaterThanOrEqual(4.5);
   }
   await page.reload();
   await nav.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await expect(page.getByRole('radio', { name: /^Sky/ })).toBeChecked();
+  await expect(mode('Ocean', 'Light')).toBeChecked();
 
   // Back to Busnes Dark: the inline palette and colour scheme give way to the shared tokens.
-  await page.getByRole('radio', { name: /^Busnes Dark/ }).check();
+  await mode('Busnes', 'Dark').check();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 35, 38)');
   expect(await page.evaluate(() => [document.documentElement.style.getPropertyValue('--bg'), getComputedStyle(document.documentElement).colorScheme])).toEqual(['', 'dark']);
 

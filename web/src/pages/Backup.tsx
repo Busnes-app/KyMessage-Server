@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { adminFetch, errorMessage, errorText } from '../api';
 import { arr, bool, count, iso, obj, opt, str } from '../dto';
+import { PageHead } from '../components/PageHead';
 
 export interface DepositReceipt {
   capsule_id: string;
@@ -481,13 +482,11 @@ export const Backup: React.FC = () => {
 
   return (
     <div className="dr-page">
-      <div className="dr-header">
-        <h1>Backup &amp; recovery</h1>
-        <button type="button" className="btn-secondary" onClick={fetchStatus} disabled={loadingStatus}>
-          <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} />
+      <PageHead title="Backup & recovery"
+        action={<button type="button" className="btn-secondary" onClick={fetchStatus} disabled={loadingStatus}>
+          <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} aria-hidden="true" />
           <span>Refresh</span>
-        </button>
-      </div>
+        </button>} />
 
       {statusError && <Alert kind="error">{statusError}</Alert>}
       {status?.scheduler_error && <Alert kind="error">Automatic backups are not running: {status.scheduler_error}</Alert>}
@@ -540,7 +539,7 @@ export const Backup: React.FC = () => {
             <Badge tone={!scheduleOn ? 'danger' : canBackUp ? 'success' : 'muted'}>{every(status?.interval_sec)}</Badge>
           </div>
           <div className="dr-fact-value">
-            {!scheduleOn ? 'Manual only' : !keyPinned ? 'Idle until a key is pinned' : !canBackUp ? 'Idle until capsules have a destination'
+            {!scheduleOn ? 'Manual only' : !keyPinned ? 'Waiting for recovery key' : !canBackUp ? 'Waiting for a destination'
               : status?.next_run_at ? `Next ${when(status.next_run_at)}` : 'Next run not scheduled'}
           </div>
           <div className="dr-fact-note">Counts from the last attempt, successful or not</div>

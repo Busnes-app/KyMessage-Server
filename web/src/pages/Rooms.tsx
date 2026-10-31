@@ -3,6 +3,7 @@ import { Loader2, Lock, Search, Trash2, X } from 'lucide-react';
 import { adminFetch, errorMessage, errorText, isMatrixDisabled } from '../api';
 import { arr, bool, count, obj, oneOf, str } from '../dto';
 import { ChatNotSetUp } from '../components/ChatNotSetUp';
+import { PageHead } from '../components/PageHead';
 
 const JOB_STATUSES = ['scheduled', 'active', 'complete', 'failed', 'cancelled', 'unknown'] as const;
 const JOIN_RULES = ['public', 'invite', 'knock', 'restricted', 'knock_restricted', 'private', 'other', ''] as const;
@@ -230,7 +231,7 @@ export const Rooms: React.FC<{ pollMs?: number }> = ({ pollMs = 2000 }) => {
   if (disabled) {
     return (
       <div className="dr-page">
-        <div className="dr-header"><h1>Rooms</h1></div>
+        <PageHead title="Rooms" />
         <ChatNotSetUp />
       </div>
     );
@@ -238,7 +239,7 @@ export const Rooms: React.FC<{ pollMs?: number }> = ({ pollMs = 2000 }) => {
   const last = page ? Math.min(page.offset + page.rooms.length, page.total) : 0;
   return (
     <div className="dr-page">
-      <div className="dr-header"><h1>Rooms</h1></div>
+      <PageHead title="Rooms" />
       <p className="dr-hint">
         Room names and members are shown to admins only. Messages are never shown here. State events is the closest
         measure of a room's size Synapse reports.

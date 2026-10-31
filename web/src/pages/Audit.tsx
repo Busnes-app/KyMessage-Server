@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { errorMessage, errorText } from '../api';
 import { arr, count, iso, obj, str } from '../dto';
+import { PageHead } from '../components/PageHead';
 
 export interface AuditRecord { id: number; at: string; actor: string; action: string; target: string; outcome: string; details: string; ip: string }
 export interface AuditPage { records: AuditRecord[]; total: number; offset: number; limit: number }
@@ -48,8 +49,7 @@ export const Audit: React.FC = () => {
 
   return (
     <div className="dr-page">
-      <div className="dr-header"><h1>Audit log</h1></div>
-      <p className="dr-hint">Read-only. Newest first.</p>
+      <PageHead title="Audit" lede="Sign-in, backup, branding, chat and directory events, newest first. Read-only." />
       <div className="dr-row">
         <label className="dr-field dr-narrow" style={{ flex: '0 0 12rem' }}>
           Kind

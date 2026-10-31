@@ -33,11 +33,11 @@ interface SwitchProps { on: boolean; busy: boolean; warnings: string[]; onChange
 const Switch: React.FC<SwitchProps> = ({ on, busy, warnings, onChange }) => {
   const [confirming, setConfirming] = useState(false);
   if (on) return <button type="button" className="btn-secondary" disabled={busy} onClick={() => onChange(false)}>Turn off</button>;
-  if (!confirming) return <button type="button" onClick={() => setConfirming(true)}>Turn on…</button>;
+  if (!confirming) return <button type="button" className="btn-secondary" onClick={() => setConfirming(true)}>Turn on…</button>;
   return (
     <div className="dr-alert dr-alert-warn" role="alert">
       <ul>{warnings.map((w) => <li key={w}>{w}</li>)}</ul>
-      <button type="button" disabled={busy} onClick={() => { setConfirming(false); onChange(true); }}>Turn on</button>{' '}
+      <button type="button" className="btn-secondary" disabled={busy} onClick={() => { setConfirming(false); onChange(true); }}>Turn on</button>{' '}
       <button type="button" className="btn-secondary" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
     </div>
   );

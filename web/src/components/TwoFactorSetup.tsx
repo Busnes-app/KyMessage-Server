@@ -79,13 +79,12 @@ export const TwoFactorSetup: React.FC = () => {
     </label>
   );
   return (
-    <section className="panel dr-section" aria-label="Account security">
-      <div className="panel-header">
-        <h3><KeyRound size={16} /> Account security</h3>
-      </div>
-      <p className="dr-hint">
-        Two-factor sign-in asks for a code from an authenticator app after your password, at every sign-in and every confirmation. Changes need a sign-in from the last 10 minutes.
-      </p>
+    <section className="dr-settings dr-settings-own" aria-labelledby="account-security">
+      <div className="panel dr-section">
+        <h3 id="account-security"><KeyRound size={16} aria-hidden="true" /> Account security</h3>
+        <p className="dr-hint">
+          Two-factor sign-in asks for a code from an authenticator app after your password, at every sign-in and every confirmation. Changes need a sign-in from the last 10 minutes.
+        </p>
 
       {stage.kind === 'codes' && (
         <div className="dr-alert dr-alert-warn" role="status">
@@ -112,21 +111,28 @@ export const TwoFactorSetup: React.FC = () => {
       )}
 
       {stage.kind === 'idle' && !enabled && (
-        <div className="dr-row">
-          <span>Two-factor sign-in is off.</span>
-          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void begin()}>Set up two-factor sign-in</button>
+        <div className="dr-state-row">
+          <span className="dr-state-label">Two-factor sign-in</span>
+          <span className="badge badge-warning" role="status">Off</span>
+          <button type="button" disabled={busy} onClick={() => void begin()}>Set up two-factor sign-in</button>
         </div>
       )}
 
       {stage.kind === 'idle' && enabled && (
-        <form className="dr-row" onSubmit={(e) => { e.preventDefault(); void disable(); }}>
-          <span>Two-factor sign-in is on.</span>
-          {codeField('Code or recovery code')}
-          <button type="submit" className="btn-secondary" disabled={busy || !code.trim()}>Turn off</button>
-        </form>
+        <>
+          <div className="dr-state-row">
+            <span className="dr-state-label">Two-factor sign-in</span>
+            <span className="badge badge-success" role="status">On</span>
+          </div>
+          <form className="dr-row dr-form" onSubmit={(e) => { e.preventDefault(); void disable(); }}>
+            {codeField('Code or recovery code')}
+            <button type="submit" className="btn-secondary" disabled={busy || !code.trim()}>Turn off</button>
+          </form>
+        </>
       )}
 
       {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
+      </div>
     </section>
   );
 };

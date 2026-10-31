@@ -41,7 +41,7 @@ it('refuses a wrong code, then shows recovery codes once on a right one', async 
   expect((await screen.findByLabelText('Recovery codes')).textContent).toContain('aaaa-bbbb');
   fireEvent.click(screen.getByRole('button', { name: 'I have saved them' }));
   expect(screen.queryByLabelText('Recovery codes')).toBeNull();
-  expect(screen.getByText('Two-factor sign-in is on.')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toBe('On');
   expect(fetcher).toHaveBeenCalledWith('/api/auth/totp/confirm', expect.objectContaining({ method: 'POST' }));
 });
 
@@ -51,7 +51,7 @@ it('keeps two-factor on when the disable code is refused', async () => {
   fireEvent.change(await screen.findByLabelText('Code or recovery code'), { target: { value: '999999' } });
   fireEvent.click(screen.getByRole('button', { name: 'Turn off' }));
   expect((await screen.findByRole('alert')).textContent).toContain('That code is not valid');
-  expect(screen.getByText('Two-factor sign-in is on.')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toBe('On');
 });
 
 it('shows nothing for a suite account', async () => {

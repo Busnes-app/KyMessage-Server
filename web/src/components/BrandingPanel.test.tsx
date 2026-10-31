@@ -77,7 +77,7 @@ describe('BrandingPanel', () => {
     expect(await screen.findByText(/^Name saved/)).toBeTruthy();
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(calls.find((c) => c.init?.method === 'PUT')?.init?.body).toBe(JSON.stringify({ name: 'Acme' }));
-    expect(screen.getByRole('button', { name: 'Use default (KyMessages)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use default name (KyMessages)' })).toHaveProperty('disabled', false);
     const hint = screen.getByText(/until it restarts/);
     expect(hint.textContent).toBe('Element shows \u201cKyMessages\u201d until it restarts: kubectl -n ky-stack rollout restart deployment/element');
     expect(hint.querySelector('code')?.textContent).toBe('kubectl -n ky-stack rollout restart deployment/element');
@@ -121,12 +121,12 @@ describe('BrandingPanel', () => {
       return undefined;
     });
     render(<BrandingPanel onChanged={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Use default (KyMessages)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use default name (KyMessages)' }));
     await waitFor(() => expect(calls.find((c) => c.init?.method === 'PUT')?.init?.body).toBe(JSON.stringify({ name: '' })));
     expect(await screen.findByText('Name reset to KyMessages.')).toBeTruthy();
   });
 
-  it('uploads a PNG and previews it by its digest, never through a blob URL', async () => {
+  it('uploads a chosen PNG and previews it by its digest, never through a blob URL', async () => {
     const calls = serve((url, init) => {
       if (url === '/api/admin/branding') return json(STATE);
       if (url === '/api/admin/branding/logo' && init?.method === 'PUT') return json({ ...STATE, logo: { custom: true, sha256: SHA, size: 1234 } });
@@ -136,14 +136,23 @@ describe('BrandingPanel', () => {
     render(<BrandingPanel onChanged={() => {}} />);
     expect((await screen.findByAltText('Current logo')).getAttribute('src')).toBe('/app-icon.png?v=default');
     const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'logo.png', { type: 'image/png' });
+    expect(screen.queryByRole('button', { name: 'More logo actions' })).toBeNull();
     fireEvent.change(screen.getByLabelText(/^Logo/), { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: 'Upload logo' }));
     await waitFor(() => expect(screen.getByAltText('Current logo').getAttribute('src')).toBe(`/app-icon.png?v=${SHA}`));
     const put = calls.find((c) => c.init?.method === 'PUT');
     expect(new Headers(put?.init?.headers).get('Content-Type')).toBe('image/png');
     expect(put?.init?.body).toBe(file);
-    fireEvent.click(screen.getByRole('button', { name: 'Reset logo' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reset logo' }));
     await waitFor(() => expect(screen.getByAltText('Current logo').getAttribute('src')).toBe('/app-icon.png?v=default'));
+  });
+
+  it('offers one Upload logo button, the name reset beside Save name, and no empty menu', async () => {
+    serve((url) => (url === '/api/admin/branding' ? json(STATE) : undefined));
+    render(<BrandingPanel onChanged={() => {}} />);
+    await screen.findByLabelText('Product name');
+    expect(screen.getAllByRole('button').map((b) => b.textContent || b.getAttribute('aria-label')))
+      .toEqual(['Save name', 'Use default name (KyMessages)', 'Upload logo']);
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0);
   });
 
   it('refuses a file over 1 MiB without sending it', async () => {
@@ -151,7 +160,6 @@ describe('BrandingPanel', () => {
     render(<BrandingPanel onChanged={() => {}} />);
     const big = new File([new Uint8Array((1 << 20) + 1)], 'big.png', { type: 'image/png' });
     fireEvent.change(await screen.findByLabelText(/^Logo/), { target: { files: [big] } });
-    fireEvent.click(screen.getByRole('button', { name: 'Upload logo' }));
     expect(await screen.findByText('The logo must be at most 1 MiB.')).toBeTruthy();
     expect(calls.filter((c) => c.init?.method === 'PUT')).toHaveLength(0);
   });

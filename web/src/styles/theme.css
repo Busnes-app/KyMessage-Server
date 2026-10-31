@@ -27,85 +27,10 @@
   font-display: swap;
 }
 
-/* ---------- Theme Definitions ---------- */
-
-:root, [data-theme="patina"] {
-  --bg: #0d0f14;
-  --panel: #161a22;
-  --panel-hover: #1c222c;
-  --ink: #94a3b8;
-  --ink-strong: #f1f5f9;
-  --accent: #4deeea;
-  --accent-soft: rgba(77, 238, 234, 0.15);
-  --line: #1e293b;
-  --line-strong: #334155;
-  --danger: #ef4444;
-  --success: #10b981;
+/* Busnes Light/Dark come from tokens.css below; ky-ui themes.js sets every named palette inline. */
+:root {
   --font-sans: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-}
-
-[data-theme="cyber"] {
-  --bg: #05070a;
-  --panel: #0d121d;
-  --panel-hover: #131b2a;
-  --ink: #aab7c8;
-  --ink-strong: #eef6f5;
-  --accent: #00d9bd;
-  --accent-soft: rgba(0, 255, 204, 0.18);
-  --line: #1e293b;
-  --line-strong: #00ffcc44;
-  --danger: #ff0055;
-  --success: #00ff66;
-}
-
-[data-theme="nord"] {
-  --bg: #2e3440;
-  --panel: #3b4252;
-  --panel-hover: #434c5e;
-  --ink: #d8dee9;
-  --ink-strong: #eceff4;
-  --accent: #88c0d0;
-  --accent-soft: rgba(136, 192, 208, 0.2);
-  --line: #4c566a;
-  --line-strong: #5e81ac;
-  --danger: #bf616a;
-  --success: #a3be8c;
-}
-
-[data-theme="paper"] {
-  --bg: #f8fafc;
-  --panel: #ffffff;
-  --panel-hover: #f1f5f9;
-  --ink: #64748b;
-  --ink-strong: #0f172a;
-  --accent: #0284c7;
-  --accent-soft: rgba(2, 132, 199, 0.12);
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
-  --danger: #dc2626;
-  --success: #16a34a;
-}
-
-[data-theme="oled"] {
-  --bg: #000000;
-  --panel: #111111;
-  --panel-hover: #1a1a1a;
-  --ink: #a1a1aa;
-  --ink-strong: #fafafa;
-  --accent: #4deeea;
-  --accent-soft: rgba(77, 238, 234, 0.15);
-  --line: #222222;
-  --line-strong: #333333;
-  --danger: #ef4444;
-  --success: #10b981;
-}
-
-/* The suite palettes (ky-ui themes.js sets their colours inline) have no status colours;
-   tint Busnes ones toward the palette's ink, as KyPost does, so they read on light and dark. */
-:root[data-theme]:not([data-theme^="busnes-"], [data-theme="patina"], [data-theme="cyber"], [data-theme="nord"], [data-theme="paper"], [data-theme="oled"]) {
-  --danger: color-mix(in srgb, var(--ky-danger) 50%, var(--ink-strong));
-  --success: color-mix(in srgb, var(--ky-success) 50%, var(--ink-strong));
 }
 
 /* ---------- Global Layout ---------- */
@@ -141,31 +66,12 @@ h1 { font-size: var(--ky-type-title); font-weight: 600; line-height: 1.25; lette
 .app-nav button { justify-content: flex-start; width: 100%; min-height: var(--ky-control-size); border: 0; border-radius: var(--ky-control-radius); padding: 0 var(--ky-space-2) 0 var(--ky-space-3); background: transparent; color: var(--ink); font-size: var(--ky-type-nav); font-weight: 500; text-align: left; }
 .app-nav button:hover { background: var(--panel-hover); color: var(--ink-strong); }
 /* Selected, hover and focus states are supplied by ky-ui/navigation.css. Busnes Light's sidebar is
-   the panel-hover cream, so there hover darkens and the selected row lifts to the panel. */
-:root[data-theme="busnes-light"] .app-header { --panel-hover: color-mix(in srgb, var(--ink-strong) 7%, var(--sidebar-start)); --accent-soft: var(--panel); }
-.app-header-actions { display: grid; gap: var(--ky-space-3); margin-top: auto; }
-.app-user { display: grid; gap: var(--ky-space-2); border-top: 1px solid var(--line); padding-top: var(--ky-space-3); }
-.app-user-copy { min-width: 0; padding-inline: var(--ky-space-3) var(--ky-space-2); line-height: 1.4; }
-.app-user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ky-type-nav); font-weight: 600; color: var(--ink-strong); }
-.app-user-role { color: var(--ink); font-size: var(--ky-type-meta); }
-
-/* Licence line and About dialog, shared with KyPost. */
-.sidebar-footer { font-size: 0.75rem; color: var(--ink); padding-left: var(--ky-space-3); white-space: nowrap; }
-.sidebar-footer p { margin: 0; }
-button.license-link { display: inline; min-height: 0; height: auto; margin: 0; padding: 0; border: none; border-radius: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; }
-button.license-link:hover:not(:disabled) { background: none; color: var(--ink-strong); }
-dialog.modal-window.license-window { width: min(720px, 96vw); max-width: min(720px, 96vw); max-height: 90vh; padding: 16px; flex-direction: column; gap: 12px; }
-dialog.modal-window.license-window[open] { display: flex; }
-.license-window-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.license-window-title { margin: 0; display: flex; flex-direction: column; gap: 4px; }
-.license-title-main { display: flex; align-items: baseline; gap: 10px; }
-.license-app-name { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; }
-.license-version-badge { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; padding: 2px 8px; border-radius: 999px; color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
-.license-title-sub { margin: 0; font-size: 0.82rem; opacity: 0.7; }
-.license-text { width: 100%; flex: 1; min-height: 320px; resize: vertical; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.4; white-space: pre; background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
-/* Sign out uses the navigation row's geometry so the sidebar reads as one list. */
-button.app-logout { justify-content: flex-start; padding: 0 var(--ky-space-2) 0 var(--ky-space-3); color: var(--ink); font-size: var(--ky-type-nav); font-weight: 500; }
-button.app-logout:hover:not(:disabled) { color: var(--ink-strong); }
+   the panel-hover cream, so there hover darkens. */
+:root[data-theme="busnes-light"] .app-header { --panel-hover: color-mix(in srgb, var(--ink-strong) 7%, var(--sidebar-start)); }
+.app-sidebar-foot { display: grid; gap: var(--ky-space-3); margin-top: auto; min-width: 0; }
+/* The stamp is a dark tile; dark schemes get the shell's inverted tile. A custom logo is left alone. */
+.ky-mark { border-radius: var(--ky-control-radius); flex: none; }
+:root[data-scheme="dark"] .ky-mark-stamp { filter: invert(1) hue-rotate(180deg); }
 .app-main { min-width: 0; }
 /* Phones: brand and account share the top row; the navigation scrolls sideways beneath. */
 @media (max-width: 720px) {
@@ -174,10 +80,11 @@ button.app-logout:hover:not(:disabled) { color: var(--ink-strong); }
   .app-brand { padding: 0; }
   .app-nav { grid-column: 1 / -1; grid-row: 2; flex-direction: row; overflow-x: auto; }
   .app-nav button { width: auto; flex: 0 0 auto; padding-inline: var(--ky-space-3); white-space: nowrap; }
-  .app-header-actions { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: var(--ky-space-2); margin-top: 0; }
-  .app-user { border-top: 0; padding: 0; }
-  .sidebar-footer { grid-column: 1 / -1; padding: 0 0 var(--ky-space-2); }
-  .app-user-copy, .app-logout-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .app-sidebar-foot { display: contents; }
+  .app-sidebar-foot .ky-user { grid-column: 2; grid-row: 1; padding: 0; border: 0; }
+  .app-sidebar-foot .ky-user-copy { display: none; }
+  .ky-license { grid-column: 1 / -1; padding-bottom: var(--ky-space-2); }
+  .ky-license .ky-license-link { margin-left: 0; }
 }
 
 code, pre, .font-mono {
@@ -222,10 +129,10 @@ button, .btn {
   text-decoration: none;
   transition: background-color .15s ease, border-color .15s ease, color .15s ease, transform .1s ease;
 }
-/* Same (0,2,1) specificity, minus nav rows: their hover is the neutral ky-ui surface, never the accent. */
-button:not(:where(.ky-nav-item)):hover:not(:disabled), .btn:hover { background: color-mix(in srgb, var(--accent) 86%, var(--ink-strong)); }
-button:active:not(:disabled), .btn:active { transform: translateY(1px); }
-button:disabled, .btn:disabled { background: var(--panel-hover); color: var(--ink); border-color: var(--line); cursor: not-allowed; }
+/* Nav rows hover to the neutral ky-ui surface, never the accent; shell controls keep their own states. */
+:where(button, .btn):not(:where(.ky-nav-item)):hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink-strong)); }
+:where(button, .btn):active:not(:disabled) { transform: translateY(1px); }
+:where(button, .btn):disabled { background: var(--panel-hover); color: var(--ink); border-color: var(--line); cursor: not-allowed; }
 
 .btn-secondary, button.btn-secondary { background: var(--panel); color: var(--ink-strong); border-color: var(--ky-field-border); }
 .btn-secondary:hover:not(:disabled), button.btn-secondary:hover:not(:disabled) { background: var(--panel-hover); border-color: var(--ink); }
@@ -249,7 +156,7 @@ input, select, textarea {
 textarea { line-height: 1.5; }
 input::placeholder, textarea::placeholder { color: var(--ink); }
 input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--ink); }
-input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); outline-offset: 1px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); outline-offset: -1px; }
 input:disabled, select:disabled, textarea:disabled { background: var(--panel-hover); color: var(--ink); cursor: not-allowed; }
 input:read-only:not([type='checkbox']):not([type='radio']):not([type='file']) { background: var(--panel-hover); }
 input[type='checkbox'], input[type='radio'] { width: 1rem; height: 1rem; min-height: 0; padding: 0; flex: none; accent-color: var(--accent); }
@@ -275,20 +182,9 @@ input[type='file']::file-selector-button { font: inherit; font-size: var(--ky-ty
 .badge-danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--panel)); }
 /* Neutral fact, such as the database driver: not a status and not the accent. */
 .badge-accent { color: var(--ink-strong); background: var(--panel-hover); border-color: var(--line-strong); }
+.badge-warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--panel)); }
 
-/* ---------- Modal Backdrop ---------- */
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 1000;
-  backdrop-filter: blur(4px);
-}
+/* ---------- Dialogs ---------- */
 
 dialog.modal-window {
   margin: auto;
@@ -297,10 +193,7 @@ dialog.modal-window {
   overflow: auto;
   color: var(--ink-strong);
 }
-dialog.modal-window::backdrop {
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-}
+dialog.modal-window::backdrop { background: rgb(12 12 18 / 0.68); }
 
 .modal-window {
   background: var(--panel);
@@ -319,10 +212,8 @@ dialog.modal-window::backdrop {
 }
 .animate-spin { animation: dr-spin 1s linear infinite; }
 
-/* One page frame for every console view: 24px title left, its single action right. */
-.dr-page { max-width: 1080px; margin: 0 auto; padding: var(--ky-space-5); }
-.dr-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--ky-space-2) var(--ky-space-3); margin-bottom: var(--ky-space-4); }
-.dr-header > p { flex: 1 0 100%; color: var(--ink); }
+/* One page frame for every console view, on the suite gutter; the head is ky-ui's .ky-page-head. */
+.dr-page { width: 100%; max-width: 1480px; margin: 0 auto; padding: var(--ky-space-5); }
 
 .dr-section { margin-bottom: var(--ky-space-4); }
 .dr-section > .panel-header { flex-wrap: wrap; gap: var(--ky-space-2) var(--ky-space-3); }
@@ -334,8 +225,11 @@ dialog.modal-window::backdrop {
 .dr-hint { color: var(--ink); font-size: var(--ky-type-meta); margin: 0 0 var(--ky-space-3); }
 .dr-hint svg { display: inline-block; vertical-align: -.125em; margin-right: var(--ky-space-1); }
 .dr-section > input { margin-bottom: var(--ky-space-3); }
-/* Settings sections sit flat on the page, divided by rules rather than boxed. */
-.dr-settings { border-bottom: 1px solid var(--line); }
+/* Settings sections sit flat on the page, divided by rules rather than boxed, at a readable form width. */
+.dr-settings { max-width: 46rem; border-bottom: 1px solid var(--line); }
+/* Your own account is its own group, apart from the server's settings. */
+.dr-settings-own { margin-top: var(--ky-space-5); }
+.dr-settings.dr-settings-own > .panel { border-top: 0; padding-top: 0; }
 .dr-settings > .panel { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: var(--ky-space-4) 0; margin: 0; }
 .dr-settings > .panel > .panel-header { margin-bottom: var(--ky-space-2); }
 .dr-pair { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ky-space-2) var(--ky-space-3); color: var(--ink); margin-bottom: var(--ky-space-3); }
@@ -498,24 +392,13 @@ dialog.modal-window::backdrop {
 }
 }
 
-.theme-selector { width: auto; max-width: 100%; font-size: var(--ky-type-nav); }
-
-/* ---------- Sign-in and forced password change ---------- */
-.auth-page { min-height: 100vh; display: grid; place-items: center; padding: var(--ky-space-5) var(--ky-space-3); }
-.auth-theme { position: absolute; top: var(--ky-space-3); right: var(--ky-space-3); }
-.auth-column { width: 100%; max-width: 26.25rem; }
-.auth-brand { display: grid; justify-items: center; gap: var(--ky-space-3); margin-bottom: var(--ky-space-4); text-align: center; }
-.auth-card h1 { margin-bottom: var(--ky-space-2); }
-.auth-card h2 { font-size: var(--ky-type-section); font-weight: 600; margin-bottom: var(--ky-space-1); }
-.auth-field { display: grid; gap: .375rem; margin-bottom: var(--ky-space-3); }
-.auth-field label { font-size: var(--ky-type-meta); color: var(--ink); }
-.auth-code { font-family: var(--font-mono); font-size: 1.125rem; letter-spacing: 2px; text-align: center; }
-.auth-check { display: grid; margin-block: var(--ky-space-3); font-size: var(--ky-type-meta); color: var(--ink); }
-.auth-check > div { display: flex; align-items: center; gap: var(--ky-space-2); }
-.auth-switch { text-align: center; margin-top: var(--ky-space-3); }
-.auth-sso { margin-top: var(--ky-space-4); padding-top: var(--ky-space-3); border-top: 1px solid var(--line); }
-.btn-block { width: 100%; }
-@media (max-width: 600px) { .auth-page { place-items: start center; padding-top: 4.5rem; } }
+/* ---------- Sign-in extras (ky-ui shell.css owns the .ky-auth layout) ---------- */
+.theme-selector { width: auto; max-width: 100%; min-height: 36px; padding: 6px 10px; font-size: var(--ky-type-meta); }
+.ky-auth-error { display: flex; align-items: flex-start; gap: var(--ky-space-2); margin: 0; color: var(--danger); font-size: var(--ky-type-meta); }
+.ky-auth-error svg { flex: none; margin-top: 2px; }
+.ky-auth-note { margin: 0; color: var(--ink); font-size: var(--ky-type-meta); }
+.ky-auth-field > input.ky-code-input { font-family: var(--font-mono); font-size: 1.125rem; letter-spacing: 2px; text-align: center; }
+.ky-auth-check .animate-spin { color: var(--accent); }
 
 /* ---------- Console tables (Users, Audit) ---------- */
 .console-table-wrap { overflow-x: auto; margin-bottom: 12px; }
@@ -542,18 +425,77 @@ dialog.modal-window::backdrop {
   .audit-table td:first-child::before { content: none; }
 }
 
-/* Operator evidence is a readable summary; everyday chat keeps its own entry. */
-.operator-boundary { max-width: 70ch; color: var(--ink); margin-bottom: var(--ky-space-5); }
-/* Rows share one grid (subgrid), so status text and actions line up; actions take the widest one's width. */
-.operator-summary { display: grid; grid-template-columns: minmax(130px, .65fr) minmax(0, 1.4fr) auto; column-gap: 24px; border-block: 1px solid var(--line); }
-.operator-row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; padding: 26px 0; align-items: center; }
-.operator-row + .operator-row { border-top: 1px solid var(--line); }
-.operator-row h2 { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; margin: 0; }
-.operator-row h2 svg { color: var(--ink); flex: none; }
-.operator-row p { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; margin: 0; }
-.operator-row button { justify-content: space-between; gap: var(--ky-space-3); }
+/* Overview: the lead state, then one compact row per readiness item (state, then its next action). */
+.overview { max-width: 56rem; border: 1px solid var(--line); border-radius: var(--ky-radius); background: var(--panel); }
+.overview-lead { display: flex; align-items: flex-start; gap: var(--ky-space-3); padding: var(--ky-space-4); border-bottom: 1px solid var(--line); }
+.overview-lead h2 { margin: 0; font-size: 1.125rem; font-weight: 600; line-height: 1.35; color: var(--ink-strong); }
+.overview-lead p { margin: var(--ky-space-1) 0 0; max-width: 62ch; color: var(--ink); }
+.overview-lead-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: var(--ky-control-radius); color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, var(--panel)); }
+.overview-checklist { list-style: none; margin: 0; padding: 0; }
+.overview-item + .overview-item { border-top: 1px solid var(--line); }
+.overview-item-body { display: grid; grid-template-columns: 1rem minmax(9rem, 12rem) minmax(0, 1fr) auto; align-items: center; gap: var(--ky-space-3); min-height: 56px; padding: var(--ky-space-2) var(--ky-space-4); }
+.overview-state-icon { display: flex; color: var(--ink); }
+.overview-item h3 { margin: 0; font-size: var(--ky-type-nav); font-weight: 600; color: var(--ink-strong); }
+.overview-item p { margin: 0; font-size: var(--ky-type-nav); overflow-wrap: anywhere; }
+.overview-item p:not([class*="dr-"]) { color: var(--ink); }
+.overview-item-body > :is(button, .btn) { justify-self: end; min-height: 36px; white-space: nowrap; }
+.overview-item-body > button.overview-link { min-height: 0; padding: var(--ky-space-1) 0; border: 0; background: none; color: var(--ink); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+.overview-item-body > button.overview-link:hover:not(:disabled) { background: none; color: var(--ink-strong); }
+.overview-console { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ky-space-2); margin-top: var(--ky-space-3); color: var(--ink); font-size: var(--ky-type-meta); }
+.overview-console > span:nth-of-type(1) { color: var(--ink-strong); font-weight: 600; }
 .member-home { width: min(640px, calc(100% - 48px)); margin: 48px auto; padding: var(--ky-space-5); border: 1px solid var(--line); background: var(--panel); border-radius: var(--ky-control-radius); }
 .member-home p { margin-block: var(--ky-space-3); }
 .member-home-intro { color: var(--ink); max-width: 50ch; }
-@media (max-width: 1000px) { .operator-summary { grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; } .operator-row { row-gap: 12px; } .operator-row p { grid-column: 1; } .operator-row button { grid-column: 2; grid-row: 1 / 3; } }
-@media (max-width: 600px) { .dr-page { padding: var(--ky-space-4) var(--ky-space-3); } .panel { padding: var(--ky-space-3); } .operator-summary { grid-template-columns: minmax(0, 1fr); } .operator-row { padding-block: 22px; } .operator-row button { grid-column: 1; grid-row: auto; justify-self: start; } .member-home { width: calc(100% - 32px); margin-block: 24px; padding: 24px; } }
+/* Phones: state under the title, the action below. */
+@media (max-width: 600px) {
+  .dr-page { padding: var(--ky-space-4) var(--ky-space-3); }
+  .panel { padding: var(--ky-space-3); }
+  .overview-lead, .overview-item-body { padding-inline: var(--ky-space-3); }
+  .overview-item-body { grid-template-columns: 1rem minmax(0, 1fr); row-gap: var(--ky-space-1); padding-block: var(--ky-space-3); }
+  .overview-item-body > :is(h3, p, button, .btn) { grid-column: 2; }
+  .overview-item-body > :is(button, .btn) { justify-self: start; margin-top: var(--ky-space-2); }
+  .member-home { width: calc(100% - 32px); margin-block: 24px; padding: 24px; }
+}
+
+/* Settings rows: a field with its action, and a state beside its next action. */
+.branding-name { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ky-space-2) var(--ky-space-3); margin-bottom: var(--ky-space-3); }
+.branding-name .dr-field { flex: 1 1 18rem; }
+.branding-logo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ky-space-3); }
+.branding-logo img { flex: none; border-radius: var(--ky-control-radius); box-shadow: 0 0 0 1px var(--line); }
+.branding-logo-copy { display: grid; flex: 1 1 14rem; min-width: 0; font-size: var(--ky-type-meta); }
+.branding-logo-label { color: var(--ink-strong); font-size: var(--ky-type-nav); font-weight: 600; }
+.dr-state-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ky-space-2) var(--ky-space-3); margin-bottom: var(--ky-space-3); }
+.dr-state-label { color: var(--ink-strong); font-weight: 600; }
+.dr-state-row > button { margin-left: auto; }
+.dr-form .dr-field { flex: 0 1 16rem; }
+
+/* ⋯ menu: a native popover under its trigger. */
+.ky-menu-trigger { min-height: var(--ky-control-size); width: var(--ky-control-size); padding: 0; background: transparent; color: var(--ink); border: 1px solid transparent; }
+.ky-menu-trigger:hover:not(:disabled), .ky-menu-trigger[aria-expanded="true"] { background: var(--panel-hover); border-color: var(--line); color: var(--ink-strong); }
+.ky-menu { position: fixed; inset: auto; margin: 0; min-width: 13rem; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--ky-radius); background: var(--panel); color: var(--ink-strong); box-shadow: var(--ky-shadow-overlay); }
+.ky-menu:popover-open { display: grid; }
+.ky-menu-item { justify-content: flex-start; width: 100%; min-height: 34px; padding: 6px 10px; background: transparent; color: var(--ink-strong); border: 0; border-radius: 6px; font-size: var(--ky-type-meta); font-weight: 500; text-align: left; }
+.ky-menu-item:hover:not(:disabled), .ky-menu-item:focus-visible { background: var(--panel-hover); }
+.ky-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ky-menu-item:disabled { background: transparent; color: var(--ink); }
+
+/* Appearance: six pairs, each with Match system / Light / Dark (KyCalendar reference). */
+.ky-appearance .ky-appearance-grid.appearance-pairs { grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--ky-space-3); }
+.appearance-pair { display: grid; gap: var(--ky-space-3); min-width: 0; padding: var(--ky-space-3); border: 1px solid var(--line-strong); border-radius: var(--ky-radius); background: var(--panel); }
+.appearance-pair:has(:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.appearance-pair-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--ky-space-2); }
+.appearance-pair-name { font-size: 1rem; font-weight: 600; color: var(--ink-strong); }
+.appearance-pair-halves { color: var(--ink); font-size: var(--ky-type-meta); }
+.appearance-pair .ky-appearance-preview { block-size: 56px; }
+.appearance-modes { display: flex; border: 1px solid var(--line-strong); border-radius: var(--ky-control-radius); overflow: hidden; }
+.appearance-mode { position: relative; flex: 1 1 auto; display: flex; align-items: center; justify-content: center; gap: .3rem; min-height: 40px; padding: 0 var(--ky-space-2); color: var(--ink); font-size: .85rem; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.appearance-mode + .appearance-mode { border-left: 1px solid var(--line-strong); }
+.appearance-mode > input[type='radio'] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.appearance-mode:hover { background: var(--panel-hover); color: var(--ink-strong); }
+.appearance-mode:has(:checked) { background: var(--accent); color: var(--button-text); font-weight: 600; }
+.appearance-mode:has(:focus-visible) { outline: 2px solid var(--ink-strong); outline-offset: -4px; }
+.appearance-mode > input[type='radio']:focus-visible { outline: none; }
+@media (forced-colors: active) {
+  .appearance-pair:has(:checked) { border-color: Highlight; }
+  .appearance-mode:has(:checked) { outline: 2px solid Highlight; outline-offset: -3px; }
+}
