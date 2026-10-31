@@ -168,7 +168,7 @@ describe('Backup trust-root changes and malformed answers', () => {
     render(<Backup />);
     const empty = await screen.findByText('0 of 7');
     expect(empty.className).not.toContain('badge-success');
-    expect(screen.getByText('Idle until a key is pinned')).toBeTruthy();
+    expect(screen.getByText('Waiting for recovery key')).toBeTruthy();
     expect(screen.getByText('Daily', { selector: '.badge' }).className).not.toContain('badge-success');
   });
 
