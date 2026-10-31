@@ -13,9 +13,9 @@ export function Appearance() {
     return () => window.removeEventListener('ky:theme', sync);
   }, []);
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Appearance"
-        lede="Pick a palette: Match system follows your device’s light or dark setting, Light or Dark fixes the mode, and the choice is saved in this browser only." />
+        lede="Pick a palette and how it handles light and dark. Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only." />
       <fieldset className="ky-appearance">
         <legend className="ky-appearance-legend">Theme</legend>
         <div className="ky-appearance-grid appearance-pairs">

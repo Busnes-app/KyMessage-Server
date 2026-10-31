@@ -112,7 +112,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     : { title: 'Chat is ready', text: '' };
 
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Overview" lede="The chat service at a glance; chat itself opens from your everyday account." />
       <section className="overview" aria-labelledby="overview-lead">
         <header className={notConfigured ? 'overview-lead overview-lead-setup' : 'overview-lead'}>

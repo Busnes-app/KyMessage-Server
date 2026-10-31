@@ -41,7 +41,7 @@ export const SCIMAdmin: React.FC = () => {
   }, []);
 
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Directory & SCIM" lede="SCIM 2.0 (RFC 7643 and RFC 7644) inbound provisioning from an identity provider." />
 
       {error && <div className="dr-alert dr-alert-error" role="alert" style={{ marginBottom: '24px' }}><span>{error}</span></div>}

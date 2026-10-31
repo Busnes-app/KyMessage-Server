@@ -189,7 +189,7 @@ export const Agents: React.FC = () => {
 
   if (disabled) {
     return (
-      <div className="dr-page">
+      <div>
         <PageHead title="Agents" />
         <ChatNotSetUp />
       </div>
@@ -197,7 +197,7 @@ export const Agents: React.FC = () => {
   }
   const valid = NAME.test(name) && owner !== '';
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Agents"
         action={<a href={SKILL} download className="btn btn-secondary"><Download size={14} aria-hidden="true" /><span>Download skill</span></a>} />
       <p className="dr-hint">

@@ -481,7 +481,7 @@ export const Backup: React.FC = () => {
       : [copies.length ? 'success' : 'muted', `${copies.length} of ${status.local_keep}`];
 
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Backup & recovery"
         action={<button type="button" className="btn-secondary" onClick={fetchStatus} disabled={loadingStatus}>
           <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} aria-hidden="true" />

@@ -15,6 +15,7 @@ import { ConfirmItsYou } from './components/ConfirmItsYou';
 import { TwoFactorSetup } from './components/TwoFactorSetup';
 import { MemberHome } from './pages/MemberHome';
 import { Appearance } from './pages/Appearance';
+import { LicenseFooter } from './components/LicenseFooter';
 import './styles/theme.css';
 import './ky-ui/tokens.css';
 import './ky-ui/navigation.css';
@@ -120,7 +121,7 @@ export const App: React.FC = () => {
   const isAdmin = user.role === 'admin';
 
   return (
-    <div className="app-shell">
+    <div className="ky-app">
       <AppHeader
         appName={settings?.app_name || 'KyMessages'}
         appVersion={settings?.app_version}
@@ -135,7 +136,7 @@ export const App: React.FC = () => {
 
       {errorAlert}
 
-      <main className="app-main">
+      <main className="ky-content">
         <ErrorBoundary key={activeTab}>
         {activeTab === 'appearance' && <Appearance />}
         {!isAdmin && activeTab !== 'appearance' && <MemberHome user={user} chatUrl={settings?.chat_url ?? ''} onLogout={handleLogout} />}
@@ -151,6 +152,7 @@ export const App: React.FC = () => {
           <Settings settings={settings} onBrandingChanged={() => void loadSettings()}><TwoFactorSetup /></Settings>
         )}
         </ErrorBoundary>
+        <LicenseFooter className="ky-content-foot" appVersion={settings?.app_version} />
       </main>
     </div>
   );

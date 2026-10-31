@@ -48,7 +48,7 @@ export const Audit: React.FC = () => {
   }, [kind, offset]);
 
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Audit" lede="Sign-in, backup, branding, chat and directory events, newest first. Read-only." />
       <div className="dr-row">
         <label className="dr-field dr-narrow" style={{ flex: '0 0 12rem' }}>

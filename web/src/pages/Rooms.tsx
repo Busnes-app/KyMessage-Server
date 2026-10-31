@@ -230,7 +230,7 @@ export const Rooms: React.FC<{ pollMs?: number }> = ({ pollMs = 2000 }) => {
 
   if (disabled) {
     return (
-      <div className="dr-page">
+      <div>
         <PageHead title="Rooms" />
         <ChatNotSetUp />
       </div>
@@ -238,7 +238,7 @@ export const Rooms: React.FC<{ pollMs?: number }> = ({ pollMs = 2000 }) => {
   }
   const last = page ? Math.min(page.offset + page.rooms.length, page.total) : 0;
   return (
-    <div className="dr-page">
+    <div>
       <PageHead title="Rooms" />
       <p className="dr-hint">
         Room names and members are shown to admins only. Messages are never shown here. State events is the closest
