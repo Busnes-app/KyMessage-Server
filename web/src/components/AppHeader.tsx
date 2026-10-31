@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { LicenseFooter } from './LicenseFooter';
 import { AppRail } from './AppRail';
 import type { SuiteApp } from '../dto';
-import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot, Palette, House } from 'lucide-react';
+import { LogOut, Users, Settings as SettingsIcon, LayoutDashboard, Archive, MessageSquare, Activity, ScrollText, Hash, Bot, House } from 'lucide-react';
 
 interface AppHeaderProps {
   appName: string;
@@ -26,17 +26,23 @@ const adminItems = [
   { id: 'scim', label: 'Directory & SCIM', icon: Users },
   { id: 'backup', label: 'Backup & recovery', icon: Archive },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
 ];
-// Members land on their account page (tab `dashboard`) and choose a theme under Appearance.
+// Members land on their account page (tab `dashboard`); Settings holds Account and Appearance.
 const memberItems = [
   { id: 'dashboard', label: 'Home', icon: House },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 // Admin pages are refused server-side for non-admins; navigation only mirrors that.
 export function navItemsFor(role: string) {
   return role === 'admin' ? adminItems : memberItems;
 }
+
+// Icon only, named by aria-label; title shows the same word on hover.
+const SignOut = ({ onLogout }: { onLogout: () => void }) => (
+  <button type="button" className="ky-icon-button" aria-label="Sign out" title="Sign out" onClick={onLogout}>
+    <LogOut aria-hidden="true" />
+  </button>
+);
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoCustom = true, activeTab, onTabChange, user, onLogout, suiteApps = [] }) => {
   const navItems = navItemsFor(user?.role ?? '');
@@ -57,16 +63,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoC
           <span>{appName || 'KyMessages'}</span>
         </div>
         {user && (
-          <button type="button" className="ky-mobile-signout" aria-label="Sign out" onClick={onLogout}>
-            <LogOut aria-hidden="true" />
-          </button>
+          <div className="ky-mobile-actions">
+            <SignOut onLogout={onLogout} />
+          </div>
         )}
       </div>
 
       <nav ref={navRef} className="ky-nav" aria-label="Primary">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const active = activeTab === item.id;
+          // Every Settings tab keeps the one Settings row current.
+          const active = activeTab === item.id || (item.id === 'settings' && activeTab.startsWith('settings/'));
           return (
             <button
               key={item.id}
@@ -89,9 +96,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ appName, appVersion, logoC
               <p className="ky-user-name">{name}</p>
               <p className="ky-user-role">{role}</p>
             </div>
-            <button type="button" className="ky-user-signout" onClick={onLogout}>
-              <LogOut aria-hidden="true" />Sign out
-            </button>
+            <div className="ky-user-actions">
+              <SignOut onLogout={onLogout} />
+            </div>
           </div>
         )}
         <LicenseFooter appVersion={appVersion} />

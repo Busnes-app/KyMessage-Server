@@ -86,7 +86,7 @@ code, pre, .font-mono {
 /* ---------- Buttons & Inputs ---------- */
 /* Hierarchy: a bare button is primary (one per view); .btn-secondary, .btn-ghost and .btn-danger step down. */
 
-button:where(:not(.ky-nav-item, .ky-mobile-signout)), .btn {
+button:where(:not(.ky-nav-item, .ky-icon-button)), .btn {
   font-family: var(--font-sans);
   background: var(--accent);
   color: var(--button-text, #0d0f14);
@@ -106,7 +106,7 @@ button:where(:not(.ky-nav-item, .ky-mobile-signout)), .btn {
   transition: background-color .15s ease, border-color .15s ease, color .15s ease, transform .1s ease;
 }
 /* Nav rows hover to the neutral ky-ui surface, never the accent; shell controls keep their own states. */
-:where(button, .btn):not(:where(.ky-nav-item, .ky-mobile-signout)):hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink-strong)); }
+:where(button, .btn):not(:where(.ky-nav-item, .ky-icon-button)):hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink-strong)); }
 :where(button, .btn):active:not(:disabled) { transform: translateY(1px); }
 :where(button, .btn):disabled { background: var(--panel-hover); color: var(--ink); border-color: var(--line); cursor: not-allowed; }
 
@@ -201,6 +201,8 @@ dialog.modal-window::backdrop { background: rgb(12 12 18 / 0.68); }
 .dr-settings { max-width: 46rem; border-bottom: 1px solid var(--line); }
 /* Your own account is its own group, apart from the server's settings. */
 .dr-settings-own { margin-top: var(--ky-space-5); }
+/* Each Settings tab opens with one line saying what it holds. */
+.settings-intro { color: var(--ink); max-width: 72ch; line-height: 1.5; margin: 0 0 var(--ky-space-4); }
 .dr-settings.dr-settings-own > .panel { border-top: 0; padding-top: 0; }
 .dr-settings > .panel { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: var(--ky-space-4) 0; margin: 0; }
 .dr-settings > .panel > .panel-header { margin-bottom: var(--ky-space-2); }

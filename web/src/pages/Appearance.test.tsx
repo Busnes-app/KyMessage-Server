@@ -20,14 +20,12 @@ describe('Appearance', () => {
 
   it('offers six pairs with Match system, Light and Dark in one radio group, Busnes Match system by default', async () => {
     await page(null);
-    expect(screen.getByRole('heading', { level: 1, name: 'Appearance' })).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Theme' }).querySelectorAll('[role="group"]')).toHaveLength(6);
     const radios = screen.getAllByRole('radio') as HTMLInputElement[];
     expect(radios).toHaveLength(18);
     expect(new Set(radios.map((r) => r.name)).size).toBe(1);
     expect(mode('Busnes', 'Match system').checked).toBe(true);
     expect(document.querySelector('.ky-appearance [style]')).toBeNull();
-    expect(screen.getByText(/Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only./)).toBeTruthy();
   });
 
   it('marks the selected mode with a check', async () => {

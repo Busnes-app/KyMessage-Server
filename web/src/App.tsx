@@ -12,9 +12,8 @@ import { Rooms } from './pages/Rooms';
 import { Health } from './pages/Health';
 import { Audit } from './pages/Audit';
 import { ConfirmItsYou } from './components/ConfirmItsYou';
-import { TwoFactorSetup } from './components/TwoFactorSetup';
 import { MemberHome } from './pages/MemberHome';
-import { Appearance } from './pages/Appearance';
+import { hashFor, tabFromHash, type SettingsSection } from './route';
 import { LicenseFooter } from './components/LicenseFooter';
 import { AppRail } from './components/AppRail';
 import './styles/theme.css';
@@ -32,7 +31,7 @@ export const App: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [hash, setHash] = useState(() => window.location.hash);
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [suiteApps, setSuiteApps] = useState<SuiteApp[]>([]);
 
@@ -61,6 +60,19 @@ export const App: React.FC = () => {
 
     checkAuth();
   }, []);
+
+  // The view lives in the URL hash, so links, reload and the back button work.
+  useEffect(() => {
+    const sync = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
+  const activeTab = tabFromHash(hash, user?.role ?? '');
+  // A moved or unknown hash is rewritten in place, not added to history.
+  useEffect(() => {
+    if (user && window.location.hash && window.location.hash !== hashFor(activeTab)) history.replaceState(null, '', hashFor(activeTab));
+  }, [user, activeTab, hash]);
+  const setActiveTab = (tab: string) => { window.location.hash = hashFor(tab); };
 
   // The app rail: fetched once per sign-in; any failure leaves it out.
   const signedIn = user !== null && !user.must_change_password;
@@ -153,8 +165,10 @@ export const App: React.FC = () => {
 
       <main className="ky-content">
         <ErrorBoundary key={activeTab}>
-        {activeTab === 'appearance' && <Appearance />}
-        {!isAdmin && activeTab !== 'appearance' && <MemberHome user={user} chatUrl={settings?.chat_url ?? ''} onLogout={handleLogout} />}
+        {activeTab.startsWith('settings/') && (
+          <Settings section={activeTab.slice(9) as SettingsSection} user={user} settings={settings} onBrandingChanged={() => void loadSettings()} />
+        )}
+        {!isAdmin && activeTab === 'dashboard' && <MemberHome user={user} chatUrl={settings?.chat_url ?? ''} onLogout={handleLogout} />}
         {isAdmin && activeTab === 'dashboard' && <Dashboard settings={settings} user={user} onNavigate={(t) => setActiveTab(t)} />}
         {isAdmin && activeTab === 'users' && <Users />}
         {isAdmin && activeTab === 'agents' && <Agents />}
@@ -163,9 +177,6 @@ export const App: React.FC = () => {
         {isAdmin && activeTab === 'audit' && <Audit />}
         {isAdmin && activeTab === 'scim' && <SCIMAdmin />}
         {isAdmin && activeTab === 'backup' && <Backup />}
-        {isAdmin && activeTab === 'settings' && (
-          <Settings settings={settings} onBrandingChanged={() => void loadSettings()}><TwoFactorSetup /></Settings>
-        )}
         </ErrorBoundary>
         <LicenseFooter className="ky-content-foot" appVersion={settings?.app_version}><AppRail apps={suiteApps} /></LicenseFooter>
       </main>
