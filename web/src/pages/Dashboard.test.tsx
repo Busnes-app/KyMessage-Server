@@ -35,9 +35,9 @@ it('shows the chat connection, the user count and the last backup, each with its
   expect(await screen.findByText(/^Last webhook .*; last sweep ok$/)).toBeTruthy();
   fireEvent.click(within(screen.getByRole('region', { name: 'KyIdentity sync' })).getByRole('button'));
   expect(onNavigate).toHaveBeenCalledWith('settings');
-  const chat = within(screen.getByRole('region', { name: 'Chat connection' })).getByRole('button', { name: 'Open Health' });
+  const chat = within(screen.getByRole('region', { name: 'Chat connection' })).getByRole('button', { name: 'Open health' });
   expect(chat.className).toBe(''); // the most severe row carries the one filled button
-  expect(screen.getByRole('button', { name: 'Open Users' }).className).toBe('btn-secondary');
+  expect(screen.getByRole('button', { name: 'Open users' }).className).toBe('btn-secondary');
   fireEvent.click(chat);
   expect(onNavigate).toHaveBeenCalledWith('health');
 });
@@ -101,5 +101,7 @@ it('leads with chat not configured and sends the operator to the setup guide', a
   expect(setup.className).toBe('btn');
   expect(screen.getByText('Not configured').className).toBe('dr-warn');
   expect(await screen.findByText('2 of 2 components up')).toBeTruthy();
-  expect(screen.getAllByRole('button').every((b) => b.className === 'btn-secondary')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Open users' }).className).toBe('overview-link');
+  expect(screen.getByRole('button', { name: 'Open backups' }).className).toBe('btn-secondary');
+  expect(screen.getByText('No Matrix server is connected yet, so there is nothing to manage.')).toBeTruthy();
 });

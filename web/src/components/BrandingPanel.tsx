@@ -138,6 +138,10 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
               <input value={name} placeholder={state.default_name} autoComplete="off" onChange={(e) => setName(e.target.value)} />
             </label>
             <button type="submit" className="btn-secondary" disabled={busy}>Save name</button>
+            <button type="button" className="btn-ghost" disabled={busy || !state.stored_name}
+              onClick={() => saveName('', `Name reset to ${state.default_name}.`)}>
+              Use default name ({state.default_name})
+            </button>
           </form>
           {notice && <div className="dr-alert dr-alert-warn" role="alert">{notice}</div>}
           {served !== null && (
@@ -157,18 +161,17 @@ export const BrandingPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => picker.current?.click()}>
               <ImageUp size={16} aria-hidden="true" /><span>Upload logo</span>
             </button>
-            <MoreMenu label="More branding actions">
-              {(close) => <>
-                <button type="button" role="menuitem" className="ky-menu-item" disabled={busy || !state.logo.custom}
-                  onClick={() => { close(); void change('/api/admin/branding/logo', { method: 'DELETE' }, 'Logo reset to the KyMessages stamp.'); }}>
-                  Reset logo
-                </button>
-                <button type="button" role="menuitem" className="ky-menu-item" disabled={busy || !state.stored_name}
-                  onClick={() => { close(); saveName('', `Name reset to ${state.default_name}.`); }}>
-                  Use default name ({state.default_name})
-                </button>
-              </>}
-            </MoreMenu>
+            {/* Nothing to reset while the stamp is in use: no menu. */}
+            {state.logo.custom && (
+              <MoreMenu label="More logo actions">
+                {(close) => (
+                  <button type="button" role="menuitem" className="ky-menu-item" disabled={busy}
+                    onClick={() => { close(); void change('/api/admin/branding/logo', { method: 'DELETE' }, 'Logo reset to the KyMessages stamp.'); }}>
+                    Reset logo
+                  </button>
+                )}
+              </MoreMenu>
+            )}
           </div>
         </>
       )}

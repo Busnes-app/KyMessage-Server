@@ -129,21 +129,21 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(branding).toBeVisible();
   await expect(page.getByRole('region', { name: 'KyIdentity sync' })).toHaveCount(0);
   await expect(branding.getByLabel('Product name')).toBeVisible();
-  // One Upload logo button; the two resets sit in the ⋯ menu.
-  const more = branding.getByRole('button', { name: 'More branding actions' });
-  // A closed popover is hidden: find its items regardless, click them only once it is open.
-  const resetName = branding.getByRole('menuitem', { name: /^Use default name/, includeHidden: true });
-  const resetLogo = branding.getByRole('menuitem', { name: 'Reset logo', includeHidden: true });
+  // One Upload logo button; the name reset sits beside Save name, Reset logo in a ⋯ menu that
+  // exists only while a custom logo does.
+  const more = branding.getByRole('button', { name: 'More logo actions' });
+  const resetName = branding.getByRole('button', { name: /^Use default name/ });
+  const resetLogo = branding.getByRole('menuitem', { name: 'Reset logo' });
   if (await resetName.isEnabled()) {
-    await more.click();
     await resetName.click();
     await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
   }
-  if (await resetLogo.isEnabled()) {
+  if (await more.count()) {
     await more.click();
     await resetLogo.click();
     await expect(branding.getByRole('status')).toContainText('Logo reset');
   }
+  await expect(more).toHaveCount(0);
   const brandName = `Browser-${testInfo.project.name}-`.padEnd(64, 'x');
   await branding.getByLabel('Product name').fill('');
   await page.keyboard.type(brandName);
@@ -160,13 +160,14 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   expect(await page.evaluate(async () => (await fetch('/app-icon.png')).headers.get('cache-control'))).toBe('no-cache');
   await fits(page);
   await page.screenshot({ path: testInfo.outputPath('branding.png'), fullPage: true });
-  await more.click();
-  await resetLogo.click();
-  await expect(branding.getByAltText('Current logo')).toHaveAttribute('src', '/app-icon.png?v=default');
-  // By keyboard: the menu opens on the first enabled item, now Use default name.
+  // By keyboard: the menu opens on its first item.
   await more.focus();
   await page.keyboard.press('Enter');
-  await expect(resetName).toBeFocused();
+  await expect(resetLogo).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(branding.getByAltText('Current logo')).toHaveAttribute('src', '/app-icon.png?v=default');
+  await expect(more).toHaveCount(0);
+  await resetName.focus();
   await page.keyboard.press('Enter');
   await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
   await expect(page.locator('.app-brand')).toHaveText('KyMessages');

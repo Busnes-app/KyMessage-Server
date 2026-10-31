@@ -77,7 +77,7 @@ describe('BrandingPanel', () => {
     expect(await screen.findByText(/^Name saved/)).toBeTruthy();
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(calls.find((c) => c.init?.method === 'PUT')?.init?.body).toBe(JSON.stringify({ name: 'Acme' }));
-    expect(screen.getByRole('menuitem', { name: 'Use default name (KyMessages)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use default name (KyMessages)' })).toHaveProperty('disabled', false);
     const hint = screen.getByText(/until it restarts/);
     expect(hint.textContent).toBe('Element shows \u201cKyMessages\u201d until it restarts: kubectl -n ky-stack rollout restart deployment/element');
     expect(hint.querySelector('code')?.textContent).toBe('kubectl -n ky-stack rollout restart deployment/element');
@@ -121,7 +121,7 @@ describe('BrandingPanel', () => {
       return undefined;
     });
     render(<BrandingPanel onChanged={() => {}} />);
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Use default name (KyMessages)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use default name (KyMessages)' }));
     await waitFor(() => expect(calls.find((c) => c.init?.method === 'PUT')?.init?.body).toBe(JSON.stringify({ name: '' })));
     expect(await screen.findByText('Name reset to KyMessages.')).toBeTruthy();
   });
@@ -136,7 +136,7 @@ describe('BrandingPanel', () => {
     render(<BrandingPanel onChanged={() => {}} />);
     expect((await screen.findByAltText('Current logo')).getAttribute('src')).toBe('/app-icon.png?v=default');
     const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'logo.png', { type: 'image/png' });
-    expect(screen.getByRole('menuitem', { name: 'Reset logo' })).toHaveProperty('disabled', true);
+    expect(screen.queryByRole('button', { name: 'More logo actions' })).toBeNull();
     fireEvent.change(screen.getByLabelText(/^Logo/), { target: { files: [file] } });
     await waitFor(() => expect(screen.getByAltText('Current logo').getAttribute('src')).toBe(`/app-icon.png?v=${SHA}`));
     const put = calls.find((c) => c.init?.method === 'PUT');
@@ -146,13 +146,13 @@ describe('BrandingPanel', () => {
     await waitFor(() => expect(screen.getByAltText('Current logo').getAttribute('src')).toBe('/app-icon.png?v=default'));
   });
 
-  it('offers one Upload logo button and keeps the resets in the ⋯ menu', async () => {
+  it('offers one Upload logo button, the name reset beside Save name, and no empty menu', async () => {
     serve((url) => (url === '/api/admin/branding' ? json(STATE) : undefined));
     render(<BrandingPanel onChanged={() => {}} />);
     await screen.findByLabelText('Product name');
     expect(screen.getAllByRole('button').map((b) => b.textContent || b.getAttribute('aria-label')))
-      .toEqual(['Save name', 'Upload logo', 'More branding actions']);
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+      .toEqual(['Save name', 'Use default name (KyMessages)', 'Upload logo']);
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0);
   });
 
   it('refuses a file over 1 MiB without sending it', async () => {

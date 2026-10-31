@@ -96,17 +96,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const rows: Row[] = [
     notConfigured
       ? { id: 'chat', title: 'Chat connection', card: chat, action: 'Set up chat', href: CHAT_SETUP_GUIDE }
-      : { id: 'chat', title: 'Chat connection', card: chat, action: 'Open Health', tab: 'health' },
-    { id: 'users', title: 'Users', card: users, action: 'Open Users', tab: 'users' },
+      : { id: 'chat', title: 'Chat connection', card: chat, action: 'Open health', tab: 'health' },
+    { id: 'users', title: 'Users', card: users, action: 'Open users', tab: 'users' },
     { id: 'backup', title: 'Backups', card: backup, action: 'Open backups', tab: 'backup' },
-    ...(sync ? [{ id: 'sync', title: 'KyIdentity sync', card: sync, action: 'Open Settings', tab: 'settings' }] : []),
+    ...(sync ? [{ id: 'sync', title: 'KyIdentity sync', card: sync, action: 'Open settings', tab: 'settings' }] : []),
   ];
   // One filled button, on the most severe row that needs something done.
   const worst = rows.reduce((a, b) => (SEVERITY[b.card.tone] > SEVERITY[a.card.tone] ? b : a));
   const primary = SEVERITY[worst.card.tone] >= SEVERITY.warning ? worst.id : null;
   const attention = rows.filter((r) => SEVERITY[r.card.tone] >= SEVERITY.warning).length;
   const lead = notConfigured
-    ? { title: 'Chat is not configured', text: 'The console is running, but no Matrix server is connected, so there are no users, rooms or agents to manage yet. Run matrix-init and start the Matrix Compose overlay; the setup guide has each step.' }
+    ? { title: 'Chat is not configured', text: 'No Matrix server is connected yet, so there is nothing to manage.' }
     : !health ? { title: 'Checking readiness…', text: '' }
     : attention ? { title: `${attention} item${attention === 1 ? ' needs' : 's need'} attention`, text: '' }
     : { title: 'Chat is ready', text: '' };
@@ -134,7 +134,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                   <p role="status" className={TONE[card.tone]}>{card.text}</p>
                   {href
                     ? <a className={cls} href={href} target="_blank" rel="noopener noreferrer"><span>{action}</span><ExternalLink size={14} aria-hidden="true" /></a>
-                    : <button type="button" className={id === primary ? undefined : 'btn-secondary'} onClick={() => onNavigate(tab!)}>{action}</button>}
+                    // Waiting on chat setup: a quiet link, so Set up chat stays the one call to action.
+                    : <button type="button" className={id === primary ? undefined : notConfigured && id === 'users' ? 'overview-link' : 'btn-secondary'}
+                      onClick={() => onNavigate(tab!)}>{action}</button>}
                 </section>
               </li>
             );
