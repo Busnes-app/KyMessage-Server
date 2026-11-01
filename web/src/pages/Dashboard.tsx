@@ -99,7 +99,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       : { id: 'chat', title: 'Chat connection', card: chat, action: 'Open health', tab: 'health' },
     { id: 'users', title: 'Users', card: users, action: 'Open users', tab: 'users' },
     { id: 'backup', title: 'Backups', card: backup, action: 'Open backups', tab: 'backup' },
-    ...(sync ? [{ id: 'sync', title: 'KyIdentity sync', card: sync, action: 'Open settings', tab: 'settings' }] : []),
+    ...(sync ? [{ id: 'sync', title: 'KyIdentity sync', card: sync, action: 'Open settings', tab: 'settings/server' }] : []),
   ];
   // One filled button, on the most severe row that needs something done.
   const worst = rows.reduce((a, b) => (SEVERITY[b.card.tone] > SEVERITY[a.card.tone] ? b : a));

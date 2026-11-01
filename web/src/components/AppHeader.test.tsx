@@ -16,12 +16,26 @@ it.each(['admin', 'user'])('keeps theme and sign-out controls without console de
   expect(onLogout).toHaveBeenCalledTimes(2);
 });
 
-it('member gets Home and Appearance, no admin navigation', () => {
-  expect(navItemsFor('user').map(i => i.id)).toEqual(['dashboard', 'appearance']);
-  expect(navItemsFor('manager').map(i => i.id)).toEqual(['dashboard', 'appearance']);
+it('member gets Home and Settings, no admin navigation', () => {
+  expect(navItemsFor('user').map(i => i.id)).toEqual(['dashboard', 'settings']);
+  expect(navItemsFor('manager').map(i => i.id)).toEqual(['dashboard', 'settings']);
 });
-it('admin sees the admin pages', () => {
-  expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'agents', 'rooms', 'health', 'audit', 'scim', 'backup', 'settings', 'appearance']);
+it('admin sees the admin pages, then Settings; Appearance is a Settings tab', () => {
+  expect(navItemsFor('admin').map(i => i.id)).toEqual(['dashboard', 'users', 'agents', 'rooms', 'health', 'audit', 'scim', 'backup', 'settings']);
+});
+
+it('signs out with icon-only buttons and keeps Settings current on every tab', () => {
+  const { container } = render(<AppHeader appName="KyMessages" activeTab="settings/appearance" onTabChange={() => {}} user={{ username: 'alice', role: 'admin' }} onLogout={() => {}} />);
+  for (const holder of ['.ky-user-actions', '.ky-mobile-actions']) {
+    const button = container.querySelector(`${holder} > button.ky-icon-button`)!;
+    expect(button.getAttribute('aria-label')).toBe('Sign out');
+    expect(button.getAttribute('title')).toBe('Sign out');
+    expect(button.textContent).toBe('');
+    expect(button.querySelector('svg.lucide-log-out')).not.toBeNull();
+  }
+  expect(container.querySelector('[aria-label="Settings"]')).toBeNull();
+  const current = container.querySelectorAll('.ky-nav [aria-current="page"]');
+  expect([...current].map((e) => e.textContent)).toEqual(['Settings']);
 });
 
 it('names the account and its role once', () => {

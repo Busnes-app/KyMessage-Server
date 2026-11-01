@@ -60,9 +60,13 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(nav).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
   await fits(page);
-  // Themes are chosen on the Appearance page; the shell carries no theme select.
+  // Themes are chosen under Settings → Appearance; the shell carries no theme select.
   await expect(page.getByLabel('Color theme')).toHaveCount(0);
-  const appearance = (p) => p.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Appearance', exact: true }).click();
+  const appearance = async (p) => {
+    await p.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Settings', exact: true }).click();
+    await p.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Appearance', exact: true }).click();
+    await expect(p).toHaveURL(/#\/settings\/appearance$/);
+  };
   const theme = (p, pair, mode) => p.getByRole('group', { name: pair }).getByRole('radio', { name: mode, exact: true }).check();
   await appearance(page);
   await theme(page, 'Nord', 'Light');
@@ -107,6 +111,14 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await nav.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(nav.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible();
+  // Settings opens on Account; its tabs are links, so each has a URL and Back returns to the last.
+  const tabs = page.getByRole('navigation', { name: 'Settings sections' });
+  await expect(tabs.getByRole('link')).toHaveText(['Account', 'Appearance', 'Server']);
+  await expect(tabs.getByRole('link', { name: 'Account' })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/#\/settings\/account$/);
+  await expect(page.getByRole('region', { name: 'Account security' })).toBeVisible();
+  await tabs.getByRole('link', { name: 'Server' }).click();
+  await expect(page).toHaveURL(/#\/settings\/server$/);
   await fits(page);
   await expect(page.getByRole('button', { name: 'Pair Device' })).toHaveCount(0);
   expect(pairingRequests).toEqual([]);

@@ -23,8 +23,10 @@ test('Appearance: palette pairs in one native radio group, and the return to Bus
   await page.getByLabel('Password').fill('BrowserUpdated456!');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   const nav = page.getByRole('navigation', { name: 'Primary' });
-  await nav.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Appearance' })).toBeVisible();
+  await nav.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Appearance', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+  await expect(nav.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
   const mode = (pair, name) => page.getByRole('group', { name: pair }).getByRole('radio', { name, exact: true });
   const system = mode('Busnes', 'Match system');
   await expect(system).toBeChecked();
@@ -56,8 +58,8 @@ test('Appearance: palette pairs in one native radio group, and the return to Bus
     expect(idle).toBeGreaterThanOrEqual(4.5);
     expect(hover).toBeGreaterThanOrEqual(4.5);
   }
+  // The tab has its own URL: a reload stays on Appearance.
   await page.reload();
-  await nav.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(mode('Ocean', 'Light')).toBeChecked();
 
   // Back to Busnes Dark: the inline palette and colour scheme give way to the shared tokens.

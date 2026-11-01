@@ -34,7 +34,7 @@ it('shows the chat connection, the user count and the last backup, each with its
   expect(screen.queryByText(/not set up yet/)).toBeNull();
   expect(await screen.findByText(/^Last webhook .*; last sweep ok$/)).toBeTruthy();
   fireEvent.click(within(screen.getByRole('region', { name: 'KyIdentity sync' })).getByRole('button'));
-  expect(onNavigate).toHaveBeenCalledWith('settings');
+  expect(onNavigate).toHaveBeenCalledWith('settings/server');
   const chat = within(screen.getByRole('region', { name: 'Chat connection' })).getByRole('button', { name: 'Open health' });
   expect(chat.className).toBe(''); // the most severe row carries the one filled button
   expect(screen.getByRole('button', { name: 'Open users' }).className).toBe('btn-secondary');
