@@ -1,0 +1,17 @@
+# Rootless Podman with the Matrix overlay: append after docker-compose.podman.yml. keep-id maps
+# KY_MATRIX_UID to the same host user, so these services read the 0600 files matrix-init wrote
+# and the volume owner set by synapse-media-owner is the user Synapse runs as. matrix-init's
+# Podman command (docs/CHAT-SETUP.md) gives ./matrix the shared container SELinux label;
+# restore-matrix relabels the restored ./data, ./backups and ./matrix it reads.
+services:
+  postgres: {userns_mode: keep-id}
+  synapse-media-owner: {userns_mode: keep-id}
+  synapse: {userns_mode: keep-id}
+  mas: {userns_mode: keep-id}
+  livekit: {userns_mode: keep-id}
+  restore-matrix:
+    userns_mode: keep-id
+    volumes:
+      - ./data:/app/data:ro,z
+      - ./backups:/app/backups:ro,z
+      - ./matrix:/matrix:ro,z
