@@ -49,6 +49,8 @@ client secret once, when you register the client the first run describes.
    ```
 
    Use the same command wherever this guide says to run or re-run `./kymessages matrix-init`.
+   Rootless Podman: use the command in [Rootless Podman](PODMAN.md#matrix-init) instead (as
+   written, this one cannot create `./matrix` there), and append the Podman overlays in step 8.
    For TURN, mount the certificate and key too and pass `KY_MATRIX_TURN_*` as container paths.
    Back up `matrix/secrets` and
    `matrix/synapse/signing.key`; they are never regenerated. Upgrading a stack set up before
@@ -103,7 +105,8 @@ client secret once, when you register the client the first run describes.
    the `matrix-postgres` and `matrix-media` volumes (prefixed with the Compose project name)
    to the new owner.
 8. Append `docker-compose.matrix.yml` to `COMPOSE_FILE`, after the proxy overlay, keeping the
-   rest of the chain, then `docker compose up -d`.
+   rest of the chain (under rootless Podman, then `docker-compose.podman.yml` and
+   `docker-compose.matrix-podman.yml`, see [Rootless Podman](PODMAN.md#compose)), then `docker compose up -d`.
 9. In KyIdentity, open the system's deliveries, resume any held one, resync the system (how:
    "After any KyMessages outage" below) and confirm every assigned user shows delivered
    before members rely on chat. The sweep locks a
