@@ -135,6 +135,14 @@ When the user requests a durable behavior change, record it here or in the relev
 - `docker-compose.proxy.yml` names the network `kymessages-net`, publishes no port and sets
   `KY_ENV=production`; `scripts/check-compose-proxy.sh` checks it, including with the static-IP
   overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
+- Rootless Podman (`docs/PODMAN.md`; Docker Engine stays the release-gated runtime): appended
+  last, `docker-compose.podman.yml`, `docker-compose.matrix-podman.yml` and
+  `docker-compose.notes-podman.yml` add only `userns_mode: keep-id` to every service that runs
+  as `KY_UID`/`KY_MATRIX_UID` or chowns a volume to it, and the shared SELinux label (`:z`,
+  never `:Z` or `label=disable`) to `./data`, `./backups` and `restore-matrix`'s binds; its
+  `matrix-init` command labels `./matrix`. `scripts/check-compose-podman.sh` holds each Podman
+  chain to its Docker chain plus exactly those keys, so a new service running as the host
+  user needs its keep-id line.
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest. LiveKit publishes TCP 7881 and UDP 7882
   for direct media (`KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`, the same number on both sides,
@@ -223,7 +231,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Verification
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request:
-- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh` and `scripts/check-compose-matrix.sh`
+- `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh`, `scripts/check-compose-matrix.sh` and `scripts/check-compose-podman.sh`
 - `release binary is repeatable` (Go job): builds `./cmd/server` the way the Dockerfile does (`-trimpath`, from `git archive` copies, committed `web/dist`) in two directories and requires identical bytes. Keep the Dockerfile's `go build` and that step in step; `docs/VERIFYING-RELEASES.md` gives users the same command for both release images
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
 - The same SQLite suite under `GODEBUG=fips140=on`, then `docs/check-strong-crypto-compose.py`

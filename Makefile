@@ -40,6 +40,7 @@ lint:
 	@go vet ./...
 	@bash scripts/check-compose-proxy.sh
 	@bash scripts/check-compose-matrix.sh
+	@bash scripts/check-compose-podman.sh
 
 smoke: build
 	@./scripts/smoke-test.sh

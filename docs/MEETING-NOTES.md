@@ -66,6 +66,8 @@ On a stack set up before meeting notes, run `matrix-init` once more: it adds
 
 1. Append the overlay to `COMPOSE_FILE` in `.env`, after `docker-compose.matrix.yml`:
    `:docker-compose.notes.yml` (a source install also appends `:docker-compose.notes-build.yml`).
+   Under rootless Podman, also append `:docker-compose.notes-podman.yml` at the end of the chain
+   ([Rootless Podman](PODMAN.md#compose)).
 2. `docker compose up -d`. The app reads the new secret on start; the bot waits while the
    feature is off.
 3. In the console, Settings > Meeting notes: Turn on (needs a recent sign-in). The panel shows

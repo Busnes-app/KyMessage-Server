@@ -1,0 +1,6 @@
+# Rootless Podman with the meeting-notes overlay: append after docker-compose.matrix-podman.yml.
+# keep-id maps KY_MATRIX_UID to the same host user, so the bot reads matrix-init's 0600 secret
+# and owns the volume notes-data-owner hands it.
+services:
+  notes-data-owner: {userns_mode: keep-id}
+  notes: {userns_mode: keep-id}

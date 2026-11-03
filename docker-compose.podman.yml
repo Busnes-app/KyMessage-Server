@@ -1,0 +1,11 @@
+# Rootless Podman (docker compose or podman compose against the Podman socket). Append last to
+# COMPOSE_FILE. keep-id maps the container's KY_UID to the same host user, so the app can write
+# ./data and ./backups as their owner (rootless Podman otherwise maps it to a subordinate ID).
+# :z gives both directories the shared container SELinux label; without it an enforcing host
+# (Fedora, RHEL) refuses the container. With the Matrix overlay add docker-compose.matrix-podman.yml.
+services:
+  app:
+    userns_mode: keep-id
+    volumes:
+      - ./data:/app/data:z
+      - ./backups:/app/backups:z
