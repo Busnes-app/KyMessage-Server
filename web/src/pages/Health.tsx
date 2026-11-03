@@ -6,7 +6,7 @@ import { NetworkCheck } from '../components/NetworkCheck';
 import { PageHead } from '../components/PageHead';
 import { Status } from '../components/Status';
 
-export interface HealthComponent { name: string; status: 'up' | 'down'; version: string; pinned: string; mismatch: boolean; source: string; error: string }
+export interface HealthComponent { name: string; status: 'up' | 'down' | 'not_deployed'; version: string; pinned: string; mismatch: boolean; source: string; error: string }
 export interface HealthReport { matrix: boolean; components: HealthComponent[] }
 
 // Only the upstream repos the server links to; anything else is dropped.
@@ -20,7 +20,7 @@ export function parseHealth(v: unknown): HealthReport {
       const c = obj(x);
       const source = str(c.source, 512);
       return {
-        name: str(c.name, 64), status: oneOf(c.status, ['up', 'down'] as const), version: str(c.version, 64), pinned: str(c.pinned, 64),
+        name: str(c.name, 64), status: oneOf(c.status, ['up', 'down', 'not_deployed'] as const), version: str(c.version, 64), pinned: str(c.pinned, 64),
         mismatch: bool(c.mismatch), source: SOURCE.test(source) ? source : '', error: str(c.error),
       };
     }),
@@ -30,7 +30,7 @@ export function parseHealth(v: unknown): HealthReport {
 const LABEL: Record<string, string> = {
   'synapse-admin': 'Synapse admin access (console)',
   kymessages: 'KyMessages', database: 'KyMessages database', synapse: 'Synapse',
-  mas: 'Matrix Authentication Service', element: 'Element Web', postgres: 'PostgreSQL (Matrix)',
+  mas: 'Matrix Authentication Service', element: 'Element Web', postgres: 'PostgreSQL (Matrix)', livekit: 'LiveKit (calls)',
 };
 const VERSIONLESS = new Set(['database', 'synapse-admin']);
 
@@ -75,9 +75,13 @@ export const Health: React.FC = () => {
             <div key={c.name} className="dr-fact">
               <div className="dr-fact-label">
                 <span>{LABEL[c.name] ?? c.name}</span>
-                <Status tone={c.status === 'up' ? 'success' : 'danger'}>{c.status === 'up' ? 'Up' : 'Down'}</Status>
+                {c.status === 'not_deployed'
+                  ? <Status>Not deployed</Status>
+                  : <Status tone={c.status === 'up' ? 'success' : 'danger'}>{c.status === 'up' ? 'Up' : 'Down'}</Status>}
               </div>
-              <div className="dr-fact-value dr-mono">{c.version || (VERSIONLESS.has(c.name) ? '' : 'Version unknown')}</div>
+              {c.status === 'not_deployed'
+                ? <div className="dr-fact-note">Calls are off (KY_MATRIX_CALLS=off): chat runs without LiveKit.</div>
+                : <div className="dr-fact-value dr-mono">{c.version || (VERSIONLESS.has(c.name) ? '' : 'Version unknown')}</div>}
               {c.mismatch && <div className="dr-fact-note dr-danger">Compose pins {c.pinned}; this is not the pinned version.</div>}
               {!c.mismatch && c.pinned && c.version && <div className="dr-fact-note">Pinned in Compose</div>}
               {c.source && (

@@ -8,7 +8,7 @@ Commands and unlinked file paths below are relative to the repository root.
 
 Chat is Matrix: Synapse, Matrix Authentication Service (MAS) and Element Web, with KyIdentity
 as the only sign-in. Voice and video calls are enabled by default through stock Element Call
-and LiveKit. HTTP services stay private behind the proxy; LiveKit publishes TCP 7881 and
+and LiveKit; [chat without calls](CALLS.md#chat-without-calls) is an option. HTTP services stay private behind the proxy; LiveKit publishes TCP 7881 and
 UDP 7882 for direct media (routes in
 [docs/Reverse_Proxy_Networking.md](Reverse_Proxy_Networking.md)). Registration is closed
 and MAS's compatibility (password) login is not served. Federation is closed by default; an
@@ -31,6 +31,9 @@ client secret once, when you register the client the first run describes.
    `KY_KYIDENTITY_ISSUER`, `KY_MATRIX_MAS_CLIENT_ID` (a name you choose; not secret), `KY_MATRIX_RTC_HOST` (the HTTPS LiveKit
    signalling origin, for example `https://sfu.example.com`) and `KY_MATRIX_MEDIA_IP` (the IPv4
    address clients can reach directly: public IP for remote callers, LAN IP for LAN-only use).
+   Chat without calls: `KY_MATRIX_CALLS=off` instead of those two, and the steps in
+   [Calls](CALLS.md#chat-without-calls). Media ports other than TCP 7881/UDP 7882:
+   `KY_MATRIX_MEDIA_TCP_PORT`/`KY_MATRIX_MEDIA_UDP_PORT` ([Calls](CALLS.md#voice-and-video-calls)).
 2. Run `./kymessages matrix-init` as the unprivileged user that will own the files
    (`-dir` defaults to `./matrix`; it refuses root, and an existing directory that group or
    others can read). It writes every config except MAS's, prints the KyIdentity registration
@@ -95,7 +98,9 @@ client secret once, when you register the client the first run describes.
    from them), `KY_MATRIX_ADMIN_CLIENT_ID` (printed by `matrix-init`),
    `KY_KYIDENTITY_HMAC_SECRET`, `KY_MATRIX_RTC_HOST` and `KY_MATRIX_MEDIA_BIND_IP` (the host
    interface that receives call media: its LAN address for LAN-only use, `0.0.0.0` for every
-   interface; Compose refuses to start without it). With Matrix enabled, KyMessages refuses to start with missing
+   interface; Compose refuses to start without it), plus `KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`
+   if you gave matrix-init other ports. Chat only: `KY_MATRIX_CALLS=off` instead of the call
+   settings ([Calls](CALLS.md#chat-without-calls)). With Matrix enabled, KyMessages refuses to start with missing
    admin settings (client ID, readable non-empty secret file) or no webhook secret. A wrong
    admin secret still starts, but every offboarding sweep then fails; the failure is logged
    once per failure streak (`[MATRIX] offboarding sweep failing`), so check the logs after

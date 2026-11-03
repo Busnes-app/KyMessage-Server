@@ -13,7 +13,7 @@ export KY_ADMIN_PASSWORD=check-only KY_APP_URL=https://chat.example.com KY_SESSI
   KY_TRUSTED_PROXIES=10.91.0.10 KY_CONTAINER_IP=10.91.0.20 KY_MATRIX_UID=1234 KY_MATRIX_GID=5678 KY_UID=1111 KY_GID=2222 \
   KY_MATRIX_SERVER_NAME=example.com KY_MATRIX_HOST=https://matrix.example.com KY_MATRIX_CHAT_HOST=https://chat.example.com \
   KY_MATRIX_MEDIA_BIND_IP=192.0.2.10 KY_MATRIX_RTC_HOST=https://sfu.example.com KY_MATRIX_ADMIN_CLIENT_ID=01J0000000000000000000ADMN KY_KYIDENTITY_HMAC_SECRET=check-only
-unset KY_NETWORK_SUBNET KY_NETWORK
+unset KY_NETWORK_SUBNET KY_NETWORK KY_MATRIX_CALLS KY_MATRIX_MEDIA_TCP_PORT KY_MATRIX_MEDIA_UDP_PORT
 render() { docker compose --env-file /dev/null --project-directory "$root" "$@" config --format json; }
 stack=(-f "$root/docker-compose.yml" -f "$root/docker-compose.proxy.yml" -f "$root/docker-compose.matrix.yml")
 fail=0
@@ -59,8 +59,18 @@ done
 [ "$(jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort' <<<"$out")" = '[[7881,"7881","tcp","192.0.2.10"],[7882,"7882","udp","192.0.2.10"]]' ] || bad "LiveKit must publish exactly TCP 7881 and UDP 7882 on KY_MATRIX_MEDIA_BIND_IP"
 # The media bind has no wildcard default: without KY_MATRIX_MEDIA_BIND_IP Compose refuses.
 KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay renders without KY_MATRIX_MEDIA_BIND_IP"
-KY_MATRIX_MEDIA_BIND_IP='' render -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
+# Explicit KY_MATRIX_CALLS=on requires it too; a value other than on|off is refused.
+KY_MATRIX_CALLS=on KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
+  || bad "Matrix overlay with KY_MATRIX_CALLS=on renders without KY_MATRIX_MEDIA_BIND_IP"
+KY_MATRIX_CALLS=yes render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay accepts KY_MATRIX_CALLS=yes"
+# The TURN overlay requires it on its own (KY_MATRIX_CALLS=off drops the Matrix overlay's requirement).
+KY_MATRIX_CALLS=off KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
   || bad "TURN overlay does not require KY_MATRIX_MEDIA_BIND_IP"
+# Other media ports: the same number on both sides, as LiveKit advertises it (matrix-init reads
+# the same two variables).
+ports=$(KY_MATRIX_MEDIA_TCP_PORT=17881 KY_MATRIX_MEDIA_UDP_PORT=17882 render "${stack[@]}" | jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort')
+[ "$ports" = '[[17881,"17881","tcp","192.0.2.10"],[17882,"17882","udp","192.0.2.10"]]' ] || bad "LiveKit does not publish KY_MATRIX_MEDIA_TCP_PORT/_UDP_PORT unchanged: $ports"
+[ "$(jq -r '.services.app.environment.KY_MATRIX_CALLS' <<<"$out")" = on ] || bad "calls are not on by default"
 [ "$(jq -c '.services.livekit.command' <<<"$out")" = '["--config","/config/config.yaml"]' ] || bad "LiveKit does not use its generated config"
 # Directory bind observes atomic configuration/certificate renewal after restart.
 [ "$(jq -r '.services.livekit.volumes[] | "\(.source) \(.target) \(.read_only)"' <<<"$out")" = "$root/matrix/livekit /config true" ] || bad "LiveKit must bind its private directory read-only"
@@ -161,7 +171,7 @@ done
 [ "$(jq -r '.services.app.environment.KY_MATRIX_ADMIN_SECRET_FILE' <<<"$out")" = /run/secrets/mas_admin_client_secret ] || bad "app admin secret path"
 [ "$(jq -r '.secrets.mas_admin_client_secret.file' <<<"$out")" = "$root/matrix/secrets/mas_admin_client_secret" ] || bad "admin secret source"
 jq -e '.services.app.environment | has("KY_MATRIX_ADMIN_CLIENT_SECRET") | not' <<<"$out" >/dev/null || bad "admin secret in env"
-for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MATRIX_CHAT_HOST KY_MATRIX_ADMIN_CLIENT_ID KY_KYIDENTITY_HMAC_SECRET; do
+for v in KY_MATRIX_UID KY_MATRIX_GID KY_MATRIX_SERVER_NAME KY_MATRIX_HOST KY_MATRIX_CHAT_HOST KY_MATRIX_ADMIN_CLIENT_ID KY_KYIDENTITY_HMAC_SECRET KY_MATRIX_RTC_HOST KY_MATRIX_MEDIA_BIND_IP; do
   err=$(env -u "$v" docker compose --env-file /dev/null --project-directory "$root" "${stack[@]}" config 2>&1 >/dev/null) \
     && { bad "matrix overlay accepted a missing $v"; continue; }
   grep -q "$v" <<<"$err" || bad "missing $v failed for another reason: $err"
@@ -225,6 +235,35 @@ want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	tru
   || bad "restore-matrix mounts: $(jq -c .volumes <<<"$r")"
 [ "$(jq -c '[.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$r")" = '[true]' ] \
   || bad "restore-matrix mounts matrix-media without nocopy, which resets the media owner"
+# Chat only (docker-compose.chat-only.yml with KY_MATRIX_CALLS=off): no RTC host or media bind IP
+# needed, LiveKit at scale 0 (so `up -d` removes one left from calls on: a profile would leave it
+# running, PR #118 review), nothing published, calls off in the app, everything else as with
+# calls. Either half alone is refused or keeps LiveKit.
+chatonly() (unset KY_MATRIX_RTC_HOST KY_MATRIX_MEDIA_BIND_IP; KY_MATRIX_CALLS=off KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" -f "$root/docker-compose.chat-only.yml" "$@")
+for extra in "" "$root/docker-compose.static-ip.yml"; do
+  args=(); [ -z "$extra" ] || args=(-f "$extra")
+  co=$(chatonly "${args[@]}") || { bad "chat-only does not compose ${extra:+with $extra}"; continue; }
+  [ "$(jq -c '.services | keys' <<<"$co")" = '["app","element","livekit","mas","postgres","synapse","synapse-media-owner"]' ] || bad "chat-only services: $(jq -c '.services | keys' <<<"$co")"
+  [ "$(jq -c '.services.livekit | [.scale, .profiles]' <<<"$co")" = '[0,null]' ] || bad "chat-only LiveKit is not at scale 0 outside any profile: $(jq -c '.services.livekit | [.scale, .profiles]' <<<"$co")"
+  [ "$(jq '[.services[] | .ports // [] | length] | add' <<<"$co")" = 0 ] || bad "chat-only publishes a port"
+  [ "$(jq -r '.services.app.environment.KY_MATRIX_CALLS' <<<"$co")" = off ] || bad "chat-only app does not have KY_MATRIX_CALLS=off"
+  h=$(jq -c '.services.app | [.user, .cap_drop, .cap_add, .security_opt, .read_only, .tmpfs, .privileged]' <<<"$co")
+  [ "$h" = '["1234:5678",["ALL"],null,["no-new-privileges:true"],true,["/tmp"],null]' ] || bad "chat-only app lost its hardening: $h"
+  # Apart from LiveKit and the switch, the same stack as with calls.
+  withcalls=$(KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" "${args[@]}")
+  strip='del(."x-calls-require") | del(.services.livekit) | del(.services.app.environment.KY_MATRIX_CALLS) | del(.services.app.environment.KY_MATRIX_RTC_HOST)'
+  [ "$(jq -S "$strip" <<<"$co")" = "$(jq -S "$strip" <<<"$withcalls")" ] || bad "chat-only changes more than LiveKit and the calls switch: $(diff <(jq -S "$strip" <<<"$withcalls") <(jq -S "$strip" <<<"$co") | head -10)"
+done
+err=$(env -u KY_MATRIX_RTC_HOST -u KY_MATRIX_MEDIA_BIND_IP docker compose --env-file /dev/null --project-directory "$root" "${stack[@]}" -f "$root/docker-compose.chat-only.yml" config 2>&1 >/dev/null) \
+  && bad "chat-only overlay composed without KY_MATRIX_CALLS=off"
+grep -q 'KY_MATRIX_CALLS=off' <<<"$err" || bad "chat-only without KY_MATRIX_CALLS=off failed for another reason: $err"
+chatonly -f "$root/docker-compose.notes.yml" >/dev/null 2>&1 && bad "chat-only composes with the meeting-notes bot, which joins calls"
+(unset KY_MATRIX_MEDIA_BIND_IP; KY_MATRIX_CALLS=off render "${stack[@]}" -f "$root/docker-compose.notes.yml") >/dev/null 2>&1 \
+  && bad "KY_MATRIX_CALLS=off composes with the meeting-notes bot, which joins calls"
+# KY_MATRIX_CALLS=off alone (no overlay) keeps LiveKit, on loopback only: never a wildcard.
+lo=$(unset KY_MATRIX_MEDIA_BIND_IP; KY_MATRIX_CALLS=off render "${stack[@]}") || bad "KY_MATRIX_CALLS=off without the overlay does not compose"
+jq -e 'all(.services.livekit.ports[]; .host_ip == "127.0.0.1")' <<<"$lo" >/dev/null || bad "LiveKit without KY_MATRIX_MEDIA_BIND_IP binds beyond loopback"
+
 # Meeting notes (docker-compose.notes.yml): the bot publishes nothing, joins only kymessages-net,
 # runs as the matrix-init owner with no capability on a read-only root, reads its secret as a
 # file and keeps state only in its own volume. Its owner one-shot has only CHOWN and no network.

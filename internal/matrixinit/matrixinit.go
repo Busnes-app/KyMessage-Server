@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -63,7 +64,19 @@ type Input struct {
 	Issuer, ClientID                                      string
 	RTCHost, MediaIP                                      string
 	TurnHost, TurnCertFile, TurnKeyFile                   string
+	// CallsOff (KY_MATRIX_CALLS=off) is chat only: no RTC host, media IP, TURN or LiveKit
+	// config, and no call discovery in Synapse or Element.
+	CallsOff bool
+	// MediaTCPPort and MediaUDPPort are LiveKit's direct media ports, advertised in its ICE
+	// candidates and published unchanged by Compose (KY_MATRIX_MEDIA_TCP_PORT/_UDP_PORT).
+	MediaTCPPort, MediaUDPPort int
 }
+
+// Default direct media ports.
+const (
+	DefaultMediaTCPPort = 7881
+	DefaultMediaUDPPort = 7882
+)
 
 // Registration is what the operator enters in KyIdentity for the MAS client.
 type Registration struct {
@@ -100,10 +113,32 @@ func InputFromEnv(getenv func(string) string) (Input, error) {
 		{"KY_MATRIX_AUTH_HOST", &in.AuthHost}, {"KY_MATRIX_CHAT_HOST", &in.ChatHost},
 		{"KY_ADMIN_HOST", &in.AdminHost}, {"KY_KYIDENTITY_ISSUER", &in.Issuer},
 		{"KY_MATRIX_MAS_CLIENT_ID", &in.ClientID},
-		{"KY_MATRIX_RTC_HOST", &in.RTCHost}, {"KY_MATRIX_MEDIA_IP", &in.MediaIP},
 	} {
 		if *f.dst = getenv(f.env); *f.dst == "" {
 			return Input{}, fmt.Errorf("%s is required", f.env)
+		}
+	}
+	switch v := getenv("KY_MATRIX_CALLS"); v {
+	case "", "on":
+	case "off":
+		in.CallsOff = true
+	default:
+		return Input{}, fmt.Errorf("KY_MATRIX_CALLS must be on or off, not %q", v)
+	}
+	in.RTCHost = getenv("KY_MATRIX_RTC_HOST")
+	in.MediaIP = getenv("KY_MATRIX_MEDIA_IP")
+	for _, p := range []struct {
+		env string
+		dst *int
+		def int
+	}{{"KY_MATRIX_MEDIA_TCP_PORT", &in.MediaTCPPort, DefaultMediaTCPPort}, {"KY_MATRIX_MEDIA_UDP_PORT", &in.MediaUDPPort, DefaultMediaUDPPort}} {
+		*p.dst = p.def
+		if v := getenv(p.env); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || strconv.Itoa(n) != v || n <= 0 {
+				return Input{}, fmt.Errorf("%s must be a port number", p.env)
+			}
+			*p.dst = n
 		}
 	}
 	in.TurnHost = getenv("KY_MATRIX_TURN_HOST")
@@ -117,19 +152,42 @@ func (in Input) validate() (Input, error) {
 	if err := ValidServerName(in.ServerName); err != nil {
 		return Input{}, err
 	}
+	if in.CallsOff {
+		// Chat only: call settings are ignored, so a stale value cannot advertise a call service.
+		in.RTCHost, in.MediaIP = "", ""
+		if in.TurnHost != "" || in.TurnCertFile != "" || in.TurnKeyFile != "" {
+			return Input{}, errors.New("TURN is for calls: unset KY_MATRIX_TURN_* or turn calls on (KY_MATRIX_CALLS)")
+		}
+	} else if in.RTCHost == "" || in.MediaIP == "" {
+		return Input{}, errors.New("calls are on: KY_MATRIX_RTC_HOST and KY_MATRIX_MEDIA_IP are required (KY_MATRIX_CALLS=off for chat only)")
+	}
 	for _, h := range []struct {
 		name string
 		v    *string
 	}{{"matrix host", &in.MatrixHost}, {"auth host", &in.AuthHost}, {"chat host", &in.ChatHost}, {"admin host", &in.AdminHost}, {"RTC host", &in.RTCHost}} {
+		if in.CallsOff && h.v == &in.RTCHost {
+			continue
+		}
 		o, err := Origin(*h.v)
 		if err != nil {
 			return Input{}, fmt.Errorf("%s: %w", h.name, err)
 		}
 		*h.v = o
 	}
-	ip, err := netip.ParseAddr(in.MediaIP)
-	if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() {
-		return Input{}, errors.New("KY_MATRIX_MEDIA_IP must be the reachable IPv4 address of the media host")
+	if !in.CallsOff {
+		ip, err := netip.ParseAddr(in.MediaIP)
+		if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() {
+			return Input{}, errors.New("KY_MATRIX_MEDIA_IP must be the reachable IPv4 address of the media host")
+		}
+	}
+	if in.MediaTCPPort == 0 {
+		in.MediaTCPPort = DefaultMediaTCPPort
+	}
+	if in.MediaUDPPort == 0 {
+		in.MediaUDPPort = DefaultMediaUDPPort
+	}
+	if err := mediaPorts(in.MediaTCPPort, in.MediaUDPPort); err != nil {
+		return Input{}, err
 	}
 	if in.TurnHost != "" || in.TurnCertFile != "" || in.TurnKeyFile != "" {
 		if in.TurnHost == "" || in.TurnCertFile == "" || in.TurnKeyFile == "" {
@@ -147,6 +205,18 @@ func (in Input) validate() (Input, error) {
 		return Input{}, errors.New("client ID must be non-empty with no control characters")
 	}
 	return in, nil
+}
+
+// mediaPorts refuses a port below 1024 or one LiveKit already listens on inside its container:
+// TCP 7880 (signalling) and 5349 (TURN/TLS), UDP 3478 and the TURN relay range 30000-30100.
+func mediaPorts(tcp, udp int) error {
+	switch {
+	case tcp < 1024 || tcp > 65535 || tcp == 7880 || tcp == 5349:
+		return fmt.Errorf("KY_MATRIX_MEDIA_TCP_PORT %d: use 1024-65535, not LiveKit's 7880 or 5349", tcp)
+	case udp < 1024 || udp > 65535 || udp == 3478 || (udp >= 30000 && udp <= 30100):
+		return fmt.Errorf("KY_MATRIX_MEDIA_UDP_PORT %d: use 1024-65535, not LiveKit's 3478 or 30000-30100", udp)
+	}
+	return nil
 }
 
 func cleanValue(v string) bool {
@@ -287,7 +357,10 @@ func Run(in Input, dir string) (Result, error) {
 	}
 
 	data := map[string]any{"In": in, "S": s,
-		"TurnDeny": turnPeerDeny(in.MediaIP), "Localpart": localpartTemplate, "DisplayName": displayNameTemplate, "Email": emailTemplate}
+		"Localpart": localpartTemplate, "DisplayName": displayNameTemplate, "Email": emailTemplate}
+	if !in.CallsOff {
+		data["TurnDeny"] = turnPeerDeny(in.MediaIP)
+	}
 	s["kyidentity_client_secret"] = clientSecret
 	for _, r := range []struct {
 		tmpl, rel string
@@ -308,7 +381,7 @@ func Run(in Input, dir string) (Result, error) {
 		// inode it was given.
 		{"element.json.tmpl", "element/config.json", 0o644, true},
 	} {
-		if r.rel == "mas/config.yaml" && res.ClientSecretMissing {
+		if r.rel == "mas/config.yaml" && res.ClientSecretMissing || r.rel == "livekit/config.yaml" && in.CallsOff {
 			continue
 		}
 		var b bytes.Buffer

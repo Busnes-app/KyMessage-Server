@@ -19,7 +19,8 @@ func goodInput() Input {
 	return Input{ServerName: "example.com", MatrixHost: "https://matrix.example.com",
 		AuthHost: "https://auth.example.com", ChatHost: "https://chat.example.com",
 		AdminHost: "https://admin.example.com", Issuer: "https://id.example.com",
-		ClientID: "mas-client", RTCHost: "https://sfu.example.com", MediaIP: "192.0.2.10"}
+		ClientID: "mas-client", RTCHost: "https://sfu.example.com", MediaIP: "192.0.2.10",
+		MediaTCPPort: DefaultMediaTCPPort, MediaUDPPort: DefaultMediaUDPPort}
 }
 
 // runWithSecret saves the KyIdentity-issued client secret the way the operator does, then runs.

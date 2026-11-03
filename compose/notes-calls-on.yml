@@ -1,0 +1,4 @@
+# Included by docker-compose.notes.yml as compose/notes-calls-${KY_MATRIX_CALLS:-on}.yml. The
+# meeting-notes bot joins calls: with KY_MATRIX_CALLS=off the include names a file that does not
+# exist, so Compose refuses the bot (docker-compose.chat-only.yml scales LiveKit to zero).
+x-notes-calls: {}

@@ -51,7 +51,9 @@ rc_message:
 rc_delayed_event_mgmt:
   per_second: 1
   burst_count: 20
+{{- if not .In.CallsOff }}
 matrix_rtc:
   transports:
     - type: livekit
       livekit_service_url: {{ q (print .In.AdminHost "/api/matrix/rtc") }}
+{{- end }}

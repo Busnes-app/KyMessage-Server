@@ -3,6 +3,9 @@
 # and LiveKit on kymessages-net and publishes nothing. Audio and transcripts stay in its memory;
 # its volume holds only its device keys. A source install also appends
 # docker-compose.notes-build.yml.
+# Calls only: with KY_MATRIX_CALLS=off this names a missing file and Compose refuses the bot.
+include:
+  - path: compose/notes-calls-${KY_MATRIX_CALLS:-on}.yml
 services:
   # The volume belongs to the owner of ./matrix, as the bot runs as it (to read its 0600 secret).
   notes-data-owner:

@@ -70,8 +70,17 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 			filepath.Join(res.Dir, matrixinit.ClientSecretFile))
 		return nil
 	}
-	fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element livekit")
-	fmt.Fprintln(w, "Calls are enabled: set KY_MATRIX_RTC_HOST in .env, proxy that HTTPS/WebSocket host to livekit:7880, and forward TCP 7881 and UDP 7882 to KY_MATRIX_MEDIA_IP. HTTP tunnels carry signalling, not media.")
+	if in.CallsOff {
+		fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element")
+		fmt.Fprintln(w, "Calls are off (chat only): set KY_MATRIX_CALLS=off in .env and append docker-compose.chat-only.yml to COMPOSE_FILE after docker-compose.matrix.yml.")
+		fmt.Fprintln(w, "Then run: docker compose up -d --remove-orphans. It removes a running LiveKit, ending calls in progress; then close the media port forwards.")
+	} else {
+		fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element livekit")
+		fmt.Fprintf(w, "Calls are enabled: set KY_MATRIX_RTC_HOST in .env, proxy that HTTPS/WebSocket host to livekit:7880, and forward TCP %d and UDP %d to KY_MATRIX_MEDIA_IP. HTTP tunnels carry signalling, not media.\n", in.MediaTCPPort, in.MediaUDPPort)
+		if in.MediaTCPPort != matrixinit.DefaultMediaTCPPort || in.MediaUDPPort != matrixinit.DefaultMediaUDPPort {
+			fmt.Fprintf(w, "LiveKit advertises these ports; Compose must publish the same ones. Set in .env:\n  KY_MATRIX_MEDIA_TCP_PORT=%d\n  KY_MATRIX_MEDIA_UDP_PORT=%d\n", in.MediaTCPPort, in.MediaUDPPort)
+		}
+	}
 	if in.TurnHost != "" {
 		fmt.Fprintln(w, "TURN/TLS: preserve the overlay chain and append docker-compose.turn.yml; forward external TCP 443 and UDP 30000-30100. After certificate renewal re-run matrix-init, then restart livekit only after success.")
 	}

@@ -21,17 +21,20 @@ const TONE: Record<Card['tone'], string> = { success: 'dr-ok', warning: 'dr-warn
 const ICON = { success: CircleCheck, warning: CircleAlert, danger: CircleX, muted: CircleDashed };
 const SEVERITY: Record<Card['tone'], number> = { success: 0, muted: 1, warning: 2, danger: 3 };
 // The Matrix side of /api/admin/health; everything else is the console itself.
-const CHAT = new Set(['synapse', 'synapse-admin', 'mas', 'element', 'postgres']);
+const CHAT = new Set(['synapse', 'synapse-admin', 'mas', 'element', 'postgres', 'livekit']);
 export const CHAT_SETUP_GUIDE = 'https://github.com/Busnes-app/KyMessage-Server/blob/master/docs/CHAT-SETUP.md';
 
 interface Health { matrix: boolean; chat: Card; console: Card }
 interface Row { id: string; title: string; card: Card; action: string; tab?: string; href?: string }
 
-const upText = (list: { status: string; mismatch: boolean }[]) => {
+// A component left out on purpose (LiveKit with calls off) is neither up nor down: not counted.
+const upText = (all: { status: string; mismatch: boolean }[]) => {
+  const list = all.filter((c) => c.status !== 'not_deployed');
   const down = list.filter((c) => c.status === 'down').length;
   const off = list.filter((c) => c.mismatch).length;
   return {
-    text: `${list.length - down} of ${list.length} components up` + (off ? `, ${off} off their pinned version` : ''),
+    text: `${list.length - down} of ${list.length} components up` + (off ? `, ${off} off their pinned version` : '')
+      + (list.length < all.length ? ', calls off' : ''),
     tone: (down || off ? 'danger' : 'success') as Card['tone'],
   };
 };

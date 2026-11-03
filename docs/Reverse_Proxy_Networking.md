@@ -165,7 +165,7 @@ signing in goes through the auth host to KyIdentity.
 
 The signalling host supports WebSocket upgrades; its `/twirp/` API is internal only.
 The console's existing route also serves call-token requests under `/api/matrix/rtc`.
-Forward host TCP 7881 and UDP 7882 unchanged to the media host, and set
+Forward host TCP 7881 and UDP 7882 (or `KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`) unchanged to the media host, and set
 `KY_MATRIX_MEDIA_IP` to the address callers can reach (public IP with NAT forwards, LAN IP
 for LAN-only use). `KY_MATRIX_MEDIA_BIND_IP` is the required host bind (no default; `0.0.0.0` for every interface).
 An HTTP cloudflared tunnel cannot carry WebRTC media. Restrictive client networks that allow

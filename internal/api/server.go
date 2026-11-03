@@ -241,7 +241,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 	s.roomBudget = roomChangeTimeout
 
 	if cfg.Matrix.RTCHost != "" {
-		s.rtc = matrixrtc.New("http://livekit:7880", cfg.Matrix.RTCKey, cfg.Matrix.RTCSecret)
+		s.rtc = matrixrtc.New(health.ComposeTargets.LiveKit, cfg.Matrix.RTCKey, cfg.Matrix.RTCSecret)
 	}
 	s.routes()
 	return s

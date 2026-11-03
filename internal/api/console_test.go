@@ -410,8 +410,12 @@ func TestHealthWithMatrixReportsEveryComponent(t *testing.T) {
 		by[c.Name] = c
 		names = append(names, c.Name)
 	}
-	if !h.Matrix || strings.Join(names, ",") != "kymessages,database,synapse,mas,element,postgres,synapse-admin" {
+	if !h.Matrix || strings.Join(names, ",") != "kymessages,database,synapse,mas,element,postgres,synapse-admin,livekit" {
 		t.Fatalf("components %v", names)
+	}
+	// Calls are off (no RTC host): LiveKit is listed as not deployed, neither up nor down.
+	if c := by["livekit"]; c != (health.Component{Name: "livekit", Status: health.NotDeployed}) {
+		t.Errorf("livekit %+v", c)
 	}
 	if c := by["synapse"]; c.Status != "up" || c.Version != health.Pins["synapse"] || c.Mismatch || c.Source == "" {
 		t.Errorf("synapse %+v", c)
@@ -427,6 +431,34 @@ func TestHealthWithMatrixReportsEveryComponent(t *testing.T) {
 	}
 	if c := by["postgres"]; c.Status != "down" || c.Error == "" {
 		t.Errorf("postgres %+v", c)
+	}
+}
+
+// Calls off with a LiveKit still answering (left over from calls on, issue #118 review): nothing
+// evicts its participants, so Health reports it down with the command that removes it, never
+// "not deployed".
+func TestHealthCallsOffReportsLeftoverLiveKit(t *testing.T) {
+	srv, st, _, _ := setupMatrixServer(t)
+	lk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "OK") }))
+	t.Cleanup(lk.Close)
+	api.SetHealthTargetsForTest(srv, health.Targets{Synapse: "http://synapse.invalid", MAS: "http://mas.invalid", Element: "http://element.invalid", LiveKit: lk.URL})
+	sess := loginAs(t, srv, st, "root", "admin")
+	livekit := func() health.Component {
+		w := adminDo(t, srv, sess, "GET", "/api/admin/health", nil)
+		for _, c := range decode[componentsBody](t, w).Components {
+			if c.Name == "livekit" {
+				return c
+			}
+		}
+		t.Fatalf("no livekit in %s", w.Body.String())
+		return health.Component{}
+	}
+	if c := livekit(); c.Status != "down" || !strings.Contains(c.Error, "calls off") || !strings.Contains(c.Error, "docker compose rm -sf livekit") {
+		t.Errorf("leftover LiveKit: %+v", c)
+	}
+	lk.Close()
+	if c := livekit(); c != (health.Component{Name: "livekit", Status: health.NotDeployed}) {
+		t.Errorf("LiveKit gone: %+v", c)
 	}
 }
 
