@@ -102,7 +102,7 @@ func TestMatrixInitSaysWhatComposeNeedsForCalls(t *testing.T) {
 		"ports": {map[string]string{"KY_MATRIX_MEDIA_TCP_PORT": "17881", "KY_MATRIX_MEDIA_UDP_PORT": "17882"},
 			[]string{"forward TCP 17881 and UDP 17882", "KY_MATRIX_MEDIA_TCP_PORT=17881\n  KY_MATRIX_MEDIA_UDP_PORT=17882"}, nil},
 		"chat only": {map[string]string{"KY_MATRIX_CALLS": "off", "KY_MATRIX_RTC_HOST": "", "KY_MATRIX_MEDIA_IP": ""},
-			[]string{"KY_MATRIX_CALLS=off", "docker-compose.chat-only.yml", "restart synapse mas element\n"},
+			[]string{"KY_MATRIX_CALLS=off", "docker-compose.chat-only.yml", "restart synapse mas element\n", "docker compose up -d --remove-orphans. It removes a running LiveKit"},
 			[]string{"element livekit", "livekit/config.yaml", "forward TCP"}},
 	} {
 		env := matrixEnv()

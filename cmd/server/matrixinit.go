@@ -73,6 +73,7 @@ func runMatrixInit(args []string, getenv func(string) string, uid int, w io.Writ
 	if in.CallsOff {
 		fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element")
 		fmt.Fprintln(w, "Calls are off (chat only): set KY_MATRIX_CALLS=off in .env and append docker-compose.chat-only.yml to COMPOSE_FILE after docker-compose.matrix.yml.")
+		fmt.Fprintln(w, "Then run: docker compose up -d --remove-orphans. It removes a running LiveKit, ending calls in progress; then close the media port forwards.")
 	} else {
 		fmt.Fprintln(w, "If the stack is running, apply the new configs with: docker compose restart synapse mas element livekit")
 		fmt.Fprintf(w, "Calls are enabled: set KY_MATRIX_RTC_HOST in .env, proxy that HTTPS/WebSocket host to livekit:7880, and forward TCP %d and UDP %d to KY_MATRIX_MEDIA_IP. HTTP tunnels carry signalling, not media.\n", in.MediaTCPPort, in.MediaUDPPort)

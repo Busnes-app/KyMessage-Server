@@ -57,13 +57,17 @@ Calls are on by default. To run chat only (no LiveKit, no call buttons, no media
    `COMPOSE_FILE` after `docker-compose.matrix.yml`. `KY_MATRIX_RTC_HOST` and
    `KY_MATRIX_MEDIA_BIND_IP` may then be left out. Leave out `docker-compose.turn.yml` and
    `docker-compose.notes.yml` (the meeting-notes bot joins calls; Compose refuses it here).
-3. `docker compose up -d --remove-orphans`. On a stack that had calls, `--remove-orphans`
-   is what stops the running LiveKit; then close the media port forwards.
+3. `docker compose up -d --remove-orphans`, the whole stack, not named services. On a stack
+   that had calls, this stops and removes LiveKit (the overlay scales it to zero), which ends
+   calls in progress and unpublishes its media ports; then close the media port forwards.
 
 KyMessages then serves no call discovery in `/.well-known/matrix/client`, its
 `/api/matrix/rtc` routes answer 404, and Health lists LiveKit as "Not deployed", counted
-neither up nor down. To turn calls back on, undo both steps and re-run `matrix-init` with the
-call settings above. `make matrix-acceptance` covers calls on, the default.
+neither up nor down. With calls off nothing evicts call participants, so while a LiveKit still
+answers (say `KY_MATRIX_CALLS=off` without the overlay, or only some services recreated)
+Health lists it down instead: remove it with `docker compose rm -sf livekit`. To turn calls back on, undo both steps and re-run `matrix-init` with the
+call settings above. `make matrix-acceptance` covers calls on, the default, and ends by
+switching that stack to chat only as above with a call in progress.
 
 The call reconciler runs every 5 seconds and evicts users disabled/unassigned/deleted in the
 local directory, locked/deactivated in MAS, or removed from the Matrix room. LiveKit refreshes

@@ -236,13 +236,15 @@ want=$(printf '%s\n' "/app/backups	$root/backups	true" "/app/data	$root/data	tru
 [ "$(jq -c '[.volumes[] | select(.source == "matrix-media") | .volume.nocopy]' <<<"$r")" = '[true]' ] \
   || bad "restore-matrix mounts matrix-media without nocopy, which resets the media owner"
 # Chat only (docker-compose.chat-only.yml with KY_MATRIX_CALLS=off): no RTC host or media bind IP
-# needed, no LiveKit started, nothing published, calls off in the app, everything else as with
+# needed, LiveKit at scale 0 (so `up -d` removes one left from calls on: a profile would leave it
+# running, PR #118 review), nothing published, calls off in the app, everything else as with
 # calls. Either half alone is refused or keeps LiveKit.
 chatonly() (unset KY_MATRIX_RTC_HOST KY_MATRIX_MEDIA_BIND_IP; KY_MATRIX_CALLS=off KY_NETWORK_SUBNET=10.91.0.0/24 render "${stack[@]}" -f "$root/docker-compose.chat-only.yml" "$@")
 for extra in "" "$root/docker-compose.static-ip.yml"; do
   args=(); [ -z "$extra" ] || args=(-f "$extra")
   co=$(chatonly "${args[@]}") || { bad "chat-only does not compose ${extra:+with $extra}"; continue; }
-  [ "$(jq -c '.services | keys' <<<"$co")" = '["app","element","mas","postgres","synapse","synapse-media-owner"]' ] || bad "chat-only services: $(jq -c '.services | keys' <<<"$co")"
+  [ "$(jq -c '.services | keys' <<<"$co")" = '["app","element","livekit","mas","postgres","synapse","synapse-media-owner"]' ] || bad "chat-only services: $(jq -c '.services | keys' <<<"$co")"
+  [ "$(jq -c '.services.livekit | [.scale, .profiles]' <<<"$co")" = '[0,null]' ] || bad "chat-only LiveKit is not at scale 0 outside any profile: $(jq -c '.services.livekit | [.scale, .profiles]' <<<"$co")"
   [ "$(jq '[.services[] | .ports // [] | length] | add' <<<"$co")" = 0 ] || bad "chat-only publishes a port"
   [ "$(jq -r '.services.app.environment.KY_MATRIX_CALLS' <<<"$co")" = off ] || bad "chat-only app does not have KY_MATRIX_CALLS=off"
   h=$(jq -c '.services.app | [.user, .cap_drop, .cap_add, .security_opt, .read_only, .tmpfs, .privileged]' <<<"$co")
@@ -256,6 +258,8 @@ err=$(env -u KY_MATRIX_RTC_HOST -u KY_MATRIX_MEDIA_BIND_IP docker compose --env-
   && bad "chat-only overlay composed without KY_MATRIX_CALLS=off"
 grep -q 'KY_MATRIX_CALLS=off' <<<"$err" || bad "chat-only without KY_MATRIX_CALLS=off failed for another reason: $err"
 chatonly -f "$root/docker-compose.notes.yml" >/dev/null 2>&1 && bad "chat-only composes with the meeting-notes bot, which joins calls"
+(unset KY_MATRIX_MEDIA_BIND_IP; KY_MATRIX_CALLS=off render "${stack[@]}" -f "$root/docker-compose.notes.yml") >/dev/null 2>&1 \
+  && bad "KY_MATRIX_CALLS=off composes with the meeting-notes bot, which joins calls"
 # KY_MATRIX_CALLS=off alone (no overlay) keeps LiveKit, on loopback only: never a wildcard.
 lo=$(unset KY_MATRIX_MEDIA_BIND_IP; KY_MATRIX_CALLS=off render "${stack[@]}") || bad "KY_MATRIX_CALLS=off without the overlay does not compose"
 jq -e 'all(.services.livekit.ports[]; .host_ip == "127.0.0.1")' <<<"$lo" >/dev/null || bad "LiveKit without KY_MATRIX_MEDIA_BIND_IP binds beyond loopback"

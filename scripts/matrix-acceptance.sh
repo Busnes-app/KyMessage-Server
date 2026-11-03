@@ -24,6 +24,8 @@
 # once, Element's /config.json and title after `docker compose restart element`, and a
 # matrix-init re-run is undone by the next maintenance tick. After offboarding, sync status
 # shows an accepted webhook and an ok sweep, and counts a badly signed delivery.
+# Last, a running stack goes chat only exactly as docs/CALLS.md says: LiveKit is removed, its
+# media ports close and a call in progress ends; KyMessages serves no grant and reports it gone.
 # Federation: the console lists a peer Synapse and, after a Synapse restart, messages cross
 # both ways; removing it gets the peer refused; level closed restores the closed file and 404s.
 # A peer's call token is refused (private address while allowed, before any lookup after).
@@ -124,6 +126,7 @@ pass() { printf 'PASS %-19s %4ss\n' "$current" "$((SECONDS - t0))" | tee -a "$su
 cleanup() {
 	local rc=$?
 	if [[ -n ${agent_pid:-} ]]; then kill "$agent_pid" 2>/dev/null || true; fi
+	if [[ -n ${call_pid:-} ]]; then kill "$call_pid" 2>/dev/null || true; fi
 	if [[ ${nss_imported:-0} == 1 ]]; then
 		certutil -D -d "sql:$nss_db" -n "$project" || { echo 'matrix-acceptance: could not remove its temporary CA' >&2; rc=1; }
 	fi
@@ -1443,4 +1446,71 @@ ok "KyIdentity client narrowed to openid profile: ID tokens carry no email"
 e2e noclaim
 expect "$(sql mas "SELECT count(*) FROM users WHERE username = 'nadia'")" 0 "no MAS account for nadia"
 expect "$(sql synapse "SELECT count(*) FROM users WHERE name LIKE '@nadia%'")" 0 "no Synapse user for nadia"
+pass
+
+# ---------------------------------------------------------------------------------------
+# After everything else: it removes LiveKit. Calls on to chat only, exactly as docs/CALLS.md
+# says, on the running stack with a call in progress. The switch must remove LiveKit: its
+# published media ports close and the call ends (KyMessages' call reconciler is off after it).
+step chat-only
+auth=(-H "Authorization: Bearer $(cat "$state/AQuinn.token")" -H 'Content-Type: application/json')
+hcurl -fsS "${auth[@]}" https://matrix.kymatrix.test/_matrix/client/v3/account/whoami >"$state/call-me.json"
+call_room=$(hcurl -fsS "${auth[@]}" https://matrix.kymatrix.test/_matrix/client/v3/joined_rooms | jq -re '.joined_rooms[0]')
+# call_grant: alice asks KyMessages for a LiveKit grant in her room, as Element does.
+call_grant() {
+	local openid
+	openid=$(hcurl -fsS -X POST "${auth[@]}" -d '{}' \
+		"https://matrix.kymatrix.test/_matrix/client/v3/user/$(uri "$(jq -r .user_id "$state/call-me.json")")/openid/request_token" | jq -re .access_token)
+	answer POST "$KY_APP_URL/api/matrix/rtc/get_token" -H 'Content-Type: application/json' -d "$(jq -n --arg r "$call_room" --arg t "$openid" --arg s "$KY_MATRIX_SERVER_NAME" \
+		--slurpfile me "$state/call-me.json" \
+		'{room_id: $r, slot_id: "m.call#ROOM", member: {id: "kymatrix-chat-only", claimed_user_id: $me[0].user_id, claimed_device_id: $me[0].device_id}, openid_token: {access_token: $t, matrix_server_name: $s}}')"
+}
+expect "$(call_grant)" "200 -" "alice gets a call grant while calls are on"
+# The harness reaches LiveKit's signalling port on its container address, as the proxy does.
+lk_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(dc ps -q livekit)" | awk '{print $1}')
+: >"$state/call.log"
+node "$here/livekit-call.mjs" "ws://$lk_ip:7880" "$(jq -r .jwt "$state/answer.json")" >"$state/call.log" 2>&1 &
+call_pid=$!
+eventually 30 joined "alice is in a LiveKit call" head -1 "$state/call.log"
+# publishers PORT/PROTO: how many of the project's containers publish it.
+publishers() { docker ps -q --filter "label=com.docker.compose.project=$project" --filter "publish=$1" | wc -l; }
+# published: the TCP media port's publishers, and whether the host port accepts a connection.
+published() { echo "$(publishers "$KYMATRIX_ACCEPT_TCP_PORT/tcp") $( (exec 3<>"/dev/tcp/127.0.0.1/$KYMATRIX_ACCEPT_TCP_PORT") 2>/dev/null && echo open || echo closed)"; }
+expect "$(published) $(publishers "$KYMATRIX_ACCEPT_UDP_PORT/udp")" "1 open 1" "LiveKit publishes its TCP and UDP media ports"
+# docs/CALLS.md step 1: matrix-init with KY_MATRIX_CALLS=off (TURN is refused, so without the
+# TURN inputs), then restart Synapse and Element.
+(
+	unset KY_MATRIX_TURN_HOST KY_MATRIX_TURN_CERT_FILE KY_MATRIX_TURN_KEY_FILE
+	KY_MATRIX_CALLS=off "$scratch/kymessages" matrix-init -dir "$scratch/matrix"
+) >"$state/chat-only-init.out"
+grep -qF 'docker-compose.chat-only.yml' "$state/chat-only-init.out" ||
+	{ echo "  FAILED: matrix-init did not print the chat-only steps: $(cat "$state/chat-only-init.out")" >&2; false; }
+dc restart synapse element >/dev/null
+# Steps 2 and 3: .env gets KY_MATRIX_CALLS=off without the RTC host and media bind IP, and the
+# chat-only overlay after docker-compose.matrix.yml (no notes or TURN overlay); then the one
+# documented command. A subshell: the exit trap's `down -v` keeps the calls-on chain.
+(
+	export KY_MATRIX_CALLS=off
+	unset KY_MATRIX_RTC_HOST KY_MATRIX_MEDIA_BIND_IP
+	docker compose --progress quiet -p "$project" --project-directory "$scratch" \
+		-f "$repo/docker-compose.yml" -f "$repo/docker-compose.matrix.yml" -f "$repo/docker-compose.chat-only.yml" \
+		-f "$scratch/overrides/compose.yml" -f "$scratch/overrides/app.yml" up -d --remove-orphans
+)
+# LiveKit's stop grace is 10 seconds; give the call that long to end before reporting.
+for _ in $(seq 30); do grep -q '^closed' "$state/call.log" && break; sleep 1; done
+livekits=$(docker ps -aq --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=livekit | wc -l)
+echo "  evidence: after the switch: LiveKit containers $livekits, TCP media port (containers, host) $(published), call $(tail -1 "$state/call.log")"
+expect "$livekits" 0 "the documented switch removed the LiveKit container"
+expect "$(published)" "0 closed" "LiveKit's TCP media port is no longer published"
+expect "$(publishers "$KYMATRIX_ACCEPT_UDP_PORT/udp")" 0 "LiveKit's UDP media port is no longer published"
+expect "$(awk 'END { print $1 }' "$state/call.log")" closed "alice's call ended"
+wait "$call_pid"
+call_pid=
+ready "$KY_APP_URL/.well-known/matrix/client"
+expect "$(hcurl -fsS "$KY_APP_URL/.well-known/matrix/client" | jq -c '."org.matrix.msc4143.rtc_foci"')" null "KyMessages advertises no call service"
+grant=$(call_grant)
+expect "${grant%% *}" 404 "KyMessages serves no call grant"
+app_login "$admin_pass"
+app_api GET /api/admin/health >"$state/health-chat-only.json"
+expect "$(jq -r '.components[] | select(.name == "livekit") | .status' "$state/health-chat-only.json")" not_deployed "Health lists LiveKit as not deployed"
 pass

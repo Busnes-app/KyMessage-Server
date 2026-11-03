@@ -45,10 +45,10 @@ type Probe struct {
 }
 
 // Targets are the Matrix services' internal origins.
-type Targets struct{ Synapse, MAS, Element string }
+type Targets struct{ Synapse, MAS, Element, LiveKit string }
 
 // ComposeTargets are the origins docker-compose.matrix.yml gives the app on its default network.
-var ComposeTargets = Targets{Synapse: "http://synapse:8008", MAS: "http://mas:8080", Element: "http://element:8080"}
+var ComposeTargets = Targets{Synapse: "http://synapse:8008", MAS: "http://mas:8080", Element: "http://element:8080", LiveKit: "http://livekit:7880"}
 
 // versionUnknown marks a component that answered but would not say its version: it is up.
 type versionUnknown struct{ err error }

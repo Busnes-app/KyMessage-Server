@@ -434,6 +434,34 @@ func TestHealthWithMatrixReportsEveryComponent(t *testing.T) {
 	}
 }
 
+// Calls off with a LiveKit still answering (left over from calls on, issue #118 review): nothing
+// evicts its participants, so Health reports it down with the command that removes it, never
+// "not deployed".
+func TestHealthCallsOffReportsLeftoverLiveKit(t *testing.T) {
+	srv, st, _, _ := setupMatrixServer(t)
+	lk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "OK") }))
+	t.Cleanup(lk.Close)
+	api.SetHealthTargetsForTest(srv, health.Targets{Synapse: "http://synapse.invalid", MAS: "http://mas.invalid", Element: "http://element.invalid", LiveKit: lk.URL})
+	sess := loginAs(t, srv, st, "root", "admin")
+	livekit := func() health.Component {
+		w := adminDo(t, srv, sess, "GET", "/api/admin/health", nil)
+		for _, c := range decode[componentsBody](t, w).Components {
+			if c.Name == "livekit" {
+				return c
+			}
+		}
+		t.Fatalf("no livekit in %s", w.Body.String())
+		return health.Component{}
+	}
+	if c := livekit(); c.Status != "down" || !strings.Contains(c.Error, "calls off") || !strings.Contains(c.Error, "docker compose rm -sf livekit") {
+		t.Errorf("leftover LiveKit: %+v", c)
+	}
+	lk.Close()
+	if c := livekit(); c != (health.Component{Name: "livekit", Status: health.NotDeployed}) {
+		t.Errorf("LiveKit gone: %+v", c)
+	}
+}
+
 func TestAuditListsNewestFirstByKind(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	admin := loginAs(t, srv, st, "root", "admin") // writes auth.login

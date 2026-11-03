@@ -191,8 +191,13 @@ When the user requests a durable behavior change, record it here or in the relev
   leaving (`docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`). Until it
   ships, the rule above holds.
   Chat only is opt-in (issue #74): `KY_MATRIX_CALLS=off` plus `docker-compose.chat-only.yml`
-  (LiveKit under a `calls` profile nothing activates; matrix-init turns calls off in Synapse and
-  Element; Health lists LiveKit not deployed). The Matrix overlay includes
+  (LiveKit at `scale: 0`, not under a profile: Compose ignores a profiled service, so a calls-on
+  LiveKit kept running and publishing with the call reconciler off, PR #118 review; `scale: 0`
+  makes `up -d` remove it. matrix-init turns calls off in Synapse and Element; Health lists
+  LiveKit not deployed, or down while something still answers at `livekit:7880`). The notes
+  overlay includes `compose/notes-calls-${KY_MATRIX_CALLS:-on}.yml`, which exists only for `on`,
+  so Compose refuses the meeting-notes bot with calls off. The acceptance run's last step,
+  `chat-only`, switches the calls-on stack as docs/CALLS.md says with a call in progress. The Matrix overlay includes
   `compose/calls-${KY_MATRIX_CALLS:-on}.yml`: `calls-on.yml` keeps Compose refusing a missing
   `KY_MATRIX_RTC_HOST` or `KY_MATRIX_MEDIA_BIND_IP`; with `off` LiveKit binds loopback only.
   No nested `${A:-${B:?}}`: Compose 2.x resolves the inner `:?` even when A is set. The check script holds both shapes.

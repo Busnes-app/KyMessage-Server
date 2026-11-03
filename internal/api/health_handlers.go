@@ -38,13 +38,38 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.rtc != nil {
 		probes = append(probes, health.Probe{Name: "livekit", Run: func(ctx context.Context) (string, error) { _, err := s.rtc.Rooms(ctx); return "", err }})
 	}
+	callsOff := s.mas != nil && s.rtc == nil
+	if callsOff {
+		// Chat only (KY_MATRIX_CALLS=off): a LiveKit that still answers is left over from calls on.
+		probes = append(probes, health.Probe{Name: "livekit", Run: s.leftoverLiveKit})
+	}
 	components := health.Check(ctx, probeTimeout, probes, m.BackupDBPassword, m.AdminSecret, m.RTCKey, m.RTCSecret)
-	if s.mas != nil && s.rtc == nil {
-		// Chat only (KY_MATRIX_CALLS=off): say so rather than leave LiveKit out unexplained.
-		components = append(components, health.Component{Name: "livekit", Status: health.NotDeployed})
+	if callsOff {
+		c := &components[len(components)-1]
+		if c.Status == "up" {
+			// With calls off nothing evicts its participants: never report it as gone.
+			*c = health.Component{Name: "livekit", Status: "down", Error: leftoverLiveKitError}
+		} else {
+			*c = health.Component{Name: "livekit", Status: health.NotDeployed}
+		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, map[string]any{"matrix": s.mas != nil, "components": components})
+}
+
+const leftoverLiveKitError = "still running with calls off, so calls go on unchecked: docker compose rm -sf livekit"
+
+// leftoverLiveKit succeeds when anything answers HTTP at LiveKit's internal origin.
+func (s *Server) leftoverLiveKit(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.matrixTargets.LiveKit+"/", nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := s.probeHTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	return "", res.Body.Close()
 }
 
 // synapseAdminProbe proves the console can use Synapse's admin API: a console session, one
