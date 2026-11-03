@@ -184,9 +184,10 @@ When the user requests a durable behavior change, record it here or in the relev
   ships, the rule above holds.
   Chat only is opt-in (issue #74): `KY_MATRIX_CALLS=off` plus `docker-compose.chat-only.yml`
   (LiveKit under a `calls` profile nothing activates; matrix-init turns calls off in Synapse and
-  Element; Health lists LiveKit not deployed). The Matrix overlay's `x-calls-require` keeps
-  Compose refusing a missing `KY_MATRIX_RTC_HOST` or `KY_MATRIX_MEDIA_BIND_IP` unless
-  `KY_MATRIX_CALLS` is set; then LiveKit binds loopback only. The check script holds both shapes.
+  Element; Health lists LiveKit not deployed). The Matrix overlay includes
+  `compose/calls-${KY_MATRIX_CALLS:-on}.yml`: `calls-on.yml` keeps Compose refusing a missing
+  `KY_MATRIX_RTC_HOST` or `KY_MATRIX_MEDIA_BIND_IP`; with `off` LiveKit binds loopback only.
+  No nested `${A:-${B:?}}`: Compose 2.x resolves the inner `:?` even when A is set. The check script holds both shapes.
   The call acceptance gate covers the default (calls on).
   Setup needs `KY_MATRIX_RTC_HOST` and a directly reachable IPv4 `KY_MATRIX_MEDIA_IP`; cloudflared
   carries signalling only. Optional TURN/TLS is configured by the complete `KY_MATRIX_TURN_*`

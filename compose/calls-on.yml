@@ -1,0 +1,8 @@
+# Included by docker-compose.matrix.yml while KY_MATRIX_CALLS is unset or on: calls need these
+# two, so Compose refuses to start without them. No wildcard default for the media bind.
+# A file per value rather than a nested ${A:-${B:?}}: Compose before v5 resolves the inner
+# `:?` even when A is set, which refused every calls-on start (docs promise Compose 2.24+).
+# Compose resolves the include in the project directory, so run from the checkout.
+x-calls-require:
+  rtc-host: "${KY_MATRIX_RTC_HOST:?Set KY_MATRIX_RTC_HOST, or KY_MATRIX_CALLS=off with docker-compose.chat-only.yml for chat without calls}"
+  media-bind-ip: "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface (or KY_MATRIX_CALLS=off for chat without calls)}"

@@ -59,7 +59,12 @@ done
 [ "$(jq -c '[.services.livekit.ports[] | [.target, .published, .protocol, .host_ip]] | sort' <<<"$out")" = '[[7881,"7881","tcp","192.0.2.10"],[7882,"7882","udp","192.0.2.10"]]' ] || bad "LiveKit must publish exactly TCP 7881 and UDP 7882 on KY_MATRIX_MEDIA_BIND_IP"
 # The media bind has no wildcard default: without KY_MATRIX_MEDIA_BIND_IP Compose refuses.
 KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay renders without KY_MATRIX_MEDIA_BIND_IP"
-KY_MATRIX_CALLS=on KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
+# Explicit KY_MATRIX_CALLS=on requires it too; a value other than on|off is refused.
+KY_MATRIX_CALLS=on KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
+  || bad "Matrix overlay with KY_MATRIX_CALLS=on renders without KY_MATRIX_MEDIA_BIND_IP"
+KY_MATRIX_CALLS=yes render "${stack[@]}" >/dev/null 2>&1 && bad "Matrix overlay accepts KY_MATRIX_CALLS=yes"
+# The TURN overlay requires it on its own (KY_MATRIX_CALLS=off drops the Matrix overlay's requirement).
+KY_MATRIX_CALLS=off KY_MATRIX_MEDIA_BIND_IP='' render "${stack[@]}" -f "$root/docker-compose.turn.yml" 2>&1 | grep -q 'required variable KY_MATRIX_MEDIA_BIND_IP' \
   || bad "TURN overlay does not require KY_MATRIX_MEDIA_BIND_IP"
 # Other media ports: the same number on both sides, as LiveKit advertises it (matrix-init reads
 # the same two variables).

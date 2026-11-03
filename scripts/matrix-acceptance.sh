@@ -73,6 +73,8 @@ umask 077
 # ./data and ./backups belong to this user before the app (which runs as it) starts.
 mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data"
 cp -r "$here/overrides" "$scratch/overrides"
+# docker-compose.matrix.yml includes compose/calls-*.yml, resolved in the project directory.
+cp -r "$repo/compose" "$scratch/compose"
 chmod -R a+rX "$scratch/overrides" "$scratch/nginx-extra"
 
 # Compose interpolation. The network name is project-scoped, never kymessages-net.
