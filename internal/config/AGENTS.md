@@ -37,7 +37,10 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 - Calls: `KY_MATRIX_RTC_HOST` is the HTTPS LiveKit signalling origin. When present,
   `KY_MATRIX_RTC_KEY_FILE` and `KY_MATRIX_RTC_SECRET_FILE` must be readable files containing
   32-256 bytes without controls; credentials are `json:"-"`. A partial block fails startup.
-  All unset supports older Matrix deployments without calling; Compose requires the host.
+  All unset supports older Matrix deployments without calling; Compose requires the host
+  unless `KY_MATRIX_CALLS` is set. `KY_MATRIX_CALLS` is `on` (default) or `off`, anything else
+  fails startup; `off` (chat only, `docker-compose.chat-only.yml`) ignores the RTC host and the
+  call and notes secret files Compose still passes, so no RTC route, discovery or probe exists.
 
 - `ApplyInstallerConfiguration` narrows `ky.product-setup/1` (`kymessage`) into a startup
   snapshot with protected OIDC/directory file references. Explicit conflicting SSO, SCIM,

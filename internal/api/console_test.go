@@ -410,8 +410,12 @@ func TestHealthWithMatrixReportsEveryComponent(t *testing.T) {
 		by[c.Name] = c
 		names = append(names, c.Name)
 	}
-	if !h.Matrix || strings.Join(names, ",") != "kymessages,database,synapse,mas,element,postgres,synapse-admin" {
+	if !h.Matrix || strings.Join(names, ",") != "kymessages,database,synapse,mas,element,postgres,synapse-admin,livekit" {
 		t.Fatalf("components %v", names)
+	}
+	// Calls are off (no RTC host): LiveKit is listed as not deployed, neither up nor down.
+	if c := by["livekit"]; c != (health.Component{Name: "livekit", Status: health.NotDeployed}) {
+		t.Errorf("livekit %+v", c)
 	}
 	if c := by["synapse"]; c.Status != "up" || c.Version != health.Pins["synapse"] || c.Mismatch || c.Source == "" {
 		t.Errorf("synapse %+v", c)

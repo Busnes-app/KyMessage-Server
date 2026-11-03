@@ -24,10 +24,10 @@
   "integrations_rest_url": null,
   "integrations_widgets_urls": [],
   "jitsi": { "preferred_domain": "jitsi.invalid" },
-  "element_call": { "disable": false, "use_exclusively": true },
+  "element_call": { "disable": {{ .In.CallsOff }}, "use_exclusively": true },
   "default_theme": "custom-Busnes Light",
   "setting_defaults": {
-    "UIFeature.voip": true,
+    "UIFeature.voip": {{ not .In.CallsOff }},
     "UIFeature.widgets": false,
     "UIFeature.feedback": false,
     "UIFeature.identityServer": false,

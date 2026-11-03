@@ -380,6 +380,16 @@ func matrixFromEnv() (MatrixConfig, error) {
 	if err != nil || m.BackupDBPassword == "" {
 		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_BACKUP_DB_PASSWORD_FILE %q must name a readable, non-empty file: %v", backupPWFile, err)
 	}
+	switch calls := getEnv("KY_MATRIX_CALLS", ""); calls {
+	case "", "on":
+	case "off":
+		// Chat only (docker-compose.chat-only.yml). Compose still passes the call and notes
+		// secret files; ignoring them leaves no RTC route, discovery entry or LiveKit probe.
+		m.RTCHost = ""
+		return withRestartHints(m)
+	default:
+		return MatrixConfig{}, fmt.Errorf("KY_MATRIX_CALLS must be on or off, not %q", calls)
+	}
 	if m.RTCHost != "" {
 		origin, err := matrixinit.Origin(m.RTCHost)
 		if err != nil {
@@ -397,7 +407,7 @@ func matrixFromEnv() (MatrixConfig, error) {
 			*f.dst = string(b)
 		}
 	} else if getEnv("KY_MATRIX_RTC_KEY_FILE", "") != "" || getEnv("KY_MATRIX_RTC_SECRET_FILE", "") != "" {
-		return MatrixConfig{}, errors.New("KY_MATRIX_RTC_HOST is required with call secrets")
+		return MatrixConfig{}, errors.New("KY_MATRIX_RTC_HOST is required with call secrets (calls are on; KY_MATRIX_CALLS=off for chat only)")
 	}
 	if f := getEnv("KY_MATRIX_NOTES_SECRET_FILE", ""); f != "" {
 		b, err := os.ReadFile(f)
@@ -409,6 +419,11 @@ func matrixFromEnv() (MatrixConfig, error) {
 		}
 		m.NotesSecret = string(b)
 	}
+	return withRestartHints(m)
+}
+
+// withRestartHints adds the restart commands Settings shows: one short line each.
+func withRestartHints(m MatrixConfig) (MatrixConfig, error) {
 	m.ElementRestartHint = getEnv("KY_MATRIX_ELEMENT_RESTART_HINT", DefaultElementRestartHint)
 	m.SynapseRestartHint = getEnv("KY_MATRIX_SYNAPSE_RESTART_HINT", DefaultSynapseRestartHint)
 	for k, v := range map[string]string{"KY_MATRIX_ELEMENT_RESTART_HINT": m.ElementRestartHint, "KY_MATRIX_SYNAPSE_RESTART_HINT": m.SynapseRestartHint} {

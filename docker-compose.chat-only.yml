@@ -1,0 +1,12 @@
+# Chat without calls: append after docker-compose.matrix.yml and set KY_MATRIX_CALLS=off in .env
+# (Compose needs that to drop the RTC host and media bind IP requirements). `up` starts no
+# LiveKit and publishes no port; KyMessages serves no RTC route or call discovery and Health
+# lists LiveKit as not deployed. matrix-init with KY_MATRIX_CALLS=off turns calls off in
+# Synapse and Element. Not with docker-compose.turn.yml or docker-compose.notes.yml (calls only).
+services:
+  livekit:
+    # Only `docker compose --profile calls` would start it; nothing in this chain does.
+    profiles: [calls]
+  app:
+    environment:
+      - KY_MATRIX_CALLS=off

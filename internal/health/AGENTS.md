@@ -21,7 +21,9 @@ Owns `Check`, the per-component probes, `ComposeTargets`, the source links and `
 - The HTTP client ignores proxy variables and follows no redirects. Errors carry no credential:
   `Check` redacts the secrets it is given; the Postgres DSN never appears in an error.
 - `livekit` (built in `internal/api`) checks authenticated `ListRooms`; the API exposes no
-  running version, so the console shows its Compose pin with version unknown.
+  running version, so the console shows its Compose pin with version unknown. With Matrix and
+  calls off it is listed, unprobed, with status `NotDeployed` (`not_deployed`): neither up nor
+  down, and the console counts it in neither.
 - `synapse-admin` (built in `internal/api`) mints and revokes a console session and reads one
   room through Synapse's admin API on every Health load; it has no version. The first load
   also creates the console account and may time out.

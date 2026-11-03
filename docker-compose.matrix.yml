@@ -23,6 +23,11 @@ x-hardening: &hardening
   cap_drop: [ALL]
 # A read-only bind of a path matrix-init made; a missing one refuses the start, never creates it.
 x-matrix-ro: &matrix-ro {type: bind, read_only: true, bind: {create_host_path: false}}
+# Calls are on by default and need these two; Compose refuses to start without them. Chat only:
+# KY_MATRIX_CALLS=off and docker-compose.chat-only.yml (docs/CALLS.md). No wildcard default.
+x-calls-require:
+  rtc-host: "${KY_MATRIX_RTC_HOST:-${KY_MATRIX_CALLS:?Set KY_MATRIX_RTC_HOST, or KY_MATRIX_CALLS=off with docker-compose.chat-only.yml for chat without calls}}"
+  media-bind-ip: "${KY_MATRIX_MEDIA_BIND_IP:-${KY_MATRIX_CALLS:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface (or KY_MATRIX_CALLS=off for chat without calls)}}"
 
 services:
   # Serves /.well-known/matrix/{client,server} and the members' Open chat link.
@@ -33,7 +38,9 @@ services:
       - KY_MATRIX_SERVER_NAME=${KY_MATRIX_SERVER_NAME:?Set KY_MATRIX_SERVER_NAME}
       - KY_MATRIX_HOST=${KY_MATRIX_HOST:?Set KY_MATRIX_HOST}
       - KY_MATRIX_CHAT_HOST=${KY_MATRIX_CHAT_HOST:?Set KY_MATRIX_CHAT_HOST}
-      - KY_MATRIX_RTC_HOST=${KY_MATRIX_RTC_HOST:?Set KY_MATRIX_RTC_HOST}
+      # on unless KY_MATRIX_CALLS=off; x-calls-require holds the RTC host to being set.
+      - KY_MATRIX_CALLS=${KY_MATRIX_CALLS:-on}
+      - KY_MATRIX_RTC_HOST=${KY_MATRIX_RTC_HOST:-}
       - KY_MATRIX_RTC_KEY_FILE=/matrix/secrets/livekit_api_key
       - KY_MATRIX_RTC_SECRET_FILE=/matrix/secrets/livekit_api_secret
       # The meeting-notes bot (docker-compose.notes.yml) authenticates with it; off until Settings.
@@ -202,11 +209,14 @@ services:
     volumes:
       - {<<: *matrix-ro, source: ./matrix/livekit, target: /config}
     # Media bypasses the HTTP tunnel. Forward these two ports unchanged to this host. No
-    # wildcard default: the operator names the interface that may receive media.
+    # wildcard default: the operator names the interface that may receive media
+    # (x-calls-require; loopback only when KY_MATRIX_CALLS is set, which starts no LiveKit).
+    # The same port on both sides: LiveKit advertises what matrix-init wrote from the same
+    # KY_MATRIX_MEDIA_TCP_PORT/_UDP_PORT (default 7881/7882) in its ICE candidates.
     # 7880 signalling/admin stays private, reached by the proxy and KyMessages.
     ports:
-      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:7881:7881/tcp"
-      - "${KY_MATRIX_MEDIA_BIND_IP:?set KY_MATRIX_MEDIA_BIND_IP to the host address for call media, or 0.0.0.0 for every interface}:7882:7882/udp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:-127.0.0.1}:${KY_MATRIX_MEDIA_TCP_PORT:-7881}:${KY_MATRIX_MEDIA_TCP_PORT:-7881}/tcp"
+      - "${KY_MATRIX_MEDIA_BIND_IP:-127.0.0.1}:${KY_MATRIX_MEDIA_UDP_PORT:-7882}:${KY_MATRIX_MEDIA_UDP_PORT:-7882}/udp"
 
   # One-shot, after `kymessages restore` and `kymessages matrix-init` (which recreates the
   # superuser password the capsule leaves out), against a fresh stack with only postgres up:

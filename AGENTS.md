@@ -137,7 +137,8 @@ When the user requests a durable behavior change, record it here or in the relev
   overlay. Guide: [docs/Reverse_Proxy_Networking.md](docs/Reverse_Proxy_Networking.md).
 - `docker-compose.matrix.yml` adds Postgres, Synapse, MAS and Element from `matrix-init`'s
   `./matrix`: official images pinned by tag and digest. LiveKit publishes TCP 7881 and UDP 7882
-  for direct media; optional `docker-compose.turn.yml` adds TCP 443→5349 and
+  for direct media (`KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`, the same number on both sides,
+  which matrix-init writes into LiveKit's config from the same variables); optional `docker-compose.turn.yml` adds TCP 443→5349 and
   UDP 3478 and 30000–30100. Both bind only `KY_MATRIX_MEDIA_BIND_IP`, which has no default
   (never a wildcard fallback; the check script holds both files to it). LiveKit binds its private directory read-only so renewed TLS files are
   observed after restart. Signalling and the other services stay private. The stateful three
@@ -181,6 +182,12 @@ When the user requests a durable behavior change, record it here or in the relev
   during the meeting only, from a waiting room, admitted by someone in the room and again after
   leaving (`docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`). Until it
   ships, the rule above holds.
+  Chat only is opt-in (issue #74): `KY_MATRIX_CALLS=off` plus `docker-compose.chat-only.yml`
+  (LiveKit under a `calls` profile nothing activates; matrix-init turns calls off in Synapse and
+  Element; Health lists LiveKit not deployed). The Matrix overlay's `x-calls-require` keeps
+  Compose refusing a missing `KY_MATRIX_RTC_HOST` or `KY_MATRIX_MEDIA_BIND_IP` unless
+  `KY_MATRIX_CALLS` is set; then LiveKit binds loopback only. The check script holds both shapes.
+  The call acceptance gate covers the default (calls on).
   Setup needs `KY_MATRIX_RTC_HOST` and a directly reachable IPv4 `KY_MATRIX_MEDIA_IP`; cloudflared
   carries signalling only. Optional TURN/TLS is configured by the complete `KY_MATRIX_TURN_*`
   hostname/certificate/key setup block; validate before writes, renew through `matrix-init`

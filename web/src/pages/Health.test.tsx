@@ -77,3 +77,15 @@ it('drops an earlier report when a recheck fails, so nothing reads as freshly up
   expect(screen.queryByText('Up')).toBeNull();
   expect(screen.queryByText(/^Pass: /)).toBeNull();
 });
+
+it('shows LiveKit as not deployed when calls are off, neither up nor down', async () => {
+  serve(json({ matrix: true, components: [c('synapse', { version: '1.162.0' }), { ...c('livekit'), status: 'not_deployed' }] }));
+  render(<Health />);
+  const list = await screen.findByRole('region', { name: 'Components' });
+  expect(within(list).getByText('LiveKit (calls)')).toBeTruthy();
+  expect(within(list).getByText('Not deployed')).toBeTruthy();
+  expect(within(list).getByText(/Calls are off/)).toBeTruthy();
+  expect(within(list).queryByText('Down')).toBeNull();
+  expect(within(list).getAllByText('Up')).toHaveLength(1);
+  expect(within(list).queryByText('Version unknown')).toBeNull();
+});

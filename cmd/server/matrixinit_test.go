@@ -89,3 +89,47 @@ func TestMatrixInitRefusesRoot(t *testing.T) {
 		t.Error("wrote output as root")
 	}
 }
+
+// The second pass says what Compose needs: the chat-only overlay with calls off, the media
+// ports to publish when they are not the defaults, and nothing about ports otherwise.
+func TestMatrixInitSaysWhatComposeNeedsForCalls(t *testing.T) {
+	for name, c := range map[string]struct {
+		set        map[string]string
+		want, deny []string
+	}{
+		"default": {nil, []string{"forward TCP 7881 and UDP 7882", "restart synapse mas element livekit"},
+			[]string{"KY_MATRIX_MEDIA_TCP_PORT", "chat-only"}},
+		"ports": {map[string]string{"KY_MATRIX_MEDIA_TCP_PORT": "17881", "KY_MATRIX_MEDIA_UDP_PORT": "17882"},
+			[]string{"forward TCP 17881 and UDP 17882", "KY_MATRIX_MEDIA_TCP_PORT=17881\n  KY_MATRIX_MEDIA_UDP_PORT=17882"}, nil},
+		"chat only": {map[string]string{"KY_MATRIX_CALLS": "off", "KY_MATRIX_RTC_HOST": "", "KY_MATRIX_MEDIA_IP": ""},
+			[]string{"KY_MATRIX_CALLS=off", "docker-compose.chat-only.yml", "restart synapse mas element\n"},
+			[]string{"element livekit", "livekit/config.yaml", "forward TCP"}},
+	} {
+		env := matrixEnv()
+		for k, v := range c.set {
+			env[k] = v
+		}
+		dir := filepath.Join(t.TempDir(), "matrix")
+		if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "secrets", "kyidentity_client_secret"), []byte("clientsecretvalue\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := runMatrixInit([]string{"-dir", dir}, func(k string) string { return env[k] }, 4242, &out); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		s := out.String()
+		for _, w := range c.want {
+			if !strings.Contains(s, w) {
+				t.Errorf("%s: output lacks %q:\n%s", name, w, s)
+			}
+		}
+		for _, d := range c.deny {
+			if strings.Contains(s, d) {
+				t.Errorf("%s: output has %q:\n%s", name, d, s)
+			}
+		}
+	}
+}

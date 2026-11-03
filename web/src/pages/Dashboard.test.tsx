@@ -105,3 +105,27 @@ it('leads with chat not configured and sends the operator to the setup guide', a
   expect(screen.getByRole('button', { name: 'Open backups' }).className).toBe('btn-secondary');
   expect(screen.getByText('No Matrix server is connected yet, so there is nothing to manage.')).toBeTruthy();
 });
+
+it('leaves LiveKit out of the chat count when calls are off, and says calls are off', async () => {
+  serve({
+    '/api/admin/health': json({ matrix: true, components: [up('kymessages'), up('database'), up('synapse'), up('mas'), { ...up('livekit'), status: 'not_deployed' }] }),
+    '/api/admin/matrix/users': json({ users: [], total: 1, offset: 0, limit: 1, directory_url: '' }),
+    '/api/backup/status': json({ last_run: null }),
+    '/api/admin/matrix/sync-status': json(SYNC),
+  });
+  render(<Dashboard settings={{ app_name: 'KyMessages' }} user={{ username: 'root' }} onNavigate={vi.fn()} />);
+  expect(await screen.findByText('Connected · 2 of 2 components up, calls off')).toBeTruthy();
+  expect(screen.getByText('2 of 2 components up')).toBeTruthy();
+});
+
+it('counts LiveKit with chat when calls are on', async () => {
+  serve({
+    '/api/admin/health': json({ matrix: true, components: [up('kymessages'), up('database'), up('synapse'), { ...up('livekit'), status: 'down' }] }),
+    '/api/admin/matrix/users': json({ users: [], total: 1, offset: 0, limit: 1, directory_url: '' }),
+    '/api/backup/status': json({ last_run: null }),
+    '/api/admin/matrix/sync-status': json(SYNC),
+  });
+  render(<Dashboard settings={{ app_name: 'KyMessages' }} user={{ username: 'root' }} onNavigate={vi.fn()} />);
+  expect(await screen.findByText('1 of 2 components up')).toBeTruthy();
+  expect(screen.getByText('2 of 2 components up')).toBeTruthy();
+});

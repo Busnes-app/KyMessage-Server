@@ -38,11 +38,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.rtc != nil {
 		probes = append(probes, health.Probe{Name: "livekit", Run: func(ctx context.Context) (string, error) { _, err := s.rtc.Rooms(ctx); return "", err }})
 	}
+	components := health.Check(ctx, probeTimeout, probes, m.BackupDBPassword, m.AdminSecret, m.RTCKey, m.RTCSecret)
+	if s.mas != nil && s.rtc == nil {
+		// Chat only (KY_MATRIX_CALLS=off): say so rather than leave LiveKit out unexplained.
+		components = append(components, health.Component{Name: "livekit", Status: health.NotDeployed})
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	s.writeJSON(w, http.StatusOK, map[string]any{
-		"matrix":     s.mas != nil,
-		"components": health.Check(ctx, probeTimeout, probes, m.BackupDBPassword, m.AdminSecret, m.RTCKey, m.RTCSecret),
-	})
+	s.writeJSON(w, http.StatusOK, map[string]any{"matrix": s.mas != nil, "components": components})
 }
 
 // synapseAdminProbe proves the console can use Synapse's admin API: a console session, one

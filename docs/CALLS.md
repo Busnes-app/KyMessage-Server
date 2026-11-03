@@ -17,6 +17,10 @@ checks local identity, directory/MAS status and joined-room membership; it never
 caller-supplied server URL. See [network setup](Reverse_Proxy_Networking.md).
 
 Forward **TCP 7881 and UDP 7882**, unchanged, to the Docker host at `KY_MATRIX_MEDIA_IP`.
+If those ports are taken, export `KY_MATRIX_MEDIA_TCP_PORT` and `KY_MATRIX_MEDIA_UDP_PORT`
+(1024-65535; not 7880, 5349, 3478 or 30000-30100, which LiveKit uses itself) for `matrix-init`
+and set the same two in `.env`: LiveKit advertises the ports matrix-init wrote, and Compose
+publishes `.env`'s, the same number on both sides, so they must match. Forward those instead.
 `KY_MATRIX_MEDIA_BIND_IP` (required, no default) is the host interface Compose publishes them
 on: the host's LAN address for LAN-only use, or `0.0.0.0` to accept media on every interface.
 Cloudflared handles HTTPS/WebSocket signalling; its HTTP tunnel cannot carry these media ports.
@@ -40,6 +44,26 @@ original owner, adding `KY_MATRIX_RTC_HOST` to `.env`, configuring the routes/me
 and running `docker compose up -d --force-recreate app synapse element livekit` (preserve your
 Compose overlay chain). The new write-once LiveKit keys/config are included in backups.
 Update a moved host's media IP and re-run `matrix-init` before restarting LiveKit.
+
+### Chat without calls
+
+Calls are on by default. To run chat only (no LiveKit, no call buttons, no media ports):
+
+1. Export `KY_MATRIX_CALLS=off` for `matrix-init` (then `KY_MATRIX_RTC_HOST` and
+   `KY_MATRIX_MEDIA_IP` are not needed and are ignored; TURN is refused) and run it. Synapse
+   then advertises no call service and Element shows no call buttons; restart `synapse
+   element`, or recreate them on a running stack.
+2. In `.env`, set `KY_MATRIX_CALLS=off` and append `docker-compose.chat-only.yml` to
+   `COMPOSE_FILE` after `docker-compose.matrix.yml`. `KY_MATRIX_RTC_HOST` and
+   `KY_MATRIX_MEDIA_BIND_IP` may then be left out. Leave out `docker-compose.turn.yml` and
+   `docker-compose.notes.yml` (the meeting-notes bot joins calls; Compose refuses it here).
+3. `docker compose up -d --remove-orphans`. On a stack that had calls, `--remove-orphans`
+   is what stops the running LiveKit; then close the media port forwards.
+
+KyMessages then serves no call discovery in `/.well-known/matrix/client`, its
+`/api/matrix/rtc` routes answer 404, and Health lists LiveKit as "Not deployed", counted
+neither up nor down. To turn calls back on, undo both steps and re-run `matrix-init` with the
+call settings above. `make matrix-acceptance` covers calls on, the default.
 
 The call reconciler runs every 5 seconds and evicts users disabled/unassigned/deleted in the
 local directory, locked/deactivated in MAS, or removed from the Matrix room. LiveKit refreshes

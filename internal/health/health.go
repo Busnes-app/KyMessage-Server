@@ -26,13 +26,17 @@ import (
 // to Check are redacted from it.
 type Component struct {
 	Name     string `json:"name"`
-	Status   string `json:"status"` // "up" or "down"
+	Status   string `json:"status"` // "up", "down" or NotDeployed
 	Version  string `json:"version"`
 	Pinned   string `json:"pinned"`
 	Mismatch bool   `json:"mismatch"`
 	Source   string `json:"source"`
 	Error    string `json:"error"`
 }
+
+// NotDeployed is the status of a component this deployment leaves out on purpose (LiveKit
+// with calls off): neither up nor down, and never probed.
+const NotDeployed = "not_deployed"
 
 // Probe checks one component and returns its running version ("" when it has none).
 type Probe struct {

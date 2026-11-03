@@ -1,8 +1,9 @@
 # Stock LiveKit; signalling is proxied over HTTPS, media connects directly.
 port: 7880
 rtc:
-  tcp_port: 7881
-  udp_port: 7882
+  # Compose publishes these unchanged (KY_MATRIX_MEDIA_TCP_PORT/_UDP_PORT): LiveKit advertises them.
+  tcp_port: {{ .In.MediaTCPPort }}
+  udp_port: {{ .In.MediaUDPPort }}
   use_external_ip: false
   # Keep STUN discovery local to the configured media endpoint.
   stun_servers: [{{ q (printf "%s:3478" .In.MediaIP) }}]

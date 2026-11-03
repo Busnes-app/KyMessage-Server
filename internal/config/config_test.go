@@ -356,6 +356,38 @@ func TestMatrixConfigFromEnv(t *testing.T) {
 			t.Fatalf("short notes secret: %v", err)
 		}
 	})
+	// Chat only: Compose still passes the call and notes secret files; with calls off they are
+	// ignored, so no RTC route, discovery entry or LiveKit probe exists.
+	t.Run("calls off", func(t *testing.T) {
+		secret := filepath.Join(t.TempDir(), "rtc")
+		if err := os.WriteFile(secret, []byte(strings.Repeat("k", 64)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range []string{"KY_MATRIX_RTC_KEY_FILE", "KY_MATRIX_RTC_SECRET_FILE", "KY_MATRIX_NOTES_SECRET_FILE"} {
+			t.Setenv(k, secret)
+		}
+		t.Setenv("KY_MATRIX_RTC_HOST", "")
+		t.Setenv("KY_MATRIX_CALLS", "on")
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_MATRIX_CALLS=off") {
+			t.Fatalf("calls on without an RTC host: %v", err)
+		}
+		t.Setenv("KY_MATRIX_CALLS", "off")
+		cfg, err := config.LoadFromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := cfg.Matrix; m.RTCHost != "" || m.RTCKey != "" || m.RTCSecret != "" || m.NotesSecret != "" {
+			t.Fatalf("calls off kept call settings: %+v", m)
+		}
+		t.Setenv("KY_MATRIX_RTC_HOST", "https://sfu.example.com")
+		if cfg, err := config.LoadFromEnv(); err != nil || cfg.Matrix.RTCHost != "" {
+			t.Fatalf("calls off with a stale RTC host: %q, %v", cfg.Matrix.RTCHost, err)
+		}
+		t.Setenv("KY_MATRIX_CALLS", "yes")
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_MATRIX_CALLS") {
+			t.Fatalf("unknown KY_MATRIX_CALLS: %v", err)
+		}
+	})
 	// Without the webhook secret every directory delivery is refused, so a KyIdentity disable
 	// or delete never reaches MAS.
 	t.Setenv("KY_KYIDENTITY_HMAC_SECRET", "")

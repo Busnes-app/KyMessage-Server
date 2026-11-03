@@ -99,7 +99,9 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   Synapse advertises the console origin + `/api/matrix/rtc` as its LiveKit authorization URL,
   serves the narrow `openid` resource alongside `client`, and enables
   MSC4143/MSC4222 and delayed leave events. `livekit/config.yaml` uses generated write-once
-  API keys, explicit media IP and TCP 7881/UDP 7882, with auto-create off; own-endpoint
+  API keys, explicit media IP and the media ports `KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`
+  (default 7881/7882, 1024-65535, never LiveKit's own TCP 7880/5349 or UDP 3478/30000-30100;
+  Compose publishes the same variables unchanged), with auto-create off; own-endpoint
   STUN prevents third-party fallback. Optional `KY_MATRIX_TURN_HOST`, `_CERT_FILE`, `_KEY_FILE`
   form one complete block. Validate bounded regular PEM files, private key permissions,
   matching pair, hostname, current validity and key strength (every certificate in the file
@@ -109,6 +111,12 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   TURN internally listens on 5349, advertises 443, offers own-endpoint STUN/UDP TURN on 3478, allocates UDP 30000–30100 and denies all
   peer IPs except the configured media IPv4 (including an exact private-IP allowance).
   Certificate trust is an operator prerequisite; deployment egress must restrict peer ports.
+- `KY_MATRIX_CALLS=off` (else `on`, the default; any other value refused) is chat only:
+  `KY_MATRIX_RTC_HOST`/`KY_MATRIX_MEDIA_IP` are not required and are ignored, TURN is refused,
+  `livekit/config.yaml` is not rendered (an older one is left alone; LiveKit does not start),
+  Synapse has no `matrix_rtc`, and Element gets `element_call.disable: true` and
+  `UIFeature.voip: false`. Every secret is still written: Compose mounts the LiveKit and notes
+  ones into the app (`TestChatOnlyNeedsNoCallSettingsAndAdvertisesNoCalls`).
 - Federation (owner decision 2026-10-11, plan `docs/superpowers/plans/2026-10-11-federation-opt-in.md`):
   `federation/federation.yaml`, which Synapse loads second (`--config-path` order; Synapse 1.162
   merges files with a shallow update, `synapse/config/_base.py` `read_config_files`), replaces

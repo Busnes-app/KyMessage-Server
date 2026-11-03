@@ -47,9 +47,11 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 **Calls.**
 - Stock Element Call provides voice/video in DMs and group rooms; stock LiveKit routes media.
   Calling is enabled by default; members choose when to start or join and grant media access.
+  An operator may run chat only (`KY_MATRIX_CALLS=off` with `docker-compose.chat-only.yml`): no
+  LiveKit, no call buttons in Element, Health lists LiveKit as not deployed.
 - KyMessages authorizes the pinned client's legacy and Matrix 2.0 token requests: local Matrix
   OpenID identity, active KyIdentity/MAS account, joined room. Grants cannot administer LiveKit.
-- Direct media needs TCP 7881/UDP 7882 and an advertised reachable IPv4; HTTPS/WebSocket
+- Direct media needs TCP 7881/UDP 7882 (or the configured `KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`) and an advertised reachable IPv4; HTTPS/WebSocket
   signalling can use cloudflared. Optional embedded TURN/TLS uses external TCP 443 and
   UDP 3478 and 30000–30100, a DNS-only hostname and a trusted certificate. No server-side call
   recording, guests or third-party call service; the optional meeting-notes bot (below) is an
