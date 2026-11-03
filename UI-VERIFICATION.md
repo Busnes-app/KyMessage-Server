@@ -101,3 +101,8 @@ KyMessages gained an Appearance page for every role (members get Home and Appear
 ky-ui 0.6.0 shell and palette pairs; Overview readiness checklist; Settings branding and account security. Before and after captures are in `docs/ui-suite-2026-10-31/screenshots/` (`kymessages-00-before-*`, `kymessages-01-after-*`): Busnes Light and Dark at 1440×900, phone at 390×844, from a disposable SQLite server with Matrix not configured, so the Overview, Settings and sign-in show their unconfigured states (no SSO issuer, no Matrix panels). The Matrix-on Overview and Settings were not captured. Every captured state kept document width within the viewport.
 
 Checks on this branch: `make ci` (tidy, gofmt, vet, compose checks, `go test -race ./...` at 76.9% coverage, 170 vitest tests, smoke), `npm run test:browser` (13 Chromium and Firefox tests), `npm audit --audit-level=high`, and a clean `web/dist` after a rebuild.
+
+## Stale tab after an upgrade — 2026-11-02
+
+The ky-ui update notice ("<app> was updated. Reload to use the new version.", Reload and Dismiss) is started from `web/src/main.tsx`; the entry document is never reused from a cache. Not captured in this repository: the notice is the shared ky-ui component, captured end to end (a real server upgrade under an open tab, 1440×900, Busnes Light and Dark) in KyIdentity and KyPost (`docs/ui-stale-tab-2026-11-02/`), and checked by ky-ui's `browser/update.spec.js` under a strict CSP at 390 and 1280 px. `check-vendor.mjs` passes and the web tests and build pass with Node 26.12.1.
+
