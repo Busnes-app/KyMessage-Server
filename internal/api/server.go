@@ -332,15 +332,9 @@ func (s *Server) routes() {
 	// Auth
 	s.mux.HandleFunc("/api/auth/pow-challenge", s.handlePoWChallenge)
 	s.mux.HandleFunc("/api/auth/login", s.handleLogin)
-	s.mux.HandleFunc("/api/auth/mfa/totp", s.handleMFATOTP)
-	s.mux.HandleFunc("/api/auth/mfa/recovery-code", s.handleMFARecovery)
 	s.mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	s.mux.HandleFunc("/api/auth/me", s.handleMe)
 	s.mux.HandleFunc("/api/auth/change-password", s.handleChangePassword)
-	// TOTP enrolment for the signed-in local admin; each step needs a recent sign-in.
-	s.mux.HandleFunc("POST /api/auth/totp/begin", s.requireFreshAdmin(s.handleTOTPBegin))
-	s.mux.HandleFunc("POST /api/auth/totp/confirm", s.requireFreshAdmin(s.handleTOTPConfirm))
-	s.mux.HandleFunc("POST /api/auth/totp/disable", s.requireFreshAdmin(s.handleTOTPDisable))
 
 	// SSO
 	s.mux.HandleFunc("/api/sso/kyidentity/login", s.handleKyIdentityLogin)
@@ -452,7 +446,7 @@ func (s *Server) routes() {
 }
 
 // stepUpWindow is how recent a sign-in must be for requireFreshAdmin. Signing in again is the
-// step-up: it repeats the password and TOTP, or the suite login, the session was issued on.
+// step-up: it repeats the password, or the suite login, the session was issued on.
 const stepUpWindow = 10 * time.Minute
 
 // reauthURL forces a KyIdentity credential prompt (prompt=login, max_age=0) for step-up.
@@ -589,11 +583,11 @@ func isUnsafeMethod(method string) bool {
 }
 
 func csrfExempt(path string) bool {
-	return path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/mfa/") || path == "/api/sso/kyidentity/sync"
+	return path == "/api/auth/login" || path == "/api/sso/kyidentity/sync"
 }
 
 func mintsSession(path string) bool {
-	return path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/mfa/") || path == "/api/devices/pair/verify"
+	return path == "/api/auth/login" || path == "/api/devices/pair/verify"
 }
 
 func jsonRequest(r *http.Request) bool {

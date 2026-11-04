@@ -1,26 +1,23 @@
 # Auth
 
 ## Purpose
-Manages user authentication, password policies, Multi-Factor Authentication (RFC 6238 TOTP), recovery codes, session token lifecycle, and anti-abuse CAPTCHA (Proof-of-Work default).
+Manages user authentication, password policies, session token lifecycle, and anti-abuse CAPTCHA (Proof-of-Work default). There is no local second factor: it is KyIdentity's.
 
 ## Ownership
-Owns session issuance and verification, TOTP token generation/validation, recovery code redemption, and client-side PoW verification.
+Owns session issuance and verification, and client-side PoW verification.
 
 ## Local Contracts
 - Sessions for `must_change_password` users authenticate only GET `/api/auth/me` and POST `/api/auth/change-password` or `/api/auth/logout`; private settings and product actions fail closed. Session issuance is bound to the verified password hash and serialized with replacement.
 - Passwords require at least 12 characters (`ValidatePassword`).
 - Active sessions are stored with SHA-256 hashed tokens and verified against secure HttpOnly / SameSite cookies or Bearer headers.
 - `CookieName(base, cfg)` adds the `__Host-` prefix when `CookieSecure` is on and `CookieDomain` is empty (browsers accept it only on a Secure, host-only, `Path=/` cookie); the session manager sets, reads and clears the session and CSRF cookies only under that name (`SessionManager.HasSessionCookie`, `SessionManager.ValidateCSRF`).
-- `GenerateTOTPSecret`, `GenerateTOTPURL` and `GenerateRecoveryCodes` back the console's TOTP enrolment (`internal/api` `totp_handlers.go`).
 - Session authentication rejects inactive accounts and deletes their presented session.
 - PoW solutions must carry unexpired server-signed challenge metadata, and `PoWSpender` accepts each challenge once.
-- Password verification creates a five-minute opaque MFA transaction; MFA endpoints never accept a user ID and consume the transaction once.
-- Single-use recovery codes are invalidated immediately upon redemption.
 - `ClientIP` is the one client-address helper: the rate limiter and session binding both use it. `X-Forwarded-For` is honoured only when the peer is in `KY_TRUSTED_PROXIES`, walking the chain from the right past trusted hops; `X-Real-IP` is ignored. Each entry may be a bare IP or `ip:port` (Azure App Service/Application Gateway append the port); anything else ends the walk and falls back to the peer.
 - `PeerIP` (transport peer, IPv4-mapped normalised) and `TrustedPeer` (peer is in the trusted list) are exported for the admin network check; `ClientIP` uses the same `PeerIP`.
 
 - Managed KyIdentity sessions recheck retained exact issuer/subject/user/role ownership.
-  Offboarding revokes cookie/Bearer sessions, MFA challenges and device pairings atomically.
+  Offboarding revokes cookie/Bearer sessions and device pairings atomically.
 
 ## Verification
 - `go test -v ./internal/auth/...`

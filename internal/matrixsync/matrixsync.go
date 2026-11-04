@@ -112,6 +112,8 @@ type Syncer struct {
 	st         store.Store
 	serverName string
 	wake       chan struct{}
+	// AdoptSCIM (SCIM on) counts the SCIM rows KyIdentity sign-in adopts as known people.
+	AdoptSCIM bool
 }
 
 func New(mas MAS, st store.Store, serverName string) *Syncer {
@@ -172,7 +174,7 @@ func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	dir, err := s.st.Users().DirectoryStatuses(ctx, "kyidentity")
+	dir, err := s.st.Users().DirectoryStatuses(ctx, "kyidentity", s.AdoptSCIM)
 	if err != nil {
 		return 0, 0, err
 	}

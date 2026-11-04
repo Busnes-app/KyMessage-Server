@@ -266,7 +266,7 @@ func TestAgentCreateRefusals(t *testing.T) {
 	}
 }
 
-// A store failure after the mint must not leave a working token nobody can see.
+// The row is written before any token exists, so a store failure leaves no working token.
 func TestAgentCreateRevokesWhenTheRowFails(t *testing.T) {
 	srv, st, f, admin := setupAgents(t)
 	if err := st.Agents().CreateAgent(context.Background(), &store.Agent{ID: "pre", Username: "agent-dup", MASUserID: "other", DeviceID: "dev",
@@ -277,8 +277,58 @@ func TestAgentCreateRevokesWhenTheRowFails(t *testing.T) {
 	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), "mpt_") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
-	if strings.Join(f.ag.revoked, ",") != "SESS02" {
-		t.Fatalf("revoked %v", f.ag.revoked)
+	if len(f.ag.minted) != 0 || len(f.ag.revoked) != 0 {
+		t.Fatalf("minted %v, revoked %v", f.ag.minted, f.ag.revoked)
+	}
+}
+
+// A failed mint leaves a recorded agent with no token that Rotate finishes (pass 2: the MAS
+// account was left unrecorded, its name taken and invisible to the console).
+func TestAgentCreateMintFailureIsRecoverable(t *testing.T) {
+	srv, st, f, admin := setupAgents(t)
+	f.ag.mintErr = errors.New("mas: 503")
+	w := adminDo(t, srv, admin, "POST", "/api/admin/agents", map[string]string{"name": "agent-helper", "owner": "usr_dir_a"})
+	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "Rotate") {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	agents, err := st.Agents().ListAgents(context.Background())
+	if err != nil || len(agents) != 1 || agents[0].Username != "agent-helper" || agents[0].SessionID != "" || agents[0].TokenState != store.AgentTokenExpired {
+		t.Fatalf("recorded %+v (%v)", agents, err)
+	}
+	f.ag.mintErr = nil
+	r := decode[agentReply](t, adminDo(t, srv, admin, "POST", "/api/admin/agents/"+agents[0].ID+"/rotate", nil))
+	if r.Token == "" || r.Agent.TokenState != store.AgentTokenActive {
+		t.Fatalf("rotate after a failed mint: %+v", r)
+	}
+}
+
+// A revoke that lands while create mints wins: create revokes its token instead of recording
+// it (certification round 1).
+func TestAgentRevokeDuringCreateWins(t *testing.T) {
+	srv, st, f, admin := setupAgents(t)
+	ctx := context.Background()
+	f.ag.mintHeld, f.ag.mintGate = make(chan struct{}), make(chan struct{})
+	code := make(chan int, 1)
+	go func() {
+		code <- adminDo(t, srv, admin, "POST", "/api/admin/agents", map[string]string{"name": "agent-late", "owner": "usr_dir_a"}).Code
+	}()
+	<-f.ag.mintHeld
+	agents, err := st.Agents().ListAgents(ctx)
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("agents %+v (%v)", agents, err)
+	}
+	if w := adminDo(t, srv, admin, "POST", "/api/admin/agents/"+agents[0].ID+"/revoke", nil); w.Code != http.StatusOK {
+		t.Fatalf("revoke %d %s", w.Code, w.Body.String())
+	}
+	close(f.ag.mintGate)
+	if c := <-code; c != http.StatusConflict {
+		t.Fatalf("create answered %d, want 409", c)
+	}
+	row, _ := st.Agents().GetAgent(ctx, agents[0].ID)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if row.TokenState != store.AgentTokenRevoked || row.SessionID != "" || len(f.ag.minted) != 1 || !slices.Contains(f.ag.revoked, "SESS02") {
+		t.Fatalf("row %+v minted %v revoked %v", row, f.ag.minted, f.ag.revoked)
 	}
 }
 

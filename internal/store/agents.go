@@ -78,6 +78,15 @@ func (s *agentStore) SetAgentToken(ctx context.Context, id, fromSession, deviceI
 	return oneRow(uniqueResult(res, err))
 }
 
+func (s *agentStore) ActivateNewAgent(ctx context.Context, id, sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("agent %s: empty session", id)
+	}
+	q := s.store.rebind(`UPDATE agents SET session_id = ?, token_state = ? WHERE id = ? AND session_id = '' AND token_state = ?`)
+	res, err := s.store.db.ExecContext(ctx, q, sessionID, AgentTokenActive, id, AgentTokenExpired)
+	return oneRow(uniqueResult(res, err))
+}
+
 func uniqueResult(res sql.Result, err error) (sql.Result, error) { return res, uniqueError(err) }
 
 func (s *agentStore) DeleteAgent(ctx context.Context, id string) error {

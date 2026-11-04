@@ -132,17 +132,12 @@ func (u *userStore) insertUser(ctx context.Context, db execQuerier, user *User, 
 	if user.UpdatedAt.IsZero() {
 		user.UpdatedAt = now
 	}
-	if user.RecoveryCodesHash == "" {
-		user.RecoveryCodesHash = "[]"
-	}
-
 	q := u.store.rebind(`
 INSERT INTO users (
     id, username, email, display_name, password_hash, role, status,
-    sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-    recovery_codes_hash, push_device_id, must_change_password,
+    sso_provider, sso_subject, push_device_id, must_change_password,
     created_at, updated_at, last_login_at
-) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (? <> 'kyidentity' OR NOT EXISTS (SELECT 1 FROM server_settings WHERE key='installer.config'))
+) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (? <> 'kyidentity' OR NOT EXISTS (SELECT 1 FROM server_settings WHERE key='installer.config'))
 `)
 
 	var lastLogin sql.NullTime
@@ -157,7 +152,6 @@ INSERT INTO users (
 	result, err := db.ExecContext(ctx, q,
 		user.ID, user.Username, user.Email, user.DisplayName, user.PasswordHash,
 		user.Role, user.Status, user.SSOProvider, user.SSOSubject,
-		user.TOTPSecretEnc, user.TOTPEnabled, user.RecoveryCodesHash,
 		user.PushDeviceID, user.MustChangePassword,
 		user.CreatedAt, user.UpdatedAt, lastLogin, guarded,
 	)
@@ -198,8 +192,7 @@ func (u *userStore) scanUser(row interface{ Scan(...any) error }) (*User, error)
 	err := row.Scan(
 		&user.ID, &user.Username, &user.Email, &user.DisplayName, &user.PasswordHash,
 		&user.Role, &user.Status, &user.SSOProvider, &user.SSOSubject,
-		&user.TOTPSecretEnc, &user.TOTPEnabled, &user.RecoveryCodesHash,
-		&user.PushDeviceID, &user.MustChangePassword, &user.TOTPLastCounter,
+		&user.PushDeviceID, &user.MustChangePassword,
 		&user.CreatedAt, &user.UpdatedAt, &lastLogin,
 	)
 	if err != nil {
@@ -217,9 +210,8 @@ func (u *userStore) scanUser(row interface{ Scan(...any) error }) (*User, error)
 func (u *userStore) GetUserByID(ctx context.Context, id string) (*User, error) {
 	q := u.store.rebind(`
 SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
+       sso_provider, sso_subject, push_device_id, must_change_password,
+       created_at, updated_at, last_login_at
 FROM users WHERE id = ?
 `)
 	return u.scanUser(u.store.db.QueryRowContext(ctx, q, id))
@@ -230,9 +222,8 @@ FROM users WHERE id = ?
 func (u *userStore) GetLocalUserByUsername(ctx context.Context, username string) (*User, error) {
 	q := u.store.rebind(`
 SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
+       sso_provider, sso_subject, push_device_id, must_change_password,
+       created_at, updated_at, last_login_at
 FROM users WHERE sso_provider = 'local' AND LOWER(username) = LOWER(?)
 ORDER BY username = ? DESC, id LIMIT 1
 `)
@@ -242,9 +233,8 @@ ORDER BY username = ? DESC, id LIMIT 1
 func (u *userStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	q := u.store.rebind(`
 SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
+       sso_provider, sso_subject, push_device_id, must_change_password,
+       created_at, updated_at, last_login_at
 FROM users WHERE LOWER(email) = LOWER(?)
 `)
 	return u.scanUser(u.store.db.QueryRowContext(ctx, q, email))
@@ -253,9 +243,8 @@ FROM users WHERE LOWER(email) = LOWER(?)
 func (u *userStore) GetUserBySSO(ctx context.Context, provider, subject string) (*User, error) {
 	q := u.store.rebind(`
 SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
+       sso_provider, sso_subject, push_device_id, must_change_password,
+       created_at, updated_at, last_login_at
 FROM users WHERE sso_provider = ? AND sso_subject = ?
 `)
 	return u.scanUser(u.store.db.QueryRowContext(ctx, q, provider, subject))
@@ -272,7 +261,6 @@ func (u *userStore) UpdateUser(ctx context.Context, user *User) error {
 UPDATE users SET
     username = ?, email = ?, display_name = ?, password_hash = ?,
     role = ?, status = ?, sso_provider = ?, sso_subject = ?,
-    totp_secret_enc = ?, totp_enabled = ?, recovery_codes_hash = ?,
     push_device_id = ?, must_change_password = ?, updated_at = ?,
     last_login_at = ?
 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)
@@ -281,7 +269,6 @@ WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'i
 	res, err := u.store.db.ExecContext(ctx, q,
 		user.Username, user.Email, user.DisplayName, user.PasswordHash,
 		user.Role, user.Status, user.SSOProvider, user.SSOSubject,
-		user.TOTPSecretEnc, user.TOTPEnabled, user.RecoveryCodesHash,
 		user.PushDeviceID, user.MustChangePassword, user.UpdatedAt,
 		lastLogin, user.ID,
 	)
@@ -295,13 +282,13 @@ WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'i
 	return nil
 }
 
-// UpdateProfile writes only directory-owned fields. Provisioning reads a user, edits it and
-// writes it back; including credential columns would let that stale copy undo a concurrent
-// password change or recovery-code redemption.
+// UpdateProfile writes only directory-owned fields, the subject (SCIM's externalId) included.
+// Provisioning reads a user, edits it and writes it back; including credential columns would
+// let that stale copy undo a concurrent password change.
 func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 	user.UpdatedAt = time.Now().UTC()
-	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`)
-	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.UpdatedAt, user.ID)
+	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, sso_subject = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`)
+	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.SSOSubject, user.UpdatedAt, user.ID)
 	if err != nil {
 		return err
 	}
@@ -375,69 +362,6 @@ func (u *userStore) DeleteDirectoryUser(ctx context.Context, user *User, ev Dire
 	})
 }
 
-func (u *userStore) UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error {
-	q := u.store.rebind("UPDATE users SET recovery_codes_hash = ?, updated_at = ? WHERE id = ? AND recovery_codes_hash = ?")
-	res, err := u.store.db.ExecContext(ctx, q, newHashes, time.Now().UTC(), userID, oldHashes)
-	if err != nil {
-		return err
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows != 1 {
-		return ErrAlreadyExists
-	}
-	return nil
-}
-
-func (u *userStore) SpendTOTPCounter(ctx context.Context, userID string, counter int64) error {
-	q := u.store.rebind("UPDATE users SET totp_last_counter = ?, updated_at = ? WHERE id = ? AND totp_last_counter < ?")
-	res, err := u.store.db.ExecContext(ctx, q, counter, time.Now().UTC(), userID, counter)
-	if err != nil {
-		return err
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows != 1 {
-		return ErrAlreadyExists
-	}
-	return nil
-}
-
-// SetPendingTOTP stores an encrypted enrolment secret on a local account whose TOTP is off.
-// Sign-in ignores it until EnableTOTP.
-func (u *userStore) SetPendingTOTP(ctx context.Context, userID, secretEnc string) error {
-	q := u.store.rebind(`UPDATE users SET totp_secret_enc = ?, updated_at = ? WHERE id = ? AND sso_provider = 'local' AND totp_enabled = ?`)
-	return oneRow(u.store.db.ExecContext(ctx, q, secretEnc, time.Now().UTC(), userID, false))
-}
-
-// EnableTOTP turns on the pending secret, still secretEnc, with fresh recovery codes, and
-// revokes every grant issued before the second factor existed.
-func (u *userStore) EnableTOTP(ctx context.Context, userID, secretEnc, recoveryHashes string) error {
-	tx, err := u.store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	q := u.store.rebind(`UPDATE users SET totp_enabled = ?, recovery_codes_hash = ?, updated_at = ? WHERE id = ? AND sso_provider = 'local' AND totp_enabled = ? AND totp_secret_enc = ?`)
-	if err := oneRow(tx.ExecContext(ctx, q, true, recoveryHashes, time.Now().UTC(), userID, false, secretEnc)); err != nil {
-		return err
-	}
-	if err := deleteGrants(ctx, u.store, tx, userID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// DisableTOTP removes the second factor, its secret and recovery codes.
-func (u *userStore) DisableTOTP(ctx context.Context, userID string) error {
-	q := u.store.rebind(`UPDATE users SET totp_enabled = ?, totp_secret_enc = '', recovery_codes_hash = '[]', updated_at = ? WHERE id = ? AND totp_enabled = ?`)
-	return oneRow(u.store.db.ExecContext(ctx, q, false, time.Now().UTC(), userID, true))
-}
-
 // oneRow is ErrNotFound unless the statement changed exactly one row.
 func oneRow(res sql.Result, err error) error {
 	if err != nil {
@@ -487,9 +411,8 @@ func (u *userStore) ListUsers(ctx context.Context, offset, limit int, filter Use
 	countArgs := args
 	listQuery := `
 SELECT id, username, email, display_name, password_hash, role, status,
-       sso_provider, sso_subject, totp_secret_enc, totp_enabled,
-       recovery_codes_hash, push_device_id, must_change_password,
-       totp_last_counter, created_at, updated_at, last_login_at
+       sso_provider, sso_subject, push_device_id, must_change_password,
+       created_at, updated_at, last_login_at
 FROM users` + where + `
 ORDER BY created_at DESC LIMIT ? OFFSET ?`
 	listArgs := append(append([]any{}, args...), limit, offset)
@@ -590,7 +513,7 @@ func (u *userStore) ResetAdminPassword(ctx context.Context, userID, newHash stri
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	result, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET password_hash = ?, must_change_password = ?, status = 'active', role = 'admin', totp_enabled = ?, totp_secret_enc = '', recovery_codes_hash = '[]', updated_at = ? WHERE id = ? AND sso_provider = 'local' AND (role = 'admin' OR ?)`), newHash, true, false, now, userID, promote)
+	result, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET password_hash = ?, must_change_password = ?, status = 'active', role = 'admin', updated_at = ? WHERE id = ? AND sso_provider = 'local' AND (role = 'admin' OR ?)`), newHash, true, now, userID, promote)
 	if err != nil {
 		return err
 	}
@@ -671,46 +594,6 @@ func (s *sessionStore) CleanExpiredSessions(ctx context.Context) error {
 	q := s.store.rebind("DELETE FROM sessions WHERE expires_at < ?")
 	_, err := s.store.db.ExecContext(ctx, q, time.Now().UTC())
 	return err
-}
-
-func (s *sessionStore) CreateMFAChallenge(ctx context.Context, challenge *MFAChallenge, expectedPasswordHash string) error {
-	return s.store.withPassword(ctx, challenge.UserID, expectedPasswordHash, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, s.store.rebind("INSERT INTO mfa_challenges (token_hash, user_id, expires_at, password_hash) VALUES (?, ?, ?, ?)"), challenge.TokenHash, challenge.UserID, challenge.ExpiresAt, expectedPasswordHash)
-		return err
-	})
-}
-
-func (s *sessionStore) ConsumeMFAChallenge(ctx context.Context, tokenHash string) (string, string, error) {
-	tx, err := s.store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", "", err
-	}
-	defer tx.Rollback()
-	q := s.store.rebind("SELECT user_id, expires_at, password_hash FROM mfa_challenges WHERE token_hash = ?")
-	var userID, passwordHash string
-	var expiresAt time.Time
-	if err := tx.QueryRowContext(ctx, q, tokenHash).Scan(&userID, &expiresAt, &passwordHash); err != nil {
-		if errorsIs(err, sql.ErrNoRows) {
-			return "", "", ErrNotFound
-		}
-		return "", "", err
-	}
-	if !time.Now().UTC().Before(expiresAt) {
-		return "", "", ErrSessionExpired
-	}
-	deleteQ := s.store.rebind("DELETE FROM mfa_challenges WHERE token_hash = ?")
-	res, err := tx.ExecContext(ctx, deleteQ, tokenHash)
-	if err != nil {
-		return "", "", err
-	}
-	rows, err := res.RowsAffected()
-	if err != nil || rows != 1 {
-		return "", "", ErrNotFound
-	}
-	if err := tx.Commit(); err != nil {
-		return "", "", err
-	}
-	return userID, passwordHash, nil
 }
 
 // ---------------------------------------------------------------------
@@ -1123,10 +1006,20 @@ func errorsIs(err, target error) bool {
 	return err == target || strings.Contains(err.Error(), target.Error())
 }
 
-func (u *userStore) DirectoryStatuses(ctx context.Context, provider string) (map[string]string, error) {
-	rows, err := u.store.db.QueryContext(ctx, u.store.rebind(`SELECT sso_subject, CASE WHEN role='admin' AND EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id) THEN 'inactive' ELSE status END FROM users WHERE sso_provider = ? AND sso_subject <> ''
+func (u *userStore) DirectoryStatuses(ctx context.Context, provider string, adoptSCIM bool) (map[string]string, error) {
+	q := `SELECT sso_subject, CASE WHEN role='admin' AND EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id) THEN 'inactive' ELSE status END FROM users WHERE sso_provider = ? AND sso_subject <> ''
 UNION ALL SELECT s.subject, 'deleted' FROM directory_sync_state s
-WHERE s.provider = ? AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`), provider, provider)
+WHERE s.provider = ? AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`
+	args := []any{provider, provider}
+	if adoptSCIM {
+		// The SCIM rows sign-in would adopt: only where the provider has no row and no record.
+		q += `
+UNION ALL SELECT u.sso_subject, u.status FROM users u WHERE u.sso_provider = 'scim' AND u.sso_subject <> ''
+AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = ? AND x.sso_subject = u.sso_subject)
+AND NOT EXISTS (SELECT 1 FROM directory_sync_state s WHERE s.provider = ? AND s.subject = u.sso_subject)`
+		args = append(args, provider, provider)
+	}
+	rows, err := u.store.db.QueryContext(ctx, u.store.rebind(q), args...)
 	if err != nil {
 		return nil, err
 	}

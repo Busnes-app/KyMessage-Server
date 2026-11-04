@@ -87,6 +87,21 @@ test('chunks: split at lines, never over max', () => {
   assert.deepEqual(chunks('short', 10), ['short']);
 });
 
+test('chunks: the limit is UTF-8 bytes, never a split character', () => {
+  const name = '山'.repeat(60); // 3 bytes each
+  const text = Array.from({ length: 300 }, (_, i) => `[10:${String(i % 60).padStart(2, '0')}] ${name}: ok`).join('\n');
+  const parts = chunks(text);
+  assert.ok(parts.length > 1);
+  for (const p of parts) assert.ok(Buffer.byteLength(p) <= 30_000, `part of ${Buffer.byteLength(p)} bytes`);
+  assert.equal(parts.join('\n'), text);
+  const long = chunks('é'.repeat(20), 9); // 2 bytes each: 4 per part, never half of one
+  assert.deepEqual(long, ['éééé', 'éééé', 'éééé', 'éééé', 'éééé']);
+  // JSON escapes count: a quote is 2 bytes on the wire.
+  const quoted = chunks(Array.from({ length: 2000 }, () => `${'"'.repeat(30)}: ok`).join('\n'));
+  for (const p of quoted) assert.ok(Buffer.byteLength(JSON.stringify(p)) <= 30_002, `part of ${Buffer.byteLength(JSON.stringify(p))} JSON bytes`);
+  assert.deepEqual(chunks('é', 1), ['é']); // one character over max still advances
+});
+
 test('parseCommand: screens on and off', () => {
   assert.equal(parseCommand('!notes screens on'), 'screens-on');
   assert.equal(parseCommand('!notes  Screens   OFF'), 'screens-off');

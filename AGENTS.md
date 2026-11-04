@@ -21,12 +21,15 @@ priority is small teams and encrypted chat, with voice and video calls enabled b
   `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose); a failed user count stops
   startup rather than reading as empty. `init-admin` reads the password from stdin (no echo on
   a terminal) and has no `-password` flag: argv is world-readable. Its reset of an existing
-  local account clears two-factor and refuses a non-admin unless `-promote` is given. A KyIdentity user whose
+  local account refuses a non-admin unless `-promote` is given. There is no local two-factor
+  (owner decision 2026-11-04): local admins sign in with a password, and a second factor is
+  KyIdentity's; the old `totp_*` and `recovery_codes_hash` columns and `mfa_challenges` stay, unused. A KyIdentity user whose
   username another account holds is refused, never merged: a webhook create gets 409 with
   sync reason `username_conflict` (recovery: rename, then Resync Directory in KyIdentity), an
   update keeps the old username and applies the rest, both audit `sso.sync_conflict`; sign-in
   gets 409 with `sso.login_conflict`.
 
+- `CHANGELOG.md` records user-visible changes under `Unreleased` until a release names them.
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product
   definition on Matrix: what ships, what is later or out of scope, and known risks. Keep it
   in step when a shipped capability or approved decision changes.
@@ -126,7 +129,7 @@ Default section order:
   suite review an independent audit: label chat exactly "End-to-end encrypted in Element (not independently audited)".
   Synapse does not enforce encryption, so a client that does not encrypt can post plaintext
   into an encrypted room; docs state this plainly (`docs/CHAT-PLATFORM-OPTIONS.md` section 7).
-- Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions, MFA challenges and device pairings. Untouched existing accounts are not retroactively flagged.
+- Bootstrap passwords and passwords installed by `init-admin` must be replaced before privileged use. Operator resets atomically revoke sessions and device pairings. Untouched existing accounts are not retroactively flagged.
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
 
@@ -367,7 +370,7 @@ the compose checks. `make matrix-acceptance` also needs node, openssl, certutil 
 - [internal/config/AGENTS.md](internal/config/AGENTS.md): Configuration management and environment loader.
 - [internal/store/AGENTS.md](internal/store/AGENTS.md): Pluggable database abstraction layer (SQLite & PostgreSQL).
 - [internal/crypto/AGENTS.md](internal/crypto/AGENTS.md): Cryptographic primitives (AES-256-GCM, HMAC, SHA-256, randomness, PKCE).
-- [internal/auth/AGENTS.md](internal/auth/AGENTS.md): Authentication, MFA (TOTP), recovery codes, sessions, and CAPTCHA.
+- [internal/auth/AGENTS.md](internal/auth/AGENTS.md): Authentication, sessions, and CAPTCHA.
 - [internal/sso/AGENTS.md](internal/sso/AGENTS.md): KyIdentity OIDC sign-in and signed directory webhooks.
 - [internal/scim/AGENTS.md](internal/scim/AGENTS.md): SCIM 2.0 user and group provisioning engine.
 - [internal/matrixrtc/AGENTS.md](internal/matrixrtc/AGENTS.md): Element Call authorization hashes, scoped LiveKit grants and room management.

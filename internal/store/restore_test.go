@@ -12,7 +12,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
-// seedGrants gives one user a session, an MFA challenge and a device pairing.
+// seedGrants gives one user a session and a device pairing.
 func seedGrants(t *testing.T, st store.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -20,7 +20,6 @@ func seedGrants(t *testing.T, st store.Store) {
 	for _, err := range []error{
 		st.Users().CreateUser(ctx, &store.User{ID: "u", Username: "u", PasswordHash: "h", Role: "user", Status: "active", SSOProvider: "local"}),
 		st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "session", UserID: "u", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, "h"),
-		st.Sessions().CreateMFAChallenge(ctx, &store.MFAChallenge{TokenHash: "challenge", UserID: "u", ExpiresAt: now.Add(time.Hour)}, "h"),
 		st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "pair", UserID: "u", Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}, "h"),
 	} {
 		if err != nil {
@@ -40,9 +39,6 @@ func TestRestoreInvalidatesGrants(t *testing.T) {
 	}
 	if _, err := st.Sessions().GetSession(ctx, "session"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("session survived", err)
-	}
-	if _, _, err := st.Sessions().ConsumeMFAChallenge(ctx, "challenge"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatal("challenge survived", err)
 	}
 	if _, err := st.Devices().GetPairingBySecret(ctx, "pair"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("pairing survived", err)

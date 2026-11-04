@@ -103,14 +103,21 @@ export function formatNotes({ room, start, end, entries, timeZone = 'UTC' }) {
   return [...head, ...(body.length ? body : ['No speech was transcribed.'])].join('\n');
 }
 
-// chunks splits text at line breaks into parts of at most max characters (a line longer than
-// max is cut), so each part fits one Matrix event once encrypted.
+// chunks splits text at line breaks into parts of at most max bytes as a JSON string (UTF-8,
+// escapes counted; a line longer than max is cut between characters), so each part fits one
+// Matrix event once encrypted: the event limit is 65,536 bytes and Megolm's base64 adds a third.
 export function chunks(text, max = 30_000) {
+  const size = (s) => Buffer.byteLength(JSON.stringify(s)) - 2;
   const out = [];
   let cur = '';
   for (let line of text.split('\n')) {
-    while (line.length > max) { if (cur) { out.push(cur); cur = ''; } out.push(line.slice(0, max)); line = line.slice(max); }
-    if (cur.length + line.length + 1 > max) { out.push(cur); cur = ''; }
+    while (size(line) > max) {
+      if (cur) { out.push(cur); cur = ''; }
+      let cut = 0, bytes = 0;
+      for (const ch of line) { if (cut && bytes + size(ch) > max) break; bytes += size(ch); cut += ch.length; }
+      out.push(line.slice(0, cut)); line = line.slice(cut);
+    }
+    if (cur && size(cur) + size(line) + 2 > max) { out.push(cur); cur = ''; }
     cur = cur ? `${cur}\n${line}` : line;
   }
   if (cur) out.push(cur);

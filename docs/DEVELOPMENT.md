@@ -24,11 +24,10 @@ export KY_ADMIN_PASSWORD
 KY_HOST=127.0.0.1 ./kymessages
 ```
 
-Open `http://localhost:8080`. Replace the bootstrap password before privileged use, then
-turn on two-factor sign-in under Settings > Account security. To create or reset the local
+Open `http://localhost:8080`. Replace the bootstrap password before privileged use. The
+local administrator signs in with a password only; a second factor is KyIdentity's. To create or reset the local
 administrator from a shell, run `./kymessages init-admin [-username <name>]`; it reads the
-password from stdin (no echo on a terminal), never from the command line. A reset also turns
-off the account's two-factor sign-in (for a lost authenticator); resetting a non-admin local
+password from stdin (no echo on a terminal), never from the command line. Resetting a non-admin local
 account refuses unless `-promote` is given, which makes it an admin.
 The local administrator operates the service; member access requires
 suite OIDC.

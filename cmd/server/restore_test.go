@@ -16,6 +16,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 	"github.com/Busnes-app/ky_server_base/internal/store/migrations"
@@ -63,6 +64,14 @@ func sealFixture(t *testing.T, service string) (string, []string) {
 	if err := st.Sessions().CreateSession(context.Background(), &store.Session{TokenHash: "old-session", UserID: "alice", CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}, ""); err != nil {
 		t.Fatal(err)
 	}
+	// A daily schedule, last run a week ago: due at once if the restore kept it.
+	settings := backup.Settings(context.Background(), st.Settings())
+	if err := recoveryclient.SetInterval(settings, 86400); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Set("backup_last_attempt", time.Now().UTC().Add(-7*24*time.Hour).Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +105,21 @@ func TestRestoreExtractsWithTwoShares(t *testing.T) {
 	}
 	if sessions != 0 || audits != 1 {
 		t.Fatalf("restored grants: sessions=%d audits=%d", sessions, audits)
+	}
+	// A restored capsule does not deposit on its own (KyNotes Q9 A), even with the default on.
+	st, err := store.Open(context.Background(), config.DatabaseConfig{Driver: "sqlite", DSN: (&url.URL{Scheme: "file", Path: filepath.Join(target, "data", "ky_server.db"), RawQuery: "mode=rw"}).String()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, on, err := recoveryclient.NextRun(24*time.Hour, backup.Settings(context.Background(), st.Settings())); err != nil || on {
+		t.Fatalf("restored schedule still on (%v)", err)
+	}
+	if _, err := st.Audit().LatestAuditRecord(context.Background(), "restore.deposits_off"); err != nil {
+		t.Fatalf("no restore.deposits_off audit: %v", err)
+	}
+	if !strings.Contains(out.String(), "Scheduled backups are off") {
+		t.Fatalf("restore did not say the schedule is off: %s", out.String())
 	}
 	if !strings.Contains(out.String(), "busnes_app") {
 		t.Fatalf("manifest not printed: %s", out.String())

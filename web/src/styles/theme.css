@@ -369,7 +369,6 @@ dialog.modal-window::backdrop { background: rgb(12 12 18 / 0.68); }
 .ky-auth-error { display: flex; align-items: flex-start; gap: var(--ky-space-2); margin: 0; color: var(--danger); font-size: var(--ky-type-meta); }
 .ky-auth-error svg { flex: none; margin-top: 2px; }
 .ky-auth-note { margin: 0; color: var(--ink); font-size: var(--ky-type-meta); }
-.ky-auth-field > input.ky-code-input { font-family: var(--font-mono); font-size: 1.125rem; letter-spacing: 2px; text-align: center; }
 .ky-auth-check .animate-spin { color: var(--accent); }
 
 /* ---------- Console tables (Users, Audit) ---------- */

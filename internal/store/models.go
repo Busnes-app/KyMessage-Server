@@ -15,10 +15,6 @@ type User struct {
 	Status             string     `json:"status"`       // "active", "suspended", "inactive"
 	SSOProvider        string     `json:"sso_provider"` // "local", "kyidentity", "scim"
 	SSOSubject         string     `json:"sso_subject,omitempty"`
-	TOTPSecretEnc      string     `json:"-"` // AES-256-GCM encrypted
-	TOTPEnabled        bool       `json:"totp_enabled"`
-	TOTPLastCounter    int64      `json:"-"` // last RFC 6238 counter accepted; refuses replay inside the skew window
-	RecoveryCodesHash  string     `json:"-"` // JSON array of sha256 hashes
 	PushDeviceID       string     `json:"push_device_id,omitempty"`
 	MustChangePassword bool       `json:"must_change_password"`
 	CreatedAt          time.Time  `json:"created_at"`
@@ -36,12 +32,6 @@ type Session struct {
 	// so a session derived by pairing carries its parent's time, never a fresh one.
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
-}
-
-type MFAChallenge struct {
-	TokenHash string
-	UserID    string
-	ExpiresAt time.Time
 }
 
 // DevicePairing represents a 90-second ephemeral session to link mobile/PWA wrappers.

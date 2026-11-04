@@ -262,40 +262,12 @@ func TestAuditAndSettings(t *testing.T) {
 	}
 }
 
-func TestSpendTOTPCounterRefusesReplay(t *testing.T) {
-	st := newTestStore(t)
-	ctx := context.Background()
-	u := &store.User{ID: "usr_t", Username: "t", Role: "user", Status: "active", SSOProvider: "local"}
-	if err := st.Users().CreateUser(ctx, u); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Users().SpendTOTPCounter(ctx, u.ID, 100); err != nil {
-		t.Fatalf("first spend: %v", err)
-	}
-	if err := st.Users().SpendTOTPCounter(ctx, u.ID, 100); !errors.Is(err, store.ErrAlreadyExists) {
-		t.Fatalf("replay: got %v, want ErrAlreadyExists", err)
-	}
-	if err := st.Users().SpendTOTPCounter(ctx, u.ID, 99); !errors.Is(err, store.ErrAlreadyExists) {
-		t.Fatalf("older counter: got %v, want ErrAlreadyExists", err)
-	}
-	if err := st.Users().SpendTOTPCounter(ctx, u.ID, 101); err != nil {
-		t.Fatalf("next counter: %v", err)
-	}
-	got, _ := st.Users().GetUserByID(ctx, u.ID)
-	if got.TOTPLastCounter != 101 {
-		t.Fatalf("stored counter %d, want 101", got.TOTPLastCounter)
-	}
-}
-
-// seedUserGrants gives the user a session, an MFA challenge and a pending pairing.
+// seedUserGrants gives the user a session and a pending pairing.
 func seedUserGrants(t *testing.T, st store.Store, userID, hash string) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
 	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-" + userID, UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, hash); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Sessions().CreateMFAChallenge(ctx, &store.MFAChallenge{TokenHash: "mfa-" + userID, UserID: userID, ExpiresAt: now.Add(time.Minute)}, hash); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "pair-" + userID, UserID: userID, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}, hash); err != nil {
@@ -309,16 +281,13 @@ func assertNoGrants(t *testing.T, st store.Store, userID string) {
 	if _, err := st.Sessions().GetSession(ctx, "sess-"+userID); err == nil {
 		t.Error("session survived")
 	}
-	if _, _, err := st.Sessions().ConsumeMFAChallenge(ctx, "mfa-"+userID); err == nil {
-		t.Error("MFA challenge survived")
-	}
 	if _, err := st.Devices().GetPairingBySecret(ctx, "pair-"+userID); err == nil {
 		t.Error("device pairing survived")
 	}
 }
 
-// Revoking a user's sessions must also revoke what would mint the next one: a pending MFA
-// challenge or device pairing outlived a SCIM deactivation or role change.
+// Revoking a user's sessions must also revoke what would mint the next one: a pending device
+// pairing outlived a SCIM deactivation or role change.
 func TestDeleteUserSessionsRevokesEveryGrant(t *testing.T) {
 	st := newTestStore(t)
 	if err := st.Users().CreateUser(context.Background(), &store.User{ID: "usr_g", Username: "g", PasswordHash: "h", Role: "admin", Status: "active", SSOProvider: "scim"}); err != nil {
@@ -329,49 +298,6 @@ func TestDeleteUserSessionsRevokesEveryGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoGrants(t, st, "usr_g")
-}
-
-// Enrolment only moves forward from the expected state; enabling revokes every earlier grant.
-func TestTOTPEnrolmentStates(t *testing.T) {
-	st := newTestStore(t)
-	ctx := context.Background()
-	for _, u := range []*store.User{
-		{ID: "usr_l", Username: "l", PasswordHash: "h", Role: "admin", Status: "active", SSOProvider: "local"},
-		{ID: "usr_k", Username: "k", PasswordHash: "h", Role: "admin", Status: "active", SSOProvider: "kyidentity", SSOSubject: "s"},
-	} {
-		if err := st.Users().CreateUser(ctx, u); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := st.Users().SetPendingTOTP(ctx, "usr_k", "enc"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("pending TOTP on a suite account: %v", err)
-	}
-	if err := st.Users().DisableTOTP(ctx, "usr_l"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("disable while off: %v", err)
-	}
-	if err := st.Users().SetPendingTOTP(ctx, "usr_l", "enc-1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Users().EnableTOTP(ctx, "usr_l", "enc-other", `["x"]`); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("enable with a replaced secret: %v", err)
-	}
-	seedUserGrants(t, st, "usr_l", "h")
-	if err := st.Users().EnableTOTP(ctx, "usr_l", "enc-1", `["x"]`); err != nil {
-		t.Fatal(err)
-	}
-	assertNoGrants(t, st, "usr_l")
-	if err := st.Users().SetPendingTOTP(ctx, "usr_l", "enc-2"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a new secret replaced an enabled one: %v", err)
-	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_l"); !u.TOTPEnabled || u.TOTPSecretEnc != "enc-1" || u.RecoveryCodesHash != `["x"]` {
-		t.Fatalf("enabled: %+v", u)
-	}
-	if err := st.Users().DisableTOTP(ctx, "usr_l"); err != nil {
-		t.Fatal(err)
-	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_l"); u.TOTPEnabled || u.TOTPSecretEnc != "" || u.RecoveryCodesHash != "[]" {
-		t.Fatalf("disabled: %+v", u)
-	}
 }
 
 // A taken username is a typed error on both engines, from every path that writes one, and the
@@ -442,13 +368,33 @@ func TestDirectoryStatuses(t *testing.T) {
 	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_local", Username: "local", Role: "user", Status: "active", SSOProvider: "local"}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+	// SCIM rows whose externalId is a KyIdentity subject: sign-in adopts them, so Matrix must
+	// know them, active or not (pass 2: an adopted user was locked out of chat). Only where
+	// sign-in would adopt them: never over a KyIdentity row or a deletion record.
+	for _, u := range []*store.User{
+		{ID: "usr_sam", Username: "sam", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"},
+		{ID: "usr_sid", Username: "sid", Role: "user", Status: "inactive", SSOProvider: "scim", SSOSubject: "kid-sid"},
+		{ID: "usr_on2", Username: "on2", Role: "user", Status: "inactive", SSOProvider: "scim", SSOSubject: "on"},
+		{ID: "usr_gone2", Username: "gone2", Role: "user", Status: "inactive", SSOProvider: "scim", SSOSubject: "gone"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[string]string{"on": "active", "off": "inactive", "gone": "deleted", "oidc": "active"}
+	got, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"on": "active", "off": "inactive", "gone": "deleted", "oidc": "active"}
 	if !maps.Equal(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
+		t.Fatalf("SCIM off: got %v, want %v", got, want)
+	}
+	want["kid-sam"], want["kid-sid"] = "active", "inactive"
+	if got, err = st.Users().DirectoryStatuses(ctx, "kyidentity", true); err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("SCIM on: got %v, want %v", got, want)
 	}
 }
 
@@ -464,7 +410,7 @@ func TestDirectoryStatusesDuplicateSubjectFailsClosed(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		got, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+		got, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false)
 		if err != nil {
 			t.Fatal(err)
 		}

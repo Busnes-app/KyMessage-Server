@@ -242,24 +242,38 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 		s.matrixError(w, err)
 		return
 	}
+	// Recorded before its token exists, so a failed mint leaves an agent Rotate can finish,
+	// not a MAS account whose name is taken and that the console cannot see. Its state is
+	// expired, which a revoke changes, so a revoke during the mint wins (ActivateNewAgent).
 	device := newDeviceID()
-	sessionID, token, err := s.mas.MintAgentToken(ctx, masID, device)
-	if err != nil {
+	a := &store.Agent{ID: uuid.NewString(), Username: req.Name, MASUserID: masID, DeviceID: device, OwnerSubject: owner.SSOSubject,
+		TokenState: store.AgentTokenExpired, CreatedBy: s.actorID(r)}
+	if err := s.store.Agents().CreateAgent(ctx, a); err != nil {
 		// The unregistered account stays locked by the offboarding sweep (fail closed).
 		record(mxid, "error: "+err.Error())
-		s.matrixError(w, err)
+		s.writeError(w, http.StatusInternalServerError, "Could not record the agent")
 		return
 	}
-	a := &store.Agent{ID: uuid.NewString(), Username: req.Name, MASUserID: masID, DeviceID: device, OwnerSubject: owner.SSOSubject,
-		SessionID: sessionID, TokenState: store.AgentTokenActive, CreatedBy: s.actorID(r)}
-	if err := s.store.Agents().CreateAgent(ctx, a); err != nil {
+	sessionID, token, err := s.mas.MintAgentToken(ctx, masID, device)
+	if err != nil {
+		record(mxid, "created without a token: "+err.Error())
+		s.writeError(w, http.StatusBadGateway, "The agent was created but its token could not be issued; use Rotate to issue one")
+		return
+	}
+	if err := s.store.Agents().ActivateNewAgent(ctx, a.ID, sessionID); err != nil {
+		raced := errors.Is(err, store.ErrNotFound)
 		if rerr := s.mas.RevokeAgentSession(ctx, sessionID); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
-		record(mxid, "error: "+err.Error())
-		s.writeError(w, http.StatusInternalServerError, "Could not record the agent; its token was revoked")
+		record(mxid, "created without a token: "+err.Error())
+		if raced {
+			s.writeError(w, http.StatusConflict, "The agent was changed while its token was issued; the token was revoked")
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, "The agent was created but its token could not be recorded and was revoked; use Rotate to issue one")
 		return
 	}
+	a.SessionID, a.TokenState = sessionID, store.AgentTokenActive
 	record(mxid, "created")
 	s.tokenReply(w, s.agentView(ctx, a, o, nil), token)
 }
