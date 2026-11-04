@@ -27,7 +27,9 @@ KY_HOST=127.0.0.1 ./kymessages
 Open `http://localhost:8080`. Replace the bootstrap password before privileged use, then
 turn on two-factor sign-in under Settings > Account security. To create or reset the local
 administrator from a shell, run `./kymessages init-admin [-username <name>]`; it reads the
-password from stdin (no echo on a terminal), never from the command line.
+password from stdin (no echo on a terminal), never from the command line. A reset also turns
+off the account's two-factor sign-in (for a lost authenticator); resetting a non-admin local
+account refuses unless `-promote` is given, which makes it an admin.
 The local administrator operates the service; member access requires
 suite OIDC.
 The default data directory is `./data`; keep its encryption key with the database.

@@ -583,14 +583,14 @@ func (u *userStore) CompletePasswordChange(ctx context.Context, userID, oldHash,
 }
 
 // ResetAdminPassword is the operator recovery path, including disabled local accounts.
-func (u *userStore) ResetAdminPassword(ctx context.Context, userID, newHash string) error {
+func (u *userStore) ResetAdminPassword(ctx context.Context, userID, newHash string, promote bool) error {
 	tx, err := u.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	result, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET password_hash = ?, must_change_password = ?, status = 'active', role = 'admin', updated_at = ? WHERE id = ? AND sso_provider = 'local'`), newHash, true, now, userID)
+	result, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET password_hash = ?, must_change_password = ?, status = 'active', role = 'admin', totp_enabled = ?, totp_secret_enc = '', recovery_codes_hash = '[]', updated_at = ? WHERE id = ? AND sso_provider = 'local' AND (role = 'admin' OR ?)`), newHash, true, false, now, userID, promote)
 	if err != nil {
 		return err
 	}

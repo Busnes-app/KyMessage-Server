@@ -20,7 +20,8 @@ priority is small teams and encrypted chat, with voice and video calls enabled b
 - `cmd/server` `bootstrapAdmin` creates the local admin on an empty database as
   `KY_ADMIN_USERNAME` (default `admin`, passed through by Compose); a failed user count stops
   startup rather than reading as empty. `init-admin` reads the password from stdin (no echo on
-  a terminal) and has no `-password` flag: argv is world-readable. A KyIdentity user whose
+  a terminal) and has no `-password` flag: argv is world-readable. Its reset of an existing
+  local account clears two-factor and refuses a non-admin unless `-promote` is given. A KyIdentity user whose
   username another account holds is refused, never merged: a webhook create gets 409 with
   sync reason `username_conflict` (recovery: rename, then Resync Directory in KyIdentity), an
   update keeps the old username and applies the rest, both audit `sso.sync_conflict`; sign-in

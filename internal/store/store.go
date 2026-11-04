@@ -82,7 +82,10 @@ type UserStore interface {
 	// when the directory deleted it (an order row with no user). Of several rows for one
 	// subject, a non-active status wins.
 	DirectoryStatuses(ctx context.Context, provider string) (map[string]string, error)
-	ResetAdminPassword(ctx context.Context, userID, newHash string) error
+	// ResetAdminPassword is init-admin's recovery of a local account: a forced password
+	// replacement, active, admin, and two-factor cleared (a lost authenticator must not
+	// lock the operator out). It is ErrNotFound for a non-admin unless promote is set.
+	ResetAdminPassword(ctx context.Context, userID, newHash string, promote bool) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
 	UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error
 	// SpendTOTPCounter records counter as used. It returns ErrAlreadyExists when counter is
