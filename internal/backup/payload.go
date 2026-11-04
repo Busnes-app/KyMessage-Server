@@ -41,6 +41,9 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 	if strings.ToLower(cfg.Database.Driver) != "sqlite" {
 		return recoveryclient.Payload{}, fmt.Errorf("%w: %s", ErrNoDatabaseSnapshot, cfg.Database.Driver)
 	}
+	if err := defaultSQLitePath(cfg.Database.DSN, cfg.Database.DataDir); err != nil {
+		return recoveryclient.Payload{}, err
+	}
 	dbBytes, err := snapshotSQLite(ctx, cfg.Database.DSN, cfg.Database.DataDir)
 	if err != nil {
 		return recoveryclient.Payload{}, err
@@ -108,6 +111,19 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 	if err := b.err(); err != nil {
 		return recoveryclient.Payload{}, err
 	}
+	if cfg.Matrix.Enabled() {
+		// The walk takes regular files only: a symlinked secret would otherwise be sealed as a
+		// success that restore-matrix cannot use.
+		have := map[string]bool{}
+		for _, f := range files {
+			have[f.Path] = true
+		}
+		for _, name := range matrixRequired() {
+			if !have[name] {
+				return recoveryclient.Payload{}, fmt.Errorf("backup: %s is missing or not a regular file; a restore needs it", name)
+			}
+		}
+	}
 	recipe["required_files"] = requiredFiles(files)
 	return recoveryclient.Payload{
 		ServiceName: cfg.Server.AppName,
@@ -119,6 +135,19 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 		},
 		VerificationRecipe: recipe,
 	}, nil
+}
+
+// defaultSQLitePath refuses a database file other than <dataDir>/ky_server.db: the capsule
+// and restore carry it under that name only, so a restored server started with a custom
+// KY_DB_DSN would open a new, empty database (ky-server-base Q10 A).
+func defaultSQLitePath(dsn, dataDir string) error {
+	path, _, _ := strings.Cut(strings.TrimPrefix(dsn, "file:"), "?")
+	got, err1 := filepath.Abs(path)
+	want, err2 := filepath.Abs(filepath.Join(dataDir, "ky_server.db"))
+	if err1 != nil || err2 != nil || got != want {
+		return fmt.Errorf("%w: the SQLite database is %q, but backups and restore support only %q; unset KY_DB_DSN or point it there", ErrNoDatabaseSnapshot, path, filepath.Join(dataDir, "ky_server.db"))
+	}
+	return nil
 }
 
 // snapshotSQLite returns a consistent single-file copy of the live database. The store runs

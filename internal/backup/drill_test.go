@@ -422,13 +422,27 @@ func TestDrillRefusesWhatRestoreMatrixRefuses(t *testing.T) {
 	}
 	for _, secret := range []string{"matrix/secrets/mas_db_password", "matrix/secrets/synapse_db_password"} {
 		cfg, _ := matrixInstance(t, append(dumpOf(10), []byte("\nPGEND\n")...), append(dumpOf(10), []byte("\nPGEND\n")...))
-		if err := os.Remove(filepath.Join(cfg.Matrix.Dir, strings.TrimPrefix(secret, "matrix/"))); err != nil {
-			t.Fatal(err)
-		}
-		p, err := backup.Collect(context.Background(), cfg, "1.0.0")
+		full, err := backup.Collect(context.Background(), cfg, "1.0.0")
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Collect refuses to seal without the secret, a symlink in its place included.
+		path := filepath.Join(cfg.Matrix.Dir, strings.TrimPrefix(secret, "matrix/"))
+		if err := os.Rename(path, path+".real"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(path+".real", path); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); err == nil || !strings.Contains(err.Error(), secret) {
+			t.Errorf("collect with %s a symlink: %v", secret, err)
+		}
+		// An older capsule without it still fails the drill.
+		p := full
+		p.Files = slices.DeleteFunc(slices.Clone(full.Files), func(f recoveryclient.File) bool { return f.Path == secret })
+		p.VerificationRecipe = maps.Clone(full.VerificationRecipe)
+		req, _ := full.VerificationRecipe["required_files"].([]string)
+		p.VerificationRecipe["required_files"] = slices.DeleteFunc(slices.Clone(req), func(s string) bool { return s == secret })
 		if c := backup.Checks(matrixScratch(t, p, "", ""), manifestFor(p)); len(c) != 1 || c[0].Message != "required_files omits "+secret {
 			t.Errorf("capsule without %s: %+v", secret, c)
 		}

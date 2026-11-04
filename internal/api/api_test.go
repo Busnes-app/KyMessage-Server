@@ -38,6 +38,9 @@ func setupTestServer(t *testing.T) (*api.Server, store.Store, *config.Config) {
 	cfg, _ := config.LoadFromEnv()
 	db := testdb.Config(t)
 	db.DataDir = cfg.Database.DataDir // testdb only picks the backend; keep the temp data dir
+	if db.Driver == "sqlite" {
+		db.DSN = cfg.Database.DSN // <data dir>/ky_server.db, the only path a capsule carries
+	}
 	cfg.Database = db
 	cfg.Captcha.Provider = "none" // disable captcha for unit test speed
 

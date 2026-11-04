@@ -1052,13 +1052,19 @@ func pairedForBackup(t *testing.T, srv *api.Server, st store.Store, cfg *config.
 	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
 }
 
-// withMatrix enables Matrix on cfg: an empty matrix-init tree, a pg_dump running script and a
-// pg_restore that reads its input whole.
+// withMatrix enables Matrix on cfg: a matrix-init tree holding the files a restore needs, a
+// pg_dump running script and a pg_restore that reads its input whole.
 func withMatrix(t *testing.T, cfg *config.Config, script string) string {
 	t.Helper()
 	mdir := t.TempDir()
 	for _, sub := range []string{"secrets", "synapse", "mas", "element", "postgres"} {
 		if err := os.MkdirAll(filepath.Join(mdir, sub), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range []string{"secrets/synapse_db_password", "secrets/mas_db_password", "synapse/signing.key",
+		"synapse/homeserver.yaml", "mas/config.yaml", "postgres/init.sql", "postgres/kybackup-role.sql"} {
+		if err := os.WriteFile(filepath.Join(mdir, rel), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
