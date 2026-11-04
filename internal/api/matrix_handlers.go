@@ -114,7 +114,7 @@ func (s *Server) handleMatrixUsers(w http.ResponseWriter, r *http.Request) {
 		s.matrixError(w, err)
 		return
 	}
-	dir, err := s.store.Users().DirectoryStatuses(ctx, "kyidentity")
+	dir, err := s.store.Users().DirectoryStatuses(ctx, "kyidentity", s.config.SCIM.Enabled)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Could not read the KyIdentity directory")
 		return

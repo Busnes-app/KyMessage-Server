@@ -238,6 +238,18 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
 		t.Fatalf("inactive SCIM row: %d %s", w.Code, w.Body.String())
 	}
+	// A SCIM admin row becomes a console admin by sign-in only with KY_SCIM_ALLOW_ADMIN.
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_scim_boss", Username: "boss", Role: "admin", Status: "active", SSOProvider: "scim", SSOSubject: "kid-boss"}); err != nil {
+		t.Fatal(err)
+	}
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-boss", "preferred_username": "boss"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
+		t.Fatalf("SCIM admin row without the opt-in: %d %s", w.Code, w.Body.String())
+	}
+	cfg.SCIM.AllowAdmin = true
+	if w := idp.signIn(api.NewServer(cfg, st), map[string]any{"sub": "kid-boss", "preferred_username": "boss"}); sessionCookie(w) == nil {
+		t.Fatalf("SCIM admin row with the opt-in: %d %s", w.Code, w.Body.String())
+	}
+	cfg.SCIM.AllowAdmin = false
 	// Two SCIM rows with one externalId are ambiguous: refused, never one picked at random.
 	for _, id := range []string{"usr_scim_dup1", "usr_scim_dup2"} {
 		if err := st.Users().CreateUser(ctx, &store.User{ID: id, Username: id, Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-dup"}); err != nil {

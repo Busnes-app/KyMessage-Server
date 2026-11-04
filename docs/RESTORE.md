@@ -13,8 +13,8 @@ The inherited `ky-primitives/recoveryclient` adapter seals the server capsule:
 
 | File | Contents |
 |---|---|
-| `data/ky_server.db` | SQLite snapshot: accounts, MFA state, settings, audits and sealed recovery token |
-| `data/encryption.key` | Deployment key needed to open stored MFA secrets and the recovery token |
+| `data/ky_server.db` | SQLite snapshot: accounts, settings, audits and sealed recovery token |
+| `data/encryption.key` | Deployment key needed to open the sealed recovery token |
 | `data/recovery.pub` | Pinned suite recovery public key, when configured |
 | `config/settings.json` | App name, URL, port and database driver for operator reference; not automatically loaded |
 | `data/media.key` | With Matrix: the key that opens the media mirror |
@@ -78,7 +78,9 @@ The product then requires a nonempty regular SQLite file and a valid 32-byte
 hexadecimal deployment key. It opens/migrates the offline snapshot (refusing a database
 migrated by a newer build: restore with that build or newer) and, in one
 transaction, deletes sessions, MFA challenges and device pairings and records
-`restore.grants_invalidated`. It closes the store before reporting success.
+`restore.grants_invalidated`. It then turns scheduled backups off (audited
+`restore.deposits_off`, and printed), so an old copy started on a drill or standby host never
+seals and deposits on its own. It closes the store before reporting success.
 
 If extraction fails, the library rolls it back. If preparation fails, or the target
 path no longer names the directory extraction started in, the extracted files are
@@ -170,11 +172,12 @@ All users must sign in freshly; sessions, MFA challenges and device pairings fro
 before the backup are gone.
 
 Review changes after the capsule's timestamp using surviving audit logs and identity
-records: disabled accounts, passwords, MFA enrollment and SCIM state may be stale.
+records: disabled accounts, passwords and SCIM state may be stale.
 If compromise caused the incident, resolve those credentials and permissions before
 reopening access. Automatic grant invalidation does not make stale account data current.
-Check backup destinations, schedule, public-key fingerprint and last receipt after
-recovery, then create a fresh sealed backup. Remove scratch plaintext restore copies
+Check backup destinations, public-key fingerprint and last receipt after recovery. Once this
+server is the one in service, turn the schedule back on in Backup and create a fresh sealed
+backup. Remove scratch plaintext restore copies
 according to the operator's storage policy; deletion is not a physical-erasure guarantee.
 
 ## Verification

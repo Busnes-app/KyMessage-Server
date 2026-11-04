@@ -102,6 +102,12 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 			s.audit(r.Context(), "", r, "sso.login_conflict", claims.Subject, fmt.Sprintf("subject=%q scim_rows=%d", claims.Subject, n))
 			s.writeError(w, http.StatusConflict, "More than one SCIM account carries this KyIdentity subject as its externalId; ask an administrator")
 			return
+		case len(rows) == 1 && rows[0].Role == "admin" && !s.config.SCIM.AllowAdmin:
+			// A SCIM admin row from before KY_SCIM_ALLOW_ADMIN existed must not become a live
+			// console administrator by sign-in (ky-server-base Q3 A).
+			s.audit(r.Context(), rows[0].ID, r, "sso.login_refused", "session", "scim admin row without KY_SCIM_ALLOW_ADMIN")
+			s.writeError(w, http.StatusForbidden, "SCIM gave this account the admin role, which KY_SCIM_ALLOW_ADMIN does not allow; ask an administrator")
+			return
 		case len(rows) == 1:
 			user, err = rows[0], nil
 		}

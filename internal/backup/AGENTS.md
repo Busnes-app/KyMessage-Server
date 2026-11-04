@@ -27,7 +27,7 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   (`TestCollectRefusesANonDefaultDatabasePath`). The server capsule is the whole application database, compacted (`VACUUM`) on the
   owned snapshot and rejected above the shared capsule file limit before reading it into memory. Metadata/receipt/audit growth remains capped at 64 MiB;
   initial snapshot disk space still scales with the complete live database. It also carries the encryption key (`data/encryption.key`, required — restores
-  a database whose MFA secrets are gone otherwise) and the pinned recovery public key
+  a database whose sealed KyRecovery token is gone otherwise) and the pinned recovery public key
   (`data/recovery.pub`, only when paired).
 - With Matrix enabled `Collect` adds `data/media.key` (write-once, `MediaKeyPath`), `matrix/<sub>/<file>`
   for secrets, synapse, federation (skipped while absent: an upgraded stack before its `matrix-init` re-run), mas, element and postgres, plus livekit (including private TURN certificate/key copies) when calling is configured (dot-files skipped; never

@@ -80,23 +80,14 @@ type UserStore interface {
 	DeleteDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	// DirectoryStatuses maps each subject of provider to its user's status, or to "deleted"
 	// when the directory deleted it (an order row with no user). Of several rows for one
-	// subject, a non-active status wins.
-	DirectoryStatuses(ctx context.Context, provider string) (map[string]string, error)
+	// subject, a non-active status wins. With adoptSCIM (SCIM on) it also maps the SCIM rows a
+	// sign-in of provider would adopt (externalId = subject, no provider row or record): the
+	// same person, whose status SCIM owns (ky-server-base Q1 A), so Matrix must know them too.
+	DirectoryStatuses(ctx context.Context, provider string, adoptSCIM bool) (map[string]string, error)
 	// ResetAdminPassword is init-admin's recovery of a local account: a forced password
-	// replacement, active, admin, and two-factor cleared (a lost authenticator must not
-	// lock the operator out). It is ErrNotFound for a non-admin unless promote is set.
+	// replacement, active and admin. It is ErrNotFound for a non-admin unless promote is set.
 	ResetAdminPassword(ctx context.Context, userID, newHash string, promote bool) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
-	UpdateRecoveryCodes(ctx context.Context, userID, oldHashes, newHashes string) error
-	// SpendTOTPCounter records counter as used. It returns ErrAlreadyExists when counter is
-	// not greater than the stored one, which is how a replayed code inside the skew window fails.
-	SpendTOTPCounter(ctx context.Context, userID string, counter int64) error
-	// TOTP enrolment for local accounts: a pending secret, then enable (revoking every
-	// session, MFA challenge and pairing) or disable. Each is ErrNotFound when the account
-	// is not in the expected state.
-	SetPendingTOTP(ctx context.Context, userID, secretEnc string) error
-	EnableTOTP(ctx context.Context, userID, secretEnc, recoveryHashes string) error
-	DisableTOTP(ctx context.Context, userID string) error
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, offset, limit int, filter UserFilter) ([]*User, int, error)
 	CountUsers(ctx context.Context) (int, error)
@@ -109,8 +100,6 @@ type SessionStore interface {
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	CleanExpiredSessions(ctx context.Context) error
-	CreateMFAChallenge(ctx context.Context, challenge *MFAChallenge, expectedPasswordHash string) error
-	ConsumeMFAChallenge(ctx context.Context, tokenHash string) (userID, passwordHash string, err error)
 }
 
 // DeviceStore handles 90s ephemeral QR pairing sessions and paired push clients.
@@ -162,5 +151,8 @@ type AgentStore interface {
 	// AgentTokenActive, or "" with AgentTokenRevoked or AgentTokenExpired. It is ErrNotFound
 	// unless the agent still holds fromSession, so a concurrent change is never overwritten.
 	SetAgentToken(ctx context.Context, id, fromSession, deviceID, sessionID, state string) error
+	// ActivateNewAgent gives a just-created agent (no session, AgentTokenExpired) its first
+	// session. It is ErrNotFound once anything else changed it: a revoke during the mint wins.
+	ActivateNewAgent(ctx context.Context, id, sessionID string) error
 	DeleteAgent(ctx context.Context, id string) error
 }

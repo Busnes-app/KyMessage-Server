@@ -2,14 +2,12 @@ package api_test
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/Busnes-app/ky-primitives/totp"
 	"github.com/Busnes-app/ky_server_base/internal/api"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -185,113 +183,39 @@ func sessionFrom(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
 	return nil
 }
 
-// Enrolment needs a code from the new secret before it turns on, then password alone no
-// longer signs in, so step-up (a recent sign-in) repeats password plus TOTP. Grants issued on
-// the password alone are revoked; disabling needs a valid code.
-func TestTOTPEnrolment(t *testing.T) {
-	ctx := context.Background()
-	srv, st, _ := setupTestServer(t)
-	const pass = "SuperSecretPass123!"
-	creds := map[string]string{"username": "root", "password": pass}
-	admin := loginAs(t, srv, st, "root", "admin")
-	other := sessionFrom(t, postJSON(t, srv, "/api/auth/login", "192.0.2.5:1", creds))
-
-	begin := decode[struct {
-		Secret     string `json:"secret"`
-		OTPAuthURI string `json:"otpauth_uri"`
-	}](t, adminDo(t, srv, admin, "POST", "/api/auth/totp/begin", nil))
-	if begin.Secret == "" || !strings.HasPrefix(begin.OTPAuthURI, "otpauth://totp/") || !strings.Contains(begin.OTPAuthURI, "secret="+begin.Secret) {
-		t.Fatalf("begin: %+v", begin)
-	}
-	// Pending is not enabled: the password still signs in on its own.
-	if w := postJSON(t, srv, "/api/auth/login", "192.0.2.5:1", creds); !strings.Contains(w.Body.String(), `"authenticated":true`) {
-		t.Fatalf("a pending secret changed sign-in: %s", w.Body.String())
-	}
-
-	stale, _ := totp.Code(begin.Secret, time.Now().Add(-10*time.Minute))
-	if w := adminDo(t, srv, admin, "POST", "/api/auth/totp/confirm", map[string]string{"code": stale}); w.Code != http.StatusBadRequest {
-		t.Fatalf("wrong code: %d %s", w.Code, w.Body.String())
-	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_root"); u.TOTPEnabled {
-		t.Fatal("a wrong code turned TOTP on")
-	}
-	now, _ := totp.Code(begin.Secret, time.Now())
-	w := adminDo(t, srv, admin, "POST", "/api/auth/totp/confirm", map[string]string{"code": now})
-	confirmed := decode[struct {
-		RecoveryCodes []string `json:"recovery_codes"`
-	}](t, w)
-	if len(confirmed.RecoveryCodes) != 10 {
-		t.Fatalf("recovery codes: %v", confirmed.RecoveryCodes)
-	}
-	current := sessionFrom(t, w)
-	if code := do(t, srv, "GET", "/api/backup/status", other).Code; code != http.StatusUnauthorized {
-		t.Fatalf("a password-only session survived enabling: %d", code)
-	}
-	if code := do(t, srv, "GET", "/api/backup/status", admin).Code; code != http.StatusUnauthorized {
-		t.Fatalf("the replaced session survived: %d", code)
-	}
-	if code := adminDo(t, srv, current, "PUT", "/api/backup/schedule", map[string]int64{"interval_sec": 0}).Code; code != http.StatusOK {
-		t.Fatalf("the reissued session lost its step-up: %d", code)
-	}
-	if code := adminDo(t, srv, current, "POST", "/api/auth/totp/begin", nil).Code; code != http.StatusConflict {
-		t.Fatalf("begin while on: %d", code)
-	}
-
-	// Password alone now yields an MFA transaction, never a session.
-	login := postJSON(t, srv, "/api/auth/login", "192.0.2.5:1", creds)
-	if sessionCookie(login) != nil || !strings.Contains(login.Body.String(), `"mfa_required":true`) {
-		t.Fatalf("password alone after enabling: %s", login.Body.String())
-	}
-	var challenge struct {
-		MFAToken string `json:"mfa_token"`
-	}
-	_ = json.Unmarshal(login.Body.Bytes(), &challenge)
-	next, _ := totp.Code(begin.Secret, time.Now().Add(30*time.Second)) // the current step is spent
-	stepped := sessionFrom(t, postJSON(t, srv, "/api/auth/mfa/totp", "192.0.2.5:1", map[string]string{"mfa_token": challenge.MFAToken, "code": next}))
-	if code := adminDo(t, srv, stepped, "PUT", "/api/backup/schedule", map[string]int64{"interval_sec": 0}).Code; code != http.StatusOK {
-		t.Fatalf("password plus TOTP did not pass step-up: %d", code)
-	}
-
-	if w := adminDo(t, srv, stepped, "POST", "/api/auth/totp/disable", map[string]string{"code": "not-a-code"}); w.Code != http.StatusBadRequest {
-		t.Fatalf("disable with a wrong code: %d %s", w.Code, w.Body.String())
-	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_root"); !u.TOTPEnabled {
-		t.Fatal("a wrong code turned TOTP off")
-	}
-	if w := adminDo(t, srv, stepped, "POST", "/api/auth/totp/disable", map[string]string{"code": confirmed.RecoveryCodes[0]}); w.Code != http.StatusOK {
-		t.Fatalf("disable with a recovery code: %d %s", w.Code, w.Body.String())
-	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_root"); u.TOTPEnabled || u.TOTPSecretEnc != "" {
-		t.Fatalf("still on: %+v", u)
-	}
-}
-
-// Every TOTP route needs a recent sign-in, and suite accounts keep their second factor in
-// KyIdentity.
-func TestTOTPRoutesNeedFreshLocalAdmin(t *testing.T) {
-	_, st, cfg := setupTestServer(t)
-	if err := st.Users().CreateUser(context.Background(), &store.User{
-		ID: "usr_sso", Username: "sso", Role: "admin", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-sso",
-	}); err != nil {
+// Local two-factor is removed (owner decision, KyMessage Q1 A): an account that turned it on
+// before the upgrade signs in with its password alone, its stored columns untouched, and the
+// enrolment and MFA routes are gone. Removing a factor locks nobody out.
+func TestEnrolledTOTPAccountSignsInWithPasswordOnly(t *testing.T) {
+	srv, st, cfg := setupTestServer(t)
+	createLocalUser(t, st, "usr_root", "root", "admin", "SuperSecretPass123!")
+	driver := map[string]string{"sqlite": "sqlite", "postgres": "pgx"}[cfg.Database.Driver]
+	db, err := sql.Open(driver, cfg.Database.DSN)
+	if err != nil {
 		t.Fatal(err)
 	}
-	idp := newFakeIdP(t, cfg)
-	srv := api.NewServer(cfg, st)
-	stale := staleAdmin(t, st)
-	for _, path := range []string{"/api/auth/totp/begin", "/api/auth/totp/confirm", "/api/auth/totp/disable"} {
-		if w := adminDo(t, srv, stale, "POST", path, map[string]string{"code": "123456"}); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
-			t.Errorf("%s with a stale session: %d %s", path, w.Code, w.Body.String())
+	defer db.Close()
+	const enrolled = `UPDATE users SET totp_enabled = TRUE, totp_secret_enc = 'sealed', recovery_codes_hash = '["h"]' WHERE id = 'usr_root'`
+	if _, err := db.Exec(enrolled); err != nil {
+		t.Fatal(err)
+	}
+
+	w := postJSON(t, srv, "/api/auth/login", "192.0.2.5:1", map[string]string{"username": "root", "password": "SuperSecretPass123!"})
+	if w.Code != http.StatusOK || sessionCookie(w) == nil || strings.Contains(w.Body.String(), "mfa") || strings.Contains(w.Body.String(), "totp") {
+		t.Fatalf("password sign-in of an enrolled account: %d %s", w.Code, w.Body.String())
+	}
+	session := sessionCookie(w)
+	for _, path := range []string{"/api/auth/mfa/totp", "/api/auth/mfa/recovery-code", "/api/auth/totp/begin", "/api/auth/totp/confirm", "/api/auth/totp/disable"} {
+		if code := adminDo(t, srv, session, "POST", path, map[string]string{"code": "123456"}).Code; code != http.StatusNotFound {
+			t.Errorf("%s answered %d, want 404", path, code)
 		}
 	}
-	member := loginAs(t, srv, st, "member", "user")
-	if code := adminDo(t, srv, member, "POST", "/api/auth/totp/begin", nil).Code; code != http.StatusForbidden {
-		t.Errorf("member began TOTP: %d", code)
+	var on bool
+	var secret, codes string
+	if err := db.QueryRow(`SELECT totp_enabled, totp_secret_enc, recovery_codes_hash FROM users WHERE id = 'usr_root'`).Scan(&on, &secret, &codes); err != nil {
+		t.Fatal(err)
 	}
-	sso := sessionFrom(t, idp.signIn(srv, map[string]any{"sub": "sub-sso", "auth_time": time.Now().Unix()}))
-	if w := adminDo(t, srv, sso, "POST", "/api/auth/totp/begin", nil); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "identity provider") {
-		t.Errorf("suite admin began TOTP: %d %s", w.Code, w.Body.String())
-	}
-	if u, _ := st.Users().GetUserByID(context.Background(), "usr_sso"); u.TOTPSecretEnc != "" {
-		t.Error("a suite account got a TOTP secret")
+	if !on || secret != "sealed" || codes != `["h"]` {
+		t.Errorf("stored two-factor data changed: %v %q %q", on, secret, codes)
 	}
 }

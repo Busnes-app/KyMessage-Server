@@ -20,7 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// encryptionKeyPath is where a restore drops the key that decrypts users.totp_secret_enc,
+// encryptionKeyPath is where a restore drops the key that opens the sealed KyRecovery token,
 // relative to the restore target: the same <DataDir>/encryption.key config.LoadFromEnv reads.
 const encryptionKeyPath = "data/encryption.key"
 

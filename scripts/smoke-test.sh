@@ -109,7 +109,7 @@ check "anonymous cannot set the schedule" "$(status -X PUT "$BASE/api/backup/sch
 check "anonymous cannot unpair" "$(status -X DELETE "$BASE/api/backup/pairing")" "401"
 check "anonymous cannot read the audit log" "$(status "$BASE/api/admin/audit")" "401"
 check "anonymous cannot read health" "$(status "$BASE/api/admin/health")" "401"
-check "anonymous cannot start TOTP setup" "$(status -X POST "$BASE/api/auth/totp/begin")" "401"
+check "local TOTP setup is gone" "$(status -X POST "$BASE/api/auth/totp/begin")" "404"
 contains "no SAML metadata (the path is the SPA)" "$(curl -s "$BASE/saml/metadata")" 'id="root"'
 check "anonymous cannot set site theme" "$(status -X POST -H 'Content-Type: application/json' -d '{"theme":"oled"}' "$BASE/api/settings/theme")" "401"
 check "scim rejects wrong bearer" "$(status -H 'Authorization: Bearer wrong' "$BASE/scim/v2/Users")" "401"

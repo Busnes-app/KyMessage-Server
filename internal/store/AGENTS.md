@@ -14,10 +14,11 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   id)`; insertion order handles timestamp ties/backwards clocks without scanning
   unrelated activity. Backup status reads this append-only source, not a second
   shared last-result setting.
-- `CompletePasswordChange` atomically compares the old password, updates any local account (flagged for replacement or not), clears the flag, deletes sessions/MFA challenges/device pairings and records `auth.password_changed`. Session/MFA issuance locks the same user row against the verified hash; MFA challenges persist the creation-time password hash, and consumption returns that snapshot to reject stale completions. Migration 4 discards preexisting challenges because their credential snapshot is unknown.
+- `CompletePasswordChange` atomically compares the old password, updates any local account (flagged for replacement or not), clears the flag, deletes sessions/MFA challenges/device pairings and records `auth.password_changed`. Session and pairing issuance lock the same user row against the verified hash.
 - `ResetAdminPassword` reactivates a local administrator with the replacement flag set and shares the atomic grant purge and audit path with `CompletePasswordChange`; it also works for disabled accounts.
 - `InvalidateRestoredGrants` runs only on an offline restored database: atomically
   delete sessions, MFA challenges and device pairings and audit `restore.grants_invalidated`.
+  `cmd/server` `prepareRestoredData` then stores a backup interval of 0 (audited `restore.deposits_off`).
   Users sign in again.
 - Migrations 5–12 and 17–19 built the retired messaging stack; migration 21 drops its tables
   (children first), `messaging.*` audit rows and the three `messages_*` backup settings, and
@@ -25,9 +26,9 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - SQLite file-URI directory setup decodes the URI path; never create a literal
   `file:` directory. This permits read/write-only restoration of paths with reserved
   characters without accidentally opening a different database.
-- `UpdateProfile` writes only username, email, display name, role and status. SCIM and the KyIdentity webhook use it so a stale read cannot revert a concurrent password change or recovery-code redemption. `ListUsers` filters by one exact `UserFilter` field, and by `sso_provider` when `UserFilter.Provider` is set.
+- `UpdateProfile` writes only username, email, display name, role, status and subject (SCIM's `externalId`). A new subject also replaces the row's `password_hash` (SCIM rows hold none) with a random value in the same statement, so a sign-in of the old subject already in flight cannot issue a session. SCIM and the KyIdentity webhook use it so a stale read cannot revert a concurrent password change. `ListUsers` filters by one exact `UserFilter` field, and by `sso_provider` when `UserFilter.Provider` is set.
 - `DeleteUserSessions` deletes the user's sessions, MFA challenges and device pairings in one transaction (`deleteGrants`, shared with the password paths): a pending challenge or pairing would otherwise mint a session after a SCIM or directory revocation.
-- TOTP enrolment: `SetPendingTOTP` writes the encrypted secret only on a local account with TOTP off; `EnableTOTP` turns it on only if the stored secret is still the one confirmed, stores the recovery-code digests and deletes every grant in the same transaction; `DisableTOTP` clears secret and codes. Each is `ErrNotFound` from any other state. No migration: the columns exist since v1.
+- Local TOTP is removed: `users.totp_secret_enc`, `totp_enabled`, `totp_last_counter`, `recovery_codes_hash` and the `mfa_challenges` table stay in the schema with their data, but no code reads or writes them (only grant revocation still clears `mfa_challenges`).
 - `CreateUser`, `CreateDirectoryUser` and `ApplyDirectoryProfile` check the username against every other row first (inside the directory transaction) and return `ErrUsernameTaken` (wraps `ErrAlreadyExists`) on both engines; a refused directory write rolls back with its event ID. A write that loses a race to a concurrent insert meets the UNIQUE constraint instead; `uniqueError` maps that engine error (SQLite `users.username`, Postgres `users_username_key`) to `ErrUsernameTaken` too, any other unique violation to `ErrAlreadyExists` (`unique_internal_test.go`).
 - `GetLocalUserByUsername` returns only `sso_provider = 'local'` rows, preferring an exact-case match. Usernames are unique only case-sensitively, so password login and `init-admin` must never resolve an SSO row.
 - Migrations 15 and 16 add `directory_sync_state` (provider, subject, last applied directory revision). It is deliberately not a users column: it outlives deletion as a tombstone. Migration 16 discarded earlier timestamp-based rows and added `directory_sync_events`, the permanent set of delivered directory event IDs per provider (applied or superseded). It grows by one row per directory change, which is small for the target team size. `ApplyDirectoryProfile`, `CreateDirectoryUser` and `DeleteDirectoryUser` advance it with a conditional upsert and write the user in the same transaction.
@@ -46,8 +47,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
 - `GetAllSettings` returns any row scan error rather than omitting the row.
 - SQLite runs in WAL mode with foreign keys enabled.
 - PostgreSQL queries are rebound dynamically from standard positional parameters.
-- MFA challenges and device pairings are consumed with database state transitions that permit exactly one successful use.
-- Recovery-code hash updates use optimistic concurrency so simultaneous redemption cannot reuse a code.
+- Device pairings are consumed with database state transitions that permit exactly one successful use.
 
 - Installer config, owned identities, authority changes, durable revision/digest fences and
   native SQL audit commit together. Common setup retains the full immutable envelope;

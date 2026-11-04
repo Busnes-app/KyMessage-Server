@@ -18,7 +18,7 @@ image/build, DNS, network and overlay choices. Nothing in this guide rotates or 
 a key below its floor is refused with a message naming it, and stays as it is.
 
 The `ky-primitives` dependency is pinned to merged source `bae5c14dba4c`
-(`v0.10.2-0.20261026050236-bae5c14dba4c`) for its TOTP floor. The capsule, key and share
+(`v0.10.2-0.20261026050236-bae5c14dba4c`). The capsule, key and share
 formats are unchanged; existing capsules restore as before.
 
 ## Key rules in every mode
@@ -29,7 +29,6 @@ formats are unchanged; existing capsules restore as before.
 | `KY_SESSION_SECRET` (CSRF and proof-of-work HMAC-SHA256 key) | Production requires one; development generates 32 random bytes | Below 16 bytes fails startup. Use `openssl rand -hex 32`. Changing it only invalidates outstanding CSRF tokens and challenges | `internal/config` |
 | Directory webhook (`KY_KYIDENTITY_HMAC_SECRET`) | KyIdentity's generated 32-byte suite secret | `ky-primitives/syncauth` refuses a key below 16 bytes on every delivery (counted `not_configured`); installer setup refuses a shorter directory secret | `internal/sso`, `internal/config/installer.go` |
 | KyIdentity ID tokens | KyIdentity signs RS256 with RSA-2048 | A JWKS holding an RSA key below 2048 bits is refused, so no ID token verifies against it. Redirects on the JWKS fetch are refused. Signature, issuer, audience, expiry and nonce checks stay in `coreos/go-oidc` | `internal/sso/jwks_strength.go` |
-| TOTP | 20 random bytes | Below 16 decoded bytes cannot authenticate (RFC 4226). Secrets are only generated here, never imported | `ky-primitives/totp` |
 | LiveKit call grants (HS256) | `matrix-init`'s 32 random bytes, hex | Key and secret files outside 32–256 bytes fail startup; `matrix-init` refuses a kept secret below 32 bytes | `internal/config`, `internal/matrixinit` |
 | MAS signing keys (rendered into MAS's config) | RSA-2048 and P-256 | A kept RSA key below 2048 bits, or one that is not an unencrypted RSA PEM, is refused before any config is rendered. Every curve MAS reads is 256 bits or more | `internal/matrixinit` |
 | MAS encryption key | 32 random bytes, hex | Anything but 64 hex digits is refused | `internal/matrixinit` |
@@ -39,14 +38,14 @@ formats are unchanged; existing capsules restore as before.
 | Recovery capsules | `kycap/3`: X-Wing, HKDF-SHA256, AES-256-GCM, sealed to the pinned suite key | Fixed suite | `ky-primitives/recoveryclient` |
 | Other credentials | Session tokens 256-bit random, stored as SHA-256; device pairing 24 random bytes; notes-bot secret 32 random bytes (32–256 accepted) | Credentials, not cipher keys. Passwords use Argon2id (`ky-primitives/password`) | `internal/auth`, `internal/devices`, `internal/config` |
 
-TOTP stays HMAC-SHA1 for authenticator compatibility (RFC 6238); that is an HMAC, not a
-SHA-1 signature. Every other hash KyMessages computes is SHA-256.
+Every hash KyMessages computes is SHA-256. There is no local TOTP: the second factor is
+KyIdentity's.
 
 ## Enable the Go TLS profile
 
 Use the toolchain `go.mod` selects (the Dockerfile's builder pins it). Set
 `GODEBUG=fips140=on` before the server starts. Use `on`, not the diagnostic `only` mode:
-Argon2id, HMAC-SHA1 TOTP and the recovery suite stay in use. Go fixes the setting at process
+Argon2id and the recovery suite stay in use. Go fixes the setting at process
 start, so restart after changing it. Keep any other GODEBUG entries, with `fips140=on` once.
 
 With Compose, append `docker-compose.strong-crypto.yml` to the existing `COMPOSE_FILE` chain
@@ -157,7 +156,7 @@ python3 docs/check-strong-crypto-compose.py
 ```
 
 These are evidence for this source, not for a live deployment. After rollout, check the HTTPS
-edge, sign-in through KyIdentity, existing TOTP, a `matrix-init` re-run on the existing
+edge, sign-in through KyIdentity, a `matrix-init` re-run on the existing
 `./matrix` (it must keep every secret), a call, and a backup drill.
 
 References: [NIST SP 800-57 Part 1](https://csrc.nist.gov/pubs/sp/800/57/pt1/r5/final),

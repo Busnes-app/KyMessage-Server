@@ -1,6 +1,7 @@
 package scim
 
 import (
+	"cmp"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -87,9 +88,10 @@ type userResourceHandler struct {
 }
 
 // grantsAdmin refuses a new admin grant unless KY_SCIM_ALLOW_ADMIN: the SCIM token must not
-// mint console administrators by default. An existing grant may be kept or removed.
-func (h *userResourceHandler) grantsAdmin(oldRole, newRole string) bool {
-	return !h.allowAdmin && newRole == "admin" && oldRole != "admin"
+// mint console administrators by default. An active grant may be kept or removed; turning an
+// inactive admin row back on is a new grant.
+func (h *userResourceHandler) grantsAdmin(oldRole, oldStatus, newRole, newStatus string) bool {
+	return !h.allowAdmin && newRole == "admin" && newStatus == "active" && (oldRole != "admin" || oldStatus != "active")
 }
 
 func (h *userResourceHandler) Create(r *http.Request, attrs protocol.ResourceAttributes) (protocol.Resource, error) {
@@ -101,7 +103,7 @@ func (h *userResourceHandler) Create(r *http.Request, attrs protocol.ResourceAtt
 	if !validRole(user.Role) {
 		return protocol.Resource{}, errRole
 	}
-	if h.grantsAdmin("", user.Role) {
+	if h.grantsAdmin("", "", user.Role, user.Status) {
 		return protocol.Resource{}, errAdmin
 	}
 	if err := h.store.Users().CreateUser(r.Context(), user); err != nil {
@@ -165,24 +167,28 @@ func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol
 	if err != nil {
 		return protocol.Resource{}, err
 	}
-	oldRole, oldStatus := user.Role, user.Status
+	oldRole, oldStatus, oldSubject := user.Role, user.Status, user.SSOSubject
 	user.Username, _ = attrs["userName"].(string)
 	user.Email = primaryValue(attrs["emails"])
 	user.DisplayName = stringValue(attrs, "displayName", user.Username)
-	if role := primaryValue(attrs["roles"]); role != "" {
-		user.Role = role
+	// Sent but empty, the roles collection is replaced by none: the least privilege.
+	if roles, sent := attrs["roles"]; sent {
+		user.Role = cmp.Or(primaryValue(roles), "user")
+	}
+	if subject, sent := attrs["externalId"].(string); sent {
+		user.SSOSubject = subject
 	}
 	user.Status = statusFromActive(attrs)
 	if !validRole(user.Role) {
 		return protocol.Resource{}, errRole
 	}
-	if h.grantsAdmin(oldRole, user.Role) {
+	if h.grantsAdmin(oldRole, oldStatus, user.Role, user.Status) {
 		return protocol.Resource{}, errAdmin
 	}
 	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
-	h.revokeIfPrivilegesChanged(r, user, oldRole, oldStatus)
+	h.revokeIfPrivilegesChanged(r, user, oldRole, oldStatus, oldSubject)
 	return userResource(user), nil
 }
 
@@ -198,7 +204,7 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 	if err != nil {
 		return protocol.Resource{}, err
 	}
-	oldRole, oldStatus := user.Role, user.Status
+	oldRole, oldStatus, oldSubject := user.Role, user.Status, user.SSOSubject
 	for _, op := range operations {
 		if op.Op == protocol.PatchOperationRemove {
 			if op.Path == nil {
@@ -210,6 +216,8 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 				user.Role = "user"
 			case "active":
 				user.Status = "inactive"
+			case "externalid":
+				user.SSOSubject = ""
 			}
 			continue
 		}
@@ -224,18 +232,20 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 	if !validRole(user.Role) {
 		return protocol.Resource{}, errRole
 	}
-	if h.grantsAdmin(oldRole, user.Role) {
+	if h.grantsAdmin(oldRole, oldStatus, user.Role, user.Status) {
 		return protocol.Resource{}, errAdmin
 	}
 	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
-	h.revokeIfPrivilegesChanged(r, user, oldRole, oldStatus)
+	h.revokeIfPrivilegesChanged(r, user, oldRole, oldStatus, oldSubject)
 	return userResource(user), nil
 }
 
-func (h *userResourceHandler) revokeIfPrivilegesChanged(r *http.Request, user *store.User, oldRole, oldStatus string) {
-	if user.Role != oldRole || user.Status != oldStatus {
+// revokeIfPrivilegesChanged also revokes on a new externalId: it is the KyIdentity subject that
+// signs in as this row, so a session may belong to the person it no longer names.
+func (h *userResourceHandler) revokeIfPrivilegesChanged(r *http.Request, user *store.User, oldRole, oldStatus, oldSubject string) {
+	if user.Role != oldRole || user.Status != oldStatus || user.SSOSubject != oldSubject {
 		_ = h.store.Sessions().DeleteUserSessions(r.Context(), user.ID)
 	}
 }
@@ -271,8 +281,10 @@ func applyUserValue(user *store.User, path string, value interface{}) {
 			user.Username = v
 		}
 	case "roles", "role":
-		if v := primaryValue(value); v != "" {
-			user.Role = v
+		user.Role = cmp.Or(primaryValue(value), "user") // replaced by none: the least privilege
+	case "externalid":
+		if v, ok := value.(string); ok {
+			user.SSOSubject = v
 		}
 	case "emails":
 		user.Email = primaryValue(value)

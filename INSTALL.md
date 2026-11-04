@@ -54,8 +54,8 @@ docker compose pull
 docker compose up -d
 ```
 
-Open `http://localhost:8080`, sign in as `admin`, replace the bootstrap password and enable
-MFA in **Settings → Account security**. Data and backups must belong to `KY_UID:KY_GID`.
+Open `http://localhost:8080`, sign in as `admin`, and replace the bootstrap password.
+The local admin signs in with a password only; use KyIdentity for a second factor. Data and backups must belong to `KY_UID:KY_GID`.
 Keep the persistent encryption key with the database.
 
 For chat, follow the README’s complete Matrix initialization and proxy instructions,

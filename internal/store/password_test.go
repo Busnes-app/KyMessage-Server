@@ -20,10 +20,6 @@ func TestPasswordReplacementIsAtomicAndSingleUse(t *testing.T) {
 	if err := st.Sessions().CreateSession(ctx, sess, "old"); err != nil {
 		t.Fatal(err)
 	}
-	challenge := &store.MFAChallenge{TokenHash: "challenge", UserID: u.ID, ExpiresAt: time.Now().Add(time.Hour)}
-	if err := st.Sessions().CreateMFAChallenge(ctx, challenge, "old"); err != nil {
-		t.Fatal(err)
-	}
 	results := make(chan error, 2)
 	var wg sync.WaitGroup
 	for _, hash := range []string{"new-one", "new-two"} {
@@ -49,14 +45,8 @@ func TestPasswordReplacementIsAtomicAndSingleUse(t *testing.T) {
 	if _, err := st.Sessions().GetSession(ctx, sess.TokenHash); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("session survived", err)
 	}
-	if _, _, err := st.Sessions().ConsumeMFAChallenge(ctx, challenge.TokenHash); !errors.Is(err, store.ErrNotFound) {
-		t.Fatal("challenge survived", err)
-	}
 	if err := st.Sessions().CreateSession(ctx, sess, "old"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("stale session creation", err)
-	}
-	if err := st.Sessions().CreateMFAChallenge(ctx, challenge, "old"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatal("stale MFA creation", err)
 	}
 	audits, n, err := st.Audit().ListAuditRecords(ctx, 0, 10)
 	if err != nil || n != 1 || audits[0].Action != "auth.password_changed" {
@@ -73,10 +63,6 @@ func TestAdminPasswordResetRevokesGrants(t *testing.T) {
 	}
 	sess := &store.Session{TokenHash: "session", UserID: u.ID, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}
 	if err := st.Sessions().CreateSession(ctx, sess, "old"); err != nil {
-		t.Fatal(err)
-	}
-	challenge := &store.MFAChallenge{TokenHash: "challenge", UserID: u.ID, ExpiresAt: time.Now().Add(time.Hour)}
-	if err := st.Sessions().CreateMFAChallenge(ctx, challenge, "old"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Devices().CreatePairing(ctx, &store.DevicePairing{Secret: "pair", UserID: u.ID, Status: "pending", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute)}, "old"); err != nil {
@@ -103,14 +89,8 @@ func TestAdminPasswordResetRevokesGrants(t *testing.T) {
 	if _, err := st.Sessions().GetSession(ctx, sess.TokenHash); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("session survived", err)
 	}
-	if _, _, err := st.Sessions().ConsumeMFAChallenge(ctx, challenge.TokenHash); !errors.Is(err, store.ErrNotFound) {
-		t.Fatal("challenge survived", err)
-	}
 	if err := st.Sessions().CreateSession(ctx, sess, "old"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("stale session creation", err)
-	}
-	if err := st.Sessions().CreateMFAChallenge(ctx, challenge, "old"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatal("stale MFA creation", err)
 	}
 	audits, n, err := st.Audit().ListAuditRecords(ctx, 0, 10)
 	if err != nil || n != 1 || audits[0].Action != "auth.password_changed" {
@@ -119,12 +99,12 @@ func TestAdminPasswordResetRevokesGrants(t *testing.T) {
 }
 
 // Provisioning reads a user, edits it and writes it back. That stale copy must not undo a
-// password change or a spent recovery code that landed in between.
+// password change that landed in between.
 func TestProfileUpdateKeepsConcurrentCredentialChanges(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 	if err := st.Users().CreateUser(ctx, &store.User{
-		ID: "usr_race", Username: "race", PasswordHash: "old", RecoveryCodesHash: `["c1","c2"]`,
+		ID: "usr_race", Username: "race", PasswordHash: "old",
 		Role: "admin", Status: "active", SSOProvider: "local", MustChangePassword: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -136,9 +116,6 @@ func TestProfileUpdateKeepsConcurrentCredentialChanges(t *testing.T) {
 	if err := st.Users().CompletePasswordChange(ctx, "usr_race", "old", "new", "192.0.2.1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Users().UpdateRecoveryCodes(ctx, "usr_race", `["c1","c2"]`, `["c2"]`); err != nil {
-		t.Fatal(err)
-	}
 	stale.DisplayName = "Race Condition"
 	if err := st.Users().UpdateProfile(ctx, stale); err != nil {
 		t.Fatal(err)
@@ -147,14 +124,13 @@ func TestProfileUpdateKeepsConcurrentCredentialChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.PasswordHash != "new" || got.MustChangePassword || got.RecoveryCodesHash != `["c2"]` || got.DisplayName != "Race Condition" {
+	if got.PasswordHash != "new" || got.MustChangePassword || got.DisplayName != "Race Condition" {
 		t.Fatalf("profile write reverted credentials: %+v", got)
 	}
 }
 
-// init-admin's reset turns two-factor off, so an operator can recover an admin who lost the
-// authenticator and the recovery codes, and promotes a non-admin only when asked to.
-func TestResetAdminPasswordClearsTOTPAndPromotesOnlyWhenAsked(t *testing.T) {
+// init-admin's reset promotes a non-admin only when asked to.
+func TestResetAdminPasswordPromotesOnlyWhenAsked(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 	for _, u := range []*store.User{
@@ -165,17 +141,11 @@ func TestResetAdminPasswordClearsTOTPAndPromotesOnlyWhenAsked(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := st.Users().SetPendingTOTP(ctx, "usr_adm", "enc"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Users().EnableTOTP(ctx, "usr_adm", "enc", `["h"]`); err != nil {
-		t.Fatal(err)
-	}
 	if err := st.Users().ResetAdminPassword(ctx, "usr_adm", "new", false); err != nil {
 		t.Fatal(err)
 	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_adm"); u.TOTPEnabled || u.TOTPSecretEnc != "" || u.PasswordHash != "new" {
-		t.Fatalf("two-factor survived the reset: %+v", u)
+	if u, _ := st.Users().GetUserByID(ctx, "usr_adm"); u.PasswordHash != "new" {
+		t.Fatalf("reset did not replace the password: %+v", u)
 	}
 	if err := st.Users().ResetAdminPassword(ctx, "usr_member", "new", false); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a non-admin was reset without promote: %v", err)

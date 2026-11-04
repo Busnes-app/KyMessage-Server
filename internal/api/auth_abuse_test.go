@@ -50,7 +50,7 @@ func TestSessionMintingRoutesRefuseFormPosts(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	createLocalUser(t, st, "usr_atk", "attacker", "user", "AttackerPass123!")
 
-	for _, path := range []string{"/api/auth/login", "/api/auth/mfa/totp", "/api/auth/mfa/recovery-code", "/api/devices/pair/verify"} {
+	for _, path := range []string{"/api/auth/login", "/api/devices/pair/verify"} {
 		body := `{"username":"attacker","password":"AttackerPass123!","pad":"="}`
 		req := httptest.NewRequest("POST", path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "text/plain")
@@ -166,38 +166,26 @@ func TestLoginLockoutIsPerClientAndCountsOnlyFailures(t *testing.T) {
 }
 
 // Per-account windows must survive a flood of anonymous keys. Sharing one randomly evicted
-// map let a flood reset a victim's exhausted MFA counter.
+// map let a flood reset a victim's exhausted per-account counter.
 func TestAccountWindowSurvivesClientFlood(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
-	ctx := context.Background()
-	passHash, _ := password.Hash("SuperSecretPass123!")
-	if err := st.Users().CreateUser(ctx, &store.User{
-		ID: "usr_carol", Username: "carol", PasswordHash: passHash, Role: "user", Status: "active", SSOProvider: "local",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	attempt := func(i int) int {
-		raw := "flood-challenge-" + strconv.Itoa(i)
-		if err := st.Sessions().CreateMFAChallenge(ctx, &store.MFAChallenge{
-			TokenHash: crypto.SHA256Hex([]byte(raw)), UserID: "usr_carol", ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
-		}, passHash); err != nil {
-			t.Fatal(err)
+	session := loginAs(t, srv, st, "carol", "user")
+	attempt := func() int { return adminDo(t, srv, session, "POST", "/api/devices/pair/init", nil).Code }
+	for i := 1; i <= 10; i++ {
+		if code := attempt(); code != http.StatusOK {
+			t.Fatalf("pairing %d answered %d", i, code)
 		}
-		return postJSON(t, srv, "/api/auth/mfa/totp", "203.0.113."+strconv.Itoa(i)+":40000", map[string]string{"mfa_token": raw, "code": "000000"}).Code
-	}
-	for i := 1; i <= 5; i++ {
-		attempt(i)
 	}
 	for _, k := range api.AttemptKeysForTest(srv) {
-		if strings.HasPrefix(k, "mfa-user:") {
+		if strings.HasPrefix(k, "pair-init:") {
 			t.Fatalf("per-account key %q lives in the evictable client map", k)
 		}
 	}
 	for i := 0; i < api.AttemptsCapForTest+50; i++ {
 		api.AllowAttemptForTest(srv, "login:flood-"+strconv.Itoa(i), 20, time.Minute)
 	}
-	if code := attempt(6); code != http.StatusTooManyRequests {
-		t.Fatalf("attempt 6 after a flood answered %d, want 429", code)
+	if code := attempt(); code != http.StatusTooManyRequests {
+		t.Fatalf("pairing 11 after a flood answered %d, want 429", code)
 	}
 }
 

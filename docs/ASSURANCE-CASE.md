@@ -16,13 +16,13 @@ plaintext into an encrypted room ([Chat platform options](CHAT-PLATFORM-OPTIONS.
 
 ## What KyMessages must protect
 
-1. **Only the right people administer the deployment.** Console sign-in, second factors, sessions
+1. **Only the right people administer the deployment.** Console sign-in, sessions
    and paired devices cannot be guessed, replayed or used beyond their account's current rights.
 2. **Directory decisions reach Matrix.** When KyIdentity deactivates or deletes a person, their
    Matrix account is locked or deactivated and their sessions are ended; forged or stale
    directory events change nothing.
 3. **Call grants go only to verified Matrix users** for the one room they asked about.
-4. **Secrets held for others stay secret** (the KyRecovery token, TOTP secrets) from anyone who
+4. **Secrets held for others stay secret** (the KyRecovery token) from anyone who
    copies the database without the key file, and never reach a log.
 5. **The server cannot be turned against its network** through federation or recovery URLs.
 6. **Backups restore a complete deployment** and are sealed before they leave the host.
@@ -62,7 +62,7 @@ encrypt.
 5. **KyMessages → KyRecovery.** Capsules are sealed with `ky-primitives/recoveryclient`; a private
    recovery URL is refused unless `KY_BACKUP_ALLOW_PRIVATE_RECOVERY` is set
    (`internal/api/backup_handlers.go`).
-6. **KyMessages → its data volume.** The KyRecovery token and TOTP secrets are sealed with
+6. **KyMessages → its data volume.** The KyRecovery token is sealed with
    AES-256-GCM under the deployment key before they reach the database.
 
 ## Secure design principles applied
@@ -79,7 +79,7 @@ encrypt.
 - **Economy of mechanism.** OIDC and OAuth come from `coreos/go-oidc` and `golang.org/x/oauth2`,
   SCIM parsing from `elimity-com/scim`, passwords, webhook signatures and recovery from
   `ky-primitives`; the server's own crypto is one AES-256-GCM helper (`internal/crypto`).
-- **Separation of privilege.** Local accounts can add TOTP; a password installed by `init-admin`
+- **Separation of privilege.** A second factor is KyIdentity's (local TOTP is removed); a password installed by `init-admin`
   or an operator reset must be replaced before privileged use.
 - **Open design.** Only published algorithms: AES-256-GCM, SHA-256, HMAC, Argon2id through
   `ky-primitives/password`, OIDC with PKCE, Matrix and MSC4195 call identifiers. Key sizes meet
@@ -95,7 +95,7 @@ encrypt.
 | Broken authentication, credential stuffing | Passwords of at least 12 characters, hashed by `ky-primitives/password`; 10 failures per account and client (IPv6 by /64) per 15 minutes, answered as a wrong password, and no account-wide block that would let anyone lock the owner out; proof-of-work challenges, each spent once | `internal/auth/policy.go`, `internal/api/auth_handlers.go`, `internal/auth` |
 | Session theft from storage | Only the SHA-256 of the session token is stored; cookies are `HttpOnly`, `SameSite=Lax`, and `__Host-` prefixed when secure and host-only | `internal/auth/session.go` |
 | Device pairing takeover | 24-byte random QR secret, 90-second lifetime, sent only in request bodies, consumed atomically | `internal/devices/devices.go` |
-| CSRF | Session-bound token: every state-changing request that carries a session cookie must send `X-CSRF-Token` equal to HMAC-SHA256(`KY_SESSION_SECRET`, session cookie), compared in constant time; the `ky_csrf` cookie only tells the web app the value and is never trusted, so a pair planted from a sibling subdomain or copied from another session is refused. Sign-in, MFA and the signed directory webhook are exempt; the routes that mint a session require `application/json`, which a cross-site form cannot send without a failing preflight. `SameSite=Lax` session cookie | `internal/auth/session.go` (`ValidateCSRF`), `internal/api/server.go` (`csrfExempt`) |
+| CSRF | Session-bound token: every state-changing request that carries a session cookie must send `X-CSRF-Token` equal to HMAC-SHA256(`KY_SESSION_SECRET`, session cookie), compared in constant time; the `ky_csrf` cookie only tells the web app the value and is never trusted, so a pair planted from a sibling subdomain or copied from another session is refused. Sign-in and the signed directory webhook are exempt; the routes that mint a session require `application/json`, which a cross-site form cannot send without a failing preflight. `SameSite=Lax` session cookie | `internal/auth/session.go` (`ValidateCSRF`), `internal/api/server.go` (`csrfExempt`) |
 | Cross-origin data theft | Credentialed CORS only for the exact app origin; call-grant paths get `*` without credentials and a 16 KiB body cap; preflight from another origin refused | `internal/api/server.go` |
 | Broken access control | Admin routes wrapped in `requireAdmin` and pinned by `TestPrivilegedEndpointsRequireAdmin`; unknown `/api/` paths are a JSON 404, never a false 200 (`TestUnknownAPIPathIsNotAcknowledged`) | `internal/api/server.go`, `internal/api/authz_test.go`, `internal/api/directory_webhook_test.go` |
 | Cross-site scripting | CSP `script-src 'self'` and `frame-ancestors 'none'`, `X-Frame-Options: DENY`; no `dangerouslySetInnerHTML` in `web/src`; logos must be PNG and are re-encoded so no ancillary chunk survives (SVG refused) | `internal/api/server.go`, `internal/branding/branding.go` |
@@ -109,8 +109,6 @@ encrypt.
 ## Residual risk
 
 - **Chat encryption is Element's, unaudited and not enforced by Synapse.** See the scope note above.
-- **TOTP secrets are sealed without associated data**, so a sealed value copied to another user's
-  row would still open.
 - **Rate limits are process-local** (single-instance release target), and the per-client limiter
   evicts at its cap, which can shorten other clients' windows (`internal/api/server.go`).
 - **Call encryption and production networking** must be verified on each deployment

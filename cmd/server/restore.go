@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
@@ -77,7 +78,8 @@ func restore(capsulePath, targetDir, expectService string, shares []string, stdo
 	if _, err := io.Copy(stdout, &manifest); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly.")
+	_, err = fmt.Fprintln(stdout, "Restored sessions, challenges and pairings invalidated. Sign in freshly.\n"+
+		"Scheduled backups are off: turn them on in Backup once this server is the one in service.")
 	return err
 }
 
@@ -217,7 +219,16 @@ func prepareRestoredData(target string) error {
 	if err != nil {
 		return err
 	}
-	return errors.Join(st.InvalidateRestoredGrants(ctx), st.Close())
+	err = st.InvalidateRestoredGrants(ctx)
+	// A restored capsule does not deposit on its own (owner decision, KyNotes Q9 A): an old
+	// copy started on a drill or standby host would otherwise seal and deposit within a minute.
+	if err == nil {
+		err = recoveryclient.SetInterval(backup.Settings(ctx, st.Settings()), 0)
+	}
+	if err == nil {
+		err = st.Audit().LogAudit(ctx, &store.AuditRecord{Action: "restore.deposits_off", Details: "Scheduled backups turned off; turn them on in Backup once this server is the one in service."})
+	}
+	return errors.Join(err, st.Close())
 }
 
 // prepareRestoredMatrix gives Element's config back the 0644 matrix-init wrote: capsules clamp

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/scim"
@@ -159,7 +160,111 @@ func TestSCIMAdminGrantNeedsOptIn(t *testing.T) {
 	if u, _ := st.Users().GetUserByID(ctx, "usr_boss"); u.Status != "inactive" {
 		t.Errorf("deactivation not applied: %+v", u)
 	}
+	// Turning the deactivated admin back on is a new grant (pass 2).
+	if w := scimDo(t, h, token, "PATCH", "/scim/v2/Users/usr_boss", map[string]any{"schemas": []string{scim.SchemaPatchOp},
+		"Operations": []map[string]any{{"op": "replace", "path": "active", "value": true}}}); w.Code != http.StatusBadRequest {
+		t.Errorf("reactivate admin: %d %s", w.Code, w.Body.String())
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_boss"); u.Status != "inactive" {
+		t.Errorf("refused reactivation applied: %+v", u)
+	}
 	if w := scimDo(t, handler(true), token, "POST", "/scim/v2/Users", user("root", true)); w.Code != http.StatusCreated {
 		t.Errorf("create admin with opt-in: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// An empty roles collection replaces the admin grant with none (pass 2): PUT and PATCH
+// replace both demote, and the demoted row's sessions go.
+func TestSCIMEmptyRolesDemote(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	const token = "scim-secret-bearer-token"
+	mux := http.NewServeMux()
+	srv := scim.NewServer(st, config.SCIMConfig{Enabled: true, BearerToken: token}, "http://localhost:8080")
+	srv.RegisterRoutes(mux)
+	h := srv.AuthMiddleware(mux)
+	for _, u := range []*store.User{
+		{ID: "usr_a", Username: "a", Role: "admin", Status: "active", SSOProvider: "scim"},
+		{ID: "usr_b", Username: "b", Role: "admin", Status: "active", SSOProvider: "scim"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-a", UserID: "usr_a", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if w := scimDo(t, h, token, "PUT", "/scim/v2/Users/usr_a", map[string]any{"schemas": []string{scim.SchemaUser}, "userName": "a", "active": true, "roles": []any{}}); w.Code != http.StatusOK {
+		t.Fatalf("PUT: %d %s", w.Code, w.Body.String())
+	}
+	if w := scimDo(t, h, token, "PATCH", "/scim/v2/Users/usr_b", map[string]any{"schemas": []string{scim.SchemaPatchOp},
+		"Operations": []map[string]any{{"op": "replace", "path": "roles", "value": []any{}}}}); w.Code != http.StatusOK {
+		t.Fatalf("PATCH: %d %s", w.Code, w.Body.String())
+	}
+	for _, id := range []string{"usr_a", "usr_b"} {
+		if u, _ := st.Users().GetUserByID(ctx, id); u.Role != "user" {
+			t.Errorf("%s kept %q", id, u.Role)
+		}
+	}
+	if _, err := st.Sessions().GetSession(ctx, "sess-a"); err == nil {
+		t.Error("the demoted admin's session survived")
+	}
+}
+
+// externalId is the KyIdentity subject that adopts the row: PUT and PATCH change it, and a
+// change revokes the row's sessions (pass 2: both were silently ignored).
+func TestSCIMExternalIDChanges(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	const token = "scim-secret-bearer-token"
+	mux := http.NewServeMux()
+	srv := scim.NewServer(st, config.SCIMConfig{Enabled: true, BearerToken: token}, "http://localhost:8080")
+	srv.RegisterRoutes(mux)
+	h := srv.AuthMiddleware(mux)
+	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_sam", Username: "sam", Role: "user", Status: "active", SSOProvider: "scim"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-sam", UserID: "usr_sam", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if w := scimDo(t, h, token, "PATCH", "/scim/v2/Users/usr_sam", map[string]any{"schemas": []string{scim.SchemaPatchOp},
+		"Operations": []map[string]any{{"op": "replace", "path": "externalId", "value": "kid-sam"}}}); w.Code != http.StatusOK {
+		t.Fatalf("PATCH: %d %s", w.Code, w.Body.String())
+	}
+	u, _ := st.Users().GetUserByID(ctx, "usr_sam")
+	if u.SSOSubject != "kid-sam" {
+		t.Fatalf("PATCH externalId not stored: %+v", u)
+	}
+	// A sign-in of the old subject read the row before the change: its session is refused.
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-stale", UserID: "usr_sam", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err == nil {
+		t.Fatal("a session fenced on the old subject's snapshot was issued")
+	}
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-new", UserID: "usr_sam", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, u.PasswordHash); err != nil {
+		t.Fatalf("a fresh read cannot issue a session: %v", err)
+	}
+	if _, err := st.Sessions().GetSession(ctx, "sess-sam"); err == nil {
+		t.Error("a session survived the identity change")
+	}
+	if w := scimDo(t, h, token, "PUT", "/scim/v2/Users/usr_sam", map[string]any{"schemas": []string{scim.SchemaUser}, "userName": "sam", "externalId": "kid-sam2", "active": true}); w.Code != http.StatusOK {
+		t.Fatalf("PUT: %d %s", w.Code, w.Body.String())
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_sam"); u.SSOSubject != "kid-sam2" {
+		t.Fatalf("PUT externalId not stored: %+v", u)
+	}
+	if w := scimDo(t, h, token, "PUT", "/scim/v2/Users/usr_sam", map[string]any{"schemas": []string{scim.SchemaUser}, "userName": "sam", "active": true}); w.Code != http.StatusOK {
+		t.Fatalf("PUT without externalId: %d %s", w.Code, w.Body.String())
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_sam"); u.SSOSubject != "kid-sam2" {
+		t.Fatalf("PUT without externalId cleared it: %+v", u)
 	}
 }

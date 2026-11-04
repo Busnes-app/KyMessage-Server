@@ -165,7 +165,7 @@ func TestInstallerOIDCRejectsUnassignedAndKeepsAdminOutOfChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := api.NewServer(cfg, st)
-	statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+	statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false)
 	if err != nil || statuses["owner"] != "inactive" || statuses["daily"] != "active" {
 		t.Fatal(statuses, err)
 	}
@@ -251,7 +251,7 @@ func TestInstallerDirectoryAdmitsAssignedMembers(t *testing.T) {
 	}
 	// plan is the sweep's verdict for member's MAS account in the given lock state.
 	plan := func(locked bool) string {
-		statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+		statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -333,7 +333,7 @@ func TestInstallerDirectoryAdmitsAssignedMembers(t *testing.T) {
 	if code := send(key, "user.created", "late-c1", `{"id":"late","userName":"late","active":true,"meta":{"version":"W/\"1\""}}`); code != 204 {
 		t.Fatalf("older creation: %d", code)
 	}
-	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["late"] != "inactive" {
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false); err != nil || statuses["late"] != "inactive" {
 		t.Fatalf("an older creation overtook a deactivation: %v %v", statuses, err)
 	}
 	if u, err := st.Users().GetUserBySSO(ctx, "kyidentity", "late"); err != nil || u.Username != "late" || u.Status != "inactive" {
@@ -361,7 +361,7 @@ func TestInstallerDirectoryAdmitsAssignedMembers(t *testing.T) {
 	if code := send(key, "user.updated", "o1", `{"id":"owner","active":true,"roles":[{"value":"kymessage.admin"}],"meta":{"version":"W/\"1\""}}`); code != 204 {
 		t.Fatalf("owner: %d", code)
 	}
-	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["owner"] != "inactive" || statuses["member"] != "deleted" {
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false); err != nil || statuses["owner"] != "inactive" || statuses["member"] != "deleted" {
 		t.Fatal(statuses, err)
 	}
 	if woken != 13 {

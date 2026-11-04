@@ -57,7 +57,8 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
   three times, 5 s apart, then counts as off; the server never throttles the bot's own reads),
   so turning the feature off posts nothing more even if revoking the session failed.
 - Notes: one `rules.Segmenter` per speaker, Whisper one utterance at a time across meetings;
-  Whisper's silence outputs are dropped. Posted as `m.notice`, split at 30 000 characters. The
+  Whisper's silence outputs are dropped. Posted as `m.notice`, split at 30 000 UTF-8 bytes (Matrix's
+  event limit is 65 536 bytes after Megolm's base64). The
   meeting ends 30 s after the bot is alone, on `!notes leave` or on losing the call.
 - Nothing at rest but the crypto store (`/data`, 0600, written atomically every 30 s and on
   SIGTERM). Logs carry room IDs and events, never transcript text or tokens.

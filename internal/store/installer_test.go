@@ -132,7 +132,7 @@ func TestInstallerDirectoryPreservesMatrixDelete(t *testing.T) {
 	if err := st.ApplyInstallerDirectory(ctx, b.SSO.IssuerURL, "daily", "user.deleted", "1", "deleted", false, false); err != nil {
 		t.Fatal(err)
 	}
-	statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity")
+	statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false)
 	if err != nil || statuses["daily"] != "deleted" {
 		t.Fatal(statuses, err)
 	}
@@ -204,7 +204,7 @@ func TestInstallerDirectoryMembersOnlyThroughTheDirectory(t *testing.T) {
 	if ok, err := st.Users().CreateDirectoryUser(ctx, member("member"), store.DirectoryEvent{ID: "e1", Revision: 1}); !ok || err != nil {
 		t.Fatalf("directory member: %v %v", ok, err)
 	}
-	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity"); err != nil || statuses["member"] != "active" || statuses["signin"] != "" {
+	if statuses, err := st.Users().DirectoryStatuses(ctx, "kyidentity", false); err != nil || statuses["member"] != "active" || statuses["signin"] != "" {
 		t.Fatal(statuses, err)
 	}
 }

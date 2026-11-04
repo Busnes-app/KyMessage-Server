@@ -200,7 +200,7 @@ func (s *Server) activeCallUsers(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	statuses, err := s.store.Users().DirectoryStatuses(ctx, "kyidentity")
+	statuses, err := s.store.Users().DirectoryStatuses(ctx, "kyidentity", s.config.SCIM.Enabled)
 	if err != nil {
 		return nil, err
 	}

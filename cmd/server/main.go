@@ -118,6 +118,7 @@ func runServer() {
 		mas := matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret)
 		srv.SetMatrixAdmin(mas)
 		syncer := matrixsync.New(mas, st, cfg.Matrix.ServerName)
+		syncer.AdoptSCIM = cfg.SCIM.Enabled
 		srv.OnDirectoryChange(syncer.Wake)
 		go syncer.Run(ctx, 5*time.Minute, matrixDone)
 	} else {
@@ -459,7 +460,7 @@ func runInitAdmin(args []string) {
 		fmt.Fprintf(os.Stderr, "Usage: kymessages init-admin [-username <name>] [-promote]\n\n"+
 			"The password (at least 12 characters) is read from stdin, never from the command\n"+
 			"line: argv is world-readable and lands in shell history. Resetting an existing\n"+
-			"account also turns off its two-factor sign-in; a non-admin account needs -promote.\n\n")
+			"non-admin account needs -promote.\n\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -495,7 +496,7 @@ func runInitAdmin(args []string) {
 		if err := st.Users().ResetAdminPassword(ctx, existing.ID, hash, *promote); err != nil {
 			log.Fatalf("Failed to update admin: %v", err)
 		}
-		log.Printf("✓ Admin user %q password successfully reset; two-factor sign-in is off until it is set up again", *username)
+		log.Printf("✓ Admin user %q password successfully reset", *username)
 		return
 	}
 	// Checked only on creation, so an existing account keeps its reset path.
