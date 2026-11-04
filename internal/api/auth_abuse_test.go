@@ -138,21 +138,30 @@ func TestLoginLockoutIsPerClientAndCountsOnlyFailures(t *testing.T) {
 			t.Fatalf("guess %d answered %d, want 401", i, w.Code)
 		}
 	}
-	if w := postJSON(t, srv, "/api/auth/login", attacker, good); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("the locked-out client with the right password answered %d, want 429", w.Code)
+	// The exhausted window answers as a wrong password does: no oracle, even for the right one.
+	if w := postJSON(t, srv, "/api/auth/login", attacker, good); w.Code != http.StatusUnauthorized {
+		t.Fatalf("the locked-out client with the right password answered %d, want 401", w.Code)
 	}
 	if w := postJSON(t, srv, "/api/auth/login", owner, good); w.Code != http.StatusOK {
 		t.Fatalf("the owner from another address answered %d after the attacker's failures, want 200", w.Code)
 	}
 
-	// 90 more failures from nine addresses reach the account-wide ceiling of 100.
-	for ip := 1; ip <= 9; ip++ {
+	// Failures spread over many addresses never lock the owner out remotely.
+	for ip := 1; ip <= 20; ip++ {
 		for i := 0; i < 10; i++ {
 			postJSON(t, srv, "/api/auth/login", "192.0.2."+strconv.Itoa(ip)+":40000", wrong)
 		}
 	}
-	if w := postJSON(t, srv, "/api/auth/login", "192.0.2.200:40000", good); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("after 100 failures the account answered %d from a fresh address, want 429", w.Code)
+	if w := postJSON(t, srv, "/api/auth/login", owner, good); w.Code != http.StatusOK {
+		t.Fatalf("after 200 failures from 20 other addresses the owner answered %d, want 200", w.Code)
+	}
+	// An IPv6 client is one client per /64.
+	const v6a, v6b = "[2001:db8:1:2::a]:40000", "[2001:db8:1:2::b]:40000"
+	for i := 0; i < 10; i++ {
+		postJSON(t, srv, "/api/auth/login", v6a, wrong)
+	}
+	if w := postJSON(t, srv, "/api/auth/login", v6b, good); w.Code != http.StatusUnauthorized {
+		t.Fatalf("another address in the same /64 answered %d, want 401", w.Code)
 	}
 }
 
