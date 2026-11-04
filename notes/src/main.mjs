@@ -68,6 +68,10 @@ async function run(s) {
       if (meetings.get(room.roomId) !== 'armed' || !others()) return;
       rtc.off(MatrixRTCSessionEvent.MembershipsChanged, begin);
       clearTimeout(timer);
+      // Armed rooms do not count at the invite, so the limit holds here, when a call starts.
+      if ([...meetings.values()].filter((v) => v instanceof Meeting).length >= cfg.maxMeetings) {
+        return leave(room, 'Meeting notes are busy in other meetings, so they are leaving. Invite them again for the next meeting.');
+      }
       const m = new Meeting({ client, room, cfg, log, onDone: () => leave(room) });
       meetings.set(room.roomId, m);
       try {

@@ -264,3 +264,12 @@ func TestNotesScreensSwitch(t *testing.T) {
 		t.Fatalf("audit %s", got)
 	}
 }
+
+// Two meetings with snapshots on each read the config every 10 seconds, plus once per new
+// share: a minute of that must not hit the limit, or a 429 switches their snapshots off.
+func TestNotesConfigCoversTwoMeetings(t *testing.T) {
+	srv, _, _, _, _ := setupNotes(t)
+	for i := 0; i < 2*6+8; i++ {
+		notesConfig(t, srv, notesSecret, 200)
+	}
+}

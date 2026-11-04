@@ -137,6 +137,16 @@ export class Meeting {
     this.notice('Shared-screen snapshots were turned off in Settings, so shared screens are no longer captured.').catch(() => {});
   }
 
+  // notesOn asks KyMessages whether meeting notes are still on; unreadable counts as off.
+  async notesOn() {
+    try {
+      const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
+      return r.ok && (await r.json()).enabled === true;
+    } catch {
+      return false;
+    }
+  }
+
   // screensAllowed asks KyMessages whether Settings allows shared-screen snapshots.
   async screensAllowed() {
     const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
@@ -312,6 +322,11 @@ export class Meeting {
     await this.session.leave(5000).catch(() => {});
     this.session.off(MatrixRTCSessionEvent.EncryptionKeyChanged, this.onKey);
     await queue(() => {});
+    // Turned off posts nothing more, even when revoking the session failed.
+    if (post && !(await this.notesOn())) {
+      this.log(`meeting notes are off; nothing is posted in ${this.room.roomId}`);
+      post = false;
+    }
     try {
       if (post) {
         const text = formatNotes({ room: this.room.name || 'this room', start: this.startedAt ?? Date.now(), end: Date.now(), entries: this.entries, timeZone: this.cfg.timeZone });

@@ -185,7 +185,8 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   one bot account `@kymessages-notes` (`matrixsync.NotesUsername`), available only with
   `KY_MATRIX_NOTES_SECRET_FILE` and MAS, off until Settings turns it on (setting
   `notes_enabled`). `POST /api/notes/session` is the bot's only door: Bearer the notes secret
-  (constant-time), 10/min per IP, 404 unconfigured, 401 bad secret, 403 off; it records
+  (constant-time), 60/min per IP shared with `GET /api/notes/config` (two meetings polling
+  snapshots every 10 s must stay under it, `TestNotesConfigCoversTwoMeetings`), 404 unconfigured, 401 bad secret, 403 off; it records
   `notes_checkin` once authenticated, then regenerates the stored session when the bot names its
   stored device, else revokes it (deleting the device) and mints one on a new device. The token
   is in the reply only (`no-store`), never stored, logged or audited; `notes_session` and

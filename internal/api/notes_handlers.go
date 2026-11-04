@@ -186,7 +186,9 @@ func (s *Server) handleNotesSession(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{"user_id": s.notesMXID(), "device_id": device, "access_token": token})
 }
 
-// notesBot authenticates the bot: the notes secret as Bearer, 10 requests a minute per address.
+// notesBot authenticates the bot: the notes secret as Bearer, 60 requests a minute per address.
+// Each meeting with snapshots on reads the config every 10 seconds and before each new share,
+// and the bot runs NOTES_MAX_MEETINGS (2) at once; a 429 there switches snapshots off.
 func (s *Server) notesBot(w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("Cache-Control", "no-store")
 	secret := s.config.Matrix.NotesSecret
@@ -194,7 +196,7 @@ func (s *Server) notesBot(w http.ResponseWriter, r *http.Request) bool {
 		s.writeError(w, http.StatusNotFound, "Meeting notes are not configured")
 		return false
 	}
-	if !s.allowClientAttempt("notes:", r, 10, time.Minute) {
+	if !s.allowClientAttempt("notes:", r, 60, time.Minute) {
 		s.writeError(w, http.StatusTooManyRequests, "Too many requests")
 		return false
 	}

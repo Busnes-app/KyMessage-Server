@@ -18,6 +18,8 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
 - Invites: accepted only when the inviter (the invite event's sender) is the room's creator or
   power level 100 (`rules.roomAdmin`, the same rule as `synapseadmin.AdminInvite`), the room is
   encrypted and fewer than `NOTES_MAX_MEETINGS` (2) meetings run; otherwise a notice and leave.
+  Armed rooms do not count there, so the limit is checked again when a call starts; a room
+  whose call would exceed it gets the busy notice and the bot leaves.
   One invite, one meeting: it waits up to `NOTES_WAIT_HOURS` (12) for a call, records it and
   leaves; a restart leaves every joined room. It never changes its profile while in a room
   except the one display name set at start (`Meeting notes`).
@@ -50,6 +52,8 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
 - Commands (`rules.parseCommand`): `!notes pause|resume|leave|stop|help` from a member with a
   call membership; before the call, `leave` from any member. Each is acknowledged by voice and
   in chat. Paused audio is dropped and the gap marked.
+- Notes are posted only while `GET /api/notes/config` says `enabled` (unreadable counts as
+  off), so turning the feature off posts nothing more even if revoking the session failed.
 - Notes: one `rules.Segmenter` per speaker, Whisper one utterance at a time across meetings;
   Whisper's silence outputs are dropped. Posted as `m.notice`, split at 30 000 characters. The
   meeting ends 30 s after the bot is alone, on `!notes leave` or on losing the call.
