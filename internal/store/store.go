@@ -78,6 +78,9 @@ type UserStore interface {
 	ApplyDirectoryProfile(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	CreateDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	DeleteDirectoryUser(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
+	// RecordAdoptedStatus records, in the same order, the provider's status (u.Status) for a
+	// subject whose person is a SCIM row sign-in adopts; DirectoryStatuses joins it to SCIM's.
+	RecordAdoptedStatus(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	// DirectoryStatuses maps each subject of provider to its user's status, or to "deleted"
 	// when the directory deleted it (an order row with no user). Of several rows for one
 	// subject, a non-active status wins. With adoptSCIM (SCIM on) it also maps the SCIM rows a
@@ -88,6 +91,10 @@ type UserStore interface {
 	// replacement, active and admin. It is ErrNotFound for a non-admin unless promote is set.
 	ResetAdminPassword(ctx context.Context, userID, newHash string, promote bool) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
+	// ApplySignInRole changes a KyIdentity row that is not installer-owned from role from to
+	// role to and deletes its grants, in one transaction. It is ErrNotFound when the row no
+	// longer matches (another writer got there first).
+	ApplySignInRole(ctx context.Context, userID, from, to string) error
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, offset, limit int, filter UserFilter) ([]*User, int, error)
 	CountUsers(ctx context.Context) (int, error)

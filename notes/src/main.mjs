@@ -5,7 +5,7 @@ import 'fake-indexeddb/auto';
 import fs from 'node:fs';
 import { ClientEvent, createClient, HttpApiEvent, MatrixEventEvent, RoomEvent } from 'matrix-js-sdk';
 import { MatrixRTCSessionEvent } from 'matrix-js-sdk/lib/matrixrtc/index.js';
-import { roomAdmin, parseCommand } from './rules.mjs';
+import { roomAdmin, parseCommand, running } from './rules.mjs';
 import { load, save, wipe } from './store.mjs';
 import { Meeting } from './meeting.mjs';
 
@@ -99,7 +99,7 @@ async function run(s) {
       return leave(room, "Only the room's creator or an admin can invite meeting notes, so they are leaving.");
     }
     if (!state.getStateEvents('m.room.encryption', '')) return leave(room, 'Meeting notes work only in encrypted rooms, so they are leaving.');
-    if ([...meetings.values()].filter((m) => m !== 'armed').length >= cfg.maxMeetings) return leave(room, 'Meeting notes are busy in other meetings. Try again later.');
+    if (running(meetings) >= cfg.maxMeetings) return leave(room, 'Meeting notes are busy in other meetings. Try again later.');
     log(`invited to ${room.roomId}`);
     await client.sendMessage(room.roomId, { msgtype: 'm.notice', body:
       'Meeting notes will join the next call in this room and record it for note taking, then post the notes here and leave. Type !notes leave to cancel.' });

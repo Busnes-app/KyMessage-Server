@@ -112,12 +112,13 @@ func (f *oauthFlow) exchangeIDToken(ctx context.Context, code, verifier, redirec
 
 func claimsFromIDToken(idToken *oidc.IDToken) (*IdentityClaims, error) {
 	var raw struct {
-		Sub               string `json:"sub"`
-		Email             string `json:"email"`
-		Name              string `json:"name"`
-		PreferredUsername string `json:"preferred_username"`
-		Role              string `json:"role"`
-		AuthTime          int64  `json:"auth_time"`
+		Sub               string   `json:"sub"`
+		Email             string   `json:"email"`
+		Name              string   `json:"name"`
+		PreferredUsername string   `json:"preferred_username"`
+		Role              string   `json:"role"`
+		Roles             []string `json:"roles"`
+		AuthTime          int64    `json:"auth_time"`
 	}
 	if err := idToken.Claims(&raw); err != nil || raw.Sub == "" {
 		return nil, ErrInvalidIDToken
@@ -129,7 +130,7 @@ func claimsFromIDToken(idToken *oidc.IDToken) (*IdentityClaims, error) {
 	if username == "" {
 		username = raw.Sub
 	}
-	claims := &IdentityClaims{Issuer: idToken.Issuer, Subject: raw.Sub, Email: raw.Email, Name: raw.Name, PreferredUsername: username, Role: raw.Role}
+	claims := &IdentityClaims{Issuer: idToken.Issuer, Subject: raw.Sub, Email: raw.Email, Name: raw.Name, PreferredUsername: username, Role: raw.Role, Roles: raw.Roles}
 	if raw.AuthTime > 0 && raw.AuthTime <= idToken.IssuedAt.Unix() && raw.AuthTime <= time.Now().Unix() {
 		claims.AuthenticatedAt = time.Unix(raw.AuthTime, 0).UTC()
 	}

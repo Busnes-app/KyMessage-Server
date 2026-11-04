@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { roomAdmin, parseCommand, Throttle, userOf, Segmenter, formatNotes, chunks, thumb, StillPicture, mediaKeyOK } from '../src/rules.mjs';
+import { roomAdmin, parseCommand, Throttle, userOf, Segmenter, formatNotes, chunks, thumb, StillPicture, mediaKeyOK, running } from '../src/rules.mjs';
 
 const create = { sender: '@alice:x', content: { additional_creators: ['@carol:x'] } };
 const levels = { content: { users: { '@dana:x': 100, '@bob:x': 50 }, users_default: 0 } };
@@ -139,4 +139,10 @@ test('mediaKeyOK: call media keys below 128 bits are refused', () => {
   assert.equal(mediaKeyOK(new Uint8Array(16)), true);
   assert.equal(mediaKeyOK(new Uint8Array(32)), true);
   for (const k of [new Uint8Array(15), new Uint8Array(0), undefined, null]) assert.equal(mediaKeyOK(k), false, String(k?.length));
+});
+
+test('running: an invite, the one being decided included, never counts', () => {
+  const meeting = {};
+  assert.equal(running(new Map([['!new', 'joining']])), 0);
+  assert.equal(running(new Map([['!a', meeting], ['!b', 'armed'], ['!new', 'joining']])), 1);
 });

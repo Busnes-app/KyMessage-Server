@@ -13,6 +13,21 @@ interface LoginProps {
   logoCustom?: boolean;
 }
 
+/** What a refused single sign-on came back with (`#/login?sso_error=<code>`); unknown codes are ignored. */
+export const SSO_ERRORS: Record<string, string> = {
+  not_assigned: "Your KyIdentity account can't sign in to this server. Ask an administrator to give you access.",
+  not_provisioned: 'This server has no account for you yet. Ask an administrator to add you.',
+  username_conflict: 'Another account on this server already has your KyIdentity username. Ask an administrator.',
+  adoption_conflict: 'More than one account on this server is linked to your KyIdentity account. Ask an administrator.',
+  disabled: 'Your account on this server is turned off. Ask an administrator.',
+  failed: "Single sign-on didn't finish.",
+};
+
+function ssoErrorFromHash(hash: string): string {
+  const code = new URLSearchParams(hash.split('?')[1] ?? '').get('sso_error') ?? '';
+  return Object.hasOwn(SSO_ERRORS, code) ? SSO_ERRORS[code] : '';
+}
+
 export const Login: React.FC<LoginProps> = ({ onSuccess, appName, ssoEnabled = false, logoCustom = true }) => {
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -20,10 +35,12 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName, ssoEnabled = f
   const [captchaRound, setCaptchaRound] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const [ssoError, setSSOError] = useState<string>(() => ssoErrorFromHash(window.location.hash));
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSSOError('');
     setLoading(true);
 
     try {
@@ -66,6 +83,7 @@ export const Login: React.FC<LoginProps> = ({ onSuccess, appName, ssoEnabled = f
         </div>
 
         <div className="ky-auth-card">
+          {ssoError && <p role="alert" className="ky-auth-error"><AlertCircle size={16} aria-hidden="true" /><span>{ssoError} <a href="/api/sso/kyidentity/login">Try again</a></span></p>}
           {error && <p role="alert" className="ky-auth-error"><AlertCircle size={16} aria-hidden="true" /><span>{error}</span></p>}
 
           <form onSubmit={handleLogin}>

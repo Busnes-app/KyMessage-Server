@@ -68,6 +68,20 @@ func (s *Server) loadAgentOwners(ctx context.Context) (agentOwners, []matrixsync
 			o.bySubject[u.SSOSubject] = u
 		}
 	}
+	// With SCIM on, the one SCIM row whose externalId is a subject with no KyIdentity row is
+	// the person who signs in as it (sign-in adopts it); two such rows are neither.
+	adopted, rows := map[string]*store.User{}, map[string]int{}
+	for _, u := range dir {
+		if s.config.SCIM.Enabled && u.SSOProvider == "scim" && u.SSOSubject != "" && o.bySubject[u.SSOSubject] == nil {
+			adopted[u.SSOSubject] = u
+			rows[u.SSOSubject]++
+		}
+	}
+	for sub, u := range adopted {
+		if rows[sub] == 1 {
+			o.bySubject[sub] = u
+		}
+	}
 	return o, users, nil
 }
 
@@ -218,7 +232,7 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner, err := s.store.Users().GetUserByID(ctx, req.Owner)
-	if err != nil || owner.SSOProvider != "kyidentity" || owner.SSOSubject == "" || owner.Status != "active" {
+	if err != nil || owner.SSOSubject == "" || o.bySubject[owner.SSOSubject] == nil || o.bySubject[owner.SSOSubject].ID != owner.ID || owner.Status != "active" {
 		refuse(http.StatusBadRequest, "The owner must be an active KyIdentity member")
 		return
 	}

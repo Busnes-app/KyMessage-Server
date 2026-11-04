@@ -74,7 +74,8 @@ func (s *Server) handleSuiteApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apps := []suitedir.App{}
-	if user.SSOProvider == "kyidentity" && user.SSOSubject != "" {
+	// An adopted SCIM row signs in through KyIdentity as its externalId.
+	if user.SSOSubject != "" && (user.SSOProvider == "kyidentity" || user.SSOProvider == "scim" && s.config.SCIM.Enabled) {
 		apps = s.suiteApps(r.Context(), user.SSOSubject)
 	}
 	w.Header().Set("Cache-Control", "no-store")

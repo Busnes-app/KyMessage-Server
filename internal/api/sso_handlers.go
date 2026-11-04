@@ -62,13 +62,13 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 
 	cookie, err := r.Cookie(auth.CookieName("ky_pkce_"+state, s.config.Security))
 	if err != nil || cookie.Value == "" {
-		s.writeError(w, http.StatusBadRequest, "Invalid or expired SSO state")
+		s.ssoRefused(w, r, "failed")
 		return
 	}
 	verifier := cookie.Value
 	nonceCookie, err := r.Cookie(auth.CookieName("ky_nonce_"+state, s.config.Security))
 	if err != nil || nonceCookie.Value == "" {
-		s.writeError(w, http.StatusBadRequest, "Invalid or expired SSO nonce")
+		s.ssoRefused(w, r, "failed")
 		return
 	}
 	// One flow, one callback: the cookies go whatever the outcome.
@@ -79,13 +79,13 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 	claims, err := s.kyidentity.ExchangeCode(r.Context(), code, verifier, redirectURI, nonceCookie.Value)
 	if err != nil {
 		log.Printf("[SSO] KyIdentity code exchange failed: %v", err)
-		s.writeError(w, http.StatusUnauthorized, "Suite sign-in failed; try again")
+		s.ssoRefused(w, r, "failed")
 		return
 	}
 
 	managed, allowed, err := s.store.InstallerIdentity(r.Context(), claims.Issuer, claims.Subject)
 	if err != nil || (managed && !allowed) {
-		s.writeError(w, http.StatusForbidden, "Identity is not assigned")
+		s.ssoRefused(w, r, "not_assigned")
 		return
 	}
 	// Accounts are matched by subject only; a username never links to an existing account.
@@ -100,13 +100,13 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 			err = lerr
 		case n > 1:
 			s.audit(r.Context(), "", r, "sso.login_conflict", claims.Subject, fmt.Sprintf("subject=%q scim_rows=%d", claims.Subject, n))
-			s.writeError(w, http.StatusConflict, "More than one SCIM account carries this KyIdentity subject as its externalId; ask an administrator")
+			s.ssoRefused(w, r, "adoption_conflict")
 			return
 		case len(rows) == 1 && rows[0].Role == "admin" && !s.config.SCIM.AllowAdmin:
 			// A SCIM admin row from before KY_SCIM_ALLOW_ADMIN existed must not become a live
 			// console administrator by sign-in (ky-server-base Q3 A).
 			s.audit(r.Context(), rows[0].ID, r, "sso.login_refused", "session", "scim admin row without KY_SCIM_ALLOW_ADMIN")
-			s.writeError(w, http.StatusForbidden, "SCIM gave this account the admin role, which KY_SCIM_ALLOW_ADMIN does not allow; ask an administrator")
+			s.ssoRefused(w, r, "not_assigned")
 			return
 		case len(rows) == 1:
 			user, err = rows[0], nil
@@ -114,7 +114,7 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 	}
 	if errors.Is(err, store.ErrNotFound) {
 		if !s.config.SSO.AutoProvision {
-			s.writeError(w, http.StatusForbidden, "User account not provisioned")
+			s.ssoRefused(w, r, "not_provisioned")
 			return
 		}
 		user = &store.User{
@@ -131,32 +131,54 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 		if errors.Is(err, store.ErrUsernameTaken) {
 			log.Printf("[SSO] sign-in by %q refused: username %q is held by another KyMessages account", claims.Subject, user.Username)
 			s.audit(r.Context(), "", r, "sso.login_conflict", user.Username, fmt.Sprintf("subject=%q", claims.Subject))
-			s.writeError(w, http.StatusConflict, fmt.Sprintf("KyIdentity username %q is held by another KyMessages account; ask an administrator", user.Username))
+			s.ssoRefused(w, r, "username_conflict")
 			return
 		}
 		if err != nil {
-			s.writeError(w, http.StatusInternalServerError, "Failed to provision SSO user")
+			log.Printf("[SSO] provisioning %q failed: %v", claims.Subject, err)
+			s.ssoRefused(w, r, "failed")
 			return
 		}
 	} else if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to look up SSO user")
+		log.Printf("[SSO] looking up %q failed: %v", claims.Subject, err)
+		s.ssoRefused(w, r, "failed")
 		return
 	}
 	if user.Status != "active" {
 		s.audit(r.Context(), user.ID, r, "sso.login_refused", "session", fmt.Sprintf("status=%q", user.Status))
-		s.writeError(w, http.StatusForbidden, "Account is disabled or inactive")
+		s.ssoRefused(w, r, "disabled")
 		return
+	}
+
+	// KyIdentity's role applies at each sign-in, not only when its webhook lands; installer-
+	// and SCIM-owned rows keep theirs. A change ends the user's other sessions and pairings.
+	if role := claims.AssertedRole(); role != "" && role != user.Role && user.SSOProvider == "kyidentity" && !managed {
+		if err := s.store.Users().ApplySignInRole(r.Context(), user.ID, user.Role, role); err != nil {
+			log.Printf("[SSO] applying KyIdentity role %q to %s failed: %v", role, user.ID, err)
+			s.ssoRefused(w, r, "failed")
+			return
+		}
+		s.audit(r.Context(), user.ID, r, "sso.role_changed", "user", fmt.Sprintf("from=%q to=%q", user.Role, role))
+		user.Role = role
 	}
 
 	// The session is as fresh as the IdP's signed auth_time; a missing one never passes step-up.
 	_, _, err = s.sessions.IssueDerivedSession(r.Context(), w, r, user, claims.AuthenticatedAt)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Session creation failed")
+		log.Printf("[SSO] session for %s failed: %v", user.ID, err)
+		s.ssoRefused(w, r, "failed")
 		return
 	}
 	s.audit(r.Context(), user.ID, r, "sso.login", "session", "")
 
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// ssoRefused ends a refused or failed callback on the sign-in page, which explains code. The
+// callback is a browser navigation, so a JSON error would strand the user on a raw page. Only
+// the fixed codes the Login page knows go in the URL, never server text.
+func (s *Server) ssoRefused(w http.ResponseWriter, r *http.Request, code string) {
+	http.Redirect(w, r, "/#/login?sso_error="+code, http.StatusFound)
 }
 
 func (s *Server) handleKyIdentitySyncWebhook(w http.ResponseWriter, r *http.Request) {

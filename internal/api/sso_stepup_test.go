@@ -73,6 +73,15 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	}
 }
 
+// ssoError is the code a refused callback sends the browser to the sign-in page with, or "".
+func ssoError(w *httptest.ResponseRecorder) string {
+	code, ok := strings.CutPrefix(w.Header().Get("Location"), "/#/login?sso_error=")
+	if w.Code != http.StatusFound || !ok {
+		return ""
+	}
+	return code
+}
+
 func sessionCookie(w *httptest.ResponseRecorder) *http.Cookie {
 	for _, c := range w.Result().Cookies() {
 		if c.Name == auth.SessionCookieName {
@@ -177,7 +186,7 @@ func TestSSOSignInRefusesUsernameHeldByLocalAccount(t *testing.T) {
 	srv := api.NewServer(cfg, st)
 
 	w := idp.signIn(srv, map[string]any{"sub": "kid-root", "preferred_username": "admin"})
-	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `\"admin\"`) || sessionCookie(w) != nil {
+	if ssoError(w) != "username_conflict" || sessionCookie(w) != nil {
 		t.Fatalf("clash: %d %s (session %v)", w.Code, w.Body.String(), sessionCookie(w))
 	}
 	if _, err := st.Users().GetUserBySSO(ctx, "kyidentity", "kid-root"); err == nil {
@@ -214,7 +223,7 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	idp := newFakeIdP(t, cfg)
 
 	cfg.SCIM.Enabled = false
-	if w := idp.signIn(api.NewServer(cfg, st), map[string]any{"sub": "kid-sam", "preferred_username": "sam"}); w.Code != http.StatusConflict || sessionCookie(w) != nil {
+	if w := idp.signIn(api.NewServer(cfg, st), map[string]any{"sub": "kid-sam", "preferred_username": "sam"}); ssoError(w) != "username_conflict" || sessionCookie(w) != nil {
 		t.Fatalf("SCIM off: %d %s", w.Code, w.Body.String())
 	}
 
@@ -235,14 +244,14 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	if _, err := st.Users().GetUserBySSO(ctx, "kyidentity", "kid-sam"); err == nil {
 		t.Fatal("a second row was created")
 	}
-	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); ssoError(w) != "disabled" || sessionCookie(w) != nil {
 		t.Fatalf("inactive SCIM row: %d %s", w.Code, w.Body.String())
 	}
 	// A SCIM admin row becomes a console admin by sign-in only with KY_SCIM_ALLOW_ADMIN.
 	if err := st.Users().CreateUser(ctx, &store.User{ID: "usr_scim_boss", Username: "boss", Role: "admin", Status: "active", SSOProvider: "scim", SSOSubject: "kid-boss"}); err != nil {
 		t.Fatal(err)
 	}
-	if w := idp.signIn(srv, map[string]any{"sub": "kid-boss", "preferred_username": "boss"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-boss", "preferred_username": "boss"}); ssoError(w) != "not_assigned" || sessionCookie(w) != nil {
 		t.Fatalf("SCIM admin row without the opt-in: %d %s", w.Code, w.Body.String())
 	}
 	cfg.SCIM.AllowAdmin = true
@@ -256,7 +265,7 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if w := idp.signIn(srv, map[string]any{"sub": "kid-dup", "preferred_username": "dup"}); w.Code != http.StatusConflict || sessionCookie(w) != nil {
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-dup", "preferred_username": "dup"}); ssoError(w) != "adoption_conflict" || sessionCookie(w) != nil {
 		t.Fatalf("two SCIM rows for one subject: %d %s", w.Code, w.Body.String())
 	}
 	// An adopted SCIM admin's step-up goes through KyIdentity, forcing credentials.
@@ -265,5 +274,81 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	}
 	if w := adminDo(t, srv, c, "PUT", "/api/backup/schedule", map[string]int{"interval_sec": 0}); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "fresh=1") {
 		t.Fatalf("adopted SCIM admin step-up: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// KyIdentity's role applies at each sign-in (owner answer Q2 A): admin when the app's roles
+// hold admin, user when they hold others; with none, the legacy global role if sent, else the
+// stored role stands. A change ends the user's other sessions and is audited. SCIM rows keep
+// their role.
+func TestSSOSignInAppliesKyIdentityRole(t *testing.T) {
+	ctx := context.Background()
+	_, st, cfg := setupTestServer(t)
+	cfg.SCIM.Enabled = true
+	for _, u := range []*store.User{
+		{ID: "usr_amy", Username: "amy", Role: "admin", Status: "active", SSOProvider: "kyidentity", SSOSubject: "kid-amy"},
+		{ID: "usr_scim_sam", Username: "sam", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idp := newFakeIdP(t, cfg)
+	srv := api.NewServer(cfg, st)
+	signIn := func(sub string, claims map[string]any) *http.Cookie {
+		t.Helper()
+		claims["sub"] = sub
+		w := idp.signIn(srv, claims)
+		c := sessionCookie(w)
+		if c == nil {
+			t.Fatalf("%s %v: %d %s", sub, claims, w.Code, w.Body.String())
+		}
+		return c
+	}
+	role := func(id string) string {
+		t.Helper()
+		u, err := st.Users().GetUserByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u.Role
+	}
+	live := func(c *http.Cookie) bool {
+		_, err := st.Sessions().GetSession(ctx, crypto.SHA256Hex([]byte(c.Value)))
+		return err == nil
+	}
+
+	first := signIn("kid-amy", map[string]any{"roles": []string{}})
+	if role("usr_amy") != "admin" {
+		t.Fatal("a token asserting no role changed the stored one")
+	}
+	second := signIn("kid-amy", map[string]any{"roles": []string{"admin"}})
+	if role("usr_amy") != "admin" || !live(first) {
+		t.Fatal("an unchanged role revoked sessions or changed the role")
+	}
+	demoted := signIn("kid-amy", map[string]any{"roles": []string{"editor"}, "role": "admin"})
+	if role("usr_amy") != "user" || live(first) || live(second) || !live(demoted) {
+		t.Fatalf("demotion: role %q, old sessions %v %v, new %v", role("usr_amy"), live(first), live(second), live(demoted))
+	}
+	if w := adminDo(t, srv, demoted, "GET", "/api/admin/audit", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("demoted user reached an admin route: %d", w.Code)
+	}
+	signIn("kid-amy", map[string]any{"roles": []string{}, "role": "admin"})
+	if role("usr_amy") != "admin" {
+		t.Fatal("the legacy global role did not apply with no app roles")
+	}
+	recs, _, err := st.Audit().ListAuditRecords(ctx, 0, 20, "sso.role_changed")
+	if err != nil || len(recs) != 2 || recs[0].UserID != "usr_amy" || recs[0].Details != `from="user" to="admin"` {
+		t.Fatalf("audit: %v %+v", err, recs)
+	}
+
+	signIn("kid-sam", map[string]any{"roles": []string{"admin"}})
+	if role("usr_scim_sam") != "user" {
+		t.Fatal("a token promoted a SCIM-owned row")
+	}
+
+	cfg.SSO.AutoProvision = false
+	if w := idp.signIn(api.NewServer(cfg, st), map[string]any{"sub": "kid-new"}); ssoError(w) != "not_provisioned" || sessionCookie(w) != nil {
+		t.Fatalf("unprovisioned: %d %s", w.Code, w.Header().Get("Location"))
 	}
 }

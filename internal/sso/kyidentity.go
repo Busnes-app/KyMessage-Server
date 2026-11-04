@@ -311,6 +311,15 @@ func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev stor
 			DisplayName: displayName, Role: role, Status: status, SSOProvider: "kyidentity", SSOSubject: in.ID,
 		}, ev)
 		if errors.Is(err, store.ErrUsernameTaken) {
+			// This person is a SCIM row that sign-in adopts (its externalId is this subject), so
+			// no second row is made: record KyIdentity's status for it instead, so a
+			// deactivation here reaches Matrix and calls. SCIM keeps owning the row.
+			if _, n, lerr := k.store.Users().ListUsers(ctx, 0, 1, store.UserFilter{Field: store.UserFieldSubject, Value: in.ID, Provider: "scim"}); lerr != nil {
+				return lerr
+			} else if n > 0 {
+				_, err = k.store.Users().RecordAdoptedStatus(ctx, &store.User{SSOProvider: "kyidentity", SSOSubject: in.ID, Status: status}, ev)
+				return err
+			}
 			k.auditUsernameConflict(ctx, in, "")
 			return fmt.Errorf("%w: %q", ErrSyncUsernameConflict, in.UserName)
 		}

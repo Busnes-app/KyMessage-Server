@@ -501,3 +501,41 @@ func TestAgentSkillDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// With SCIM on, a member provisioned by SCIM signs in through KyIdentity as the row's
+// externalId (sign-in adopts it), so that row can own an agent. Two rows for one subject
+// are ambiguous and own nothing; with SCIM off neither does.
+func TestAgentOwnerCanBeAnAdoptedSCIMRow(t *testing.T) {
+	srv, st, cfg, f := setupMatrixServer(t)
+	cfg.Matrix.Host = "https://matrix.example.com"
+	admin := loginAs(t, srv, st, "root", "admin")
+	f.users = append(f.users,
+		matrixsync.User{ID: "01J9ZK8V6N3W4X5Y6Z7A8B9SAM", Username: "sam", Subject: "kid-sam"},
+		matrixsync.User{ID: "01J9ZK8V6N3W4X5Y6Z7A8B9DUP", Username: "dup", Subject: "kid-dup"})
+	for _, u := range []store.User{
+		{ID: "usr_scim_sam", Username: "sam", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"},
+		{ID: "usr_scim_dup1", Username: "dup1", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-dup"},
+		{ID: "usr_scim_dup2", Username: "dup2", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-dup"},
+	} {
+		if err := st.Users().CreateUser(context.Background(), &u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	create := func(name, owner string) int {
+		return adminDo(t, srv, admin, "POST", "/api/admin/agents", map[string]string{"name": name, "owner": owner}).Code
+	}
+	if code := create("agent-off", "usr_scim_sam"); code != http.StatusBadRequest {
+		t.Fatalf("SCIM off: %d", code)
+	}
+	cfg.SCIM.Enabled = true
+	if code := create("agent-dup", "usr_scim_dup1"); code != http.StatusBadRequest {
+		t.Fatalf("ambiguous SCIM subject: %d", code)
+	}
+	if code := create("agent-sam", "usr_scim_sam"); code != http.StatusOK {
+		t.Fatalf("adopted SCIM owner: %d", code)
+	}
+	list := adminDo(t, srv, admin, "GET", "/api/admin/agents", nil).Body.String()
+	if !strings.Contains(list, `"username":"sam"`) || strings.Contains(list, `"username":"dup1"`) {
+		t.Fatalf("owners: %s", list)
+	}
+}
