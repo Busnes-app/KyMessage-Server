@@ -121,6 +121,14 @@ describe('Backup', () => {
     expect(await screen.findByText('Automatic backups are off.')).toBeTruthy();
   });
 
+  it('says Back up now leaves chat attachments out when automatic backups are off', async () => {
+    mockStatus({ ...PAIRED, interval_sec: 0, members: ['data/ky_server.db', 'data/media.key'] });
+    render(<Backup />);
+    const warn = await screen.findByText(/Automatic backups are off\. Only the button below makes one, and it does not back up chat attachments/);
+    expect(warn.textContent).toContain('kymessages deposit');
+    expect(screen.getByText(/Chat attachments are not in the capsule/)).toBeTruthy();
+  });
+
   it('shows the capsule size and highlights the 75% warning', async () => {
     mockStatus({ ...PAIRED, capsule_size: { bytes: 220 * 1048576, limit: 256 * 1048576, percent: 85, warning: true } });
     render(<Backup />);

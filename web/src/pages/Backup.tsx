@@ -468,6 +468,9 @@ export const Backup: React.FC = () => {
   const hasLocal = Boolean(status?.local_dir);
   const canBackUp = keyPinned && (paired || hasLocal);
   const scheduleOn = (status?.interval_sec ?? 0) > 0;
+  // With chat on the capsule carries the media key; the attachments themselves are mirrored
+  // only by scheduled runs and `kymessages deposit`, never by Back up now.
+  const hasMedia = (status?.members ?? []).includes('data/media.key');
   const copies = status?.local_copies ?? [];
   const newestLocal = copies[0];
   // Green only for copies that exist: a set directory with none written, or a list the server did not send, is not a success.
@@ -499,7 +502,12 @@ export const Backup: React.FC = () => {
       {status && keyPinned && !paired && !hasLocal && (
         <Alert kind="warn">A key is pinned but capsules have nowhere to go. Pair with KyRecovery, or set KY_BACKUP_DIR to keep copies on this host.</Alert>
       )}
-      {status && keyPinned && !scheduleOn && <Alert kind="warn">Automatic backups are off. Only the button below makes one.</Alert>}
+      {status && keyPinned && !scheduleOn && (
+        <Alert kind="warn">
+          Automatic backups are off. Only the button below makes one
+          {hasMedia ? <>, and it does not back up chat attachments: run <code>kymessages deposit</code> on the server for those.</> : '.'}
+        </Alert>
+      )}
 
       <div className="dr-facts">
         <div className="dr-fact">
@@ -590,6 +598,7 @@ export const Backup: React.FC = () => {
           One sealed capsule goes to every destination above: the local directory, and KyRecovery when paired. Download saves the same
           capsule to this browser instead. Nothing on this server can open a capsule; that takes{' '}
           {status?.threshold ? `${status.threshold} custodian cards` : 'the custodian cards'} together.
+          {hasMedia && <> Chat attachments are not in the capsule: automatic backups and <code>kymessages deposit</code> mirror them, Back up now does not.</>}
         </p>
         <div className="dr-hint">A capsule carries</div>
         <ul className="dr-members">
