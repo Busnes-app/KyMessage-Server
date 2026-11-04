@@ -66,7 +66,7 @@ export const App: React.FC = () => {
 
   // The view lives in the URL hash, so links, reload and the back button work.
   useEffect(() => {
-    const sync = () => setHash(window.location.hash);
+    const sync = () => { setHash(window.location.hash); setSSOError(''); };
     window.addEventListener('hashchange', sync);
     return () => window.removeEventListener('hashchange', sync);
   }, []);
@@ -131,6 +131,7 @@ export const App: React.FC = () => {
         logoCustom={settings?.logo_custom ?? true}
         onSuccess={(u) => {
           setNotice('');
+          setSSOError('');
           setError('');
           setUser(u);
           void loadSettings();
@@ -156,7 +157,7 @@ export const App: React.FC = () => {
         appVersion={settings?.app_version}
         logoCustom={settings?.logo_custom ?? true}
         activeTab={activeTab}
-        onTabChange={(t) => { setSSOError(''); setActiveTab(t); }}
+        onTabChange={(t) => setActiveTab(t)}
         user={user}
         onLogout={handleLogout}
         suiteApps={suiteApps}
