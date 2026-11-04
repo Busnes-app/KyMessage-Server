@@ -123,6 +123,9 @@ type SCIMConfig struct {
 	BearerToken string `json:"bearer_token"`
 	// TokenSet is true when KY_SCIM_TOKEN is set; otherwise the token is random per start.
 	TokenSet bool `json:"-"`
+	// AllowAdmin (KY_SCIM_ALLOW_ADMIN) lets SCIM grant the admin role; off, a create or change
+	// to admin is refused and existing grants are only kept or removed.
+	AllowAdmin bool `json:"allow_admin"`
 }
 
 // BackupConfig holds parameters for KyBackup capsules & recovery drills.
@@ -288,6 +291,7 @@ func LoadFromEnv() (*Config, error) {
 			Enabled:     getEnvBool("KY_SCIM_ENABLED", false),
 			BearerToken: getEnv("KY_SCIM_TOKEN", generateRandomHex(24)),
 			TokenSet:    getEnv("KY_SCIM_TOKEN", "") != "",
+			AllowAdmin:  getEnvBool("KY_SCIM_ALLOW_ADMIN", false),
 		},
 		Backup: BackupConfig{
 			Dir:                  getEnv("KY_BACKUP_DIR", ""),

@@ -90,6 +90,11 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 	}
 	// Accounts are matched by subject only; a username never links to an existing account.
 	user, err := s.store.Users().GetUserBySSO(r.Context(), "kyidentity", claims.Subject)
+	if errors.Is(err, store.ErrNotFound) && s.config.SCIM.Enabled && claims.Subject != "" {
+		// A SCIM row whose externalId is this subject is this person: sign in as it, and SCIM
+		// keeps provisioning and offboarding it (ky-server-base Q1 A).
+		user, err = s.store.Users().GetUserBySSO(r.Context(), "scim", claims.Subject)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		if !s.config.SSO.AutoProvision {
 			s.writeError(w, http.StatusForbidden, "User account not provisioned")

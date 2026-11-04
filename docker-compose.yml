@@ -59,6 +59,7 @@ services:
       - KY_KYIDENTITY_HMAC_SECRET=${KY_KYIDENTITY_HMAC_SECRET:-}
       - KY_SCIM_ENABLED=${KY_SCIM_ENABLED:-}
       - KY_SCIM_TOKEN=${KY_SCIM_TOKEN:-}
+      - KY_SCIM_ALLOW_ADMIN=${KY_SCIM_ALLOW_ADMIN:-}
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups

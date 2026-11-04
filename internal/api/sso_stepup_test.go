@@ -197,3 +197,45 @@ func TestSSOSignInRefusesUsernameHeldByLocalAccount(t *testing.T) {
 		t.Fatalf("non-clashing sign-in: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// A SCIM row whose externalId is the KyIdentity subject is that person: sign-in uses it (SCIM
+// keeps owning it), instead of clashing on its username. Off when SCIM is off.
+func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
+	ctx := context.Background()
+	_, st, cfg := setupTestServer(t)
+	for _, u := range []*store.User{
+		{ID: "usr_scim_sam", Username: "sam", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"},
+		{ID: "usr_scim_ivy", Username: "ivy", Role: "user", Status: "inactive", SSOProvider: "scim", SSOSubject: "kid-ivy"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idp := newFakeIdP(t, cfg)
+
+	cfg.SCIM.Enabled = false
+	if w := idp.signIn(api.NewServer(cfg, st), map[string]any{"sub": "kid-sam", "preferred_username": "sam"}); w.Code != http.StatusConflict || sessionCookie(w) != nil {
+		t.Fatalf("SCIM off: %d %s", w.Code, w.Body.String())
+	}
+
+	cfg.SCIM.Enabled = true
+	srv := api.NewServer(cfg, st)
+	w := idp.signIn(srv, map[string]any{"sub": "kid-sam", "preferred_username": "sam"})
+	c := sessionCookie(w)
+	if c == nil {
+		t.Fatalf("adoption: %d %s", w.Code, w.Body.String())
+	}
+	sess, err := st.Sessions().GetSession(ctx, crypto.SHA256Hex([]byte(c.Value)))
+	if err != nil || sess.UserID != "usr_scim_sam" {
+		t.Fatalf("session for %v (%v), want usr_scim_sam", sess, err)
+	}
+	if got, _ := st.Users().GetUserByID(ctx, "usr_scim_sam"); got.SSOProvider != "scim" {
+		t.Fatalf("the SCIM row changed owner: %+v", got)
+	}
+	if _, err := st.Users().GetUserBySSO(ctx, "kyidentity", "kid-sam"); err == nil {
+		t.Fatal("a second row was created")
+	}
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
+		t.Fatalf("inactive SCIM row: %d %s", w.Code, w.Body.String())
+	}
+}
