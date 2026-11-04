@@ -11,7 +11,7 @@ Owns ephemeral PIN code generation, QR payload creation, device verification, an
 - Pairings are carried only by a 24-byte QR secret with a strict 90-second TTL (`InitPairing`). The secret redeems a session, so callers send it only in request bodies, never in URLs. Never add a short typed code: the anonymous verify route issues a full session, so anything guessable inside the window is an account takeover. Unknown, expired and consumed secrets return the same `ErrPairingNotFound`.
 - A pairing records the initiating session's credential time (`authenticated_at`); the paired session inherits it and is never fresher than its parent.
 - `InitPairing` takes the initiating user's snapshot; creation is refused once it is revoked.
-- Pairing requires an authenticated initiating account; successful verification atomically consumes the pending pairing and cannot be replayed.
+- Pairing requires an authenticated initiating account whose sign-in is within the step-up window (`internal/api` answers a stale session at `pair/init` with `reauthentication_required`): the paired session outlives its parent, so a stolen session must not renew itself (`TestBackupMutationsRequireRecentSignIn`); successful verification atomically consumes the pending pairing and cannot be replayed.
 
 ## Verification
 - `go test -v ./internal/devices/...`
