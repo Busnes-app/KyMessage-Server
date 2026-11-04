@@ -20,7 +20,7 @@ type IdentityClaims struct {
 	Name              string `json:"name"`
 	PreferredUsername string `json:"preferred_username"`
 	Role              string `json:"role,omitempty"`
-	// Roles are KyIdentity's roles for this app; empty when the app defines none.
+	// Roles are KyIdentity's roles for this app; empty or missing means ordinary user.
 	Roles    []string `json:"roles,omitempty"`
 	Provider string   `json:"provider"` // "kyidentity"
 	// AuthenticatedAt is the signed auth_time, or zero when absent or implausible. The IdP
@@ -28,20 +28,13 @@ type IdentityClaims struct {
 	AuthenticatedAt time.Time `json:"-"`
 }
 
-// AssertedRole is the console role the token asserts, or "" when it asserts none (no app
-// roles and no legacy global role), in which case the stored role stands.
+// AssertedRole grants console administration only through this app's explicit admin role.
+// The legacy global Role claim never grants or preserves administration.
 func (c *IdentityClaims) AssertedRole() string {
-	switch {
-	case slices.Contains(c.Roles, "admin"):
+	if slices.Contains(c.Roles, "admin") {
 		return "admin"
-	case len(c.Roles) > 0:
-		return "user"
-	case c.Role == "admin":
-		return "admin"
-	case c.Role != "":
-		return "user"
 	}
-	return ""
+	return "user"
 }
 
 // SSOState represents ephemeral state held during OAuth/OIDC authorization flow.

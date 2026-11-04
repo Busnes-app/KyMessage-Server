@@ -76,6 +76,10 @@ the linked restore runbook, retain an independent copy, and complete a scratch r
 custodian cards before treating recovery as verified. A synthetic drill uses a throwaway
 key and does not prove that the real cards are available or correct.
 
+Before this upgrade, follow the [KyIdentity administrator assignment and source-first
+rollout](docs/RUNNING.md#kyidentity-administrator-upgrade). A global administrator role or
+an old console role no longer grants KyMessages administration without its app's `admin` role.
+
 For upgrades, back up first, read the chosen release’s migration notes, and reuse the same
 Compose project, volume mounts and overlay selection for every command. `docker compose
 pull` followed by `docker compose up -d` updates a published-image installation; a digest pin

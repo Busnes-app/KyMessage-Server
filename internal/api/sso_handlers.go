@@ -155,9 +155,9 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// KyIdentity's role applies at each sign-in, not only when its webhook lands; installer-
+	// KyIdentity's explicit app role applies at each sign-in; empty roles mean user. Installer-
 	// and SCIM-owned rows keep theirs. A change ends the user's other sessions and pairings.
-	if role := claims.AssertedRole(); role != "" && role != user.Role && user.SSOProvider == "kyidentity" && !managed {
+	if role := claims.AssertedRole(); role != user.Role && user.SSOProvider == "kyidentity" && !managed {
 		from := user.Role
 		if err := s.store.Users().ApplySignInRole(r.Context(), user, role); err != nil {
 			log.Printf("[SSO] applying KyIdentity role %q to %s failed: %v", role, user.ID, err)

@@ -40,7 +40,7 @@ func TestSSOStepUpUsesSignedAuthTime(t *testing.T) {
 	srv := api.NewServer(cfg, st)
 
 	ssoLogin := func(authTime int64) *http.Cookie {
-		claims := map[string]any{"sub": "sub-admin"}
+		claims := map[string]any{"sub": "sub-admin", "roles": []string{"admin"}}
 		if authTime != 0 {
 			claims["auth_time"] = authTime
 		}
@@ -277,10 +277,9 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	}
 }
 
-// KyIdentity's role applies at each sign-in (owner answer Q2 A): admin when the app's roles
-// hold admin, user when they hold others; with none, the legacy global role if sent, else the
-// stored role stands. A change ends the user's other sessions and is audited. SCIM rows keep
-// their role.
+// KyIdentity's explicit app role applies at each sign-in (owner answer Q4): empty or
+// missing roles demote old admins, and a global role cannot promote. A change revokes
+// sessions and is audited. SCIM rows keep their role.
 func TestSSOSignInAppliesKyIdentityRole(t *testing.T) {
 	ctx := context.Background()
 	_, st, cfg := setupTestServer(t)
@@ -319,11 +318,15 @@ func TestSSOSignInAppliesKyIdentityRole(t *testing.T) {
 	}
 
 	first := signIn("kid-amy", map[string]any{"roles": []string{}})
-	if role("usr_amy") != "admin" {
-		t.Fatal("a token asserting no role changed the stored one")
+	if role("usr_amy") != "user" {
+		t.Fatal("empty app roles retained the old admin role")
+	}
+	promoted := signIn("kid-amy", map[string]any{"roles": []string{"editor", "admin"}})
+	if role("usr_amy") != "admin" || live(first) || !live(promoted) {
+		t.Fatal("explicit admin did not promote and revoke the old session")
 	}
 	second := signIn("kid-amy", map[string]any{"roles": []string{"admin"}})
-	if role("usr_amy") != "admin" || !live(first) {
+	if role("usr_amy") != "admin" || !live(promoted) {
 		t.Fatal("an unchanged role revoked sessions or changed the role")
 	}
 	before, err := st.Users().GetUserByID(ctx, "usr_amy")
@@ -342,18 +345,54 @@ func TestSSOSignInAppliesKyIdentityRole(t *testing.T) {
 	if w := adminDo(t, srv, demoted, "GET", "/api/admin/audit", nil); w.Code != http.StatusForbidden {
 		t.Fatalf("demoted user reached an admin route: %d", w.Code)
 	}
-	signIn("kid-amy", map[string]any{"roles": []string{}, "role": "admin"})
-	if role("usr_amy") != "admin" {
-		t.Fatal("the legacy global role did not apply with no app roles")
+	for _, claims := range []map[string]any{
+		{"roles": []string{}, "role": "admin"},
+		{"role": "admin"},
+	} {
+		c := signIn("kid-amy", claims)
+		if role("usr_amy") != "user" || !live(demoted) {
+			t.Fatalf("global role promoted or revoked unchanged user: %v", claims)
+		}
+		if w := adminDo(t, srv, c, "GET", "/api/admin/audit", nil); w.Code != http.StatusForbidden {
+			t.Fatalf("global admin reached admin route: %d", w.Code)
+		}
+	}
+	// Missing roles also remove an existing admin, even with a global admin claim.
+	signIn("kid-amy", map[string]any{"roles": []string{"admin"}})
+	signIn("kid-amy", map[string]any{"role": "admin"})
+	if role("usr_amy") != "user" {
+		t.Fatal("missing app roles retained administration")
 	}
 	recs, _, err := st.Audit().ListAuditRecords(ctx, 0, 20, "sso.role_changed")
-	if err != nil || len(recs) != 2 || recs[0].UserID != "usr_amy" || recs[0].Details != `from="user" to="admin"` {
+	if err != nil || len(recs) != 5 || recs[0].UserID != "usr_amy" || recs[0].Details != `from="admin" to="user"` {
 		t.Fatalf("audit: %v %+v", err, recs)
 	}
 
 	signIn("kid-sam", map[string]any{"roles": []string{"admin"}})
 	if role("usr_scim_sam") != "user" {
 		t.Fatal("a token promoted a SCIM-owned row")
+	}
+
+	// Auto-provisioning must use the same explicit app-role rule on the first sign-in.
+	for _, tc := range []struct {
+		sub    string
+		claims map[string]any
+		want   string
+	}{
+		{"kid-global-empty", map[string]any{"role": "admin", "roles": []string{}}, "user"},
+		{"kid-global-missing", map[string]any{"role": "admin"}, "user"},
+		{"kid-app-admin", map[string]any{"roles": []string{"editor", "admin"}}, "admin"},
+	} {
+		tc.claims["preferred_username"] = tc.sub
+		c := signIn(tc.sub, tc.claims)
+		u, err := st.Users().GetUserBySSO(ctx, "kyidentity", tc.sub)
+		if err != nil || u.Role != tc.want {
+			t.Fatalf("auto-provision %s: %v %+v", tc.sub, err, u)
+		}
+		w := adminDo(t, srv, c, "GET", "/api/admin/audit", nil)
+		if (tc.want == "admin" && w.Code != http.StatusOK) || (tc.want == "user" && w.Code != http.StatusForbidden) {
+			t.Fatalf("auto-provision %s admin route: %d %s", tc.sub, w.Code, w.Body.String())
+		}
 	}
 
 	cfg.SSO.AutoProvision = false

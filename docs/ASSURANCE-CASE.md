@@ -51,7 +51,12 @@ encrypt.
    (`internal/sso/oauth.go`), whose JWKS may hold no RSA key below 2048 bits
    (`internal/sso/jwks_strength.go`); the suite webhook verified by `ky-primitives/syncauth` (signed
    event headers, five-minute window) before any change (`internal/sso/kyidentity.go`); SCIM with a
-   bearer token, acting only on SCIM-provisioned rows (`internal/scim`).
+   bearer token, acting only on SCIM-provisioned rows (`internal/scim`). For non-installer
+   KyIdentity rows, only an explicit per-app `admin` role grants administration at sign-in;
+   empty or missing `roles` demotes, regardless of the global claim or stored role
+   (`IdentityClaims.AssertedRole`). Role changes atomically revoke grants and fence old
+   snapshots (`ApplySignInRole`). Installer and SCIM role ownership remain separate.
+   [Upgrade the role source before the receiver](RUNNING.md#kyidentity-administrator-upgrade).
 3. **KyMessages → MAS and Synapse.** Admin API clients that follow no redirects
    (`internal/matrixsync/mas.go`, `internal/synapseadmin`); the offboarding sweep locks, ends
    sessions or deactivates, and fails closed for an ambiguous or missing link.

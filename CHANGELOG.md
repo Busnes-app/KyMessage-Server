@@ -16,7 +16,12 @@
   empty `roles` from SCIM now removes the admin role.
 - KyIdentity's role for KyMessages applies at each single sign-on, not only when its directory
   update arrives: a demoted admin is a member from their next sign-in, and their other
-  sessions end. With no app roles and no global role in the token, the stored role stays.
+  sessions end. Only an explicit KyMessages `admin` app role grants administration: empty or
+  missing `roles` means ordinary user, even for a global admin or an existing console admin.
+  Before upgrading, assign the KyMessages app role to intended administrators in KyIdentity,
+  deploy KyIdentity's app-specific token and webhook role source, then upgrade KyMessages.
+  Installer-owned identities and SCIM-owned roles keep their existing ownership rules.
+  See [the upgrade sequence](docs/RUNNING.md#kyidentity-administrator-upgrade).
 - A refused single sign-on returns to the sign-in page with a sentence saying why and a
   "Try again" link, instead of a raw error page.
 

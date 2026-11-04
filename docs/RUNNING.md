@@ -31,6 +31,29 @@ With the Matrix overlay, Compose refuses to start until `.env` sets `KY_MATRIX_M
 `apply-setup`, CLI `deposit` and `export-capsule` capsules from v0.4.2 or earlier lack its
 installer credentials: seal a new one ([INSTALLER_SETUP.md](INSTALLER_SETUP.md)).
 
+## KyIdentity administrator upgrade
+
+For non-installer KyIdentity accounts, only `admin` in the KyMessages app's `roles`
+claim grants console administration. Empty or missing `roles` means ordinary user,
+regardless of the legacy global `role` claim or an old console admin role. A role change
+at sign-in revokes other sessions and pairings before issuing the new session; signed
+directory updates apply the same explicit app-role rule.
+
+Before upgrading:
+
+1. In KyIdentity, define the KyMessages app's `admin` role and assign it to the intended
+   dedicated administrator identities.
+2. Deploy the KyIdentity source update that emits app-specific `roles` in both ID tokens
+   and mapped-app directory webhooks, including when no app roles are defined. An older
+   source can re-promote a global admin through a webhook; upgrade the source first.
+3. Upgrade KyMessages, resync its directory in KyIdentity, and verify that the assigned
+   administrators can use the console and ordinary members cannot.
+
+Installer-owned identities retain the verified installer ownership/role contract; ordinary
+installer members cannot become console admins through token roles. SCIM-owned accounts
+retain SCIM role ownership and the `KY_SCIM_ALLOW_ADMIN` opt-in. Local bootstrap admins
+are unchanged.
+
 ## Identity and recovery configuration
 
 Deployment is still unverified. Prepare these settings for the eventual HTTPS
