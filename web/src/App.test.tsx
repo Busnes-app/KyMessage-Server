@@ -75,3 +75,12 @@ it('leaves the rail out when the list fails', async () => {
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u) === '/api/suite/apps')).toBe(true));
   expect(screen.queryByRole('navigation', { name: 'Apps' })).toBeNull();
 });
+
+it('shows a refused single sign-on to a user who is still signed in', async () => {
+  window.location.hash = '#/login?sso_error=failed';
+  stubServer(async () => json({}));
+  render(<App />);
+  expect((await screen.findByRole('alert')).textContent).toContain("Single sign-on didn't finish.");
+  expect(screen.getByRole('link', { name: 'Try again' }).getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
+  window.location.hash = '';
+});

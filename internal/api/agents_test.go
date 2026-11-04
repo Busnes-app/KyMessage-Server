@@ -538,4 +538,11 @@ func TestAgentOwnerCanBeAnAdoptedSCIMRow(t *testing.T) {
 	if !strings.Contains(list, `"username":"sam"`) || strings.Contains(list, `"username":"dup1"`) {
 		t.Fatalf("owners: %s", list)
 	}
+	// Deactivated in KyIdentity while SCIM still says active: the sweep locks Sam, so he owns nothing new.
+	if _, err := st.Users().RecordAdoptedStatus(context.Background(), &store.User{SSOProvider: "kyidentity", SSOSubject: "kid-sam", Status: "inactive"}, store.DirectoryEvent{ID: "e1", Revision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if code := create("agent-sam2", "usr_scim_sam"); code != http.StatusBadRequest {
+		t.Fatalf("owner inactive in KyIdentity: %d", code)
+	}
 }

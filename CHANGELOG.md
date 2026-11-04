@@ -26,5 +26,7 @@
 - People whose KyIdentity sign-in adopts their SCIM account are no longer locked out of chat.
 - Deactivating such a person in KyIdentity now locks them out of chat and calls too, and
   KyIdentity no longer reports a username conflict for them. They can also own agents.
+- A KyIdentity directory update makes someone admin when `admin` is any of their KyMessages
+  roles, not only the first.
 - Meeting notes accept a second meeting while one runs (the limit counted the invite itself).
 - A SCIM rename onto a username another account holds answers 409, not a 500 with database text.

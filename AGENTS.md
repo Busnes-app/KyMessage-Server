@@ -28,8 +28,8 @@ priority is small teams and encrypted chat, with voice and video calls enabled b
   sync reason `username_conflict` (recovery: rename, then Resync Directory in KyIdentity), an
   update keeps the old username and applies the rest, both audit `sso.sync_conflict`; sign-in
   is sent back to the login page with `sso_error=username_conflict`, audited `sso.login_conflict`.
-  A webhook create whose name is held by a SCIM row carrying the same subject (the person
-  sign-in adopts) is no conflict: it records KyIdentity's status for that person instead.
+  With SCIM on, a webhook create for a subject a SCIM row carries (the person sign-in adopts)
+  is no conflict: it records KyIdentity's status for that person instead.
 
 - `CHANGELOG.md` records user-visible changes under `Unreleased` until a release names them.
 - Read [docs/PRODUCT.md](docs/PRODUCT.md) before product scope changes; it is the product

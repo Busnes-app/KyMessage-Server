@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ type KyIdentityClient struct {
 	syncMu sync.Mutex
 	// rejects counts refused deliveries since start, in memory only.
 	rejects rejectCounter
+	// AdoptSCIM (SCIM on): sign-in adopts the SCIM row whose externalId is a subject.
+	AdoptSCIM bool
 }
 
 func NewKyIdentityClient(cfg config.SSOConfig, st store.Store) *KyIdentityClient {
@@ -290,9 +293,10 @@ func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in Directory
 // member is never written back to another status. An applied MFA reset revokes the user's
 // grants, as a status or role change does: KyIdentity resets MFA when a factor may be lost.
 func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool, status string, mfaReset bool) error {
-	// KyIdentity sends this app's roles when it defines any, else the user's global role.
+	// KyIdentity sends this app's roles when it defines any, else the user's global role. Its
+	// primary flag only marks the first of a sorted list, so admin anywhere counts, as at sign-in.
 	role := "user"
-	if !member && primaryValue(in.Roles) == "admin" {
+	if !member && slices.ContainsFunc(in.Roles, func(v scimValue) bool { return v.Value == "admin" }) {
 		role = "admin"
 	}
 	email := primaryValue(in.Emails)
@@ -316,7 +320,7 @@ func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev stor
 			// deactivation here reaches Matrix and calls. SCIM keeps owning the row.
 			if _, n, lerr := k.store.Users().ListUsers(ctx, 0, 1, store.UserFilter{Field: store.UserFieldSubject, Value: in.ID, Provider: "scim"}); lerr != nil {
 				return lerr
-			} else if n > 0 {
+			} else if n > 0 && k.AdoptSCIM {
 				_, err = k.store.Users().RecordAdoptedStatus(ctx, &store.User{SSOProvider: "kyidentity", SSOSubject: in.ID, Status: status}, ev)
 				return err
 			}

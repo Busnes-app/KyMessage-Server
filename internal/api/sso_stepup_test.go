@@ -326,9 +326,18 @@ func TestSSOSignInAppliesKyIdentityRole(t *testing.T) {
 	if role("usr_amy") != "admin" || !live(first) {
 		t.Fatal("an unchanged role revoked sessions or changed the role")
 	}
+	before, err := st.Users().GetUserByID(ctx, "usr_amy")
+	if err != nil {
+		t.Fatal(err)
+	}
 	demoted := signIn("kid-amy", map[string]any{"roles": []string{"editor"}, "role": "admin"})
 	if role("usr_amy") != "user" || live(first) || live(second) || !live(demoted) {
 		t.Fatalf("demotion: role %q, old sessions %v %v, new %v", role("usr_amy"), live(first), live(second), live(demoted))
+	}
+	// A grant authorised before the change (an in-flight pairing or session) cannot land after it.
+	now := time.Now().UTC()
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "stale", UserID: "usr_amy", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, before.PasswordHash); err == nil {
+		t.Fatal("a grant on the pre-change snapshot was issued")
 	}
 	if w := adminDo(t, srv, demoted, "GET", "/api/admin/audit", nil); w.Code != http.StatusForbidden {
 		t.Fatalf("demoted user reached an admin route: %d", w.Code)

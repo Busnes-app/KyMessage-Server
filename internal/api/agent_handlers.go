@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -45,7 +46,9 @@ type agentView struct {
 // agentOwners resolves owners: directory users by subject, and their MAS username by link.
 type agentOwners struct {
 	bySubject map[string]*store.User
-	mas       map[string]matrixsync.User // by subject
+	// status is each subject's effective directory status, as the offboarding sweep sees it.
+	status map[string]string
+	mas    map[string]matrixsync.User // by subject
 }
 
 func (s *Server) loadAgentOwners(ctx context.Context) (agentOwners, []matrixsync.User, error) {
@@ -82,13 +85,16 @@ func (s *Server) loadAgentOwners(ctx context.Context) (agentOwners, []matrixsync
 			o.bySubject[sub] = u
 		}
 	}
+	if o.status, err = s.store.Users().DirectoryStatuses(ctx, "kyidentity", s.config.SCIM.Enabled); err != nil {
+		return agentOwners{}, nil, err
+	}
 	return o, users, nil
 }
 
 func (s *Server) ownerView(o agentOwners, subject string) agentOwnerView {
 	v := agentOwnerView{Status: "unknown"}
 	if u := o.bySubject[subject]; u != nil {
-		v.ID, v.Username, v.DisplayName, v.Status = u.ID, u.Username, u.DisplayName, u.Status
+		v.ID, v.Username, v.DisplayName, v.Status = u.ID, u.Username, u.DisplayName, cmp.Or(o.status[subject], u.Status)
 	}
 	if m, ok := o.mas[subject]; ok {
 		v.MXID = s.mxid(m.Username)
@@ -136,8 +142,8 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		out = append(out, s.agentView(ctx, a, o, mas))
 	}
 	owners := []agentOwnerView{}
-	for subject, u := range o.bySubject {
-		if v := s.ownerView(o, subject); u.Status == "active" && v.MXID != "" {
+	for subject := range o.bySubject {
+		if v := s.ownerView(o, subject); o.status[subject] == "active" && v.MXID != "" {
 			owners = append(owners, v)
 		}
 	}
@@ -232,7 +238,7 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner, err := s.store.Users().GetUserByID(ctx, req.Owner)
-	if err != nil || owner.SSOSubject == "" || o.bySubject[owner.SSOSubject] == nil || o.bySubject[owner.SSOSubject].ID != owner.ID || owner.Status != "active" {
+	if err != nil || owner.SSOSubject == "" || o.bySubject[owner.SSOSubject] == nil || o.bySubject[owner.SSOSubject].ID != owner.ID || o.status[owner.SSOSubject] != "active" {
 		refuse(http.StatusBadRequest, "The owner must be an active KyIdentity member")
 		return
 	}

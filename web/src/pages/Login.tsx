@@ -23,7 +23,7 @@ export const SSO_ERRORS: Record<string, string> = {
   failed: "Single sign-on didn't finish.",
 };
 
-function ssoErrorFromHash(hash: string): string {
+export function ssoErrorFromHash(hash: string): string {
   const code = new URLSearchParams(hash.split('?')[1] ?? '').get('sso_error') ?? '';
   return Object.hasOwn(SSO_ERRORS, code) ? SSO_ERRORS[code] : '';
 }

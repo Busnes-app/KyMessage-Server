@@ -84,7 +84,12 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 	}
 
 	managed, allowed, err := s.store.InstallerIdentity(r.Context(), claims.Issuer, claims.Subject)
-	if err != nil || (managed && !allowed) {
+	if err != nil {
+		log.Printf("[SSO] installer identity check for %q failed: %v", claims.Subject, err)
+		s.ssoRefused(w, r, "failed")
+		return
+	}
+	if managed && !allowed {
 		s.ssoRefused(w, r, "not_assigned")
 		return
 	}
@@ -153,13 +158,13 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 	// KyIdentity's role applies at each sign-in, not only when its webhook lands; installer-
 	// and SCIM-owned rows keep theirs. A change ends the user's other sessions and pairings.
 	if role := claims.AssertedRole(); role != "" && role != user.Role && user.SSOProvider == "kyidentity" && !managed {
-		if err := s.store.Users().ApplySignInRole(r.Context(), user.ID, user.Role, role); err != nil {
+		from := user.Role
+		if err := s.store.Users().ApplySignInRole(r.Context(), user, role); err != nil {
 			log.Printf("[SSO] applying KyIdentity role %q to %s failed: %v", role, user.ID, err)
 			s.ssoRefused(w, r, "failed")
 			return
 		}
-		s.audit(r.Context(), user.ID, r, "sso.role_changed", "user", fmt.Sprintf("from=%q to=%q", user.Role, role))
-		user.Role = role
+		s.audit(r.Context(), user.ID, r, "sso.role_changed", "user", fmt.Sprintf("from=%q to=%q", from, role))
 	}
 
 	// The session is as fresh as the IdP's signed auth_time; a missing one never passes step-up.

@@ -515,20 +515,25 @@ func (u *userStore) CompletePasswordChange(ctx context.Context, userID, oldHash,
 	})
 }
 
-func (u *userStore) ApplySignInRole(ctx context.Context, userID, from, to string) error {
+func (u *userStore) ApplySignInRole(ctx context.Context, user *User, role string) error {
 	tx, err := u.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	err = oneRow(tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET role = ?, updated_at = ? WHERE id = ? AND role = ? AND sso_provider = 'kyidentity' AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`), to, time.Now().UTC(), userID, from))
+	fence := "revoked:" + rand.Text()
+	err = oneRow(tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET role = ?, password_hash = ?, updated_at = ? WHERE id = ? AND role = ? AND password_hash = ? AND sso_provider = 'kyidentity' AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`), role, fence, time.Now().UTC(), user.ID, user.Role, user.PasswordHash))
 	if err != nil {
 		return err
 	}
-	if err := deleteGrants(ctx, u.store, tx, userID); err != nil {
+	if err := deleteGrants(ctx, u.store, tx, user.ID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	user.Role, user.PasswordHash = role, fence
+	return nil
 }
 
 // ResetAdminPassword is the operator recovery path, including disabled local accounts.

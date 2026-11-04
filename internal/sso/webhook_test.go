@@ -461,6 +461,11 @@ func TestDirectoryWebhookRevokesAdoptedSCIMRow(t *testing.T) {
 			t.Fatalf("Matrix sees %q (%v), want %q", got["kid-sam"], err, want)
 		}
 	}
+	// With SCIM off nothing adopts the row: the held username stays a conflict.
+	if err := d.send("user.updated", scimUser("kid-sam", "user", true, 1)); !errors.Is(err, sso.ErrSyncUsernameConflict) {
+		t.Fatalf("SCIM off: %v", err)
+	}
+	d.client.AdoptSCIM = true
 	session()
 	d.must("user.mfa_reset", scimUser("kid-sam", "user", true, 1)) // no second row, no conflict
 	gone("user.mfa_reset")
@@ -496,5 +501,20 @@ func TestDirectoryWebhookRevokesAdoptedSCIMRow(t *testing.T) {
 	gone("user.mfa_reset with 102 matching rows")
 	if u, _ := d.st.Users().GetUserByID(ctx, "usr_scim_kid-sam"); u.SSOProvider != "scim" || u.Status != "active" {
 		t.Fatalf("the SCIM row's ownership or status changed: %+v", u)
+	}
+}
+
+// KyIdentity marks only the first of an app's sorted roles primary, so admin anywhere in the
+// list is the admin role, as the sign-in token's roles are read.
+func TestDirectoryWebhookAdminAnywhereInRoles(t *testing.T) {
+	d := newDirectory(t)
+	body := scimUser("kid-ann", "accountant", true, 1)
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	m["roles"] = []map[string]any{{"value": "accountant", "primary": true}, {"value": "admin"}}
+	body, _ = json.Marshal(m)
+	d.must("user.created", body)
+	if u := d.user("kid-ann"); u == nil || u.Role != "admin" {
+		t.Fatalf("got %+v, want admin", u)
 	}
 }

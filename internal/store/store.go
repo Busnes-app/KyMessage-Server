@@ -82,19 +82,21 @@ type UserStore interface {
 	// subject whose person is a SCIM row sign-in adopts; DirectoryStatuses joins it to SCIM's.
 	RecordAdoptedStatus(ctx context.Context, u *User, ev DirectoryEvent) (bool, error)
 	// DirectoryStatuses maps each subject of provider to its user's status, or to "deleted"
-	// when the directory deleted it (an order row with no user). Of several rows for one
-	// subject, a non-active status wins. With adoptSCIM (SCIM on) it also maps the SCIM rows a
-	// sign-in of provider would adopt (externalId = subject, no provider row or record): the
-	// same person, whose status SCIM owns (ky-server-base Q1 A), so Matrix must know them too.
+	// when the directory deleted it (an order row with no user and no adopted status). Of
+	// several rows for one subject, a non-active status wins. With adoptSCIM (SCIM on) it also
+	// maps the SCIM rows a sign-in of provider would adopt (externalId = subject, no provider
+	// row or deletion record): the same person, so Matrix must know them too, with SCIM's
+	// status (ky-server-base Q1 A) and the provider's recorded adopted status, if any.
 	DirectoryStatuses(ctx context.Context, provider string, adoptSCIM bool) (map[string]string, error)
 	// ResetAdminPassword is init-admin's recovery of a local account: a forced password
 	// replacement, active and admin. It is ErrNotFound for a non-admin unless promote is set.
 	ResetAdminPassword(ctx context.Context, userID, newHash string, promote bool) error
 	CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error
-	// ApplySignInRole changes a KyIdentity row that is not installer-owned from role from to
-	// role to and deletes its grants, in one transaction. It is ErrNotFound when the row no
-	// longer matches (another writer got there first).
-	ApplySignInRole(ctx context.Context, userID, from, to string) error
+	// ApplySignInRole changes u, a KyIdentity row that is not installer-owned, from u.Role to
+	// role, deletes its grants and replaces its password_hash fence (it holds no password),
+	// in one transaction, so grants issued on the old snapshot fail; u takes the new values.
+	// It is ErrNotFound when the row no longer matches (another writer got there first).
+	ApplySignInRole(ctx context.Context, u *User, role string) error
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, offset, limit int, filter UserFilter) ([]*User, int, error)
 	CountUsers(ctx context.Context) (int, error)
