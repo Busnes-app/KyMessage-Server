@@ -238,4 +238,11 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
 		t.Fatalf("inactive SCIM row: %d %s", w.Code, w.Body.String())
 	}
+	// An adopted SCIM admin's step-up goes through KyIdentity, forcing credentials.
+	if err := st.Users().UpdateProfile(ctx, &store.User{ID: "usr_scim_sam", Username: "sam", Role: "admin", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if w := adminDo(t, srv, c, "PUT", "/api/backup/schedule", map[string]int{"interval_sec": 0}); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "fresh=1") {
+		t.Fatalf("adopted SCIM admin step-up: %d %s", w.Code, w.Body.String())
+	}
 }
