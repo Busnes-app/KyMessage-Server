@@ -397,3 +397,23 @@ func TestDirectoryWebhookRenameOntoLocalAccountKeepsUsernameAppliesTheRest(t *te
 		t.Fatalf("same-subject update: %+v", u)
 	}
 }
+
+// A KyIdentity MFA reset (a factor may be lost or stolen) revokes the user's grants even
+// though role and status are unchanged, as the installer-managed path does.
+func TestDirectoryWebhookMFAResetRevokesSessions(t *testing.T) {
+	ctx := context.Background()
+	d := newDirectory(t)
+	d.must("user.created", scimUser("kid-mia", "admin", true, 1))
+	now := time.Now().UTC()
+	if err := d.st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "tok-mia", UserID: d.user("kid-mia").ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	d.must("user.updated", scimUser("kid-mia", "admin", true, 2))
+	if _, err := d.st.Sessions().GetSession(ctx, "tok-mia"); err != nil {
+		t.Fatalf("an unchanged update revoked the session: %v", err)
+	}
+	d.must("user.mfa_reset", scimUser("kid-mia", "admin", true, 3))
+	if _, err := d.st.Sessions().GetSession(ctx, "tok-mia"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("user.mfa_reset kept the session: %v", err)
+	}
+}

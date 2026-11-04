@@ -210,7 +210,7 @@ func (k *KyIdentityClient) applyEvent(ctx context.Context, event syncauth.Event,
 	}
 	switch event.Type {
 	case "user.created", "user.updated", "user.mfa_reset":
-		return k.upsertDirectoryUser(ctx, user, ev, false)
+		return k.upsertDirectoryUser(ctx, user, ev, event.Type == "user.mfa_reset")
 	case "user.deleted":
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -243,21 +243,22 @@ func (k *KyIdentityClient) applyMember(ctx context.Context, kind string, in Dire
 	default:
 		return fmt.Errorf("%w: event %q", ErrMemberRefused, kind)
 	}
-	return k.upsert(ctx, in, ev, true, status)
+	return k.upsert(ctx, in, ev, true, status, kind == "user.mfa_reset")
 }
 
-func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool) error {
+func (k *KyIdentityClient) upsertDirectoryUser(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, mfaReset bool) error {
 	status := "inactive"
 	if in.Active {
 		status = "active"
 	}
-	return k.upsert(ctx, in, ev, member, status)
+	return k.upsert(ctx, in, ev, false, status, mfaReset)
 }
 
 // upsert writes in with status. A member is always role user; an existing member keeps the
 // fields the event omits, a new one without a username takes its subject, and a deleted
-// member is never written back to another status.
-func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool, status string) error {
+// member is never written back to another status. An applied MFA reset revokes the user's
+// grants, as a status or role change does: KyIdentity resets MFA when a factor may be lost.
+func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev store.DirectoryEvent, member bool, status string, mfaReset bool) error {
 	// KyIdentity sends this app's roles when it defines any, else the user's global role.
 	role := "user"
 	if !member && primaryValue(in.Roles) == "admin" {
@@ -307,7 +308,7 @@ func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev stor
 	if err != nil || !applied {
 		return err
 	}
-	if existing.Role != role || existing.Status != status {
+	if existing.Role != role || existing.Status != status || mfaReset {
 		return k.store.Sessions().DeleteUserSessions(ctx, existing.ID)
 	}
 	return nil
