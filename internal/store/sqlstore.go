@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -284,11 +285,13 @@ WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'i
 
 // UpdateProfile writes only directory-owned fields, the subject (SCIM's externalId) included.
 // Provisioning reads a user, edits it and writes it back; including credential columns would
-// let that stale copy undo a concurrent password change.
+// let that stale copy undo a concurrent password change. A new subject replaces the row's
+// password_hash (SCIM rows hold no password) with a random value in the same statement, so a
+// sign-in of the old subject already in flight cannot issue a session on it.
 func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 	user.UpdatedAt = time.Now().UTC()
-	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, sso_subject = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`)
-	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.SSOSubject, user.UpdatedAt, user.ID)
+	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, password_hash = CASE WHEN sso_subject = ? THEN password_hash ELSE ? END, sso_subject = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`)
+	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.SSOSubject, "revoked:"+rand.Text(), user.SSOSubject, user.UpdatedAt, user.ID)
 	if err != nil {
 		return err
 	}

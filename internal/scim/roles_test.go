@@ -241,8 +241,16 @@ func TestSCIMExternalIDChanges(t *testing.T) {
 		"Operations": []map[string]any{{"op": "replace", "path": "externalId", "value": "kid-sam"}}}); w.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", w.Code, w.Body.String())
 	}
-	if u, _ := st.Users().GetUserByID(ctx, "usr_sam"); u.SSOSubject != "kid-sam" {
+	u, _ := st.Users().GetUserByID(ctx, "usr_sam")
+	if u.SSOSubject != "kid-sam" {
 		t.Fatalf("PATCH externalId not stored: %+v", u)
+	}
+	// A sign-in of the old subject read the row before the change: its session is refused.
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-stale", UserID: "usr_sam", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err == nil {
+		t.Fatal("a session fenced on the old subject's snapshot was issued")
+	}
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "sess-new", UserID: "usr_sam", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, u.PasswordHash); err != nil {
+		t.Fatalf("a fresh read cannot issue a session: %v", err)
 	}
 	if _, err := st.Sessions().GetSession(ctx, "sess-sam"); err == nil {
 		t.Error("a session survived the identity change")
