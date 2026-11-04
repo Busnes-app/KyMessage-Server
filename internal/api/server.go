@@ -490,7 +490,8 @@ func (s *Server) admin(h http.HandlerFunc, fresh bool) http.HandlerFunc {
 // writeStepUp is the one refusal every step-up check sends.
 func (s *Server) writeStepUp(w http.ResponseWriter, user *store.User) {
 	body := map[string]string{"error": "Confirm it's you: this change needs a sign-in from the last 10 minutes", "code": "reauthentication_required"}
-	if user.SSOProvider == "kyidentity" {
+	// SCIM rows have no password: they sign in through KyIdentity too (adoption).
+	if user.SSOProvider == "kyidentity" || user.SSOProvider == "scim" {
 		// A plain SSO login may silently reuse the IdP session; this one forces credentials.
 		body["reauth_url"] = reauthURL
 	}

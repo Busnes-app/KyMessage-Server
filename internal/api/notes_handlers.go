@@ -186,7 +186,10 @@ func (s *Server) handleNotesSession(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{"user_id": s.notesMXID(), "device_id": device, "access_token": token})
 }
 
-// notesBot authenticates the bot: the notes secret as Bearer, 10 requests a minute per address.
+// notesBot authenticates the bot: the notes secret as Bearer. Only wrong secrets count, 10 a
+// minute per address: the bot itself reads the config every 10 seconds per meeting, before each
+// new share and before each message it posts, and a 429 there would switch snapshots off or
+// drop notes.
 func (s *Server) notesBot(w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("Cache-Control", "no-store")
 	secret := s.config.Matrix.NotesSecret
@@ -194,12 +197,14 @@ func (s *Server) notesBot(w http.ResponseWriter, r *http.Request) bool {
 		s.writeError(w, http.StatusNotFound, "Meeting notes are not configured")
 		return false
 	}
-	if !s.allowClientAttempt("notes:", r, 10, time.Minute) {
+	failKey := "notes-fail:" + s.clientKey(r)
+	if s.clientAttempts.blocked(failKey, 10) {
 		s.writeError(w, http.StatusTooManyRequests, "Too many requests")
 		return false
 	}
 	given, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || subtle.ConstantTimeCompare([]byte(given), []byte(secret)) != 1 {
+		s.clientAttempts.allow(failKey, 10, time.Minute)
 		s.writeError(w, http.StatusUnauthorized, "Invalid notes secret")
 		return false
 	}

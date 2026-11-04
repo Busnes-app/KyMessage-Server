@@ -454,10 +454,12 @@ func runInitAdmin(args []string) {
 	}
 	fs := flag.NewFlagSet("init-admin", flag.ExitOnError)
 	username := fs.String("username", cfg.Security.AdminUsername, "Admin username (default KY_ADMIN_USERNAME)")
+	promote := fs.Bool("promote", false, "Allow resetting an existing non-admin local account, which makes it an admin")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: kymessages init-admin [-username <name>]\n\n"+
+		fmt.Fprintf(os.Stderr, "Usage: kymessages init-admin [-username <name>] [-promote]\n\n"+
 			"The password (at least 12 characters) is read from stdin, never from the command\n"+
-			"line: argv is world-readable and lands in shell history.\n\n")
+			"line: argv is world-readable and lands in shell history. Resetting an existing\n"+
+			"account also turns off its two-factor sign-in; a non-admin account needs -promote.\n\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -487,10 +489,13 @@ func runInitAdmin(args []string) {
 
 	existing, err := st.Users().GetLocalUserByUsername(ctx, *username)
 	if err == nil && existing != nil {
-		if err := st.Users().ResetAdminPassword(ctx, existing.ID, hash); err != nil {
+		if existing.Role != "admin" && !*promote {
+			log.Fatalf("Error: %q is a local account with role %q; pass -promote to reset it and make it an admin", existing.Username, existing.Role)
+		}
+		if err := st.Users().ResetAdminPassword(ctx, existing.ID, hash, *promote); err != nil {
 			log.Fatalf("Failed to update admin: %v", err)
 		}
-		log.Printf("✓ Admin user %q password successfully reset", *username)
+		log.Printf("✓ Admin user %q password successfully reset; two-factor sign-in is off until it is set up again", *username)
 		return
 	}
 	// Checked only on creation, so an existing account keeps its reset path.

@@ -24,7 +24,7 @@ type Server struct {
 }
 
 func NewServer(st store.Store, cfg config.SCIMConfig, appURL string) *Server {
-	userHandler := &userResourceHandler{store: st}
+	userHandler := &userResourceHandler{store: st, allowAdmin: cfg.AllowAdmin}
 	groupHandler := &groupResourceHandler{store: st}
 	server, err := protocol.NewServer(&protocol.ServerArgs{
 		ServiceProviderConfig: &protocol.ServiceProviderConfig{
@@ -81,7 +81,16 @@ func writeAuthError(w http.ResponseWriter, status int, detail string) {
 	_ = json.NewEncoder(w).Encode(protocolErrors.ScimError{Status: status, Detail: detail})
 }
 
-type userResourceHandler struct{ store store.Store }
+type userResourceHandler struct {
+	store      store.Store
+	allowAdmin bool
+}
+
+// grantsAdmin refuses a new admin grant unless KY_SCIM_ALLOW_ADMIN: the SCIM token must not
+// mint console administrators by default. An existing grant may be kept or removed.
+func (h *userResourceHandler) grantsAdmin(oldRole, newRole string) bool {
+	return !h.allowAdmin && newRole == "admin" && oldRole != "admin"
+}
 
 func (h *userResourceHandler) Create(r *http.Request, attrs protocol.ResourceAttributes) (protocol.Resource, error) {
 	username, _ := attrs["userName"].(string)
@@ -91,6 +100,9 @@ func (h *userResourceHandler) Create(r *http.Request, attrs protocol.ResourceAtt
 	}
 	if !validRole(user.Role) {
 		return protocol.Resource{}, errRole
+	}
+	if h.grantsAdmin("", user.Role) {
+		return protocol.Resource{}, errAdmin
 	}
 	if err := h.store.Users().CreateUser(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, user.ID)
@@ -164,6 +176,9 @@ func (h *userResourceHandler) Replace(r *http.Request, id string, attrs protocol
 	if !validRole(user.Role) {
 		return protocol.Resource{}, errRole
 	}
+	if h.grantsAdmin(oldRole, user.Role) {
+		return protocol.Resource{}, errAdmin
+	}
 	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
@@ -209,6 +224,9 @@ func (h *userResourceHandler) Patch(r *http.Request, id string, operations []pro
 	if !validRole(user.Role) {
 		return protocol.Resource{}, errRole
 	}
+	if h.grantsAdmin(oldRole, user.Role) {
+		return protocol.Resource{}, errAdmin
+	}
 	if err := h.store.Users().UpdateProfile(r.Context(), user); err != nil {
 		return protocol.Resource{}, scimStoreError(err, id)
 	}
@@ -224,6 +242,8 @@ func (h *userResourceHandler) revokeIfPrivilegesChanged(r *http.Request, user *s
 
 // Roles are the console's two; anything else would be stored and never mean anything.
 func validRole(role string) bool { return role == "admin" || role == "user" }
+
+var errAdmin = protocolErrors.ScimError{ScimType: protocolErrors.ScimTypeInvalidValue, Detail: `granting roles "admin" over SCIM is off; set KY_SCIM_ALLOW_ADMIN=true to allow it`, Status: http.StatusBadRequest}
 
 var errRole = protocolErrors.ScimError{ScimType: protocolErrors.ScimTypeInvalidValue, Detail: `roles must be "admin" or "user"`, Status: http.StatusBadRequest}
 

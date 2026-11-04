@@ -22,7 +22,9 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
 - `Collect` snapshots SQLite with the lib's `SQLiteSnapshot` (`VACUUM INTO`; the store runs in
   WAL mode, so a plain file read misses uncheckpointed commits) and returns
   `ErrNoDatabaseSnapshot` for any other driver, so a capsule without a consistent database is
-  never sealed. The server capsule is the whole application database, compacted (`VACUUM`) on the
+  never sealed. It also refuses (`ErrNoDatabaseSnapshot`) a SQLite file other than
+  `<data dir>/ky_server.db`, the only name a capsule and restore carry
+  (`TestCollectRefusesANonDefaultDatabasePath`). The server capsule is the whole application database, compacted (`VACUUM`) on the
   owned snapshot and rejected above the shared capsule file limit before reading it into memory. Metadata/receipt/audit growth remains capped at 64 MiB;
   initial snapshot disk space still scales with the complete live database. It also carries the encryption key (`data/encryption.key`, required — restores
   a database whose MFA secrets are gone otherwise) and the pinned recovery public key
@@ -38,6 +40,9 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   `init.sql`, `kybackup-role.sql`, and each `restoreDBs` owner password under `matrix/secrets/`)
   and runs `checkDump` on each joined dump (`DumpCheckTimeout` each), the same check
   `MatrixRestore.Run` refuses on: the drill must never pass a capsule restore-matrix refuses.
+  `Collect` itself refuses to seal when a `matrixRequired()` member is missing, and the walk
+  refuses any entry under the Matrix directories that is not a directory, a dot-file or a
+  regular file (a symlinked secret), so a deposit never reports success for such a capsule.
 - The expanded limit counts tar framing (`Measure`) and holds back 1 MiB, because ky-primitives
   v0.8.0 `Seal` undercounts against `Open` (Busnes-app/ky-primitives#20). A payload past it fails
   with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`; its message rounds the size up and

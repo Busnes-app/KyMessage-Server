@@ -28,12 +28,12 @@ export const SCREENS_WARNINGS = [
 
 const when = (t: string) => new Date(t).toLocaleString();
 
-interface SwitchProps { on: boolean; busy: boolean; warnings: string[]; onChange: (on: boolean) => void }
+interface SwitchProps { on: boolean; busy: boolean; warnings: string[]; onChange: (on: boolean) => void; retry?: boolean }
 
 /** Off is one click; on first shows the warnings with Turn on/Cancel (Cancel sends nothing). */
-const Switch: React.FC<SwitchProps> = ({ on, busy, warnings, onChange }) => {
+const Switch: React.FC<SwitchProps> = ({ on, busy, warnings, onChange, retry }) => {
   const [confirming, setConfirming] = useState(false);
-  if (on) return <button type="button" className="btn-secondary" disabled={busy} onClick={() => onChange(false)}>Turn off</button>;
+  if (on || retry) return <button type="button" className="btn-secondary" disabled={busy} onClick={() => onChange(false)}>Turn off</button>;
   if (!confirming) return <button type="button" className="btn-secondary" onClick={() => setConfirming(true)}>Turn on…</button>;
   return (
     <div className="dr-alert dr-alert-warn" role="alert">
@@ -49,6 +49,7 @@ export const NotesPanel: React.FC = () => {
   const [status, setStatus] = useState<NotesStatus | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [stuck, setStuck] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const res = await fetch('/api/admin/notes', { signal, cache: 'no-store' });
@@ -68,10 +69,18 @@ export const NotesPanel: React.FC = () => {
   const change = (path: string, what: string) => async (on: boolean) => {
     setBusy(true);
     setError('');
+    setStuck(false);
     try {
       const res = await adminFetch(`/api/admin/notes/${path}${on ? 'enable' : 'disable'}`, { method: 'POST' });
       if (!res.ok) throw new Error(await errorMessage(res, `Could not turn ${what} ${on ? 'on' : 'off'}`));
+      // Off is saved first; a session MAS did not revoke stays live until Turn off succeeds.
+      const body: unknown = path === '' && !on ? await res.json().catch(() => null) : null;
+      const outcome = typeof body === 'object' && body !== null && 'outcome' in body && typeof body.outcome === 'string' ? body.outcome : '';
       await load();
+      if (outcome.startsWith('disabled; ')) {
+        setStuck(true);
+        setError(`Meeting notes are off, but the bot's session was not ended (${outcome.slice('disabled; '.length)}). Turn off again to retry.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change meeting notes');
     } finally {
@@ -99,7 +108,7 @@ export const NotesPanel: React.FC = () => {
               <div className="dr-fact-value">{status.checkin ? `Last checked in ${when(status.checkin)}` : 'Has not checked in: start the notes service (docker-compose.notes.yml).'}</div>
             </div>
           </div>
-          <Switch on={status.enabled} busy={busy} warnings={NOTES_WARNINGS} onChange={change('', 'meeting notes')} />
+          <Switch on={status.enabled} retry={stuck} busy={busy} warnings={NOTES_WARNINGS} onChange={change('', 'meeting notes')} />
           {status.enabled && (
             <div className="dr-section">
               <h4>Shared-screen snapshots <Status tone={status.screens ? 'success' : undefined}>{status.screens ? 'Allowed' : 'Off'}</Status></h4>

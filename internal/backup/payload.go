@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,9 @@ var ErrNoDatabaseSnapshot = errors.New("backup: no consistent database snapshot 
 func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recoveryclient.Payload, error) {
 	if strings.ToLower(cfg.Database.Driver) != "sqlite" {
 		return recoveryclient.Payload{}, fmt.Errorf("%w: %s", ErrNoDatabaseSnapshot, cfg.Database.Driver)
+	}
+	if err := defaultSQLitePath(cfg.Database.DSN, cfg.Database.DataDir); err != nil {
+		return recoveryclient.Payload{}, err
 	}
 	dbBytes, err := snapshotSQLite(ctx, cfg.Database.DSN, cfg.Database.DataDir)
 	if err != nil {
@@ -108,6 +112,19 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 	if err := b.err(); err != nil {
 		return recoveryclient.Payload{}, err
 	}
+	if cfg.Matrix.Enabled() {
+		// The walk takes regular files only: a symlinked secret would otherwise be sealed as a
+		// success that restore-matrix cannot use.
+		have := map[string]bool{}
+		for _, f := range files {
+			have[f.Path] = true
+		}
+		for _, name := range matrixRequired() {
+			if !have[name] {
+				return recoveryclient.Payload{}, fmt.Errorf("backup: %s is missing or not a regular file; a restore needs it", name)
+			}
+		}
+	}
 	recipe["required_files"] = requiredFiles(files)
 	return recoveryclient.Payload{
 		ServiceName: cfg.Server.AppName,
@@ -119,6 +136,31 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 		},
 		VerificationRecipe: recipe,
 	}, nil
+}
+
+// defaultSQLitePath refuses a database file other than <dataDir>/ky_server.db: the capsule
+// and restore carry it under that name only, so a restored server started with a custom
+// KY_DB_DSN would open a new, empty database (ky-server-base Q10 A).
+func defaultSQLitePath(dsn, dataDir string) error {
+	path, _, _ := strings.Cut(dsn, "?")
+	if strings.HasPrefix(path, "file:") {
+		// A file: URI, as SQLite reads it: a percent-encoded path, and an authority that is
+		// empty or localhost (file:///abs, file://localhost/abs).
+		u, err := url.Parse(path)
+		if err == nil && u.Opaque != "" {
+			u.Path, err = url.PathUnescape(u.Opaque)
+		}
+		if err != nil || (u.Host != "" && u.Host != "localhost") {
+			return fmt.Errorf("%w: unreadable database URI %q", ErrNoDatabaseSnapshot, dsn)
+		}
+		path = u.Path
+	}
+	got, err1 := filepath.Abs(path)
+	want, err2 := filepath.Abs(filepath.Join(dataDir, "ky_server.db"))
+	if err1 != nil || err2 != nil || got != want {
+		return fmt.Errorf("%w: the SQLite database is %q, but backups and restore support only %q; unset KY_DB_DSN or point it there", ErrNoDatabaseSnapshot, path, filepath.Join(dataDir, "ky_server.db"))
+	}
+	return nil
 }
 
 // snapshotSQLite returns a consistent single-file copy of the live database. The store runs

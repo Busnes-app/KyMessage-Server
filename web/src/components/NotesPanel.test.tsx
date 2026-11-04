@@ -53,6 +53,24 @@ describe('NotesPanel', () => {
     expect(calls).toContain('POST /api/admin/notes/disable');
   });
 
+  it('says when turning off left the bot session live, and Turn off retries', async () => {
+    const calls: string[] = [];
+    let outcome = 'disabled; session not revoked: MAS: 503';
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url === '/api/admin/notes') return json(calls.length === 1 ? { ...OFF, enabled: true } : OFF);
+      return json({ outcome });
+    }));
+    render(<NotesPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
+    expect(await screen.findByText(/the bot's session was not ended \(session not revoked: MAS: 503\)/)).toBeTruthy();
+    outcome = 'disabled';
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(calls.filter((c) => c === 'POST /api/admin/notes/disable')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Turn on…' })).toBeTruthy();
+  });
+
   it('shows a refused change', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => (url === '/api/admin/notes' ? json(OFF) : json({ error: 'Could not prepare the notes account' }, 502))));
     render(<NotesPanel />);

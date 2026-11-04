@@ -86,7 +86,7 @@ func TestAdminPasswordResetRevokesGrants(t *testing.T) {
 	if err := st.Users().UpdateUser(ctx, u); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Users().ResetAdminPassword(ctx, u.ID, "reset-hash"); err != nil {
+	if err := st.Users().ResetAdminPassword(ctx, u.ID, "reset-hash", false); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := st.Users().GetUserByID(ctx, u.ID)
@@ -149,5 +149,44 @@ func TestProfileUpdateKeepsConcurrentCredentialChanges(t *testing.T) {
 	}
 	if got.PasswordHash != "new" || got.MustChangePassword || got.RecoveryCodesHash != `["c2"]` || got.DisplayName != "Race Condition" {
 		t.Fatalf("profile write reverted credentials: %+v", got)
+	}
+}
+
+// init-admin's reset turns two-factor off, so an operator can recover an admin who lost the
+// authenticator and the recovery codes, and promotes a non-admin only when asked to.
+func TestResetAdminPasswordClearsTOTPAndPromotesOnlyWhenAsked(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	for _, u := range []*store.User{
+		{ID: "usr_adm", Username: "adm", PasswordHash: "old", Role: "admin", Status: "active", SSOProvider: "local"},
+		{ID: "usr_member", Username: "member", PasswordHash: "old", Role: "user", Status: "active", SSOProvider: "local"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Users().SetPendingTOTP(ctx, "usr_adm", "enc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Users().EnableTOTP(ctx, "usr_adm", "enc", `["h"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Users().ResetAdminPassword(ctx, "usr_adm", "new", false); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_adm"); u.TOTPEnabled || u.TOTPSecretEnc != "" || u.PasswordHash != "new" {
+		t.Fatalf("two-factor survived the reset: %+v", u)
+	}
+	if err := st.Users().ResetAdminPassword(ctx, "usr_member", "new", false); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a non-admin was reset without promote: %v", err)
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_member"); u.Role != "user" || u.PasswordHash != "old" {
+		t.Fatalf("refused reset changed the account: %+v", u)
+	}
+	if err := st.Users().ResetAdminPassword(ctx, "usr_member", "new", true); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_member"); u.Role != "admin" {
+		t.Fatalf("promote did not make an admin: %+v", u)
 	}
 }

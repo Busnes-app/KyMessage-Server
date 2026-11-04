@@ -11,20 +11,28 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
-// handleChangePassword completes a mandatory local-password replacement. All sessions
-// are revoked atomically with the password update; the user signs in again afterward.
+// handleChangePassword changes a local account's password after verifying the current one:
+// the mandatory replacement of a bootstrap or init-admin password, or any later change
+// (KyCalendar Q4 A). All grants are revoked atomically with the update; the user signs in
+// again afterward.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	user, _, err := s.sessions.AuthenticateRequest(r)
+	user, sess, err := s.sessions.AuthenticateRequest(r)
 	if err != nil {
 		s.writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
-	if !user.MustChangePassword || user.SSOProvider != "local" {
-		s.writeError(w, http.StatusConflict, "No local password replacement is required")
+	if user.SSOProvider != "local" {
+		s.writeError(w, http.StatusConflict, "This account signs in through KyIdentity; change the password there")
+		return
+	}
+	// A voluntary change needs a recent sign-in, so a stolen session cannot guess the current
+	// password at leisure and take the account. A forced replacement follows a sign-in.
+	if !user.MustChangePassword && time.Since(sess.CreatedAt) > stepUpWindow {
+		s.writeStepUp(w, user)
 		return
 	}
 	if !s.allowClientAttempt("password-change", r, 10, time.Minute) || !s.allowAccountAttempt("password-change-user:"+user.ID, 5, time.Minute) {

@@ -197,3 +197,61 @@ func TestSSOSignInRefusesUsernameHeldByLocalAccount(t *testing.T) {
 		t.Fatalf("non-clashing sign-in: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// A SCIM row whose externalId is the KyIdentity subject is that person: sign-in uses it (SCIM
+// keeps owning it), instead of clashing on its username. Off when SCIM is off.
+func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
+	ctx := context.Background()
+	_, st, cfg := setupTestServer(t)
+	for _, u := range []*store.User{
+		{ID: "usr_scim_sam", Username: "sam", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"},
+		{ID: "usr_scim_ivy", Username: "ivy", Role: "user", Status: "inactive", SSOProvider: "scim", SSOSubject: "kid-ivy"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idp := newFakeIdP(t, cfg)
+
+	cfg.SCIM.Enabled = false
+	if w := idp.signIn(api.NewServer(cfg, st), map[string]any{"sub": "kid-sam", "preferred_username": "sam"}); w.Code != http.StatusConflict || sessionCookie(w) != nil {
+		t.Fatalf("SCIM off: %d %s", w.Code, w.Body.String())
+	}
+
+	cfg.SCIM.Enabled = true
+	srv := api.NewServer(cfg, st)
+	w := idp.signIn(srv, map[string]any{"sub": "kid-sam", "preferred_username": "sam"})
+	c := sessionCookie(w)
+	if c == nil {
+		t.Fatalf("adoption: %d %s", w.Code, w.Body.String())
+	}
+	sess, err := st.Sessions().GetSession(ctx, crypto.SHA256Hex([]byte(c.Value)))
+	if err != nil || sess.UserID != "usr_scim_sam" {
+		t.Fatalf("session for %v (%v), want usr_scim_sam", sess, err)
+	}
+	if got, _ := st.Users().GetUserByID(ctx, "usr_scim_sam"); got.SSOProvider != "scim" {
+		t.Fatalf("the SCIM row changed owner: %+v", got)
+	}
+	if _, err := st.Users().GetUserBySSO(ctx, "kyidentity", "kid-sam"); err == nil {
+		t.Fatal("a second row was created")
+	}
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
+		t.Fatalf("inactive SCIM row: %d %s", w.Code, w.Body.String())
+	}
+	// Two SCIM rows with one externalId are ambiguous: refused, never one picked at random.
+	for _, id := range []string{"usr_scim_dup1", "usr_scim_dup2"} {
+		if err := st.Users().CreateUser(ctx, &store.User{ID: id, Username: id, Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-dup"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-dup", "preferred_username": "dup"}); w.Code != http.StatusConflict || sessionCookie(w) != nil {
+		t.Fatalf("two SCIM rows for one subject: %d %s", w.Code, w.Body.String())
+	}
+	// An adopted SCIM admin's step-up goes through KyIdentity, forcing credentials.
+	if err := st.Users().UpdateProfile(ctx, &store.User{ID: "usr_scim_sam", Username: "sam", Role: "admin", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if w := adminDo(t, srv, c, "PUT", "/api/backup/schedule", map[string]int{"interval_sec": 0}); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "fresh=1") {
+		t.Fatalf("adopted SCIM admin step-up: %d %s", w.Code, w.Body.String())
+	}
+}

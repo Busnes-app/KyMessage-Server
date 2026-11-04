@@ -14,7 +14,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   id)`; insertion order handles timestamp ties/backwards clocks without scanning
   unrelated activity. Backup status reads this append-only source, not a second
   shared last-result setting.
-- `CompletePasswordChange` atomically compares the old password, updates a flagged local account, clears the flag, deletes sessions/MFA challenges/device pairings and records `auth.password_changed`. Session/MFA issuance locks the same user row against the verified hash; MFA challenges persist the creation-time password hash, and consumption returns that snapshot to reject stale completions. Migration 4 discards preexisting challenges because their credential snapshot is unknown.
+- `CompletePasswordChange` atomically compares the old password, updates any local account (flagged for replacement or not), clears the flag, deletes sessions/MFA challenges/device pairings and records `auth.password_changed`. Session/MFA issuance locks the same user row against the verified hash; MFA challenges persist the creation-time password hash, and consumption returns that snapshot to reject stale completions. Migration 4 discards preexisting challenges because their credential snapshot is unknown.
 - `ResetAdminPassword` reactivates a local administrator with the replacement flag set and shares the atomic grant purge and audit path with `CompletePasswordChange`; it also works for disabled accounts.
 - `InvalidateRestoredGrants` runs only on an offline restored database: atomically
   delete sessions, MFA challenges and device pairings and audit `restore.grants_invalidated`.

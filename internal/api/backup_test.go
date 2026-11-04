@@ -25,6 +25,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/auth"
 	"github.com/Busnes-app/ky_server_base/internal/backup"
 	"github.com/Busnes-app/ky_server_base/internal/config"
+	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -853,8 +854,21 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.Database.DataDir, "recovery.pub")); err == nil {
 		t.Fatal("a stale session pinned a key")
 	}
-	// Pairing verifies no credentials, so a session it mints must not look like a fresh sign-in.
-	init := adminDo(t, srv, stale, "POST", "/api/devices/pair/init", nil)
+	// A paired session outlives its parent, so a stale session cannot pair itself a new one.
+	if w := adminDo(t, srv, stale, "POST", "/api/devices/pair/init", nil); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
+		t.Fatalf("pair init from a stale session: %d %s", w.Code, w.Body.String())
+	}
+	// Pairing verifies no credentials, so a session it mints must not look like a fresh sign-in:
+	// it keeps its parent's credential time.
+	ctx := context.Background()
+	parentAt := time.Now().UTC().Add(-9 * time.Minute)
+	user, _ := st.Users().GetUserByID(ctx, "usr_old")
+	rawParent := crypto.RandomHex(32)
+	if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: crypto.SHA256Hex([]byte(rawParent)), UserID: "usr_old",
+		CreatedAt: parentAt, ExpiresAt: time.Now().UTC().Add(time.Hour)}, user.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	init := adminDo(t, srv, &http.Cookie{Name: auth.SessionCookieName, Value: rawParent}, "POST", "/api/devices/pair/init", nil)
 	if init.Code != http.StatusOK {
 		t.Fatalf("pair init: %d %s", init.Code, init.Body.String())
 	}
@@ -869,15 +883,9 @@ func TestBackupMutationsRequireRecentSignIn(t *testing.T) {
 	if err := json.Unmarshal(verify.Body.Bytes(), &paired); err != nil || paired.Token == "" {
 		t.Fatalf("pair verify: %d %s", verify.Code, verify.Body.String())
 	}
-	derived := &http.Cookie{Name: auth.SessionCookieName, Value: paired.Token}
-	for _, rt := range []struct{ method, path string }{
-		{"POST", "/api/backup/export-capsule"}, {"POST", "/api/backup/pair-remote"},
-		{"DELETE", "/api/backup/pairing"}, {"POST", "/api/backup/pin-key"}, {"PUT", "/api/backup/schedule"},
-	} {
-		w := adminDo(t, srv, derived, rt.method, rt.path, pinBody(pub, 2, 3))
-		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
-			t.Errorf("%s %s with a session paired from a stale one: got %d %s", rt.method, rt.path, w.Code, w.Body.String())
-		}
+	derived, err := st.Sessions().GetSession(ctx, crypto.SHA256Hex([]byte(paired.Token)))
+	if err != nil || derived.CreatedAt.Sub(parentAt).Abs() > time.Second {
+		t.Fatalf("paired session's credential time %v, want its parent's %v (%v)", derived, parentAt, err)
 	}
 	for _, path := range []string{"/api/backup/status"} {
 		if w := adminDo(t, srv, stale, "GET", path, nil); w.Code != http.StatusOK {
@@ -1052,13 +1060,19 @@ func pairedForBackup(t *testing.T, srv *api.Server, st store.Store, cfg *config.
 	api.SetRecoveryClientForTest(srv, &fakeDepositor{})
 }
 
-// withMatrix enables Matrix on cfg: an empty matrix-init tree, a pg_dump running script and a
-// pg_restore that reads its input whole.
+// withMatrix enables Matrix on cfg: a matrix-init tree holding the files a restore needs, a
+// pg_dump running script and a pg_restore that reads its input whole.
 func withMatrix(t *testing.T, cfg *config.Config, script string) string {
 	t.Helper()
 	mdir := t.TempDir()
 	for _, sub := range []string{"secrets", "synapse", "mas", "element", "postgres"} {
 		if err := os.MkdirAll(filepath.Join(mdir, sub), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range []string{"secrets/synapse_db_password", "secrets/mas_db_password", "synapse/signing.key",
+		"synapse/homeserver.yaml", "mas/config.yaml", "postgres/init.sql", "postgres/kybackup-role.sql"} {
+		if err := os.WriteFile(filepath.Join(mdir, rel), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

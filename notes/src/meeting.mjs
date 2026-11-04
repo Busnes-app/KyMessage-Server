@@ -137,6 +137,20 @@ export class Meeting {
     this.notice('Shared-screen snapshots were turned off in Settings, so shared screens are no longer captured.').catch(() => {});
   }
 
+  // notesOn asks KyMessages whether meeting notes are still on. An unreadable answer is tried
+  // three times, 5 s apart (a restart or a blip must not lose the notes), then counts as off.
+  async notesOn() {
+    for (let i = 0; ; i++) {
+      try {
+        const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
+        if (r.ok) return (await r.json()).enabled === true;
+        if (r.status < 500 && r.status !== 429) return false;
+      } catch { /* unreachable: try again */ }
+      if (i === 2) return false;
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+
   // screensAllowed asks KyMessages whether Settings allows shared-screen snapshots.
   async screensAllowed() {
     const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
@@ -286,13 +300,16 @@ export class Meeting {
     }
   }
 
-  // postShot uploads one snapshot encrypted (only the room can read it) as m.image.
+  // postShot uploads one snapshot encrypted (only the room can read it) as m.image, unless
+  // notes were turned off during the upload. It returns whether it posted.
   async postShot(n, { at, who, jpeg, w, h }) {
     const { data, file } = encrypt(jpeg);
     const { content_uri: url } = await this.client.uploadContent(data, { type: 'application/octet-stream', includeFilename: false });
+    if (!(await this.notesOn())) return false;
     const time = new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: this.cfg.timeZone });
     await this.client.sendMessage(this.room.roomId, { msgtype: 'm.image', body: `Snapshot ${n} of ${who}'s shared screen, ${time}.jpg`,
       file: { ...file, url }, info: { mimetype: 'image/jpeg', w, h, size: jpeg.length } });
+    return true;
   }
 
   // finish posts the notes (unless the bot lost the room) and leaves the call and the room.
@@ -316,8 +333,20 @@ export class Meeting {
       if (post) {
         const text = formatNotes({ room: this.room.name || 'this room', start: this.startedAt ?? Date.now(), end: Date.now(), entries: this.entries, timeZone: this.cfg.timeZone });
         const parts = chunks(text);
-        for (const [i, p] of parts.entries()) await this.notice(parts.length > 1 ? `(${i + 1}/${parts.length}) ${p}` : p);
-        for (const [i, s] of this.shots.entries()) await this.postShot(i + 1, s);
+        const sends = [...parts.map((p, i) => () => this.notice(parts.length > 1 ? `(${i + 1}/${parts.length}) ${p}` : p)),
+          ...this.shots.map((s, i) => () => this.postShot(i + 1, s))];
+        // Turned off posts nothing more, even when revoking the session failed: asked before
+        // every message, since turning off can land between two of them.
+        for (const send of sends) {
+          if (!(await this.notesOn())) {
+            this.log(`meeting notes are off; nothing more is posted in ${this.room.roomId}`);
+            break;
+          }
+          if ((await send()) === false) {
+            this.log(`meeting notes are off; nothing more is posted in ${this.room.roomId}`);
+            break;
+          }
+        }
       }
     } catch (e) {
       this.log(`posting the notes failed: ${e.message}`);
