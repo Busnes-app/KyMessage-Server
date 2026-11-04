@@ -412,8 +412,22 @@ func TestDirectoryWebhookMFAResetRevokesSessions(t *testing.T) {
 	if _, err := d.st.Sessions().GetSession(ctx, "tok-mia"); err != nil {
 		t.Fatalf("an unchanged update revoked the session: %v", err)
 	}
-	d.must("user.mfa_reset", scimUser("kid-mia", "admin", true, 3))
+	reset := scimUser("kid-mia", "admin", true, 3)
+	if err := d.sendID("evt-reset", "user.mfa_reset", reset); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.st.Sessions().GetSession(ctx, "tok-mia"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("user.mfa_reset kept the session: %v", err)
+	}
+	// KyIdentity retries a delivery that failed after the event was spent (say the revocation
+	// hit a database error): the retry, same event ID, still revokes.
+	if err := d.st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "tok-mia-2", UserID: d.user("kid-mia").ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.sendID("evt-reset", "user.mfa_reset", reset); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.st.Sessions().GetSession(ctx, "tok-mia-2"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a retried user.mfa_reset kept the session: %v", err)
 	}
 }

@@ -20,13 +20,19 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	user, _, err := s.sessions.AuthenticateRequest(r)
+	user, sess, err := s.sessions.AuthenticateRequest(r)
 	if err != nil {
 		s.writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	if user.SSOProvider != "local" {
 		s.writeError(w, http.StatusConflict, "This account signs in through KyIdentity; change the password there")
+		return
+	}
+	// A voluntary change needs a recent sign-in, so a stolen session cannot guess the current
+	// password at leisure and take the account. A forced replacement follows a sign-in.
+	if !user.MustChangePassword && time.Since(sess.CreatedAt) > stepUpWindow {
+		s.writeStepUp(w, user)
 		return
 	}
 	if !s.allowClientAttempt("password-change", r, 10, time.Minute) || !s.allowAccountAttempt("password-change-user:"+user.ID, 5, time.Minute) {

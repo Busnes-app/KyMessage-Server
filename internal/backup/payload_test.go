@@ -191,6 +191,11 @@ func TestCollectRefusesANonDefaultDatabasePath(t *testing.T) {
 	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); err != nil {
 		t.Fatalf("the default path with a file: prefix: %v", err)
 	}
+	// SQLite decodes a file: URI's path, so a percent-encoded default path is the default.
+	cfg.Database.DSN = "file://" + filepath.ToSlash(filepath.Join(cfg.Database.DataDir, "ky%5Fserver.db")) + "?_pragma=busy_timeout(5000)"
+	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); err != nil {
+		t.Fatalf("the default path as an encoded file:///abs URI: %v", err)
+	}
 	cfg.Database.DSN = filepath.Join(cfg.Database.DataDir, "custom.db")
 	if _, err := backup.Collect(context.Background(), cfg, "1.0.0"); !errors.Is(err, backup.ErrNoDatabaseSnapshot) || !strings.Contains(err.Error(), "custom.db") {
 		t.Fatalf("custom database path: %v", err)

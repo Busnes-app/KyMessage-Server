@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { LockKeyhole } from 'lucide-react';
-import { errorMessage, secureFetch } from '../api';
+import { adminFetch, errorMessage } from '../api';
 
 /** "Password": a local account changes its own password after confirming the current one.
  * Every session ends with it, this one too, so success goes back to sign-in. Suite accounts
@@ -29,7 +29,8 @@ export const PasswordChange: React.FC<{ onChanged?: () => void }> = ({ onChanged
     if (current === next) { setError('Choose a different password.'); return; }
     setBusy(true);
     try {
-      const res = await secureFetch('/api/auth/change-password', {
+      // adminFetch: a sign-in older than 10 minutes gets Confirm it's you, then the retry.
+      const res = await adminFetch('/api/auth/change-password', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ current_password: current, new_password: next }),
       });
@@ -46,7 +47,7 @@ export const PasswordChange: React.FC<{ onChanged?: () => void }> = ({ onChanged
     <section className="dr-settings dr-settings-own" aria-labelledby="account-password">
       <form className="panel dr-section" onSubmit={submit}>
         <h3 id="account-password"><LockKeyhole size={16} aria-hidden="true" /> Password</h3>
-        <p className="dr-hint">At least 12 characters. Changing it signs you out everywhere, here too.</p>
+        <p className="dr-hint">At least 12 characters. It needs a sign-in from the last 10 minutes, and changing it signs you out everywhere, here too.</p>
         <label className="dr-field"><span>Current password</span>
           <input type="password" autoComplete="current-password" required maxLength={1024} value={current} onChange={(e) => setCurrent(e.target.value)} />
         </label>

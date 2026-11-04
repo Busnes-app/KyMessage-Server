@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
@@ -216,6 +217,19 @@ func TestLocalAccountChangesPasswordAnyTime(t *testing.T) {
 				return w
 			}
 			if tc.want == 200 {
+				// A voluntary change needs a recent sign-in: a stolen session may not guess.
+				raw := crypto.RandomHex(32)
+				if err := st.Sessions().CreateSession(ctx, &store.Session{TokenHash: crypto.SHA256Hex([]byte(raw)), UserID: "user",
+					CreatedAt: time.Now().UTC().Add(-11 * time.Minute), ExpiresAt: time.Now().UTC().Add(time.Hour)}, hash); err != nil {
+					t.Fatal(err)
+				}
+				req := httptest.NewRequest("POST", "/api/auth/change-password", strings.NewReader(`{"current_password":"CurrentPassword123!","new_password":"NewPassword123!"}`))
+				req.Header.Set("Authorization", "Bearer "+raw)
+				w := httptest.NewRecorder()
+				srv.ServeHTTP(w, req)
+				if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauthentication_required") {
+					t.Fatalf("stale session: %d %s", w.Code, w.Body)
+				}
 				if w := change("WrongPassword123!"); w.Code != http.StatusUnauthorized {
 					t.Fatalf("wrong current password: %d %s", w.Code, w.Body)
 				}

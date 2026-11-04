@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,7 +142,15 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 // and restore carry it under that name only, so a restored server started with a custom
 // KY_DB_DSN would open a new, empty database (ky-server-base Q10 A).
 func defaultSQLitePath(dsn, dataDir string) error {
-	path, _, _ := strings.Cut(strings.TrimPrefix(dsn, "file:"), "?")
+	path, _, _ := strings.Cut(dsn, "?")
+	if rest, ok := strings.CutPrefix(path, "file:"); ok {
+		// A file: URI may percent-encode its path (SQLite decodes it), and may carry an
+		// empty authority (file:///abs).
+		var err error
+		if path, err = url.PathUnescape(strings.TrimPrefix(rest, "//")); err != nil {
+			return fmt.Errorf("%w: unreadable database URI %q", ErrNoDatabaseSnapshot, dsn)
+		}
+	}
 	got, err1 := filepath.Abs(path)
 	want, err2 := filepath.Abs(filepath.Join(dataDir, "ky_server.db"))
 	if err1 != nil || err2 != nil || got != want {

@@ -305,7 +305,9 @@ func (k *KyIdentityClient) upsert(ctx context.Context, in DirectoryUser, ev stor
 		updated.Username = existing.Username
 		applied, err = k.store.Users().ApplyDirectoryProfile(ctx, &updated, ev)
 	}
-	if err != nil || !applied {
+	// An MFA reset revokes even when its event was already spent: a delivery whose revocation
+	// failed (500) is retried with the same ID, and that retry must still revoke.
+	if err != nil || !(applied || mfaReset) {
 		return err
 	}
 	if existing.Role != role || existing.Status != status || mfaReset {

@@ -137,13 +137,17 @@ export class Meeting {
     this.notice('Shared-screen snapshots were turned off in Settings, so shared screens are no longer captured.').catch(() => {});
   }
 
-  // notesOn asks KyMessages whether meeting notes are still on; unreadable counts as off.
+  // notesOn asks KyMessages whether meeting notes are still on. An unreadable answer is tried
+  // three times, 5 s apart (a restart or a blip must not lose the notes), then counts as off.
   async notesOn() {
-    try {
-      const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
-      return r.ok && (await r.json()).enabled === true;
-    } catch {
-      return false;
+    for (let i = 0; ; i++) {
+      try {
+        const r = await fetch(`${this.cfg.appUrl}/api/notes/config`, { headers: { Authorization: `Bearer ${this.cfg.secret}` } });
+        if (r.ok) return (await r.json()).enabled === true;
+        if (r.status < 500 && r.status !== 429) return false;
+      } catch { /* unreachable: try again */ }
+      if (i === 2) return false;
+      await new Promise((resolve) => setTimeout(resolve, 5000));
     }
   }
 
@@ -322,17 +326,21 @@ export class Meeting {
     await this.session.leave(5000).catch(() => {});
     this.session.off(MatrixRTCSessionEvent.EncryptionKeyChanged, this.onKey);
     await queue(() => {});
-    // Turned off posts nothing more, even when revoking the session failed.
-    if (post && !(await this.notesOn())) {
-      this.log(`meeting notes are off; nothing is posted in ${this.room.roomId}`);
-      post = false;
-    }
     try {
       if (post) {
         const text = formatNotes({ room: this.room.name || 'this room', start: this.startedAt ?? Date.now(), end: Date.now(), entries: this.entries, timeZone: this.cfg.timeZone });
         const parts = chunks(text);
-        for (const [i, p] of parts.entries()) await this.notice(parts.length > 1 ? `(${i + 1}/${parts.length}) ${p}` : p);
-        for (const [i, s] of this.shots.entries()) await this.postShot(i + 1, s);
+        const sends = [...parts.map((p, i) => () => this.notice(parts.length > 1 ? `(${i + 1}/${parts.length}) ${p}` : p)),
+          ...this.shots.map((s, i) => () => this.postShot(i + 1, s))];
+        // Turned off posts nothing more, even when revoking the session failed: asked before
+        // every message, since turning off can land between two of them.
+        for (const send of sends) {
+          if (!(await this.notesOn())) {
+            this.log(`meeting notes are off; nothing more is posted in ${this.room.roomId}`);
+            break;
+          }
+          await send();
+        }
       }
     } catch (e) {
       this.log(`posting the notes failed: ${e.message}`);

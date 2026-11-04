@@ -126,13 +126,18 @@ func collectMatrix(ctx context.Context, m config.MatrixConfig, b *budget) ([]rec
 			if err != nil {
 				return err
 			}
-			// Regular files only; matrix-init's in-flight temp files start with ".".
-			if !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".") {
+			// matrix-init's in-flight temp files start with ".". Anything else must be a regular
+			// file: a symlink (a projected secret, say) would be left out of a capsule that
+			// still reports success.
+			if d.IsDir() || strings.HasPrefix(d.Name(), ".") {
 				return nil
 			}
 			rel, err := filepath.Rel(m.Dir, path)
 			if err != nil || filepath.ToSlash(rel) == superuserSecret {
 				return err
+			}
+			if !d.Type().IsRegular() {
+				return fmt.Errorf("matrix/%s is not a regular file; a restore needs it, so put the file itself there", filepath.ToSlash(rel))
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {

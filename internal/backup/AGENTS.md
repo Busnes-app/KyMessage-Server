@@ -40,8 +40,9 @@ live in `recoveryclient` and in the settings rows it reads and writes through th
   `init.sql`, `kybackup-role.sql`, and each `restoreDBs` owner password under `matrix/secrets/`)
   and runs `checkDump` on each joined dump (`DumpCheckTimeout` each), the same check
   `MatrixRestore.Run` refuses on: the drill must never pass a capsule restore-matrix refuses.
-  `Collect` itself refuses to seal when a `matrixRequired()` member is missing or not a regular
-  file (a symlinked secret), so a deposit never reports success for such a capsule.
+  `Collect` itself refuses to seal when a `matrixRequired()` member is missing, and the walk
+  refuses any entry under the Matrix directories that is not a directory, a dot-file or a
+  regular file (a symlinked secret), so a deposit never reports success for such a capsule.
 - The expanded limit counts tar framing (`Measure`) and holds back 1 MiB, because ky-primitives
   v0.8.0 `Seal` undercounts against `Open` (Busnes-app/ky-primitives#20). A payload past it fails
   with `*SizeError` (wraps `capsule.ErrCapsuleTooLarge`; its message rounds the size up and
