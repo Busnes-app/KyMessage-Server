@@ -59,7 +59,8 @@ mkdir -p -m 700 matrix
 podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" -v "$PWD/matrix:$PWD/matrix:z" -w "$PWD" \
   -e KY_MATRIX_SERVER_NAME -e KY_MATRIX_HOST -e KY_MATRIX_AUTH_HOST -e KY_MATRIX_CHAT_HOST \
   -e KY_MATRIX_RTC_HOST -e KY_MATRIX_MEDIA_IP -e KY_ADMIN_HOST -e KY_KYIDENTITY_ISSUER \
-  -e KY_MATRIX_MAS_CLIENT_ID --entrypoint /app/kymessages \
+  -e KY_MATRIX_MAS_CLIENT_ID -e KY_MATRIX_CALLS -e KY_MATRIX_MEDIA_TCP_PORT -e KY_MATRIX_MEDIA_UDP_PORT \
+  --entrypoint /app/kymessages \
   ghcr.io/busnes-app/kymessage-server@sha256:<digest> matrix-init -dir "$PWD/matrix"
 ```
 
