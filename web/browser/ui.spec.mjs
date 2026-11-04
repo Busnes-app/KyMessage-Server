@@ -117,6 +117,7 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(tabs.getByRole('link', { name: 'Account' })).toHaveAttribute('aria-current', 'page');
   await expect(page).toHaveURL(/#\/settings\/account$/);
   await expect(page.getByRole('region', { name: 'Account security' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Password' })).toBeVisible();
   await tabs.getByRole('link', { name: 'Server' }).click();
   await expect(page).toHaveURL(/#\/settings\/server$/);
   await fits(page);

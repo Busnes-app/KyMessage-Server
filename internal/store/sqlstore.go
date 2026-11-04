@@ -567,7 +567,7 @@ func (s *sessionStore) CreateSession(ctx context.Context, sess *Session, expecte
 func (u *userStore) CompletePasswordChange(ctx context.Context, userID, oldHash, newHash, ip string) error {
 	return u.store.withPassword(ctx, userID, oldHash, func(tx *sql.Tx) error {
 		now := time.Now().UTC()
-		result, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = ? WHERE id = ? AND must_change_password = ? AND sso_provider = 'local'`), newHash, false, now, userID, true)
+		result, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = ? WHERE id = ? AND sso_provider = 'local'`), newHash, false, now, userID)
 		if err != nil {
 			return err
 		}
@@ -578,7 +578,7 @@ func (u *userStore) CompletePasswordChange(ctx context.Context, userID, oldHash,
 		if n != 1 {
 			return ErrNotFound
 		}
-		return u.revokePasswordGrants(ctx, tx, userID, "forced replacement; sessions revoked", ip, now)
+		return u.revokePasswordGrants(ctx, tx, userID, "changed by the user; sessions revoked", ip, now)
 	})
 }
 

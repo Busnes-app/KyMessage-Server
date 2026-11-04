@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Busnes-app/ky-primitives/password"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
+	"github.com/Busnes-app/ky_server_base/internal/crypto"
 	"github.com/Busnes-app/ky_server_base/internal/store"
 )
 
@@ -185,15 +187,18 @@ func TestRestrictedSessionCannotInheritClearedFlag(t *testing.T) {
 	}
 }
 
-func TestReplacementRefusesUnflaggedAndFederatedAccounts(t *testing.T) {
+// A local account changes its password at any time after verifying the current one
+// (KyCalendar Q4 A), and every grant goes with it; a KyIdentity account's password is not ours.
+func TestLocalAccountChangesPasswordAnyTime(t *testing.T) {
 	for _, tc := range []struct {
 		name, provider string
-		flag           bool
-	}{{"unflagged", "local", false}, {"federated", "kyidentity", true}} {
+		want           int
+	}{{"local", "local", 200}, {"federated", "kyidentity", 409}} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, st, cfg := setupTestServer(t)
 			ctx := context.Background()
-			u := &store.User{ID: "user", Username: "user", Status: "active", Role: "admin", SSOProvider: tc.provider, MustChangePassword: tc.flag}
+			hash, _ := password.Hash("CurrentPassword123!")
+			u := &store.User{ID: "user", Username: "user", PasswordHash: hash, Status: "active", Role: "admin", SSOProvider: tc.provider}
 			if err := st.Users().CreateUser(ctx, u); err != nil {
 				t.Fatal(err)
 			}
@@ -202,12 +207,30 @@ func TestReplacementRefusesUnflaggedAndFederatedAccounts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req := httptest.NewRequest("POST", "/api/auth/change-password", strings.NewReader(`{"current_password":"x","new_password":"NewPassword123!"}`))
-			req.Header.Set("Authorization", "Bearer "+token)
-			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, req)
-			if w.Code != 409 {
-				t.Fatal(w.Code, w.Body)
+			_, other, _ := manager.IssueSession(ctx, httptest.NewRecorder(), httptest.NewRequest("POST", "/api/auth/login", nil), u)
+			change := func(current string) *httptest.ResponseRecorder {
+				req := httptest.NewRequest("POST", "/api/auth/change-password", strings.NewReader(`{"current_password":"`+current+`","new_password":"NewPassword123!"}`))
+				req.Header.Set("Authorization", "Bearer "+token)
+				w := httptest.NewRecorder()
+				srv.ServeHTTP(w, req)
+				return w
+			}
+			if tc.want == 200 {
+				if w := change("WrongPassword123!"); w.Code != http.StatusUnauthorized {
+					t.Fatalf("wrong current password: %d %s", w.Code, w.Body)
+				}
+			}
+			if w := change("CurrentPassword123!"); w.Code != tc.want {
+				t.Fatalf("change: %d %s", w.Code, w.Body)
+			}
+			if tc.want != 200 {
+				return
+			}
+			if _, err := st.Sessions().GetSession(ctx, crypto.SHA256Hex([]byte(other))); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("another session survived the change: %v", err)
+			}
+			if got, _ := st.Users().GetUserByID(ctx, "user"); got.PasswordHash == hash || got.MustChangePassword {
+				t.Fatalf("password not changed: %+v", got)
 			}
 		})
 	}
