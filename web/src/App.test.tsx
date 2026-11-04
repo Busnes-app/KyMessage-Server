@@ -75,3 +75,36 @@ it('leaves the rail out when the list fails', async () => {
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u) === '/api/suite/apps')).toBe(true));
   expect(screen.queryByRole('navigation', { name: 'Apps' })).toBeNull();
 });
+
+it('shows a refused single sign-on to a user who is still signed in', async () => {
+  window.location.hash = '#/login?sso_error=failed';
+  await new Promise((r) => setTimeout(r, 0)); // the test's own hashchange; a redirect fires none
+  stubServer(async () => json({}));
+  render(<App />);
+  expect((await screen.findByRole('alert')).textContent).toContain("Single sign-on didn't finish.");
+  expect(screen.getByRole('link', { name: 'Try again' }).getAttribute('href')).toBe('/api/sso/kyidentity/login?fresh=1');
+  window.location.hash = '#/settings';
+  await waitFor(() => expect(screen.queryByText("Single sign-on didn't finish.", { exact: false })).toBeNull());
+  window.location.hash = '';
+});
+
+it('drops a refused single sign-on once the user signs in with a password', async () => {
+  window.location.hash = '#/login?sso_error=not_provisioned';
+  let signedIn = false;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === '/api/auth/me') return json(signedIn ? { authenticated: true, user: member } : { authenticated: false });
+    if (url === '/api/settings') return json({ app_name: 'KyMessages', chat_url: '' });
+    if (url === '/api/auth/pow-challenge') return json({ error: 'off' }, 404);
+    if (url === '/api/auth/login') { signedIn = true; return json({ authenticated: true, user: member }); }
+    return json({ apps: [] });
+  }));
+  render(<App />);
+  expect((await screen.findByRole('alert')).textContent).toContain('This server has no account for you yet.');
+  fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'bob' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+  expect(await screen.findByRole('heading', { name: 'Bob' })).toBeTruthy();
+  expect(screen.queryByText('This server has no account for you yet.', { exact: false })).toBeNull();
+  window.location.hash = '';
+});

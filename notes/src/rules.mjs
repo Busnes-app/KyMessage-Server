@@ -27,6 +27,10 @@ export class Throttle {
   spoke(now) { this.last = now; }
 }
 
+// running: the meetings in progress, entries that are a meeting, not 'joining' or 'armed' (an
+// invite, including the one being decided, never counts against the limit).
+export const running = (meetings) => [...meetings.values()].filter((m) => typeof m === 'object').length;
+
 // mediaKeyOK: a member's call media key must hold at least 128 bits (Element Call sends 16
 // bytes). matrix-js-sdk passes on whatever length it receives.
 export const mediaKeyOK = (key) => (key?.length ?? 0) >= 16;

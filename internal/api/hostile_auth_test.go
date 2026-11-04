@@ -42,7 +42,7 @@ func TestSSOSignInRefusesInactiveAccountAndAudits(t *testing.T) {
 	idp := newFakeIdP(t, cfg)
 	srv := api.NewServer(cfg, st)
 
-	if w := idp.signIn(srv, map[string]any{"sub": "sub-off"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
+	if w := idp.signIn(srv, map[string]any{"sub": "sub-off"}); ssoError(w) != "disabled" || sessionCookie(w) != nil {
 		t.Fatalf("inactive account: %d %s (session %v)", w.Code, w.Body.String(), sessionCookie(w))
 	}
 	if w := idp.signIn(srv, map[string]any{"sub": "sub-on"}); w.Code != http.StatusFound || sessionCookie(w) == nil {
@@ -88,7 +88,7 @@ func TestSSOErrorsAreNotEchoed(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, callback)
-	if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "id_token") || sessionCookie(w) != nil {
+	if ssoError(w) != "failed" || strings.Contains(w.Body.String(), "id_token") || sessionCookie(w) != nil {
 		t.Fatalf("exchange failure: %d %s", w.Code, w.Body.String())
 	}
 }

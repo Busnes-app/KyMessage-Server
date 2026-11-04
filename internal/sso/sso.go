@@ -2,6 +2,7 @@ package sso
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -19,10 +20,21 @@ type IdentityClaims struct {
 	Name              string `json:"name"`
 	PreferredUsername string `json:"preferred_username"`
 	Role              string `json:"role,omitempty"`
-	Provider          string `json:"provider"` // "kyidentity"
+	// Roles are KyIdentity's roles for this app; empty or missing means ordinary user.
+	Roles    []string `json:"roles,omitempty"`
+	Provider string   `json:"provider"` // "kyidentity"
 	// AuthenticatedAt is the signed auth_time, or zero when absent or implausible. The IdP
 	// may reuse an old login, so only this, never the callback time, says how fresh it is.
 	AuthenticatedAt time.Time `json:"-"`
+}
+
+// AssertedRole grants console administration only through this app's explicit admin role.
+// The legacy global Role claim never grants or preserves administration.
+func (c *IdentityClaims) AssertedRole() string {
+	if slices.Contains(c.Roles, "admin") {
+		return "admin"
+	}
+	return "user"
 }
 
 // SSOState represents ephemeral state held during OAuth/OIDC authorization flow.

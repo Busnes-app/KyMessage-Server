@@ -454,15 +454,42 @@ func TestDirectoryWebhookRevokesAdoptedSCIMRow(t *testing.T) {
 			t.Fatalf("%s kept the adopted SCIM row's session: %v", what, err)
 		}
 	}
+	// Matrix and calls follow KyIdentity's status for the adopted person too, as well as SCIM's.
+	matrix := func(want string) {
+		t.Helper()
+		if got, err := d.st.Users().DirectoryStatuses(ctx, "kyidentity", true); err != nil || got["kid-sam"] != want {
+			t.Fatalf("Matrix sees %q (%v), want %q", got["kid-sam"], err, want)
+		}
+	}
+	// With SCIM off nothing adopts the row: the held username stays a conflict.
+	if err := d.send("user.updated", scimUser("kid-sam", "user", true, 1)); !errors.Is(err, sso.ErrSyncUsernameConflict) {
+		t.Fatalf("SCIM off: %v", err)
+	}
+	d.client.AdoptSCIM = true
 	session()
-	_ = d.send("user.mfa_reset", scimUser("kid-sam", "user", true, 1)) // 409: the SCIM row holds the username
+	d.must("user.mfa_reset", scimUser("kid-sam", "user", true, 1)) // no second row, no conflict
 	gone("user.mfa_reset")
+	matrix("active")
 	session()
-	_ = d.send("user.updated", scimUser("kid-sam", "user", false, 2))
+	d.must("user.updated", scimUser("kid-sam", "user", false, 2))
 	gone("deactivation")
+	matrix("inactive")
+	if _, err := d.st.Users().GetUserBySSO(ctx, "kyidentity", "kid-sam"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a KyIdentity row was made for the adopted person: %v", err)
+	}
+	d.must("user.updated", scimUser("kid-sam", "user", true, 3))
+	matrix("active")
+	if err := d.st.Users().UpdateProfile(ctx, &store.User{ID: "usr_scim_kid-sam", Username: "kid-sam", Role: "user", Status: "inactive", SSOSubject: "kid-sam"}); err != nil {
+		t.Fatal(err)
+	}
+	matrix("inactive") // SCIM's deactivation still reaches Matrix
+	if err := d.st.Users().UpdateProfile(ctx, &store.User{ID: "usr_scim_kid-sam", Username: "kid-sam", Role: "user", Status: "active", SSOSubject: "kid-sam"}); err != nil {
+		t.Fatal(err)
+	}
 	session()
-	d.must("user.deleted", scimUser("kid-sam", "user", false, 3))
+	d.must("user.deleted", scimUser("kid-sam", "user", false, 4))
 	gone("user.deleted")
+	matrix("deleted")
 	// Every matching row, past the first page of 100.
 	for i := 0; i < 101; i++ {
 		if err := d.st.Users().CreateUser(ctx, &store.User{ID: fmt.Sprintf("usr_dup_%03d", i), Username: fmt.Sprintf("dup%03d", i), Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"}); err != nil {
@@ -470,9 +497,24 @@ func TestDirectoryWebhookRevokesAdoptedSCIMRow(t *testing.T) {
 		}
 	}
 	session()
-	_ = d.send("user.mfa_reset", scimUser("kid-sam", "user", true, 4))
+	_ = d.send("user.mfa_reset", scimUser("kid-sam", "user", true, 5))
 	gone("user.mfa_reset with 102 matching rows")
 	if u, _ := d.st.Users().GetUserByID(ctx, "usr_scim_kid-sam"); u.SSOProvider != "scim" || u.Status != "active" {
 		t.Fatalf("the SCIM row's ownership or status changed: %+v", u)
+	}
+}
+
+// KyIdentity marks only the first of an app's sorted roles primary, so admin anywhere in the
+// list is the admin role, as the sign-in token's roles are read.
+func TestDirectoryWebhookAdminAnywhereInRoles(t *testing.T) {
+	d := newDirectory(t)
+	body := scimUser("kid-ann", "accountant", true, 1)
+	var m map[string]any
+	_ = json.Unmarshal(body, &m)
+	m["roles"] = []map[string]any{{"value": "accountant", "primary": true}, {"value": "admin"}}
+	body, _ = json.Marshal(m)
+	d.must("user.created", body)
+	if u := d.user("kid-ann"); u == nil || u.Role != "admin" {
+		t.Fatalf("got %+v, want admin", u)
 	}
 }

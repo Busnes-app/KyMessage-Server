@@ -293,7 +293,7 @@ func (u *userStore) UpdateProfile(ctx context.Context, user *User) error {
 	q := u.store.rebind(`UPDATE users SET username = ?, email = ?, display_name = ?, role = ?, status = ?, password_hash = CASE WHEN sso_subject = ? THEN password_hash ELSE ? END, sso_subject = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`)
 	res, err := u.store.db.ExecContext(ctx, q, user.Username, user.Email, user.DisplayName, user.Role, user.Status, user.SSOSubject, "revoked:"+rand.Text(), user.SSOSubject, user.UpdatedAt, user.ID)
 	if err != nil {
-		return err
+		return uniqueError(err)
 	}
 	if rows, _ := res.RowsAffected(); rows == 0 {
 		return ErrNotFound
@@ -326,8 +326,8 @@ func (u *userStore) directoryWrite(ctx context.Context, user *User, ev Directory
 	if rows, err := res.RowsAffected(); err != nil || rows == 0 {
 		return false, err
 	}
-	res, err = tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, revision) VALUES (?, ?, ?)
-ON CONFLICT (provider, subject) DO UPDATE SET revision = excluded.revision
+	res, err = tx.ExecContext(ctx, u.store.rebind(`INSERT INTO directory_sync_state (provider, subject, revision, adopted_status) VALUES (?, ?, ?, '')
+ON CONFLICT (provider, subject) DO UPDATE SET revision = excluded.revision, adopted_status = ''
 WHERE directory_sync_state.revision < excluded.revision OR excluded.revision = -1`), user.SSOProvider, user.SSOSubject, ev.Revision)
 	if err != nil {
 		return false, err
@@ -356,6 +356,13 @@ func (u *userStore) ApplyDirectoryProfile(ctx context.Context, user *User, ev Di
 
 func (u *userStore) CreateDirectoryUser(ctx context.Context, user *User, ev DirectoryEvent) (bool, error) {
 	return u.directoryWrite(ctx, user, ev, func(tx *sql.Tx) error { return u.insertUser(ctx, tx, user, true) })
+}
+
+func (u *userStore) RecordAdoptedStatus(ctx context.Context, user *User, ev DirectoryEvent) (bool, error) {
+	return u.directoryWrite(ctx, user, ev, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, u.store.rebind(`UPDATE directory_sync_state SET adopted_status = ? WHERE provider = ? AND subject = ?`), user.Status, user.SSOProvider, user.SSOSubject)
+		return err
+	})
 }
 
 func (u *userStore) DeleteDirectoryUser(ctx context.Context, user *User, ev DirectoryEvent) (bool, error) {
@@ -506,6 +513,27 @@ func (u *userStore) CompletePasswordChange(ctx context.Context, userID, oldHash,
 		}
 		return u.revokePasswordGrants(ctx, tx, userID, "changed by the user; sessions revoked", ip, now)
 	})
+}
+
+func (u *userStore) ApplySignInRole(ctx context.Context, user *User, role string) error {
+	tx, err := u.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	fence := "revoked:" + rand.Text()
+	err = oneRow(tx.ExecContext(ctx, u.store.rebind(`UPDATE users SET role = ?, password_hash = ?, updated_at = ? WHERE id = ? AND role = ? AND password_hash = ? AND sso_provider = 'kyidentity' AND NOT EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id)`), role, fence, time.Now().UTC(), user.ID, user.Role, user.PasswordHash))
+	if err != nil {
+		return err
+	}
+	if err := deleteGrants(ctx, u.store, tx, user.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	user.Role, user.PasswordHash = role, fence
+	return nil
 }
 
 // ResetAdminPassword is the operator recovery path, including disabled local accounts.
@@ -1012,15 +1040,20 @@ func errorsIs(err, target error) bool {
 func (u *userStore) DirectoryStatuses(ctx context.Context, provider string, adoptSCIM bool) (map[string]string, error) {
 	q := `SELECT sso_subject, CASE WHEN role='admin' AND EXISTS (SELECT 1 FROM server_settings z WHERE z.key LIKE 'installer.user.%' AND 'usr_' || substr(z.key,16,24) = users.id) THEN 'inactive' ELSE status END FROM users WHERE sso_provider = ? AND sso_subject <> ''
 UNION ALL SELECT s.subject, 'deleted' FROM directory_sync_state s
-WHERE s.provider = ? AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`
+WHERE s.provider = ? AND s.adopted_status = '' AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`
 	args := []any{provider, provider}
 	if adoptSCIM {
-		// The SCIM rows sign-in would adopt: only where the provider has no row and no record.
+		// The SCIM rows sign-in would adopt: only where the provider has no row and no
+		// record of its own. The provider's status for an adopted row joins SCIM's; the
+		// fail-closed merge below means either one can lock the person out.
 		q += `
 UNION ALL SELECT u.sso_subject, u.status FROM users u WHERE u.sso_provider = 'scim' AND u.sso_subject <> ''
 AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = ? AND x.sso_subject = u.sso_subject)
-AND NOT EXISTS (SELECT 1 FROM directory_sync_state s WHERE s.provider = ? AND s.subject = u.sso_subject)`
-		args = append(args, provider, provider)
+AND NOT EXISTS (SELECT 1 FROM directory_sync_state s WHERE s.provider = ? AND s.subject = u.sso_subject AND s.adopted_status = '')
+UNION ALL SELECT s.subject, s.adopted_status FROM directory_sync_state s WHERE s.provider = ? AND s.adopted_status <> ''
+AND EXISTS (SELECT 1 FROM users u WHERE u.sso_provider = 'scim' AND u.sso_subject = s.subject)
+AND NOT EXISTS (SELECT 1 FROM users x WHERE x.sso_provider = s.provider AND x.sso_subject = s.subject)`
+		args = append(args, provider, provider, provider)
 	}
 	rows, err := u.store.db.QueryContext(ctx, u.store.rebind(q), args...)
 	if err != nil {

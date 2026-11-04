@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AppHeader } from './components/AppHeader';
 import { Dashboard } from './pages/Dashboard';
-import { Login } from './pages/Login';
+import { Login, ssoErrorFromHash } from './pages/Login';
 import { ChangePassword } from './pages/ChangePassword';
 import { Backup } from './pages/Backup';
 import { SCIMAdmin } from './pages/SCIMAdmin';
@@ -34,6 +34,9 @@ export const App: React.FC = () => {
   const [hash, setHash] = useState(() => window.location.hash);
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [suiteApps, setSuiteApps] = useState<SuiteApp[]>([]);
+  // A refused single sign-on returns to #/login?sso_error=; a signed-in user (a failed
+  // Confirm it's you) sees it in the shell, since the hash is rewritten to a page.
+  const [ssoError, setSSOError] = useState(() => ssoErrorFromHash(window.location.hash));
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -63,7 +66,7 @@ export const App: React.FC = () => {
 
   // The view lives in the URL hash, so links, reload and the back button work.
   useEffect(() => {
-    const sync = () => setHash(window.location.hash);
+    const sync = () => { setHash(window.location.hash); setSSOError(''); };
     window.addEventListener('hashchange', sync);
     return () => window.removeEventListener('hashchange', sync);
   }, []);
@@ -128,6 +131,7 @@ export const App: React.FC = () => {
         logoCustom={settings?.logo_custom ?? true}
         onSuccess={(u) => {
           setNotice('');
+          setSSOError('');
           setError('');
           setUser(u);
           void loadSettings();
@@ -162,6 +166,7 @@ export const App: React.FC = () => {
       {isAdmin && <ConfirmItsYou />}
 
       {errorAlert}
+      {ssoError && <div className="dr-alert dr-alert-error" role="alert" style={{ margin: 16 }}><span>{ssoError} <a href="/api/sso/kyidentity/login?fresh=1">Try again</a></span></div>}
 
       <main className="ky-content">
         <ErrorBoundary key={activeTab}>

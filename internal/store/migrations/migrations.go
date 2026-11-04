@@ -250,7 +250,11 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 21, Name: "drop_messaging", SQLite: dropMessaging, Postgres: dropMessaging},
 	// Chat agent accounts. The token lives only in MAS; session_id names its personal session.
 	{Version: 22, Name: "agents", SQLite: agentsSchema("DATETIME"), Postgres: agentsSchema("TIMESTAMPTZ")},
+	// KyIdentity's status for a subject whose person is an adopted SCIM row ('' otherwise).
+	{Version: 23, Name: "directory_adopted_status", SQLite: adoptedStatus, Postgres: adoptedStatus},
 }
+
+const adoptedStatus = `ALTER TABLE directory_sync_state ADD COLUMN adopted_status VARCHAR(32) NOT NULL DEFAULT '';`
 
 func agentsSchema(timestamp string) string {
 	return `

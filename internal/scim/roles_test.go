@@ -268,3 +268,35 @@ func TestSCIMExternalIDChanges(t *testing.T) {
 		t.Fatalf("PUT without externalId cleared it: %+v", u)
 	}
 }
+
+// A rename onto a username another account holds is SCIM's 409 uniqueness error, never a 500
+// carrying the database's text.
+func TestSCIMRenameOntoTakenUsernameIsUniqueness(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, testdb.Config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	const token = "scim-secret-bearer-token"
+	mux := http.NewServeMux()
+	srv := scim.NewServer(st, config.SCIMConfig{Enabled: true, BearerToken: token}, "http://localhost:8080")
+	srv.RegisterRoutes(mux)
+	h := srv.AuthMiddleware(mux)
+	for _, u := range []*store.User{
+		{ID: "usr_admin", Username: "admin", Role: "admin", Status: "active", SSOProvider: "local", PasswordHash: "h"},
+		{ID: "usr_a", Username: "a", Role: "user", Status: "active", SSOProvider: "scim"},
+	} {
+		if err := st.Users().CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := scimDo(t, h, token, "PATCH", "/scim/v2/Users/usr_a", map[string]any{"schemas": []string{scim.SchemaPatchOp},
+		"Operations": []map[string]any{{"op": "replace", "path": "userName", "value": "admin"}}})
+	if w.Code != http.StatusConflict || bytes.Contains(w.Body.Bytes(), []byte("UNIQUE")) {
+		t.Fatalf("PATCH: %d %s", w.Code, w.Body.String())
+	}
+	if u, _ := st.Users().GetUserByID(ctx, "usr_a"); u.Username != "a" {
+		t.Fatalf("renamed: %+v", u)
+	}
+}

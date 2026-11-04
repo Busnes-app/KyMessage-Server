@@ -82,3 +82,18 @@ it('offers single sign-on once, as the KyIdentity link', () => {
   expect(screen.getByRole('link', { name: 'Continue with single sign-on' }).getAttribute('href')).toBe('/api/sso/kyidentity/login');
   expect(screen.getAllByText(/single sign-on/i)).toHaveLength(1);
 });
+
+it('explains a refused single sign-on from its code and offers to try again', () => {
+  stubServer();
+  window.location.hash = '#/login?sso_error=not_provisioned';
+  render(<Login onSuccess={vi.fn()} appName="KyMessages" ssoEnabled />);
+  const alert = screen.getByRole('alert');
+  expect(alert.textContent).toContain('This server has no account for you yet.');
+  expect(screen.getByRole('link', { name: 'Try again' }).getAttribute('href')).toBe('/api/sso/kyidentity/login');
+  cleanup();
+  // Only the fixed codes are shown; anything else in the URL is ignored.
+  window.location.hash = '#/login?sso_error=%3Cb%3Ehi';
+  render(<Login onSuccess={vi.fn()} appName="KyMessages" ssoEnabled />);
+  expect(screen.queryByRole('alert')).toBeNull();
+  window.location.hash = '';
+});

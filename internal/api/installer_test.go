@@ -176,7 +176,7 @@ func TestInstallerOIDCRejectsUnassignedAndKeepsAdminOutOfChat(t *testing.T) {
 	for _, sub := range []string{"owner", "daily", "unassigned"} {
 		response := idp.signIn(srv, map[string]any{"sub": sub, "preferred_username": "owner-admin", "email": "owner@example.test", "role": "admin", "auth_time": time.Now().Unix()})
 		if sub == "unassigned" {
-			if response.Code != 403 || sessionCookie(response) != nil {
+			if ssoError(response) != "not_assigned" || sessionCookie(response) != nil {
 				t.Fatal("unassigned identity accepted", response.Code, response.Body)
 			}
 			continue
@@ -204,7 +204,7 @@ func TestInstallerOIDCRejectsUnassignedAndKeepsAdminOutOfChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := idp.signIn(srv, map[string]any{"sub": "owner"})
-	if response.Code == 302 || sessionCookie(response) != nil {
+	if ssoError(response) != "failed" || sessionCookie(response) != nil {
 		t.Fatal("missing credential allowed login")
 	}
 }
@@ -285,7 +285,7 @@ func TestInstallerDirectoryAdmitsAssignedMembers(t *testing.T) {
 	}
 	// A member never reaches the console, whatever role KyIdentity sends.
 	response := idp.signIn(srv, map[string]any{"sub": "member", "preferred_username": "member", "email": "member@example.test", "role": "admin", "auth_time": time.Now().Unix()})
-	if response.Code != 403 || sessionCookie(response) != nil {
+	if ssoError(response) != "not_assigned" || sessionCookie(response) != nil {
 		t.Fatal("member signed in to the console", response.Code, response.Body)
 	}
 	if code := send(key, "user.updated", "e2", member("member", false, 2)); code != 204 {
