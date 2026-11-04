@@ -53,8 +53,9 @@ session route, call-grant rules, sweep) is `internal/api` (notes rules); Compose
   call membership; before the call, `leave` from any member. Each is acknowledged by voice and
   in chat. Paused audio is dropped and the gap marked.
 - Each notes message and snapshot is posted only while `GET /api/notes/config` says `enabled`,
-  asked before every one (an unreadable answer is retried three times, 5 s apart, then counts
-  as off), so turning the feature off posts nothing more even if revoking the session failed.
+  asked before every one and again after a snapshot's upload (an unreadable answer is retried
+  three times, 5 s apart, then counts as off; the server never throttles the bot's own reads),
+  so turning the feature off posts nothing more even if revoking the session failed.
 - Notes: one `rules.Segmenter` per speaker, Whisper one utterance at a time across meetings;
   Whisper's silence outputs are dropped. Posted as `m.notice`, split at 30 000 characters. The
   meeting ends 30 s after the bot is alone, on `!notes leave` or on losing the call.

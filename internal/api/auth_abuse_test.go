@@ -119,8 +119,8 @@ func TestIPv6AddressesInOne64ShareAWindow(t *testing.T) {
 }
 
 // Only failures count, and the lockout is per account and client: an attacker's wrong guesses
-// lock out the attacker, not the owner signing in from elsewhere. Guesses spread across many
-// addresses still meet the account-wide ceiling.
+// lock out the attacker, not the owner signing in from elsewhere, and guesses spread across
+// many addresses never lock the account (no account-wide block).
 func TestLoginLockoutIsPerClientAndCountsOnlyFailures(t *testing.T) {
 	srv, st, _ := setupTestServer(t)
 	createLocalUser(t, st, "usr_admin", "admin", "admin", "RealAdminPass123!")

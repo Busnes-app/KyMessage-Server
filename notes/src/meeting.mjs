@@ -300,13 +300,16 @@ export class Meeting {
     }
   }
 
-  // postShot uploads one snapshot encrypted (only the room can read it) as m.image.
+  // postShot uploads one snapshot encrypted (only the room can read it) as m.image, unless
+  // notes were turned off during the upload. It returns whether it posted.
   async postShot(n, { at, who, jpeg, w, h }) {
     const { data, file } = encrypt(jpeg);
     const { content_uri: url } = await this.client.uploadContent(data, { type: 'application/octet-stream', includeFilename: false });
+    if (!(await this.notesOn())) return false;
     const time = new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: this.cfg.timeZone });
     await this.client.sendMessage(this.room.roomId, { msgtype: 'm.image', body: `Snapshot ${n} of ${who}'s shared screen, ${time}.jpg`,
       file: { ...file, url }, info: { mimetype: 'image/jpeg', w, h, size: jpeg.length } });
+    return true;
   }
 
   // finish posts the notes (unless the bot lost the room) and leaves the call and the room.
@@ -339,7 +342,10 @@ export class Meeting {
             this.log(`meeting notes are off; nothing more is posted in ${this.room.roomId}`);
             break;
           }
-          await send();
+          if ((await send()) === false) {
+            this.log(`meeting notes are off; nothing more is posted in ${this.room.roomId}`);
+            break;
+          }
         }
       }
     } catch (e) {

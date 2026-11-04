@@ -143,13 +143,17 @@ func Collect(ctx context.Context, cfg *config.Config, appVersion string) (recove
 // KY_DB_DSN would open a new, empty database (ky-server-base Q10 A).
 func defaultSQLitePath(dsn, dataDir string) error {
 	path, _, _ := strings.Cut(dsn, "?")
-	if rest, ok := strings.CutPrefix(path, "file:"); ok {
-		// A file: URI may percent-encode its path (SQLite decodes it), and may carry an
-		// empty authority (file:///abs).
-		var err error
-		if path, err = url.PathUnescape(strings.TrimPrefix(rest, "//")); err != nil {
+	if strings.HasPrefix(path, "file:") {
+		// A file: URI, as SQLite reads it: a percent-encoded path, and an authority that is
+		// empty or localhost (file:///abs, file://localhost/abs).
+		u, err := url.Parse(path)
+		if err == nil && u.Opaque != "" {
+			u.Path, err = url.PathUnescape(u.Opaque)
+		}
+		if err != nil || (u.Host != "" && u.Host != "localhost") {
 			return fmt.Errorf("%w: unreadable database URI %q", ErrNoDatabaseSnapshot, dsn)
 		}
+		path = u.Path
 	}
 	got, err1 := filepath.Abs(path)
 	want, err2 := filepath.Abs(filepath.Join(dataDir, "ky_server.db"))

@@ -265,11 +265,16 @@ func TestNotesScreensSwitch(t *testing.T) {
 	}
 }
 
-// Two meetings with snapshots on each read the config every 10 seconds, plus once per new
-// share: a minute of that must not hit the limit, or a 429 switches their snapshots off.
+// The bot reads the config every 10 seconds per meeting, before each share and before each of
+// up to 61 posts at a meeting's end: only wrong secrets count toward the limit, or a 429 would
+// switch snapshots off or drop notes.
 func TestNotesConfigCoversTwoMeetings(t *testing.T) {
 	srv, _, _, _, _ := setupNotes(t)
-	for i := 0; i < 2*6+8; i++ {
+	for i := 0; i < 150; i++ {
 		notesConfig(t, srv, notesSecret, 200)
 	}
+	for i := 0; i < 10; i++ {
+		notesConfig(t, srv, strings.Repeat("x", 64), http.StatusUnauthorized)
+	}
+	notesConfig(t, srv, strings.Repeat("x", 64), http.StatusTooManyRequests)
 }
