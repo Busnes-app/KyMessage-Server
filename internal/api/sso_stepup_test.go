@@ -238,6 +238,15 @@ func TestSSOSignInAdoptsTheSCIMRowForTheSubject(t *testing.T) {
 	if w := idp.signIn(srv, map[string]any{"sub": "kid-ivy", "preferred_username": "ivy"}); w.Code != http.StatusForbidden || sessionCookie(w) != nil {
 		t.Fatalf("inactive SCIM row: %d %s", w.Code, w.Body.String())
 	}
+	// Two SCIM rows with one externalId are ambiguous: refused, never one picked at random.
+	for _, id := range []string{"usr_scim_dup1", "usr_scim_dup2"} {
+		if err := st.Users().CreateUser(ctx, &store.User{ID: id, Username: id, Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-dup"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := idp.signIn(srv, map[string]any{"sub": "kid-dup", "preferred_username": "dup"}); w.Code != http.StatusConflict || sessionCookie(w) != nil {
+		t.Fatalf("two SCIM rows for one subject: %d %s", w.Code, w.Body.String())
+	}
 	// An adopted SCIM admin's step-up goes through KyIdentity, forcing credentials.
 	if err := st.Users().UpdateProfile(ctx, &store.User{ID: "usr_scim_sam", Username: "sam", Role: "admin", Status: "active"}); err != nil {
 		t.Fatal(err)

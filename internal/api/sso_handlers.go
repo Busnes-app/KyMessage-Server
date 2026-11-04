@@ -92,8 +92,19 @@ func (s *Server) handleKyIdentityCallback(w http.ResponseWriter, r *http.Request
 	user, err := s.store.Users().GetUserBySSO(r.Context(), "kyidentity", claims.Subject)
 	if errors.Is(err, store.ErrNotFound) && s.config.SCIM.Enabled && claims.Subject != "" {
 		// A SCIM row whose externalId is this subject is this person: sign in as it, and SCIM
-		// keeps provisioning and offboarding it (ky-server-base Q1 A).
-		user, err = s.store.Users().GetUserBySSO(r.Context(), "scim", claims.Subject)
+		// keeps provisioning and offboarding it (ky-server-base Q1 A). externalId is not
+		// unique, so two such rows are refused rather than one picked at random.
+		rows, n, lerr := s.store.Users().ListUsers(r.Context(), 0, 2, store.UserFilter{Field: store.UserFieldSubject, Value: claims.Subject, Provider: "scim"})
+		switch {
+		case lerr != nil:
+			err = lerr
+		case n > 1:
+			s.audit(r.Context(), "", r, "sso.login_conflict", claims.Subject, fmt.Sprintf("subject=%q scim_rows=%d", claims.Subject, n))
+			s.writeError(w, http.StatusConflict, "More than one SCIM account carries this KyIdentity subject as its externalId; ask an administrator")
+			return
+		case len(rows) == 1:
+			user, err = rows[0], nil
+		}
 	}
 	if errors.Is(err, store.ErrNotFound) {
 		if !s.config.SSO.AutoProvision {

@@ -431,3 +431,48 @@ func TestDirectoryWebhookMFAResetRevokesSessions(t *testing.T) {
 		t.Fatalf("a retried user.mfa_reset kept the session: %v", err)
 	}
 }
+
+// Sign-in adopts a SCIM row whose externalId is the subject, so KyIdentity's MFA reset,
+// deactivation and deletion revoke that row's grants too, even when the webhook's own create
+// is refused because the SCIM row holds the username.
+func TestDirectoryWebhookRevokesAdoptedSCIMRow(t *testing.T) {
+	ctx := context.Background()
+	d := newDirectory(t)
+	if err := d.st.Users().CreateUser(ctx, &store.User{ID: "usr_scim_kid-sam", Username: "kid-sam", Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"}); err != nil {
+		t.Fatal(err)
+	}
+	session := func() {
+		t.Helper()
+		now := time.Now().UTC()
+		if err := d.st.Sessions().CreateSession(ctx, &store.Session{TokenHash: "tok-scim-sam", UserID: "usr_scim_kid-sam", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone := func(what string) {
+		t.Helper()
+		if _, err := d.st.Sessions().GetSession(ctx, "tok-scim-sam"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("%s kept the adopted SCIM row's session: %v", what, err)
+		}
+	}
+	session()
+	_ = d.send("user.mfa_reset", scimUser("kid-sam", "user", true, 1)) // 409: the SCIM row holds the username
+	gone("user.mfa_reset")
+	session()
+	_ = d.send("user.updated", scimUser("kid-sam", "user", false, 2))
+	gone("deactivation")
+	session()
+	d.must("user.deleted", scimUser("kid-sam", "user", false, 3))
+	gone("user.deleted")
+	// Every matching row, past the first page of 100.
+	for i := 0; i < 101; i++ {
+		if err := d.st.Users().CreateUser(ctx, &store.User{ID: fmt.Sprintf("usr_dup_%03d", i), Username: fmt.Sprintf("dup%03d", i), Role: "user", Status: "active", SSOProvider: "scim", SSOSubject: "kid-sam"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session()
+	_ = d.send("user.mfa_reset", scimUser("kid-sam", "user", true, 4))
+	gone("user.mfa_reset with 102 matching rows")
+	if u, _ := d.st.Users().GetUserByID(ctx, "usr_scim_kid-sam"); u.SSOProvider != "scim" || u.Status != "active" {
+		t.Fatalf("the SCIM row's ownership or status changed: %+v", u)
+	}
+}

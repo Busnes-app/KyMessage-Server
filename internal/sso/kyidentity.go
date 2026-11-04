@@ -210,8 +210,16 @@ func (k *KyIdentityClient) applyEvent(ctx context.Context, event syncauth.Event,
 	}
 	switch event.Type {
 	case "user.created", "user.updated", "user.mfa_reset":
+		if event.Type == "user.mfa_reset" || !user.Active {
+			if err := k.revokeAdopted(ctx, user.ID); err != nil {
+				return err
+			}
+		}
 		return k.upsertDirectoryUser(ctx, user, ev, event.Type == "user.mfa_reset")
 	case "user.deleted":
+		if err := k.revokeAdopted(ctx, user.ID); err != nil {
+			return err
+		}
 		existing, err := k.store.Users().GetUserBySSO(ctx, "kyidentity", user.ID)
 		if errors.Is(err, store.ErrNotFound) {
 			// Record the deletion anyway, so an older creation delivered later cannot
@@ -225,6 +233,29 @@ func (k *KyIdentityClient) applyEvent(ctx context.Context, event syncauth.Event,
 		return err
 	}
 	return nil // other event types (groups) are not for this product
+}
+
+// revokeAdopted ends the grants of the SCIM rows whose externalId is subject: sign-in adopts
+// them (internal/api), so KyIdentity's MFA reset, deactivation or deletion must reach the
+// account the person actually signs in to. SCIM still owns their status. It runs before the
+// upsert, whose create may be refused because the SCIM row holds the username.
+func (k *KyIdentityClient) revokeAdopted(ctx context.Context, subject string) error {
+	filter := store.UserFilter{Field: store.UserFieldSubject, Value: subject, Provider: "scim"}
+	for offset := 0; ; {
+		rows, total, err := k.store.Users().ListUsers(ctx, offset, 100, filter)
+		if err != nil {
+			return err
+		}
+		for _, u := range rows {
+			if err := k.store.Sessions().DeleteUserSessions(ctx, u.ID); err != nil {
+				return err
+			}
+		}
+		offset += len(rows)
+		if len(rows) == 0 || offset >= total {
+			return nil
+		}
+	}
 }
 
 // applyMember applies one event for a member, failing closed: user.deactivated is an inactive
