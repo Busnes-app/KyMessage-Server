@@ -46,6 +46,17 @@ Commands and unlinked file paths below are relative to the repository root.
   Changes need a sign-in from the last 10 minutes and are audited (`admin.brand_name`,
   `admin.brand_logo`). `KY_APP_NAME` stays the backup service name: capsules and
   KyRecovery pairing never see the console name.
+- **Settings → Office networks** lists networks (one per line, CIDR or single address) whose
+  requests skip the per-address limits on sign-in (20 a minute) and password change (10 a
+  minute). Staff behind one office NAT address otherwise share those limits and can lock each
+  other out. Per-account limits and the proof-of-work check still apply. List only networks
+  you control: everyone behind a listed address loses the per-address limit, so never list
+  guest Wi-Fi, a VPN provider's exit or the reverse proxy (which would exempt everyone).
+  Ranges wider than /16 (IPv4) or /48 (IPv6), loopback and invalid entries are refused.
+  `KY_RATE_LIMIT_EXEMPT_NETWORKS` adds networks the screen shows read-only. Adding a
+  network needs a sign-in from the last 10 minutes; removing one does not. Changes are
+  audited as `admin.rate_limit_networks`, and the screen counts the requests that skipped
+  the limit since the last change or restart.
 - **Settings → KyIdentity sync** (with Matrix) shows the last directory webhook KyMessages
   accepted, deliveries refused since it started (and why: bad signature, stale clock,
   missing secret, bad headers, malformed body), and the last offboarding sweep, with what to

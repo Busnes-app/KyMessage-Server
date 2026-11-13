@@ -35,7 +35,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		s.writeStepUp(w, user)
 		return
 	}
-	if !s.allowClientAttempt("password-change", r, 10, time.Minute) || !s.allowAccountAttempt("password-change-user:"+user.ID, 5, time.Minute) {
+	if (!s.perIPExempt(r) && !s.allowClientAttempt("password-change", r, 10, time.Minute)) || !s.allowAccountAttempt("password-change-user:"+user.ID, 5, time.Minute) {
 		s.writeError(w, http.StatusTooManyRequests, "Too many password change attempts")
 		return
 	}

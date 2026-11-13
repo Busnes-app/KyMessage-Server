@@ -4,6 +4,7 @@ import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
 import { FederationPanel } from '../components/FederationPanel';
 import { NotesPanel } from '../components/NotesPanel';
+import { ExemptNetworksPanel } from '../components/ExemptNetworksPanel';
 import { PasswordChange } from '../components/PasswordChange';
 import type { SessionUser, SiteSettings } from '../dto';
 import { PageHead } from '../components/PageHead';
@@ -91,6 +92,7 @@ function Server({ settings, onBrandingChanged }: { settings: SiteSettings | null
         <SyncPanel />
         <FederationPanel />
         <NotesPanel />
+        <ExemptNetworksPanel />
       </div>
     </>
   );

@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/netallow"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/ky_server_base/internal/auth"
@@ -94,6 +96,10 @@ type Server struct {
 	clientAttempts  attemptLimiter
 	accountAttempts attemptLimiter
 	pow             auth.PoWSpender
+	// exempt is the office-network allowlist (environment plus admin setting); exemptMu
+	// serialises its changes so the stored list, the live list and the audit row agree.
+	exempt   atomic.Pointer[netallow.List]
+	exemptMu sync.Mutex
 	// detached counts the requests running on a context deliberately separated from their
 	// connection. http.Server.Shutdown does not know about them, so runServer waits on this
 	// before the store closes.
@@ -244,6 +250,7 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 	if cfg.Matrix.RTCHost != "" {
 		s.rtc = matrixrtc.New(health.ComposeTargets.LiveKit, cfg.Matrix.RTCKey, cfg.Matrix.RTCSecret)
 	}
+	s.loadExemptNetworks()
 	s.routes()
 	return s
 }
@@ -301,6 +308,15 @@ func (s *Server) clientKey(r *http.Request) string {
 // allowClientAttempt throttles an anonymous route per client.
 func (s *Server) allowClientAttempt(scope string, r *http.Request, limit int, window time.Duration) bool {
 	return s.clientAttempts.allow(scope+":"+s.clientKey(r), limit, window)
+}
+
+// perIPExempt reports whether the request comes from an allowlisted office network and so
+// skips a per-IP limit. Only those: per-account windows, the CAPTCHA and every later check
+// still run. It matches the address requestIP resolved, so a forged X-Forwarded-For from an
+// untrusted peer cannot claim an allowlisted address.
+func (s *Server) perIPExempt(r *http.Request) bool {
+	addr, err := netip.ParseAddr(s.requestIP(r))
+	return err == nil && s.exempt.Load().Exempt(addr)
 }
 
 // allowAccountAttempt throttles by an existing user's ID. Callers must never pass a
@@ -407,6 +423,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("GET /api/suite/apps", s.handleSuiteApps)
 	s.mux.HandleFunc("/api/settings/theme", s.requireAdmin(s.handleSetTheme))
+	// Office networks that skip per-IP limits. Adding one needs a recent sign-in; removing is one click.
+	s.mux.HandleFunc("GET /api/settings/rate-limit-networks", s.requireAdmin(s.handleGetExemptNetworks))
+	s.mux.HandleFunc("PUT /api/settings/rate-limit-networks", s.tracked(s.requireAdmin(s.handleSetExemptNetworks)))
 
 	// Branding. Any admin reads it; changes need a recent sign-in, run detached and are audited.
 	s.mux.HandleFunc("GET /api/admin/branding", s.requireAdmin(s.handleBranding))

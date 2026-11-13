@@ -517,3 +517,21 @@ func TestSessionSecretKeyFloor(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimitExemptNetworksAreValidatedAtStartup(t *testing.T) {
+	t.Setenv("KY_DATA_DIR", t.TempDir())
+	t.Setenv("KY_RATE_LIMIT_EXEMPT_NETWORKS", " 203.0.113.9/24, 2001:db8:1::/48 ")
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Security.RateLimitExemptNetworks; got != "203.0.113.0/24,2001:db8:1::/48" {
+		t.Fatalf("RateLimitExemptNetworks = %q", got)
+	}
+	for _, bad := range []string{"0.0.0.0/0", "10.0.0.0/8", "::/0", "2001:db8::/32", "127.0.0.1", "office"} {
+		t.Setenv("KY_RATE_LIMIT_EXEMPT_NETWORKS", bad)
+		if _, err := config.LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KY_RATE_LIMIT_EXEMPT_NETWORKS") {
+			t.Errorf("%q: err = %v, want a startup failure naming the variable", bad, err)
+		}
+	}
+}
