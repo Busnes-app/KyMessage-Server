@@ -622,25 +622,19 @@ async function calls(restored = false) {
 async function meeting() {
   const id = process.env.MEETING_ROOM;
   const msgs = { a: text('alice'), b: text('bob') };
-  // One profile is open in one browser at a time.
-  const as = async (name, fn) => {
-    const page = await resume(name, `prove-${name}`);
-    await fn(page);
-    for (const [, ctx] of contexts.splice(0)) await ctx.close();
-  };
+  // Each profile is opened once and left to the shared close at exit: reopening one quickly can
+  // lose a rotated refresh token, which ends that Element session for the later steps.
+  const alice = await resume('alice', 'prove-alice');
+  const bob = await resume('bob', 'prove-bob');
   // Both join first: history is visible from joining, so nothing sent before is shown.
-  for (const name of ['alice', 'bob']) {
-    await as(name, async (page) => {
-      await openRoom(page, id, true);
-      check(await page.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id)?.hasEncryptionStateEvent(), id), `${name}'s Element treats the meeting room as encrypted`);
-    });
+  for (const [name, page] of [['alice', alice], ['bob', bob]]) {
+    await openRoom(page, id, true);
+    check(await page.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id)?.hasEncryptionStateEvent(), id), `${name}'s Element treats the meeting room as encrypted`);
   }
-  await as('alice', async (page) => { await openRoom(page, id, false); await send(page, msgs.a); });
-  await as('bob', async (page) => { await openRoom(page, id, false); await sees(page, msgs.a); await send(page, msgs.b); });
-  await as('alice', async (page) => {
-    await openRoom(page, id, false);
-    await sees(page, msgs.b);
-  });
+  await send(alice, msgs.a);
+  await sees(bob, msgs.a);
+  await send(bob, msgs.b);
+  await sees(alice, msgs.b);
   out({ room: id, messages: Object.values(msgs) });
 }
 
