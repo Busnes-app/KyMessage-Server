@@ -17,14 +17,16 @@ import (
 const (
 	OrganizerLevel = 50
 	callMemberType = "org.matrix.msc3401.call.member"
+	widgetsType    = "im.vector.modular.widgets"
 )
 
 // meetingEvents is Synapse's default for room version 12 plus what stock Element adds while
-// Element Call is on: any member may join the call.
+// Element Call is on: any member may join the call. Room widgets need 100, as Element sets in
+// its video rooms, so only the console (which adds none) may add one; the organizer may not.
 var meetingEvents = map[string]int{
 	"m.room.name": 50, "m.room.power_levels": 100, "m.room.history_visibility": 100,
 	"m.room.canonical_alias": 50, "m.room.avatar": 50, "m.room.tombstone": 150,
-	"m.room.server_acl": 100, "m.room.encryption": 100, callMemberType: 0,
+	"m.room.server_acl": 100, "m.room.encryption": 100, callMemberType: 0, widgetsType: 100,
 }
 
 func clientRoomPath(id string) string { return clientPrefix + "rooms/" + url.PathEscape(id) }

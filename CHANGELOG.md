@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- Calls in rooms of three or more people, KyCalendar meeting rooms included: Element now
+  shows its call buttons there. Element v1.12.30 shows them only with its widgets UI on, so
+  `matrix-init` turns `UIFeature.widgets` on while calls are on (rerun it and restart Element).
+  Integration managers stay unset and the sticker button defaults off. Adding a widget to a
+  room still needs the room's moderator level; new meeting rooms need level 100, so only the
+  console could. See `docs/evidence/2026-11-group-calls.md` for what the widgets UI exposes.
 - Office networks can skip the per-address sign-in limit. Staff behind one NAT address share
   the 20-a-minute sign-in window (and the 10-a-minute password-change window) and can trip it
   together on a busy morning. An administrator lists the office's networks under

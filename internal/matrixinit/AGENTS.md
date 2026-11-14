@@ -95,7 +95,13 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.
 - Synapse sets `push.include_content: false`: push gateways (Element's or self-hosted) receive
   event and room IDs only. Never re-enable content; clients fetch it after the push.
-- Calls default on: `element_call.disable: false`, `use_exclusively: true`, `UIFeature.voip: true`.
+- Calls default on: `element_call.disable: false`, `use_exclusively: true`, `UIFeature.voip: true`,
+  and `UIFeature.widgets: true`, which Element v1.12.30 needs to show call buttons in rooms of
+  three or more (`useRoomCall.ts:346`; owner decision 2026-11-14). It also shows the apps
+  drawer, `/addwidget` and the integration-manager toggle; room widgets stay behind power
+  levels and no integration manager is configured; `MessageComposerInput.showStickersButton`
+  defaults off (`docs/evidence/2026-11-group-calls.md`). Never set `integrations_*` or
+  `widget_build_url`.
   Synapse advertises the console origin + `/api/matrix/rtc` as its LiveKit authorization URL,
   serves the narrow `openid` resource alongside `client`, and enables
   MSC4143/MSC4222 and delayed leave events. `livekit/config.yaml` uses generated write-once
@@ -114,8 +120,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 - `KY_MATRIX_CALLS=off` (else `on`, the default; any other value refused) is chat only:
   `KY_MATRIX_RTC_HOST`/`KY_MATRIX_MEDIA_IP` are not required and are ignored, TURN is refused,
   `livekit/config.yaml` is not rendered (an older one is left alone; LiveKit does not start),
-  Synapse has no `matrix_rtc`, and Element gets `element_call.disable: true` and
-  `UIFeature.voip: false`. Every secret is still written: Compose mounts the LiveKit and notes
+  Synapse has no `matrix_rtc`, and Element gets `element_call.disable: true`,
+  `UIFeature.voip: false` and `UIFeature.widgets: false`. Every secret is still written: Compose mounts the LiveKit and notes
   ones into the app (`TestChatOnlyNeedsNoCallSettingsAndAdvertisesNoCalls`).
 - Federation (owner decision 2026-10-11, plan `docs/superpowers/plans/2026-10-11-federation-opt-in.md`):
   `federation/federation.yaml`, which Synapse loads second (`--config-path` order; Synapse 1.162
@@ -132,7 +138,8 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   `trusted_key_servers: []` stays: keys come from each allowed origin. Neither file sets
   `ip_range_whitelist`, `ip_range_blacklist`, `federation_custom_ca_list` or
   `allow_public_rooms_over_federation` (`TestFederationFileOwnsOnlyListenersAndAllowList`).
-- Element contacts no third party: integrations are null, `UIFeature.widgets` off, `jitsi.preferred_domain` is `jitsi.invalid`
+- Element contacts no third party: integrations are null (`integrations_widgets_urls` empty,
+  `widget_build_url` unset), `jitsi.preferred_domain` is `jitsi.invalid`
   (Element keeps its `meet.element.io` default for an object set to null, so the
   unresolvable name makes any Jitsi start fail closed), help links, the logo
   (`/app-icon.png`) and `embedded_pages.home_url` (`/element-home.html`, served by the console,

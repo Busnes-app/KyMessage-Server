@@ -28,7 +28,8 @@
   "default_theme": "custom-Busnes Light",
   "setting_defaults": {
     "UIFeature.voip": {{ not .In.CallsOff }},
-    "UIFeature.widgets": false,
+    "UIFeature.widgets": {{ not .In.CallsOff }},
+    "MessageComposerInput.showStickersButton": false,
     "UIFeature.feedback": false,
     "UIFeature.identityServer": false,
     "UIFeature.registration": false,

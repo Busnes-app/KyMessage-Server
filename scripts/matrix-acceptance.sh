@@ -442,6 +442,12 @@ expect "$(sql synapse "SELECT e.json::json->'content'->'users' FROM current_stat
 expect "$(membership "$alice_mx") $(membership "$bob_mx")" "invite invite" "alice and bob are invited"
 MEETING_ROOM=$room e2e meeting
 expect "$(membership "$alice_mx") $(membership "$bob_mx")" "join join" "both accepted the invite in Element"
+# Element shows calls in rooms of three or more only with its widgets UI on; room widgets stay
+# behind power levels: 100 in meeting rooms, Synapse's state_default 50 in Element's group rooms.
+expect "$(hcurl -fsS https://chat.kymatrix.test/config.json | jq -c '[.setting_defaults["UIFeature.widgets"], .integrations_ui_url, .integrations_rest_url, .integrations_widgets_urls]')" \
+	'[true,null,null,[]]' "Element serves its widgets UI on with no integration manager"
+expect "$(room_state m.room.power_levels events | jq -r '."im.vector.modular.widgets"')" 100 "only the console's level may add a widget to the meeting room"
+expect "$(sql synapse "SELECT count(*) FROM events WHERE type = 'im.vector.modular.widgets'")" 0 "no member's widget reached any room"
 expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$room' AND type = 'm.room.message'")" 0 "no m.room.message in the meeting room"
 encrypted=$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$room' AND type = 'm.room.encrypted'")
 ((encrypted >= 2)) || { echo "  FAILED: $encrypted m.room.encrypted events in the meeting room" >&2; false; }

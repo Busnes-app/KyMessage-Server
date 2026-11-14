@@ -299,7 +299,8 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   imports its own CA nickname into Chromium's NSS database for TURN/TLS verification and
   removes exactly that nickname on exit; `certutil` is required. Playwright drives Element: native OIDC sign-in
   (`startSignIn` reloads the login page, at most twice, when Element's one MAS client registration
-  is aborted, e.g. Chrome's `ERR_NETWORK_CHANGED` while Compose adds an interface), key setup, DM and
+  is aborted, e.g. Chrome's `ERR_NETWORK_CHANGED` while Compose adds an interface; `kyidentityLogin`
+  likewise reloads KyIdentity's login page when that abort leaves its form unrendered), key setup, DM and
   group messages read by the other user, group video decoded and DM voice audio received by
   both users, directly and with relay-only ICE, repeated after restoring a fresh LiveKit. It asserts no `m.room.message` in encrypted rooms
   and no plaintext in a Synapse `pg_dump`; registration, password login and federation
@@ -350,9 +351,12 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   (`overrides/app.yml`, `$scratch/kycalendar/secret`) and the harness signs as KyCalendar in
   bash. A PUT makes an encrypted invite-only room created by the console, alice at level 50, bob
   invited, carol (no chat account) skipped; both accept in Element (both join before anyone
-  writes: history is visible from joining) and read each other's messages (`e2e.mjs meeting`;
-  no call, since Element hides call buttons in rooms of more than two members with
-  `UIFeature.widgets` off, `docs/KYCALENDAR.md` "Calls"); no plaintext
+  writes: history is visible from joining) and read each other's messages (`e2e.mjs meeting`);
+  Element serves `UIFeature.widgets` on with no integration manager, the room's widget level is
+  100, alice's and bob's widget state events, bob's `/addwidget` and bob's widget in the `prove`
+  group room are refused and Synapse holds no widget event; in the room's three joined members
+  (the console the third) alice starts a video call from Element that bob joins, both receiving
+  audio and decoded video (screenshots: CI artifact `matrix-acceptance-evidence-0`); no plaintext
   in a `pg_dump`; the console has no device keys; a title change renames, an exact replay is
   `duplicate`, a PUT without bob kicks him (sender the console), DELETE blocks the room and
   empties it, and a PUT after is 409 `closed`.

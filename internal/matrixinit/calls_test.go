@@ -57,6 +57,9 @@ func TestChatOnlyNeedsNoCallSettingsAndAdvertisesNoCalls(t *testing.T) {
 	if v := el["setting_defaults"].(map[string]any)["UIFeature.voip"]; v != false {
 		t.Errorf("Element still shows call buttons: UIFeature.voip=%v", v)
 	}
+	if v := el["setting_defaults"].(map[string]any)["UIFeature.widgets"]; v != false {
+		t.Errorf("chat only needs no widgets UI: UIFeature.widgets=%v", v)
+	}
 	// Turning calls back on renders LiveKit again with the same keys.
 	on := goodInput()
 	if _, err := runWithSecret(t, on, dir, "s3cret"); err != nil {

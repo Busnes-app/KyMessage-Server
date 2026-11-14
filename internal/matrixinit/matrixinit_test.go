@@ -431,8 +431,11 @@ func TestElementIsBrandedAndContactsNoThirdParty(t *testing.T) {
 	if ec, _ := el["element_call"].(map[string]any); ec["disable"] != false || ec["use_exclusively"] != true {
 		t.Errorf("element_call: %v", el["element_call"])
 	}
-	if defaults["UIFeature.voip"] != true || defaults["UIFeature.widgets"] != false {
-		t.Errorf("call UI not enabled or widgets UI enabled: %v", defaults)
+	// Element v1.12.30 shows call buttons in rooms of three or more only with widgets on
+	// (useRoomCall.ts:346). No integration manager stays configured, so stickers are hidden.
+	if defaults["UIFeature.voip"] != true || defaults["UIFeature.widgets"] != true ||
+		defaults["MessageComposerInput.showStickersButton"] != false {
+		t.Errorf("group call UI not enabled or sticker button shown: %v", defaults)
 	}
 	if j, _ := el["jitsi"].(map[string]any); j["preferred_domain"] != "jitsi.invalid" {
 		t.Errorf("jitsi: %v", el["jitsi"])
