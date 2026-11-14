@@ -24,6 +24,8 @@
 - Sign-in now reserves its place in the per-account window (10 failures per account and
   client per 15 minutes) before the password is checked, and hands it back on success, so
   concurrent guesses at one account can no longer all be checked before any is counted.
+- The Go toolchain moves from 1.27.3 to 1.27.4 (`go.mod` and the image builder), which
+  fixes GO-2026-6859 in `net/http`.
 - `ky-primitives` moves to the revision that adds its `netallow` package. That revision also
   carries the library's changes since the previous pin (recoveryclient, syncauth, oidcverify,
   scim, capsule and auditchain fixes); see its changelog.
