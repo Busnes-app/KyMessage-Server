@@ -86,5 +86,17 @@ the meeting room's widget level is 100, alice's and bob's widget state events an
 `/addwidget` are refused, bob's widget state event in the two-person group room is refused,
 no widget event exists in Synapse, the room has three joined members, and alice starts a video
 call from Element's Video call button that bob joins, with audio and decoded video received
-by both. Screenshots are uploaded as the `matrix-acceptance-evidence-0` artifact and copied to
-`2026-11-group-calls/`.
+by both. Screenshots are uploaded as the `matrix-acceptance-evidence-0` artifact.
+
+Run 43616239513 (head `89c09c9`, GitHub Actions), every check above passed (`PASS meetings 19s`):
+
+- Before: [2026-11-meeting-rooms/stack/meeting-alice.png](2026-11-meeting-rooms/stack/meeting-alice.png),
+  no call button in the meeting room.
+- After: [meeting-call-button-alice.png](2026-11-group-calls/meeting-call-button-alice.png),
+  Video call in the header of the same room with 3 members;
+  [meeting-call-alice.png](2026-11-group-calls/meeting-call-alice.png) and
+  [meeting-call-bob.png](2026-11-group-calls/meeting-call-bob.png), the call with both
+  participants' video.
+
+The harness captures 1280 px light only; phone width and dark theme are not captured (Element's
+header is stock and unchanged apart from the button).
