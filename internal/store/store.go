@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/Busnes-app/ky-primitives/applysetup"
 )
 
@@ -30,6 +32,7 @@ type Store interface {
 	Audit() AuditStore
 	Settings() SettingsStore
 	Agents() AgentStore
+	Meetings() MeetingStore
 
 	InvalidateRestoredGrants(context.Context) error
 	Driver() string
@@ -164,4 +167,20 @@ type AgentStore interface {
 	// session. It is ErrNotFound once anything else changed it: a revoke during the mint wins.
 	ActivateNewAgent(ctx context.Context, id, sessionID string) error
 	DeleteAgent(ctx context.Context, id string) error
+}
+
+// MeetingStore holds KyCalendar meeting rooms and the replay guard for KyCalendar's requests.
+type MeetingStore interface {
+	// GetMeeting returns ErrNotFound for an unknown ID.
+	GetMeeting(ctx context.Context, id string) (*Meeting, error)
+	// CreateMeeting returns ErrAlreadyExists when the ID or room is taken.
+	CreateMeeting(ctx context.Context, m *Meeting) error
+	// UpdateMeeting records an open meeting's organizer and listed members (ErrNotFound
+	// otherwise).
+	UpdateMeeting(ctx context.Context, id, organizer string, members []string) error
+	// CloseMeeting marks a meeting closed for good; ErrNotFound for an unknown ID.
+	CloseMeeting(ctx context.Context, id string) error
+	// RememberMeetingEvent records eventID until expires; ErrAlreadyExists while it is held.
+	RememberMeetingEvent(ctx context.Context, eventID string, expires time.Time) error
+	ForgetMeetingEvent(ctx context.Context, eventID string) error
 }

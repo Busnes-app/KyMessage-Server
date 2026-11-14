@@ -42,6 +42,7 @@ KyMessages is released under the [MIT License](LICENSE.txt).
 - [Rootless Podman](docs/PODMAN.md) — The Podman overlays, `matrix-init` command and healthcheck requirement.
 - [Calls](docs/CALLS.md) — Voice and video calls. <a id="voice-and-video-calls"></a>
 - [Meeting notes](docs/MEETING-NOTES.md) — An invited bot that takes notes in calls, off by default.
+- [KyCalendar meeting rooms](docs/KYCALENDAR.md) — An encrypted video room per KyCalendar meeting, for members.
 - [Federation](docs/FEDERATION.md) — Federation. <a id="federation"></a>
 - [Chat agents](docs/CHAT-AGENTS.md) — Agents. <a id="agents"></a>
 - [Operator console](docs/OPERATOR-CONSOLE.md) — Operator console. <a id="operator-console"></a>

@@ -40,8 +40,8 @@
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
 # MATRIX_ACCEPT_ARTIFACTS (traces and logs on failure, default scripts/matrix-acceptance/artifacts),
 # MATRIX_ACCEPT_STOP_AFTER (a step name: stop there, for iterating on one step),
-# MATRIX_ACCEPT_SKIP (space-separated step names to skip: closed, offboard-*, admin-isolation,
-# notes, agents; CI splits the run in two this way),
+# MATRIX_ACCEPT_SKIP (space-separated step names to skip: meetings, closed, offboard-*,
+# admin-isolation, notes, agents; CI splits the run in two this way),
 # MATRIX_ACCEPT_PREBUILT=1 (use kymatrix-accept-{app,kyidentity,notes}:ci, already built from the
 # same sources, instead of building the three images; CI builds them with a layer cache).
 set -euo pipefail
@@ -73,7 +73,9 @@ summary=$scratch/summary
 
 umask 077
 # ./data and ./backups belong to this user before the app (which runs as it) starts.
-mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data"
+mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data" "$scratch/kycalendar"
+# The KyCalendar pair secret step meetings signs with (overrides/app.yml mounts it).
+openssl rand -hex 32 >"$scratch/kycalendar/secret"
 cp -r "$here/overrides" "$scratch/overrides"
 # docker-compose.matrix.yml includes compose/calls-*.yml, resolved in the project directory.
 cp -r "$repo/compose" "$scratch/compose"
@@ -403,6 +405,71 @@ e2e noclaim olga
 expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users")" 'alice.q_ky,bob,kymessages-console' \
 	"MAS accounts from verified email local parts: AQuinn (Alice.Q+Ky@kymatrix.test) mapped to alice.q_ky, unverified olga refused"
 pass
+
+# ---------------------------------------------------------------------------------------
+# KyCalendar meeting rooms (docs/KYCALENDAR.md), signed as KyCalendar with the pair secret
+# overrides/app.yml gives the app. alice organizes; bob is invited; carol, assigned but never
+# signed in to chat, is skipped. The console creates the room encrypted and invite-only; both
+# accept in Element, read each other's messages and decode each other's video; a title change,
+# bob's removal and DELETE follow; an exact replay is a duplicate and a closed meeting stays closed.
+if wanted meetings; then
+step meetings
+# meeting_call METHOD ID EVENT_ID BODY [TIMESTAMP]: prints the status; the reply is in $state/meeting.reply.
+meeting_call() {
+	local type=kycalendar.meeting.put ts=${5:-$(date -u +%Y-%m-%dT%H:%M:%SZ)} sig
+	[[ $1 == DELETE ]] && type=kycalendar.meeting.close
+	sig=$(printf 'ky-sync-v1\n%s\n%s\n%s\n%s' "$ts" "$type" "$3" "$(printf '%s' "$4" | sha256sum | cut -d' ' -f1)" |
+		openssl dgst -sha256 -hmac "$(cat "$scratch/kycalendar/secret")" | awk '{print $NF}')
+	hcurl -sS -o "$state/meeting.reply" -w '%{http_code}' -X "$1" -H 'Content-Type: application/json' -H "X-KySignOn-Signature: v1=$sig" \
+		-H "X-KySignOn-Timestamp: $ts" -H "X-KySignOn-Event-Type: $type" -H "X-KySignOn-Event-ID: $3" --data-binary "$4" "$KY_APP_URL/api/meetings/$2"
+}
+reply() { jq -r "$1" "$state/meeting.reply"; }
+meeting_body() { jq -nc --arg s "${kid[AQuinn]}" --arg i "$KY_KYIDENTITY_ISSUER" --arg t "$1" '{sub: $s, issuer: $i, title: $t, member_subs: $ARGS.positional}' --args "${@:2}"; }
+membership() { sql synapse "SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '$1' AND m.room_id = '$room' ORDER BY e.stream_ordering DESC LIMIT 1"; }
+room_state() { sql synapse "SELECT e.json::json->'content'->>'$2' FROM current_state_events c JOIN event_json e USING (event_id) WHERE c.room_id = '$room' AND c.type = '$1'"; }
+mid=kymatrix-meeting-$(openssl rand -hex 8)
+alice_mx=@alice.q_ky:$KY_MATRIX_SERVER_NAME bob_mx=@bob:$KY_MATRIX_SERVER_NAME console_mx=@kymessages-console:$KY_MATRIX_SERVER_NAME
+code=$(meeting_call PUT "$mid" "$mid-put-1" "$(meeting_body 'kymatrix meeting' "${kid[bob]}" "${kid[carol]}")")
+expect "$code" 200 "a signed PUT creates the meeting room"
+room=$(reply '.member_url | capture("^https://chat\\.kymatrix\\.test/#/room/(?<r>![^/]+)$").r')
+expect "$(reply '.skipped_subs | join(",")')" "${kid[carol]}" "carol, with no chat account yet, is skipped and reported"
+expect "$(room_state m.room.encryption algorithm)" m.megolm.v1.aes-sha2 "the meeting room is encrypted"
+expect "$(room_state m.room.join_rules join_rule)|$(room_state m.room.history_visibility history_visibility)|$(room_state m.room.guest_access guest_access)" \
+	"invite|joined|forbidden" "invite only, history from joining, no guests"
+expect "$(sql synapse "SELECT sender FROM current_state_events c JOIN events e USING (event_id) WHERE c.room_id = '$room' AND c.type = 'm.room.create'")" "$console_mx" "the console created it"
+expect "$(sql synapse "SELECT e.json::json->'content'->'users' FROM current_state_events c JOIN event_json e USING (event_id) WHERE c.room_id = '$room' AND c.type = 'm.room.power_levels'" | jq -c .)" \
+	"{\"$alice_mx\":50}" "the organizer holds level 50; the console is the creator"
+expect "$(membership "$alice_mx") $(membership "$bob_mx")" "invite invite" "alice and bob are invited"
+MEETING_ROOM=$room e2e meeting
+expect "$(membership "$alice_mx") $(membership "$bob_mx")" "join join" "both accepted the invite in Element"
+expect "$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$room' AND type = 'm.room.message'")" 0 "no m.room.message in the meeting room"
+encrypted=$(sql synapse "SELECT count(*) FROM events WHERE room_id = '$room' AND type = 'm.room.encrypted'")
+((encrypted >= 2)) || { echo "  FAILED: $encrypted m.room.encrypted events in the meeting room" >&2; false; }
+dump=$(dc exec -T postgres pg_dump -U postgres synapse)
+while read -r m; do
+	if grep -qF "$m" <<<"$dump"; then echo "  FAILED: plaintext $m found in the Synapse database" >&2; false; fi
+done < <(jq -r '.messages[]' "$state/meeting.json")
+ok "the meeting messages are nowhere in plaintext in a pg_dump"
+expect "$(sql synapse "SELECT count(*) FROM e2e_device_keys_json WHERE user_id = '$console_mx'")" 0 "the console has no device keys, so no room key can be shared with it"
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+moved=$(meeting_body 'kymatrix meeting (moved)' "${kid[bob]}")
+code=$(meeting_call PUT "$mid" "$mid-put-2" "$moved" "$ts")
+expect "$code $(room_state m.room.name name)" "200 kymatrix meeting (moved)" "a PUT with a new title renames the room"
+code=$(meeting_call PUT "$mid" "$mid-put-2" "$moved" "$ts")
+expect "$code $(reply .outcome)" "200 duplicate" "the exact replay answers duplicate"
+code=$(meeting_call PUT "$mid" "$mid-put-3" "$(meeting_body 'kymatrix meeting (moved)')")
+expect "$code $(membership "$bob_mx") $(membership "$alice_mx")" "200 leave join" "a PUT without bob removes him; the organizer stays"
+expect "$(sql synapse "SELECT sender FROM room_memberships WHERE user_id = '$bob_mx' AND room_id = '$room' AND membership = 'leave'")" "$console_mx" "the console removed him"
+code=$(meeting_call DELETE "$mid" "$mid-close-1" "")
+expect "$code $(reply .outcome)" "200 closed" "a signed DELETE closes the meeting"
+eventually 60 leave "alice is out of the closed room" membership "$alice_mx"
+expect "$(sql synapse "SELECT count(*) FROM blocked_rooms WHERE room_id = '$room'")" 1 "the room is blocked"
+code=$(meeting_call PUT "$mid" "$mid-put-4" "$(meeting_body 'again' "${kid[bob]}")")
+expect "$code $(reply .code)" "409 closed" "a closed meeting is never reopened"
+code=$(meeting_call DELETE "$mid" "$mid-close-2" "")
+expect "$code" 200 "closing it again succeeds"
+pass
+fi
 
 # ---------------------------------------------------------------------------------------
 if wanted closed; then

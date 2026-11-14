@@ -2,6 +2,7 @@
 //        node e2e.mjs room|token|fedtoken|disabled|reread|reads|noclaim|owner USER
 //        AGENT_MXID=... AGENT_MSG=... AGENT_REPLY=... node e2e.mjs agent USER
 //        node e2e.mjs title BRAND
+//        MEETING_ROOM=... node e2e.mjs meeting
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
 // database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
@@ -616,6 +617,27 @@ async function calls(restored = false) {
   out({group:rooms.group, dm:rooms.dm, video, voice});
 }
 
+// A KyCalendar meeting room the console created (step meetings, MEETING_ROOM): alice and bob
+// accept its invites and read each other's encrypted messages.
+async function meeting() {
+  const id = process.env.MEETING_ROOM;
+  const msgs = { a: text('alice'), b: text('bob') };
+  // Each profile is opened once and left to the shared close at exit: reopening one quickly can
+  // lose a rotated refresh token, which ends that Element session for the later steps.
+  const alice = await resume('alice', 'prove-alice');
+  const bob = await resume('bob', 'prove-bob');
+  // Both join first: history is visible from joining, so nothing sent before is shown.
+  for (const [name, page] of [['alice', alice], ['bob', bob]]) {
+    await openRoom(page, id, true);
+    check(await page.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id)?.hasEncryptionStateEvent(), id), `${name}'s Element treats the meeting room as encrypted`);
+  }
+  await send(alice, msgs.a);
+  await sees(bob, msgs.a);
+  await send(bob, msgs.b);
+  await sees(alice, msgs.b);
+  out({ room: id, messages: Object.values(msgs) });
+}
+
 // Meeting notes (scripts/matrix-acceptance.sh, step notes). USER owns the rooms.
 const NOTES = `@kymessages-notes:${SERVER}`;
 const memberOf = (page, id, who, membership) => page.waitForFunction(({ id, who, membership }) =>
@@ -801,7 +823,7 @@ async function notesscreens() {
   out({ room: id, shots });
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
+const scenarios = { calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

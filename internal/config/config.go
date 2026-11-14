@@ -23,15 +23,23 @@ import (
 
 // Config encapsulates all runtime configuration for KyMessages.
 type Config struct {
-	InstallerSSO *applysetup.SSO `json:"-"`
-	Server       ServerConfig    `json:"server"`
-	Database     DatabaseConfig  `json:"database"`
-	Security     SecurityConfig  `json:"security"`
-	SSO          SSOConfig       `json:"sso"`
-	SCIM         SCIMConfig      `json:"scim"`
-	Backup       BackupConfig    `json:"backup"`
-	Captcha      CaptchaConfig   `json:"captcha"`
-	Matrix       MatrixConfig    `json:"matrix"`
+	InstallerSSO *applysetup.SSO  `json:"-"`
+	Server       ServerConfig     `json:"server"`
+	Database     DatabaseConfig   `json:"database"`
+	Security     SecurityConfig   `json:"security"`
+	SSO          SSOConfig        `json:"sso"`
+	SCIM         SCIMConfig       `json:"scim"`
+	Backup       BackupConfig     `json:"backup"`
+	Captcha      CaptchaConfig    `json:"captcha"`
+	Matrix       MatrixConfig     `json:"matrix"`
+	KyCalendar   KyCalendarConfig `json:"kycalendar"`
+}
+
+// KyCalendarConfig is an explicit KyCalendar pair (KY_KYCALENDAR_URL and _SECRET_FILE). Unset,
+// the pair comes from KyIdentity's suite directory.
+type KyCalendarConfig struct {
+	URL    string `json:"url"`
+	Secret []byte `json:"-"`
 }
 
 // MatrixConfig locates the optional Matrix stack: all set, or none. Hosts are https origins
@@ -254,6 +262,10 @@ func LoadFromEnv() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	kycalendar, err := kycalendarFromEnv(matrix.Enabled())
+	if err != nil {
+		return nil, err
+	}
 
 	adminUsername := getEnv("KY_ADMIN_USERNAME", "admin")
 	if !ValidUsername(adminUsername) {
@@ -313,7 +325,8 @@ func LoadFromEnv() (*Config, error) {
 			Provider:      getEnv("KY_CAPTCHA_PROVIDER", "pow"),
 			DifficultyPoW: getEnvInt("KY_CAPTCHA_POW_DIFFICULTY", 50000),
 		},
-		Matrix: matrix,
+		Matrix:     matrix,
+		KyCalendar: kycalendar,
 	}
 	// Unsigned directory webhooks are refused, so without the secret a KyIdentity disable or
 	// delete would never reach MAS.
@@ -553,4 +566,29 @@ func unmapPrefix(p netip.Prefix) netip.Prefix {
 		return p
 	}
 	return netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+}
+
+// kycalendarFromEnv reads the explicit KyCalendar pair: both variables or neither, only with
+// the Matrix stack (meetings are Matrix rooms). The secret is at least 32 bytes, never echoed.
+func kycalendarFromEnv(matrix bool) (KyCalendarConfig, error) {
+	raw, file := getEnv("KY_KYCALENDAR_URL", ""), getEnv("KY_KYCALENDAR_SECRET_FILE", "")
+	if raw == "" && file == "" {
+		return KyCalendarConfig{}, nil
+	}
+	if raw == "" || file == "" {
+		return KyCalendarConfig{}, errors.New("KY_KYCALENDAR_URL and KY_KYCALENDAR_SECRET_FILE are set together or not at all")
+	}
+	if !matrix {
+		return KyCalendarConfig{}, errors.New("KY_KYCALENDAR_URL needs the Matrix stack: meetings are Matrix rooms")
+	}
+	u, err := matrixinit.Origin(raw)
+	if err != nil {
+		return KyCalendarConfig{}, fmt.Errorf("KY_KYCALENDAR_URL: %w", err)
+	}
+	b, err := os.ReadFile(file)
+	secret := []byte(strings.TrimSpace(string(b)))
+	if err != nil || len(secret) < 32 {
+		return KyCalendarConfig{}, fmt.Errorf("KY_KYCALENDAR_SECRET_FILE %q must name a readable file of at least 32 bytes", file)
+	}
+	return KyCalendarConfig{URL: u, Secret: secret}, nil
 }

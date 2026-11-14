@@ -107,3 +107,9 @@ func CountLoginVerificationsForTest(t interface{ Cleanup(func()) }, n *atomic.In
 		return password.Verify(pw, hash)
 	}
 }
+
+// SetMeetingRoomsForTest replaces the Synapse client meeting rooms use. Test-only.
+func SetMeetingRoomsForTest(s *Server, m MeetingRooms) { s.meetingRooms = m }
+
+// ResolveKyCalendarForTest runs one KyIdentity lookup of the KyCalendar pair. Test-only.
+func ResolveKyCalendarForTest(s *Server, ctx context.Context) bool { return s.resolveKyCalendar(ctx) }

@@ -44,6 +44,10 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
   fails startup; `off` (chat only, `docker-compose.chat-only.yml`) ignores the RTC host and the
   call and notes secret files Compose still passes, so no RTC route, discovery or probe exists.
 
+- `KY_KYCALENDAR_URL` (https origin, no path) and `KY_KYCALENDAR_SECRET_FILE` (at least 32
+  bytes after trimming) fill `Config.KyCalendar`, the explicit meeting-room pair: both or
+  neither, and only with the Matrix stack, else startup fails. The secret is `json:"-"` and no
+  error echoes it. Unset, `internal/api` pairs through KyIdentity.
 - `ApplyInstallerConfiguration` narrows `ky.product-setup/1` (`kymessage`) into a startup
   snapshot with protected OIDC/directory file references. Explicit conflicting SSO, SCIM,
   automatic provisioning and unsupported recovery pairing are refused before writes.

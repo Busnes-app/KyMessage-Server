@@ -2,6 +2,7 @@ import React from 'react';
 import { Database, UserRound } from 'lucide-react';
 import { BrandingPanel } from '../components/BrandingPanel';
 import { SyncPanel } from '../components/SyncPanel';
+import { KyCalendarPanel } from '../components/KyCalendarPanel';
 import { FederationPanel } from '../components/FederationPanel';
 import { NotesPanel } from '../components/NotesPanel';
 import { ExemptNetworksPanel } from '../components/ExemptNetworksPanel';
@@ -91,6 +92,7 @@ function Server({ settings, onBrandingChanged }: { settings: SiteSettings | null
         <ExemptNetworksPanel />
         <BrandingPanel onChanged={onBrandingChanged} />
         <SyncPanel />
+        <KyCalendarPanel />
         <FederationPanel />
         <NotesPanel />
       </div>

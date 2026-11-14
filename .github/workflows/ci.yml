@@ -234,7 +234,7 @@ jobs:
             skip: notes agents
             stop-after: ""
           - part: notes and agents
-            skip: closed offboard-cut offboard-reactivate offboard-delete offboard-delete-locked offboard-unassign offboard-sweep offboard-missed admin-isolation
+            skip: meetings closed offboard-cut offboard-reactivate offboard-delete offboard-delete-locked offboard-unassign offboard-sweep offboard-missed admin-isolation
             stop-after: agents
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

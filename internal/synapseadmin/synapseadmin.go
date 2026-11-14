@@ -18,7 +18,15 @@ import (
 	"time"
 )
 
-const prefix = "/_synapse/admin/"
+const (
+	prefix       = "/_synapse/admin/"
+	clientPrefix = "/_matrix/client/v3/" // meeting rooms only (meetings.go): createRoom and rooms/
+)
+
+// allowedPath: the admin API, or the two client API routes meeting rooms use.
+func allowedPath(p string) bool {
+	return strings.HasPrefix(p, prefix) || p == clientPrefix+"createRoom" || strings.HasPrefix(p, clientPrefix+"rooms/")
+}
 
 // Error is a non-2xx answer with Synapse's errcode and message (clipped).
 type Error struct {
@@ -63,9 +71,9 @@ func clip(s string, n int) string {
 	return strings.ToValidUTF8(s[:n], "")
 }
 
-// do sends one admin request; path must start with prefix.
+// do sends one request on an allowedPath.
 func (c *Client) do(ctx context.Context, token, method, path string, body, out any) error {
-	if !strings.HasPrefix(path, prefix) {
+	if !allowedPath(path) {
 		return fmt.Errorf("refusing admin path %q", path)
 	}
 	var rd io.Reader

@@ -19,6 +19,12 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 - Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
   guests (approved, not shipped: KyCalendar meeting rooms admit external attendees through a
   waiting room for the time of the meeting; see "Later or out of scope").
+- KyCalendar meeting rooms for members (shipped 2026-11, [KYCALENDAR.md](KYCALENDAR.md)): a
+  paired KyCalendar asks for an encrypted, invite-only video room per meeting; the console's
+  service account creates it, invites the attendees who have chat accounts, keeps its name and
+  members in step with the event and closes it when the meeting is cancelled. People outside
+  the organisation cannot join yet, and Element does not offer a call in these rooms until
+  `UIFeature.widgets` is turned on (see "Known risks").
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
 - Not offered: Slack or Teams parity, compliance archiving, open federation.
 
@@ -189,11 +195,17 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 - Widgets and integrations: disabled in Element's config.
 - Console: room creation, membership editing, message moderation, colour editing, health
   history and alerting.
-- KyCalendar meeting rooms (approved 2026-10-18, not scheduled): a room with a call per meeting,
-  and external guests during the meeting only, admitted from a waiting room by someone in the
-  room. Design: `docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`.
+- KyCalendar meeting rooms, guest half (approved 2026-10-18, not scheduled; the member half
+  ships): external guests during the meeting only, admitted from a waiting room by someone in
+  the room: guest windows, `/meet/<token>` links, guest accounts and the Synapse confinement
+  module. Design: `docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`.
 
 ## Known risks
+
+- Group calls: Element v1.12.30 hides call buttons in rooms of more than two joined members
+  while `UIFeature.widgets` is off, as `matrix-init` ships it, so calls start only in rooms of
+  two. KyCalendar meeting rooms always count the console as a member. Turning the setting on
+  is an open owner decision (`docs/KYCALENDAR.md`, "Calls").
 
 - MFA relies on KyIdentity's per-app policy; MAS ignores `acr`. Untested.
 - A public deployment through cloudflared is untested; acceptance runs the shipped configs
