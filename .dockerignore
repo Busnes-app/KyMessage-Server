@@ -19,6 +19,8 @@
 **/node_modules
 /scripts/matrix-acceptance/artifacts/
 /ky_server_base
+/server
+/.browser/
 .claude/
 .codex/
 .superpowers/

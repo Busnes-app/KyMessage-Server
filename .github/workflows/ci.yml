@@ -347,6 +347,7 @@ jobs:
           cache: true
 
       - run: shellcheck scripts/*.sh scripts/matrix-acceptance/*.sh
+      - run: scripts/check-no-binaries.sh
       - run: go build -o kymessages ./cmd/server
       - run: scripts/smoke-test.sh
       - run: python3 scripts/backup-acceptance.py
