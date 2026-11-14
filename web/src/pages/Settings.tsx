@@ -88,11 +88,11 @@ function Server({ settings, onBrandingChanged }: { settings: SiteSettings | null
           )}
         </section>
 
+        <ExemptNetworksPanel />
         <BrandingPanel onChanged={onBrandingChanged} />
         <SyncPanel />
         <FederationPanel />
         <NotesPanel />
-        <ExemptNetworksPanel />
       </div>
     </>
   );
