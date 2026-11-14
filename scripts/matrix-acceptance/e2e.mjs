@@ -2,6 +2,7 @@
 //        node e2e.mjs room|token|fedtoken|disabled|reread|reads|noclaim|owner USER
 //        AGENT_MXID=... AGENT_MSG=... AGENT_REPLY=... node e2e.mjs agent USER
 //        node e2e.mjs title BRAND
+//        MEETING_ROOM=... node e2e.mjs meeting
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
 // database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
@@ -559,8 +560,8 @@ async function calls(restored = false) {
     for (const frame of page.frames()) diagnostics.push(await frame.evaluate(() => (window.kyCallPeers ?? []).map(pc => ({state:pc.connectionState,ice:pc.iceConnectionState,errors:pc.kyIceErrors,config:pc.getConfiguration().iceTransportPolicy,remote:pc.remoteDescription?.sdp.split('\r\n').filter(line=>line.startsWith('a=candidate:'))}))));
     throw new Error(`Call never reached its connected view: ${JSON.stringify(diagnostics)}`);
   }
-  await join(alice, true);
-  await join(bob, false);
+  await join(alice, true, meetingRoom || rooms.group);
+  await join(bob, false, meetingRoom || rooms.group);
   async function received(page) {
     const stats = [];
     for (const frame of page.frames()) {
@@ -606,6 +607,7 @@ async function calls(restored = false) {
     }
   }
   await hangup();
+  if (meetingRoom) return video;
   await join(alice, true, rooms.dm, false);
   await join(bob, false, rooms.dm, false);
   const voice = await proveMedia(false);
@@ -614,6 +616,28 @@ async function calls(restored = false) {
   // The next scenario reuses these profiles; leave no active call for it to resume.
   await hangup();
   out({group:rooms.group, dm:rooms.dm, video, voice});
+}
+
+// A KyCalendar meeting room the console created (step meetings, MEETING_ROOM): alice and bob
+// accept its invites, read each other's encrypted messages and hold a video call in it.
+async function meeting() {
+  const id = process.env.MEETING_ROOM;
+  const msgs = { a: text('alice'), b: text('bob') };
+  for (const [name, mine, theirs] of [['alice', msgs.a, null], ['bob', msgs.b, msgs.a]]) {
+    const page = await resume(name, `prove-${name}`);
+    await openRoom(page, id, true);
+    check(await page.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id)?.hasEncryptionStateEvent(), id), `${name}'s Element treats the meeting room as encrypted`);
+    if (theirs) await sees(page, theirs);
+    await send(page, mine);
+    // One profile is open in one browser at a time.
+    for (const [, ctx] of contexts.splice(0)) await ctx.close();
+  }
+  const alice = await resume('alice', 'prove-alice');
+  await openRoom(alice, id, false);
+  await sees(alice, msgs.b);
+  for (const [, ctx] of contexts.splice(0)) await ctx.close();
+  const video = await calls(false, id);
+  out({ room: id, messages: Object.values(msgs), video });
 }
 
 // Meeting notes (scripts/matrix-acceptance.sh, step notes). USER owns the rooms.
@@ -801,7 +825,7 @@ async function notesscreens() {
   out({ room: id, shots });
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
+const scenarios = { calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

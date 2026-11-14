@@ -12,6 +12,11 @@ services:
     # Harness login without proof-of-work; never in a deployment.
     environment:
       KY_CAPTCHA_PROVIDER: none
+      # Step meetings signs as KyCalendar with this pair; no KyCalendar runs.
+      KY_KYCALENDAR_URL: https://cal.kymatrix.test
+      KY_KYCALENDAR_SECRET_FILE: /run/kycalendar/secret
+    volumes:
+      - ./kycalendar:/run/kycalendar:ro
     # Mounts, user and hardening exactly as shipped: ./data and ./backups resolve under the
     # scratch project directory, made by the harness as KY_MATRIX_UID.
 
