@@ -534,7 +534,7 @@ async function title() {
   console.log(`  ok: Element's title is "${await page.title()}"`);
 }
 
-async function calls(restored = false) {
+async function calls(restored = false, meetingRoom = "") {
   const alice = await resume('alice', restored ? 'restored-alice' : 'prove-alice');
   const force = process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1';
   const bob = restored && !force ? await launch('bob', 'restored-bob') : await resume('bob', restored ? 'restored-bob' : 'prove-bob');
