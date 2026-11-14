@@ -68,9 +68,21 @@ async function fillLogin(page, user) {
   throw new Error(`KyIdentity's login form kept losing ${user}'s credentials`);
 }
 
-// KyIdentity's login form, then MAS's account and consent pages, until back in Element.
+// KyIdentity's login form, then MAS's account and consent pages, until back in Element. The
+// form is rendered by script; if Chrome aborts it (ERR_NETWORK_CHANGED while Compose brings the
+// restored stack up) the page stays blank, so reload, at most twice.
 async function kyidentityLogin(page, user) {
   await page.waitForURL(/^https:\/\/id\.kymatrix\.test\/login/);
+  for (let i = 0; ; i++) {
+    try {
+      await page.locator('#username').waitFor({ timeout: 10000 });
+      break;
+    } catch (err) {
+      if (i === 2) throw err;
+      console.log("  note: KyIdentity's login form did not render; reloading it");
+      await page.reload();
+    }
+  }
   await fillLogin(page, user);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL(/^https:\/\/auth\.kymatrix\.test\//);

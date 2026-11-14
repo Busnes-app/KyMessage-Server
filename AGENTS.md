@@ -299,7 +299,8 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   imports its own CA nickname into Chromium's NSS database for TURN/TLS verification and
   removes exactly that nickname on exit; `certutil` is required. Playwright drives Element: native OIDC sign-in
   (`startSignIn` reloads the login page, at most twice, when Element's one MAS client registration
-  is aborted, e.g. Chrome's `ERR_NETWORK_CHANGED` while Compose adds an interface), key setup, DM and
+  is aborted, e.g. Chrome's `ERR_NETWORK_CHANGED` while Compose adds an interface; `kyidentityLogin`
+  likewise reloads KyIdentity's login page when that abort leaves its form unrendered), key setup, DM and
   group messages read by the other user, group video decoded and DM voice audio received by
   both users, directly and with relay-only ICE, repeated after restoring a fresh LiveKit. It asserts no `m.room.message` in encrypted rooms
   and no plaintext in a Synapse `pg_dump`; registration, password login and federation
