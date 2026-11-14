@@ -475,7 +475,9 @@ func TestKyCalendarPairsThroughKyIdentity(t *testing.T) {
 	srv := api.NewServer(cfg, st)
 	srv.SetMatrixAdmin(&fakeMAS{finished: map[string]bool{}})
 	admin := loginAs(t, srv, st, "root", "admin")
-	status := func() map[string]any { return decode[map[string]any](t, adminDo(t, srv, admin, "GET", "/api/admin/kycalendar", nil)) }
+	status := func() map[string]any {
+		return decode[map[string]any](t, adminDo(t, srv, admin, "GET", "/api/admin/kycalendar", nil))
+	}
 
 	ctx := context.Background()
 	if !api.ResolveKyCalendarForTest(srv, ctx) || status()["source"] != "kyidentity" {
