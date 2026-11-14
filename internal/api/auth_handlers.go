@@ -18,6 +18,9 @@ type LoginRequest struct {
 	CaptchaToken string `json:"captcha_token,omitempty"`
 }
 
+// verifyPassword is password.Verify; a test swaps it to count the verifications sign-in runs.
+var verifyPassword = password.Verify
+
 // Failed password logins per loginFailWindow: loginFailLimit per account and client.
 const (
 	loginFailLimit  = 10
@@ -44,7 +47,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	if !s.allowClientAttempt("login", r, 20, time.Minute) {
+	if !s.allowPerIP("login", r, 20, time.Minute) {
 		s.writeError(w, http.StatusTooManyRequests, "Too many login attempts")
 		return
 	}
@@ -80,22 +83,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only failures count, per account and client (IPv6 by /64): nobody can keep the owner
-	// locked out from another address, so there is no account-wide block. An exhausted
-	// window answers exactly as a wrong password does, before Verify, so a locked-out caller
-	// learns nothing from a right password or from the answer.
+	// locked out from another address, so there is no account-wide block. The attempt is
+	// reserved before Verify, so concurrent guesses cannot all slip past a window none of them
+	// has filled yet, and handed back when the password is right. An exhausted window answers
+	// exactly as a wrong password does, so a locked-out caller learns nothing from a right
+	// password or from the answer.
 	pairKey := "login-fail:" + user.ID + ":" + s.clientKey(r)
-	if s.clientAttempts.blocked(pairKey, loginFailLimit) {
+	if !s.clientAttempts.allow(pairKey, loginFailLimit, loginFailWindow) {
 		password.DummyVerify()
 		s.writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
-	ok, err := password.Verify(req.Password, user.PasswordHash)
+	ok, err := verifyPassword(req.Password, user.PasswordHash)
 	if err != nil || !ok {
-		s.clientAttempts.allow(pairKey, loginFailLimit, loginFailWindow)
 		s.writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
+	s.clientAttempts.release(pairKey) // only failures stay counted
 	if user.Status != "active" {
 		s.writeError(w, http.StatusForbidden, "Account is disabled or inactive")
 		return

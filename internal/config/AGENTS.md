@@ -14,6 +14,7 @@ Owns environment variable parsing, configuration validation, default fallbacks, 
 - `LoadFromEnv() (*Config, error)` must supply safe, valid defaults for all subsystems.
 - An empty boolean variable is unset and takes its default, like every other `getEnv*` helper; it never means false.
 - Never log plaintext secrets or sensitive tokens.
+- `KY_RATE_LIMIT_EXEMPT_NETWORKS` (empty default) is validated at startup by `ky-primitives/netallow` and kept as its canonical string in `Security.RateLimitExemptNetworks`; an invalid, too-broad (wider than /16 or /48) or loopback entry fails startup. `internal/api` combines it with the admin setting.
 - `KY_TRUSTED_PROXIES` is a comma-separated list of reverse-proxy IPs or CIDRs, empty by default, parsed once at startup into `[]netip.Prefix`; an unparsable entry fails startup. Only a request whose peer address is in the list may speak for another client through `X-Forwarded-For`. `0.0.0.0/0` and `::/0` are refused at startup; list only the proxy's own address or subnet.
 - `KY_COOKIE_SECURE` (which also enables HSTS on the `KY_APP_URL` host) defaults to true when `KY_ENV=production` or `KY_APP_URL` is https. Production with a non-https app URL fails startup unless `KY_COOKIE_SECURE=false` is set explicitly.
 - `KY_DB_DRIVER` is `sqlite` (default; DSN under `KY_DATA_DIR`) or `postgres`/`postgresql`, which requires `KY_DB_DSN` in every environment (`TestPostgresRequiresAnExplicitDSN`): there is no guessed default connection. Tests reach Postgres through `KY_TEST_POSTGRES_DSN` (`internal/testdb`), not this.

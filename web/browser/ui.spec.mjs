@@ -186,6 +186,24 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   await expect(branding.getByRole('status')).toContainText('Name reset to KyMessages');
   await expect(page.locator('.ky-brand')).toHaveText('KyMessages');
   expect(violations).toEqual([]);
+  // Office networks: a too-broad range is refused by the server, a real one is stored
+  // canonically, then cleared again for the next project on this shared server.
+  const office = page.getByRole('region', { name: 'Office networks' });
+  const networks = office.getByLabel('Networks that skip the per-address limit, one per line');
+  await expect(networks).toBeEnabled();
+  await networks.fill('10.0.0.0/8');
+  await office.getByRole('button', { name: 'Save networks' }).click();
+  await expect(office.getByRole('alert')).toContainText('too broad');
+  await networks.fill('203.0.113.9/24');
+  await office.getByRole('button', { name: 'Save networks' }).click();
+  await expect(office.getByRole('status')).toContainText('These networks now skip');
+  await expect(networks).toHaveValue('203.0.113.0/24');
+  await fits(page);
+  await page.screenshot({ path: testInfo.outputPath('office-networks.png'), fullPage: true });
+  await networks.fill('');
+  await office.getByRole('button', { name: 'Save networks' }).click();
+  await expect(office.getByRole('status')).toContainText('No network skips the limit');
+  expect(violations).toEqual([]);
   const fixture = JSON.parse(await readFile(new URL('../../internal/backup/testdata/pairing-v050.json', import.meta.url), 'utf8'));
   const pinned = await page.evaluate(async publicKey => {
     const csrf = document.cookie.split('; ').find(cookie => cookie.startsWith('ky_csrf='))?.slice('ky_csrf='.length);

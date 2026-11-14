@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Added
+- Office networks can skip the per-address sign-in limit. Staff behind one NAT address share
+  the 20-a-minute sign-in window (and the 10-a-minute password-change window) and can trip it
+  together on a busy morning. An administrator lists the office's networks under
+  **Settings → Server → Office networks**, or the operator sets
+  `KY_RATE_LIMIT_EXEMPT_NETWORKS`; the two lists are combined. Requests from a listed network
+  skip those two per-address windows only: per-account windows, proof of work and every other
+  limit still apply. The list is empty by default. Ranges wider than /16 (IPv4) or /48
+  (IPv6), loopback and invalid entries are refused (at startup for the variable, with 400 on
+  save). The match uses the client address resolved through `KY_TRUSTED_PROXIES`, so a forged
+  `X-Forwarded-For` cannot claim a listed network. Adding a network needs a sign-in from the
+  last 10 minutes; changes are audited as `admin.rate_limit_networks`, and the screen counts
+  the requests that skipped the limit. New admin routes GET and PUT
+  `/api/settings/rate-limit-networks`. List only networks you control: never guest Wi-Fi, a
+  VPN exit or the reverse proxy's address, since everyone behind a listed address loses the
+  per-address limit.
+- All listed networks together share 300 sign-ins and 300 password changes a minute past the
+  per-address windows; beyond that their requests meet the ordinary per-address window again,
+  so one host inside an office cannot make unbounded attempts or flood the limiter's memory.
+- Sign-in now reserves its place in the per-account window (10 failures per account and
+  client per 15 minutes) before the password is checked, and hands it back on success, so
+  concurrent guesses at one account can no longer all be checked before any is counted.
+- The Go toolchain moves from 1.27.3 to 1.27.4 (`go.mod` and the image builder), which
+  fixes GO-2026-6859 in `net/http`.
+- `ky-primitives` moves to the revision that adds its `netallow` package. That revision also
+  carries the library's changes since the previous pin (recoveryclient, syncauth, oidcverify,
+  scim, capsule and auditchain fixes); see its changelog.
+
 ### Removed
 - Local two-factor sign-in (TOTP and recovery codes) for the console's local administrator.
   Local admins now sign in with a password only; use KyIdentity for a second factor. An

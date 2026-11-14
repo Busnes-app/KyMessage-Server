@@ -49,3 +49,14 @@ it('gives a member Account and Appearance only, with the Appearance description'
   expect(screen.getByText(/Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only./)).toBeTruthy();
   expect(screen.getAllByRole('radio')).toHaveLength(18);
 });
+
+it('asks for the office networks only on an administrator\'s Server tab', () => {
+  renderWith('sqlite', 'server');
+  expect(screen.getByRole('heading', { name: 'Office networks' })).toBeTruthy();
+  const urls = () => vi.mocked(fetch).mock.calls.map(([u]) => String(u));
+  expect(urls()).toContain('/api/settings/rate-limit-networks');
+  cleanup();
+  renderWith('sqlite', 'appearance', { username: 'bob', display_name: 'Bob', role: 'user', must_change_password: false });
+  expect(screen.queryByText('Office networks')).toBeNull();
+  expect(urls()).not.toContain('/api/settings/rate-limit-networks');
+});

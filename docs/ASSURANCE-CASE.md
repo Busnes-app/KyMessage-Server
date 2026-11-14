@@ -98,6 +98,7 @@ encrypt.
 | Weakness | Counter | Where |
 |---|---|---|
 | Broken authentication, credential stuffing | Passwords of at least 12 characters, hashed by `ky-primitives/password`; 10 failures per account and client (IPv6 by /64) per 15 minutes, answered as a wrong password, and no account-wide block that would let anyone lock the owner out; proof-of-work challenges, each spent once | `internal/auth/policy.go`, `internal/api/auth_handlers.go`, `internal/auth` |
+| Rate-limit allowlist abused or mistyped | Office networks (`KY_RATE_LIMIT_EXEMPT_NETWORKS` plus the admin setting) skip only the per-address sign-in and password-change windows, within a shared budget of 300 a minute per limit that also keeps their traffic from evicting live limiter windows; the per-account windows (reserved before hashing), proof of work and every later check still run. The match uses the `auth.ClientIP` result, so an untrusted peer's `X-Forwarded-For` claims nothing. Ranges wider than /16 or /48, loopback and invalid entries are refused; only administrators change the list, adding needs a fresh sign-in, and each change is audited. Empty by default | `internal/api/exempt_networks.go`, `internal/api/exempt_networks_test.go`, `ky-primitives/netallow` |
 | Session theft from storage | Only the SHA-256 of the session token is stored; cookies are `HttpOnly`, `SameSite=Lax`, and `__Host-` prefixed when secure and host-only | `internal/auth/session.go` |
 | Device pairing takeover | 24-byte random QR secret, 90-second lifetime, sent only in request bodies, consumed atomically | `internal/devices/devices.go` |
 | CSRF | Session-bound token: every state-changing request that carries a session cookie must send `X-CSRF-Token` equal to HMAC-SHA256(`KY_SESSION_SECRET`, session cookie), compared in constant time; the `ky_csrf` cookie only tells the web app the value and is never trusted, so a pair planted from a sibling subdomain or copied from another session is refused. Sign-in and the signed directory webhook are exempt; the routes that mint a session require `application/json`, which a cross-site form cannot send without a failing preflight. `SameSite=Lax` session cookie | `internal/auth/session.go` (`ValidateCSRF`), `internal/api/server.go` (`csrfExempt`) |
@@ -116,6 +117,12 @@ encrypt.
 - **Chat encryption is Element's, unaudited and not enforced by Synapse.** See the scope note above.
 - **Rate limits are process-local** (single-instance release target), and the per-client limiter
   evicts at its cap, which can shorten other clients' windows (`internal/api/server.go`).
+- **Allowlisted office networks share no per-address limit.** Anyone behind a listed address,
+  including a compromised office machine, can try up to 300 sign-ins a minute (the budget all
+  listed networks share, then 20 a minute per address), bounded per account by the
+  per-account window (10 failures per account per 15 minutes from that address) and proof of
+  work. Listing a shared or public network (guest Wi-Fi, a VPN exit, the reverse proxy) gives
+  that to everyone on it.
 - **Call encryption and production networking** must be verified on each deployment
   ([Calls](CALLS.md)).
 - **No independent security audit** has been done.
