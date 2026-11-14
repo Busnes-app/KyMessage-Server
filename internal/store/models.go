@@ -99,3 +99,22 @@ type Agent struct {
 	CreatedBy    string    `json:"created_by"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+// Meeting states. A closed meeting is never reopened.
+const (
+	MeetingOpen   = "open"
+	MeetingClosed = "closed"
+)
+
+// Meeting is a KyCalendar meeting's Matrix room. ID is KyCalendar's opaque meeting ID;
+// OrganizerSubject the organizer's KyIdentity subject; Members the Matrix user IDs the
+// meeting last listed (organizer included), so only those are ever removed.
+type Meeting struct {
+	ID               string
+	RoomID           string
+	OrganizerSubject string
+	Members          []string
+	State            string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}

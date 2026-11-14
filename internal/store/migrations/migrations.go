@@ -252,7 +252,27 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 22, Name: "agents", SQLite: agentsSchema("DATETIME"), Postgres: agentsSchema("TIMESTAMPTZ")},
 	// KyIdentity's status for a subject whose person is an adopted SCIM row ('' otherwise).
 	{Version: 23, Name: "directory_adopted_status", SQLite: adoptedStatus, Postgres: adoptedStatus},
+	// KyCalendar meeting rooms and the replay guard for their signed requests.
+	{Version: 24, Name: "meetings", SQLite: meetingsSchema, Postgres: meetingsSchema},
 }
+
+// Times are Unix seconds, the same on both engines.
+const meetingsSchema = `
+CREATE TABLE meetings (
+    id VARCHAR(64) PRIMARY KEY,
+    room_id VARCHAR(255) NOT NULL UNIQUE,
+    organizer_subject VARCHAR(255) NOT NULL,
+    members TEXT NOT NULL,
+    state VARCHAR(8) NOT NULL CHECK (state IN ('open', 'closed')),
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+);
+CREATE TABLE meeting_events (
+    event_id VARCHAR(255) PRIMARY KEY,
+    expires_at BIGINT NOT NULL
+);
+CREATE INDEX idx_meeting_events_expires ON meeting_events(expires_at);
+`
 
 const adoptedStatus = `ALTER TABLE directory_sync_state ADD COLUMN adopted_status VARCHAR(32) NOT NULL DEFAULT '';`
 

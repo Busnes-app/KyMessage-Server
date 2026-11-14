@@ -20,6 +20,7 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/config"
 	"github.com/Busnes-app/ky_server_base/internal/devices"
 	"github.com/Busnes-app/ky_server_base/internal/health"
+	"github.com/Busnes-app/ky_server_base/internal/kycalendar"
 	"github.com/Busnes-app/ky_server_base/internal/matrixrtc"
 	"github.com/Busnes-app/ky_server_base/internal/matrixsync"
 	"github.com/Busnes-app/ky_server_base/internal/scim"
@@ -119,6 +120,12 @@ type Server struct {
 	// suiteCache holds KyIdentity's app list per subject ("" for Element's home page).
 	suiteMu    sync.Mutex
 	suiteCache map[string]suiteAppsEntry
+	// KyCalendar meeting rooms: the pair, its lookup state, and one meeting change at a time.
+	kycal        kycalendar.Link
+	kycalState   kycalState
+	kycalKick    chan struct{}
+	meetingMu    sync.Mutex
+	meetingRooms MeetingRooms
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -243,7 +250,9 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 		clientAttempts:  attemptLimiter{m: make(map[string]attemptWindow), cap: attemptsCap},
 		accountAttempts: attemptLimiter{m: make(map[string]attemptWindow)},
 	}
-	s.rooms = synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
+	synapse := synapseadmin.New(s.matrixTargets.Synapse) // the origin the Health probes use
+	s.rooms, s.meetingRooms = synapse, synapse
+	s.newKyCalendar()
 	s.healthz = sync.OnceValue(s.suiteHealth)
 	s.roomBudget = roomChangeTimeout
 
@@ -253,6 +262,13 @@ func NewServer(cfg *config.Config, st store.Store) *Server {
 	s.loadExemptNetworks()
 	s.routes()
 	return s
+}
+
+// resetIn is how long until key's window ends; zero when it has none.
+func (l *attemptLimiter) resetIn(key string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return max(time.Until(l.m[key].reset), 0)
 }
 
 func (l *attemptLimiter) allow(key string, limit int, window time.Duration) bool {
@@ -418,6 +434,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/admin/health", s.requireAdmin(s.handleHealth))
 	s.mux.HandleFunc("GET /api/admin/audit", s.requireAdmin(s.handleAudit))
 	s.mux.HandleFunc("GET /api/admin/matrix/sync-status", s.requireAdmin(s.handleSyncStatus))
+	s.mux.HandleFunc("GET /api/admin/kycalendar", s.requireAdmin(s.handleKyCalendarStatus))
+	// KyCalendar meeting rooms: signed server-to-server, no session or CSRF.
+	s.mux.HandleFunc("PUT /api/meetings/{id}", s.tracked(s.handleMeetingPut))
+	s.mux.HandleFunc("DELETE /api/meetings/{id}", s.tracked(s.handleMeetingDelete))
 
 	// Rooms act through a 5-minute console session on Synapse's admin API. Close and delete
 	// need a recent sign-in, run detached and are audited. Close is final: there is no reopen.

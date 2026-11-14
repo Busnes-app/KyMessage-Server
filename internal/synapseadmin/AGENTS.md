@@ -1,14 +1,24 @@
 # Synapse admin client
 
 ## Purpose
-Calls Synapse's admin API for the operator console with a short-lived console session token.
+Calls Synapse's admin API for the operator console, and the client API for KyCalendar meeting
+rooms, with a short-lived console session token.
 
 ## Ownership
 Owns `Client`, `Error` and the room types. `internal/api` builds requests from it through
-`api.RoomAdmin`; `matrixsync.Client.AsConsole` supplies the token.
+`api.RoomAdmin` and `api.MeetingRooms`; `matrixsync.Client.AsConsole` supplies the token.
 
 ## Local Contracts
-- Only paths under `/_synapse/admin/`; anything else is refused before a request is made.
+- Only paths under `/_synapse/admin/`, plus the client API's `createRoom` and `rooms/…` for
+  meeting rooms (`allowedPath`); anything else is refused before a request is made.
+- Meeting rooms (`meetings.go`, used by `internal/api` `MeetingRooms`): `CreateMeetingRoom`
+  (`private_chat` preset; initial state join rule `invite`, history `joined`, guest access
+  `forbidden`, Megolm encryption; power levels organizer `OrganizerLevel` 50, default 0,
+  `invite`/`kick` 50, room version 12 defaults plus `org.matrix.msc3401.call.member` 0, as stock
+  Element sets with Element Call; the console is the creator and is never listed),
+  `Memberships` (admin state API, `m.room.member` only), `Invite`, `Kick`, `SetRoomName`,
+  `SetOrganizer` (only the organizer stays at 50; everything else kept) and
+  `ExemptFromRatelimit` (`override_ratelimit` 0/0 for the console account).
 - The transport ignores proxy variables and follows no redirects: the token goes to the
   configured origin or nowhere. `api.NewServer` passes the Synapse origin its Health probes
   use (`health.ComposeTargets.Synapse`, `http://synapse:8008`).
@@ -27,7 +37,7 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   errcode-less 404 is a routing error and stays an error.
 - No method deletes media. Synapse's room media listing names any local media a plaintext
   event references, including media other rooms use, so it cannot scope a deletion.
-- Messages are never read. `AdminInvite` (the meeting-notes inviter check) reads room state by
+- Messages are never read or sent. `AdminInvite` (the meeting-notes inviter check) reads room state by
   type and fetches only the given user's own earlier membership events, walking joins back to
   the invite; any other event it is handed (another user, room or type) ends the walk with no
   inviter. Admin means room creator (`m.room.create` sender or `additional_creators`) or power

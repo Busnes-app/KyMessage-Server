@@ -238,6 +238,30 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `ApplyInstaller` logs the reason as `[INSTALLER] setup refused: ...`
   (`TestInstallerRefusalReasonIsLogged`); bundles carry file references, so no reason holds a secret. `GET /api/installer/network` deliberately exposes only
   `clientIp`, `proxyHeadersTrusted`, `scheme`, with `no-store`, using native peer trust.
+- KyCalendar meeting rooms ([docs/KYCALENDAR.md](../../docs/KYCALENDAR.md), the contract):
+  `PUT`/`DELETE /api/meetings/{id}` (`meeting_handlers.go`, `tracked`, no session; CSRF never
+  applies without a cookie) verify `ky-primitives/syncauth` under the KyCalendar pair for the
+  route's own event type (`kycalendar.meeting.put`/`.close`) with `meetingReplay`, the
+  `meeting_events` table, before the body is parsed; 404 `kycalendar_off` unpaired (or without
+  Matrix), 401 `bad_signature`, 200 `duplicate` for a verified replay, 503 `unavailable` when
+  the guard or Matrix fails (the event is then forgotten, as on 429). The organizer is
+  `meetingOrganizer` (a `kyidentity` row, role `user`, active, at the suite directory's issuer);
+  people are `meetingPeople`, the rule `activeCallUsers` uses. Changes run one at a time
+  (`meetingMu`) on a detached context with the room budget; PUT reconciles with
+  `reconcileMeeting` (records every invite target in `members` before inviting, kicks only
+  Matrix IDs the meeting recorded, a 403 on invite is a skip), DELETE with the console Close's steps (`idle`, `startJob`), also for a closed row, so a
+  failed Close job is retried. 120 per organizer subject
+  an hour (`accountAttempts`, `Retry-After` from `resetIn`). Audits `meeting.put` and
+  `meeting.close` (resource the meeting ID; outcome, room ID, counts) for verified requests
+  only. `MeetingRooms` (`*synapseadmin.Client`) is separate from `RoomAdmin` so room fakes stay small
+  (`meetings_test.go`).
+- The KyCalendar pair (`kycalendar_link.go`): `newKyCalendar` takes `cfg.KyCalendar` when set;
+  otherwise `StartKyCalendar` (from `cmd/server`, Matrix only) asks `suitedir.Peer(ctx,
+  "kycalendar")` with the sign-in client (5 s first wait, hourly refresh, retry from 1 minute
+  doubling, a refused signature kicks a lookup no sooner than a minute after the last). An
+  unreachable KyIdentity keeps the pair; `no_peer`, `unauthorized`, `invalid_peer` (not an https
+  origin) and `no_credentials` unpair. `GET /api/admin/kycalendar` (admin, `no-store`) answers
+  `{connected, source, url, reason, checked_at}`, never the secret; `matrix_off` is a reason.
 - `POST /api/installer/directory` and the managed suite sync alias verify the protected
   HMAC credential before owned, revision-fenced authority updates and wake the MAS sweep.
   A subject setup does not own goes to `sso.ApplyMemberEvent` as an ordinary member: 204,
