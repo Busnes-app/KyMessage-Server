@@ -48,7 +48,8 @@ Commands and unlinked file paths below are relative to the repository root.
   KyRecovery pairing never see the console name.
 - **Settings → Office networks** lists networks (one per line, CIDR or single address) whose
   requests skip the per-address limits on sign-in (20 a minute) and password change (10 a
-  minute). Staff behind one office NAT address otherwise share those limits and can lock each
+  minute), up to 300 a minute each across all listed networks, after which the per-address
+  limits apply again. Staff behind one office NAT address otherwise share those limits and can lock each
   other out. Per-account limits and the proof-of-work check still apply. List only networks
   you control: everyone behind a listed address loses the per-address limit, so never list
   guest Wi-Fi, a VPN provider's exit or the reverse proxy (which would exempt everyone).

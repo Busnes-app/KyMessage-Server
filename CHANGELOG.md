@@ -18,6 +18,12 @@
   `/api/settings/rate-limit-networks`. List only networks you control: never guest Wi-Fi, a
   VPN exit or the reverse proxy's address, since everyone behind a listed address loses the
   per-address limit.
+- All listed networks together share 300 sign-ins and 300 password changes a minute past the
+  per-address windows; beyond that their requests meet the ordinary per-address window again,
+  so one host inside an office cannot make unbounded attempts or flood the limiter's memory.
+- Sign-in now reserves its place in the per-account window (10 failures per account and
+  client per 15 minutes) before the password is checked, and hands it back on success, so
+  concurrent guesses at one account can no longer all be checked before any is counted.
 - `ky-primitives` moves to the revision that adds its `netallow` package. That revision also
   carries the library's changes since the previous pin (recoveryclient, syncauth, oidcverify,
   scim, capsule and auditchain fixes); see its changelog.

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Busnes-app/ky_server_base/internal/api"
@@ -307,5 +309,66 @@ func TestMembersCannotReadExemptNetworks(t *testing.T) {
 	}
 	if !limited(t, srv, "198.18.7.9:41000") {
 		t.Fatal("a member's refused write took effect")
+	}
+}
+
+// Offices share one budget per limit. Past it their requests meet the ordinary per-IP window,
+// so one host inside an office cannot make unbounded attempts or churn the limiter's keys.
+func TestOfficeBudgetFallsBackToThePerIPLimit(t *testing.T) {
+	t.Setenv("KY_RATE_LIMIT_EXEMPT_NETWORKS", officeRange)
+	srv, st, _ := setupTestServer(t)
+	admin := loginAs(t, srv, st, "alice", "admin")
+
+	for i := 1; i <= 320; i++ {
+		if code := loginStatus(t, srv, officePeer, ""); code == http.StatusTooManyRequests {
+			t.Fatalf("office attempt %d throttled, want the budget of 300 and then a window of 20", i)
+		}
+	}
+	if code := loginStatus(t, srv, officePeer, ""); code != http.StatusTooManyRequests {
+		t.Fatalf("office attempt 321 answered %d, want 429", code)
+	}
+	// Another office address has its own per-IP window once the budget is spent.
+	if code := loginStatus(t, srv, "203.0.113.77:41000", ""); code == http.StatusTooManyRequests {
+		t.Fatal("a second office address was throttled by the first one's window")
+	}
+	// Only the 300 requests that skipped the per-IP window count as exempted.
+	if _, _, exempted := networksStatus(t, do(t, srv, "GET", networksAPI, admin)); exempted != 300 {
+		t.Fatalf("exempted = %v, want 300", exempted)
+	}
+}
+
+// Concurrent guesses at one account from an office reserve their place in the account window
+// before any hashing: no more than ten reach password verification, however they interleave.
+func TestConcurrentOfficeGuessesCannotOutrunTheAccountWindow(t *testing.T) {
+	t.Setenv("KY_RATE_LIMIT_EXEMPT_NETWORKS", officeRange)
+	srv, st, _ := setupTestServer(t)
+	createLocalUser(t, st, "usr_carol", "carol", "user", "SuperSecretPass123!")
+	var verified atomic.Int64
+	api.CountLoginVerificationsForTest(t, &verified)
+
+	wrong := map[string]string{"username": "carol", "password": "WrongPass123!"}
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			postJSON(t, srv, "/api/auth/login", officePeer, wrong)
+		}()
+	}
+	wg.Wait()
+	if got := verified.Load(); got != 10 {
+		t.Fatalf("%d guesses reached password verification, want exactly 10", got)
+	}
+}
+
+// A successful sign-in hands its reservation back: only failures count against the account.
+func TestSuccessfulSignInsDoNotFillTheAccountWindow(t *testing.T) {
+	srv, st, _ := setupTestServer(t)
+	createLocalUser(t, st, "usr_erin", "erin", "user", "SuperSecretPass123!")
+	good := map[string]string{"username": "erin", "password": "SuperSecretPass123!"}
+	for i := 1; i <= 15; i++ {
+		if w := postJSON(t, srv, "/api/auth/login", officePeer, good); w.Code != http.StatusOK {
+			t.Fatalf("sign-in %d: %d %s", i, w.Code, w.Body.String())
+		}
 	}
 }

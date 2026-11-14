@@ -4,7 +4,10 @@ import (
 	"context"
 	"github.com/Busnes-app/ky_server_base/internal/matrixrtc"
 	"net/http"
+	"sync/atomic"
 	"time"
+
+	"github.com/Busnes-app/ky-primitives/password"
 
 	"github.com/Busnes-app/ky_server_base/internal/health"
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -94,3 +97,13 @@ func FederationBaseForTest(s *Server, client *http.Client, name string) (string,
 
 // FederationPresetsForTest is this release's compiled public-server list.
 func FederationPresetsForTest() []federationPreset { return federationPresets }
+
+// CountLoginVerificationsForTest counts the password verifications sign-in runs until the
+// test ends. Test-only.
+func CountLoginVerificationsForTest(t interface{ Cleanup(func()) }, n *atomic.Int64) {
+	t.Cleanup(func() { verifyPassword = password.Verify })
+	verifyPassword = func(pw, hash string) (bool, error) {
+		n.Add(1)
+		return password.Verify(pw, hash)
+	}
+}
