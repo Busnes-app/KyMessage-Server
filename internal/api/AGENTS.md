@@ -248,8 +248,9 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `meetingOrganizer` (a `kyidentity` row, role `user`, active, at the suite directory's issuer);
   people are `meetingPeople`, the rule `activeCallUsers` uses. Changes run one at a time
   (`meetingMu`) on a detached context with the room budget; PUT reconciles with
-  `reconcileMeeting` (kicks only Matrix IDs the meeting listed before, a 403 on invite is a
-  skip), DELETE with the console Close's steps (`idle`, `startJob`). 120 per organizer subject
+  `reconcileMeeting` (records every invite target in `members` before inviting, kicks only
+  Matrix IDs the meeting recorded, a 403 on invite is a skip), DELETE with the console Close's steps (`idle`, `startJob`), also for a closed row, so a
+  failed Close job is retried. 120 per organizer subject
   an hour (`accountAttempts`, `Retry-After` from `resetIn`). Audits `meeting.put` and
   `meeting.close` (resource the meeting ID; outcome, room ID, counts) for verified requests
   only. `MeetingRooms` (`*synapseadmin.Client`) is separate from `RoomAdmin` so room fakes stay small

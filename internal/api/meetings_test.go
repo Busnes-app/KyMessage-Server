@@ -40,6 +40,7 @@ type fakeMeetingRooms struct {
 	member  map[string]map[string]string // room → user → membership
 	calls   []string
 	banned  map[string]bool
+	failFor map[string]bool // invites that fail with a network-like error
 	callErr error
 }
 
@@ -72,6 +73,9 @@ func (f *fakeMeetingRooms) Memberships(_ context.Context, tok, room string) (map
 func (f *fakeMeetingRooms) Invite(_ context.Context, tok, room, user string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failFor[user] {
+		return errors.New("connection reset")
+	}
 	if f.banned[user] {
 		return &synapseadmin.Error{Method: "POST", Path: "/_matrix/client/v3/rooms/x/invite", Status: 403, Errcode: "M_FORBIDDEN"}
 	}
@@ -149,9 +153,10 @@ func setupMeetings(t *testing.T, paired bool) meetingEnv {
 		{ID: uBob, Username: "bob", Subject: "sub-b", Locked: true},
 		{ID: uCarol, Username: "erin", Subject: "sub-e"},
 		{ID: uDave, Username: "root", Subject: "sub-r"},
+		{ID: "01J9ZK8V6N3W4X5Y6Z7A8BFRNK", Username: "frank", Subject: "sub-f"},
 	}}
 	srv.SetMatrixAdmin(mas)
-	rooms := &fakeMeetingRooms{fakeRooms: newFakeRooms(), member: map[string]map[string]string{}, banned: map[string]bool{}}
+	rooms := &fakeMeetingRooms{fakeRooms: newFakeRooms(), member: map[string]map[string]string{}, banned: map[string]bool{}, failFor: map[string]bool{}}
 	api.SetRoomAdminForTest(srv, rooms.fakeRooms)
 	api.SetMeetingRoomsForTest(srv, rooms)
 	for _, u := range []store.User{
@@ -159,6 +164,7 @@ func setupMeetings(t *testing.T, paired bool) meetingEnv {
 		{ID: "usr_b", Username: "bob-ky", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-b"},
 		{ID: "usr_e", Username: "erin-ky", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-e"},
 		{ID: "usr_r", Username: "root-ky", Role: "admin", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-r"},
+		{ID: "usr_f", Username: "frank-ky", Role: "user", Status: "active", SSOProvider: "kyidentity", SSOSubject: "sub-f"},
 	} {
 		if err := st.Users().CreateUser(context.Background(), &u); err != nil {
 			t.Fatal(err)
@@ -502,5 +508,48 @@ func TestKyCalendarPairsThroughKyIdentity(t *testing.T) {
 	d.set(401, "")
 	if api.ResolveKyCalendarForTest(srv, ctx) || status()["reason"] != "unauthorized" {
 		t.Fatalf("refused credentials: %v", status())
+	}
+}
+
+// An invite that went through before a later failure still counts as the meeting's, so a
+// later PUT without that person removes them.
+func TestMeetingRemovesInviteesOfAFailedPut(t *testing.T) {
+	e := setupMeetings(t, true)
+	e.rooms.failFor["@frank:example.com"] = true
+	wantCode(t, e.call(t, "PUT", meetID, putBody("sub-a", "Sync", "sub-e", "sub-f"), signOpts{}), 503, "unavailable")
+	if e.rooms.member[meetRoomID][erinMX] != "invite" {
+		t.Fatalf("erin: %v", e.rooms.member[meetRoomID])
+	}
+	e.rooms.failFor = map[string]bool{}
+	e.rooms.take()
+	decode[map[string]any](t, e.call(t, "PUT", meetID, putBody("sub-a", "Sync"), signOpts{}))
+	if got := e.rooms.member[meetRoomID][erinMX]; got != "leave" {
+		t.Fatalf("erin after a PUT without her: %q (calls %v)", got, e.rooms.take())
+	}
+}
+
+// A banned organizer is reported by subject, never as an empty string.
+func TestMeetingBannedOrganizerIsReported(t *testing.T) {
+	e := setupMeetings(t, true)
+	e.rooms.banned[aliceMX] = true
+	out := decode[struct {
+		Skipped []string `json:"skipped_subs"`
+	}](t, e.call(t, "PUT", meetID, putBody("sub-a", "Sync"), signOpts{}))
+	if !slices.Equal(out.Skipped, []string{"sub-a"}) {
+		t.Fatalf("skipped: %q", out.Skipped)
+	}
+}
+
+// DELETE of a closed meeting whose room is still open closes it again.
+func TestMeetingCloseRetriesAFailedJob(t *testing.T) {
+	e := setupMeetings(t, true)
+	decode[map[string]any](t, e.call(t, "PUT", meetID, putBody("sub-a", "Sync"), signOpts{}))
+	decode[map[string]any](t, e.call(t, "DELETE", meetID, "", signOpts{}))
+	// The job failed: Synapse unblocked nothing and the members are still in.
+	e.rooms.blocked[meetRoomID] = false
+	e.rooms.rooms[meetRoomID].LocalMembers = 2
+	decode[map[string]any](t, e.call(t, "DELETE", meetID, "", signOpts{}))
+	if len(e.rooms.changes) != 2 {
+		t.Fatalf("closes: %v", e.rooms.changes)
 	}
 }

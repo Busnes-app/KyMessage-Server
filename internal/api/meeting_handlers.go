@@ -205,7 +205,7 @@ func (s *Server) handleMeetingPut(w http.ResponseWriter, r *http.Request) {
 			return errMeetingNoUser // no Matrix account yet, or locked
 		}
 		listed := []string{orgMXID}
-		subOf := map[string]string{}
+		subOf := map[string]string{orgMXID: req.Sub}
 		for _, sub := range req.MemberSubs {
 			mxid, ok := people[sub]
 			switch {
@@ -323,6 +323,17 @@ func (s *Server) reconcileMeeting(ctx context.Context, tok, id string, m *store.
 			}
 		}
 	}
+	// Record every invite target before inviting: an invite whose reply is lost, or a failure
+	// after it, must still leave that person removable by a later PUT.
+	managed := slices.Clone(m.Members)
+	for _, u := range listed {
+		if !slices.Contains(managed, u) {
+			managed = append(managed, u)
+		}
+	}
+	if err := s.store.Meetings().UpdateMeeting(ctx, id, m.OrganizerSubject, managed); err != nil {
+		return m, err
+	}
 	current, err := s.meetingRooms.Memberships(ctx, tok, m.RoomID)
 	if err != nil {
 		return m, err
@@ -382,10 +393,8 @@ func (s *Server) handleMeetingDelete(w http.ResponseWriter, r *http.Request) {
 			return nil
 		case err != nil:
 			return err
-		case m.State == store.MeetingClosed:
-			res.outcome = "already_closed"
-			return nil
 		}
+		// A closed meeting is checked again: its Close job may have failed after it started.
 		if s.meetingLimited(w, m.OrganizerSubject) {
 			return errLimited
 		}
@@ -413,7 +422,7 @@ func (s *Server) handleMeetingDelete(w http.ResponseWriter, r *http.Request) {
 			}
 			return s.startJob(ctx, tok, m.RoomID, seen, &res, s.rooms.Close)
 		})
-		if err != nil {
+		if err != nil || m.State == store.MeetingClosed {
 			return err
 		}
 		return s.store.Meetings().CloseMeeting(ctx, id)

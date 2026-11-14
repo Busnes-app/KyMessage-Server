@@ -78,7 +78,8 @@ durable one. KyCalendar implements the other side; both sides change together.
 - Creates the room on first call, reconciles after: room name = title, listed members invited
   (again, if they left), members no longer listed removed. The organizer is always a member.
   Only people a PUT listed are ever removed: someone the organizer invited by hand in Element
-  stays.
+  stays. Every invite target is recorded before it is invited, so an invite that went through
+  before a later failure is still removed by a later PUT.
 - `member_subs` holds KyIdentity subjects. A subject with no KyMessages chat account (no
   unlocked Matrix account linked to it, or not active in the directory), or one banned from the
   room, is skipped, not refused, and reported in `skipped_subs`; a later PUT picks it up.
@@ -110,7 +111,8 @@ durable one. KyCalendar implements the other side; both sides change together.
 
 Closes the room as the console's Close does (blocked, members out, history kept). The body is
 not read beyond its signature. 200 `{"outcome":"closed"}`; an unknown or already closed ID is
-also 200. A close still running, or an unreachable Matrix stack, is 503 `unavailable`.
+also 200. A closed meeting's room is checked again on every DELETE, so a Close job that failed
+is retried. A close still running, or an unreachable Matrix stack, is 503 `unavailable`.
 
 ## How it works
 
