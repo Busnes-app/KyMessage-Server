@@ -349,8 +349,10 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   CI's first leg only; `docs/KYCALENDAR.md`): the app gets a harness-only KyCalendar pair
   (`overrides/app.yml`, `$scratch/kycalendar/secret`) and the harness signs as KyCalendar in
   bash. A PUT makes an encrypted invite-only room created by the console, alice at level 50, bob
-  invited, carol (no chat account) skipped; both accept in Element, read each other's messages
-  and decode each other's video (`e2e.mjs meeting`, reusing `calls` on that room); no plaintext
+  invited, carol (no chat account) skipped; both accept in Element (both join before anyone
+  writes: history is visible from joining) and read each other's messages (`e2e.mjs meeting`;
+  no call, since Element hides call buttons in rooms of more than two members with
+  `UIFeature.widgets` off, `docs/KYCALENDAR.md` "Calls"); no plaintext
   in a `pg_dump`; the console has no device keys; a title change renames, an exact replay is
   `duplicate`, a PUT without bob kicks him (sender the console), DELETE blocks the room and
   empties it, and a PUT after is 409 `closed`.

@@ -534,7 +534,7 @@ async function title() {
   console.log(`  ok: Element's title is "${await page.title()}"`);
 }
 
-async function calls(restored = false, meetingRoom = "") {
+async function calls(restored = false) {
   const alice = await resume('alice', restored ? 'restored-alice' : 'prove-alice');
   const force = process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1';
   const bob = restored && !force ? await launch('bob', 'restored-bob') : await resume('bob', restored ? 'restored-bob' : 'prove-bob');
@@ -560,8 +560,8 @@ async function calls(restored = false, meetingRoom = "") {
     for (const frame of page.frames()) diagnostics.push(await frame.evaluate(() => (window.kyCallPeers ?? []).map(pc => ({state:pc.connectionState,ice:pc.iceConnectionState,errors:pc.kyIceErrors,config:pc.getConfiguration().iceTransportPolicy,remote:pc.remoteDescription?.sdp.split('\r\n').filter(line=>line.startsWith('a=candidate:'))}))));
     throw new Error(`Call never reached its connected view: ${JSON.stringify(diagnostics)}`);
   }
-  await join(alice, true, meetingRoom || rooms.group);
-  await join(bob, false, meetingRoom || rooms.group);
+  await join(alice, true);
+  await join(bob, false);
   async function received(page) {
     const stats = [];
     for (const frame of page.frames()) {
@@ -607,7 +607,6 @@ async function calls(restored = false, meetingRoom = "") {
     }
   }
   await hangup();
-  if (meetingRoom) return video;
   await join(alice, true, rooms.dm, false);
   await join(bob, false, rooms.dm, false);
   const voice = await proveMedia(false);
@@ -619,7 +618,7 @@ async function calls(restored = false, meetingRoom = "") {
 }
 
 // A KyCalendar meeting room the console created (step meetings, MEETING_ROOM): alice and bob
-// accept its invites, read each other's encrypted messages and hold a video call in it.
+// accept its invites and read each other's encrypted messages.
 async function meeting() {
   const id = process.env.MEETING_ROOM;
   const msgs = { a: text('alice'), b: text('bob') };
@@ -638,9 +637,11 @@ async function meeting() {
   }
   await as('alice', async (page) => { await openRoom(page, id, false); await send(page, msgs.a); });
   await as('bob', async (page) => { await openRoom(page, id, false); await sees(page, msgs.a); await send(page, msgs.b); });
-  await as('alice', async (page) => { await openRoom(page, id, false); await sees(page, msgs.b); });
-  const video = await calls(false, id);
-  out({ room: id, messages: Object.values(msgs), video });
+  await as('alice', async (page) => {
+    await openRoom(page, id, false);
+    await sees(page, msgs.b);
+  });
+  out({ room: id, messages: Object.values(msgs) });
 }
 
 // Meeting notes (scripts/matrix-acceptance.sh, step notes). USER owns the rooms.

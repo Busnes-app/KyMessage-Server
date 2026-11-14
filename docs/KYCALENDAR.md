@@ -10,6 +10,17 @@ This is KyMessages' copy of section B of the suite wire contract
 (`ky-redesign/integrations/suite-integrations-contracts.md`, wave 1, 2026-11-14) and is the
 durable one. KyCalendar implements the other side; both sides change together.
 
+## Calls: not startable in Element yet (owner decision needed)
+
+Element v1.12.30 hides its call buttons in any room with more than two joined members while
+`UIFeature.widgets` is off (`useRoomCall`: `memberCount > 2 && !widgets` hides both), and
+`matrix-init` ships it off. The console stays joined to manage the room, so even a two-person
+meeting has three members: members can meet and talk in the room, but nobody can start a call
+from Element there. The same rule already hides calls in every ordinary group room of three or
+more people. Turning `UIFeature.widgets` on in Element's `config.json` (integrations stay off)
+would lift it; that is an owner decision on the widgets UI, not made here. Evidence:
+[2026-11-meeting-rooms.md](evidence/2026-11-meeting-rooms.md).
+
 ## Deviations from the suite contract
 
 - **Environment names** use this repo's `KY_` prefix: `KY_KYCALENDAR_URL` and
@@ -138,8 +149,8 @@ is retried. A close still running, or an unreachable Matrix stack, is 503 `unava
 
 - `go test ./internal/kycalendar/ ./internal/synapseadmin/ ./internal/store/ ./internal/config/ ./internal/api/ -run 'Meeting|KyCalendar|DecodePut|Verify|ValidID|SetOrganizer|PathGuard'`
 - `make matrix-acceptance`, step `meetings` (after `prove`): a signed PUT makes the room for
-  alice and bob (carol, never signed in to chat, skipped), both accept the invite in Element,
-  read each other's encrypted messages and decode each other's video; no plaintext in a
+  alice and bob (carol, never signed in to chat, skipped), both accept the invite in Element and
+  read each other's encrypted messages (no call: see "Calls"); no plaintext in a
   `pg_dump`; the console has no device keys; a title change renames the room; an exact replay
   is `duplicate`; a PUT without bob removes him; DELETE closes and blocks the room; a PUT after
   is 409 `closed`.
