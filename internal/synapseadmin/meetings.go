@@ -92,7 +92,7 @@ func (c *Client) SetRoomName(ctx context.Context, token, room, name string) erro
 }
 
 // SetOrganizer makes organizer the only user at OrganizerLevel, keeping the rest of the
-// room's power levels as they are.
+// room's power levels as they are. Nothing is sent when that already holds.
 func (c *Client) SetOrganizer(ctx context.Context, token, room, organizer string) error {
 	levels, err := c.state(ctx, token, room, "m.room.power_levels")
 	if err != nil {
@@ -112,10 +112,15 @@ func (c *Client) SetOrganizer(ctx context.Context, token, room, organizer string
 		}
 	}
 	level := json.Number(strconv.Itoa(OrganizerLevel))
+	changed := users[organizer] != level
 	for u, l := range users {
-		if l == level {
+		if l == level && u != organizer {
 			delete(users, u)
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	users[organizer] = level
 	raw, err := json.Marshal(users)

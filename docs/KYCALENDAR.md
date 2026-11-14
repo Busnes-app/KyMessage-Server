@@ -85,11 +85,13 @@ durable one. KyCalendar implements the other side; both sides change together.
   room, is skipped, not refused, and reported in `skipped_subs`; a later PUT picks it up.
 - A `guests` field that is present and non-empty: 422 `guests_unsupported`. `windows` is
   ignored.
+- History is visible from joining: a member never sees what was said before they joined.
 - Room state: join rule `invite`, history visibility `joined`, guest access `forbidden`,
   encryption `m.megolm.v1.aes-sha2`. Power levels: the console is the creator (see the
   deviation), the organizer 50, members 0, `invite` 50, `kick` 50, and
   `org.matrix.msc3401.call.member` 0 so every member can join the call, as stock Element sets
-  when Element Call is on. A new organizer takes over level 50.
+  when Element Call is on. A new organizer takes over level 50; every PUT checks the power levels again, so a transfer
+  interrupted by a failure is repaired by the next PUT.
 - A room closed from the console's Rooms page closes the meeting: the PUT answers 409 `closed`.
 
 ```json

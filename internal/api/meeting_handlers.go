@@ -317,10 +317,9 @@ func (s *Server) reconcileMeeting(ctx context.Context, tok, id string, m *store.
 				return m, err
 			}
 		}
-		if m.OrganizerSubject != req.Sub {
-			if err := s.meetingRooms.SetOrganizer(ctx, tok, m.RoomID, orgMXID); err != nil {
-				return m, err
-			}
+		// Every PUT: an earlier transfer may have failed half way.
+		if err := s.meetingRooms.SetOrganizer(ctx, tok, m.RoomID, orgMXID); err != nil {
+			return m, err
 		}
 	}
 	// Record every invite target before inviting: an invite whose reply is lost, or a failure

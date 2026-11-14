@@ -132,3 +132,12 @@ func TestPathGuardAdmitsOnlyMeetingRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestSetOrganizerSendsNothingWhenSettled(t *testing.T) {
+	get := "GET /_synapse/admin/v1/rooms/%21m:example.com/state?type=m.room.power_levels"
+	c, calls, _ := meetingSynapse(t, map[string]string{get: `{"state":[{"type":"m.room.power_levels","state_key":"",
+		"content":{"users":{"@org:example.com":50,"@mod:example.com":75}}}]}`})
+	if err := c.SetOrganizer(context.Background(), "tok", "!m:example.com", "@org:example.com"); err != nil || len(*calls) != 1 {
+		t.Fatalf("%v %v", err, *calls)
+	}
+}

@@ -623,19 +623,22 @@ async function calls(restored = false, meetingRoom = "") {
 async function meeting() {
   const id = process.env.MEETING_ROOM;
   const msgs = { a: text('alice'), b: text('bob') };
-  for (const [name, mine, theirs] of [['alice', msgs.a, null], ['bob', msgs.b, msgs.a]]) {
+  // One profile is open in one browser at a time.
+  const as = async (name, fn) => {
     const page = await resume(name, `prove-${name}`);
-    await openRoom(page, id, true);
-    check(await page.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id)?.hasEncryptionStateEvent(), id), `${name}'s Element treats the meeting room as encrypted`);
-    if (theirs) await sees(page, theirs);
-    await send(page, mine);
-    // One profile is open in one browser at a time.
+    await fn(page);
     for (const [, ctx] of contexts.splice(0)) await ctx.close();
+  };
+  // Both join first: history is visible from joining, so nothing sent before is shown.
+  for (const name of ['alice', 'bob']) {
+    await as(name, async (page) => {
+      await openRoom(page, id, true);
+      check(await page.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id)?.hasEncryptionStateEvent(), id), `${name}'s Element treats the meeting room as encrypted`);
+    });
   }
-  const alice = await resume('alice', 'prove-alice');
-  await openRoom(alice, id, false);
-  await sees(alice, msgs.b);
-  for (const [, ctx] of contexts.splice(0)) await ctx.close();
+  await as('alice', async (page) => { await openRoom(page, id, false); await send(page, msgs.a); });
+  await as('bob', async (page) => { await openRoom(page, id, false); await sees(page, msgs.a); await send(page, msgs.b); });
+  await as('alice', async (page) => { await openRoom(page, id, false); await sees(page, msgs.b); });
   const video = await calls(false, id);
   out({ room: id, messages: Object.values(msgs), video });
 }

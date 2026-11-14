@@ -17,7 +17,8 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   `invite`/`kick` 50, room version 12 defaults plus `org.matrix.msc3401.call.member` 0, as stock
   Element sets with Element Call; the console is the creator and is never listed),
   `Memberships` (admin state API, `m.room.member` only), `Invite`, `Kick`, `SetRoomName`,
-  `SetOrganizer` (only the organizer stays at 50; everything else kept) and
+  `SetOrganizer` (only the organizer stays at 50; everything else kept; no write when that
+  already holds, so `internal/api` calls it on every PUT) and
   `ExemptFromRatelimit` (`override_ratelimit` 0/0 for the console account).
 - The transport ignores proxy variables and follows no redirects: the token goes to the
   configured origin or nowhere. `api.NewServer` passes the Synapse origin its Health probes

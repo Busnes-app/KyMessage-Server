@@ -38,6 +38,7 @@ const (
 type fakeMeetingRooms struct {
 	*fakeRooms
 	member  map[string]map[string]string // room → user → membership
+	orgs    map[string]string            // room → the user at the organizer's level
 	calls   []string
 	banned  map[string]bool
 	failFor map[string]bool // invites that fail with a network-like error
@@ -57,6 +58,7 @@ func (f *fakeMeetingRooms) CreateMeetingRoom(_ context.Context, tok, name, organ
 	}
 	f.rooms[meetRoomID] = &synapseadmin.Room{ID: meetRoomID, Name: name, Creator: consoleMX, Members: 1, LocalMembers: 1, Encryption: "m.megolm.v1.aes-sha2", JoinRule: "invite"}
 	f.member[meetRoomID] = map[string]string{consoleMX: "join"}
+	f.orgs[meetRoomID] = organizer
 	return meetRoomID, nil
 }
 
@@ -106,7 +108,14 @@ func (f *fakeMeetingRooms) SetRoomName(_ context.Context, tok, room, name string
 func (f *fakeMeetingRooms) SetOrganizer(_ context.Context, tok, room, organizer string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.record("organizer " + organizer)
+	if f.orgs[room] == organizer {
+		return f.callErr
+	}
+	if err := f.record("organizer " + organizer); err != nil {
+		return err
+	}
+	f.orgs[room] = organizer
+	return nil
 }
 
 func (f *fakeMeetingRooms) ExemptFromRatelimit(_ context.Context, tok, user string) error {
@@ -156,7 +165,7 @@ func setupMeetings(t *testing.T, paired bool) meetingEnv {
 		{ID: "01J9ZK8V6N3W4X5Y6Z7A8BFRNK", Username: "frank", Subject: "sub-f"},
 	}}
 	srv.SetMatrixAdmin(mas)
-	rooms := &fakeMeetingRooms{fakeRooms: newFakeRooms(), member: map[string]map[string]string{}, banned: map[string]bool{}, failFor: map[string]bool{}}
+	rooms := &fakeMeetingRooms{fakeRooms: newFakeRooms(), member: map[string]map[string]string{}, banned: map[string]bool{}, failFor: map[string]bool{}, orgs: map[string]string{}}
 	api.SetRoomAdminForTest(srv, rooms.fakeRooms)
 	api.SetMeetingRoomsForTest(srv, rooms)
 	for _, u := range []store.User{
@@ -551,5 +560,23 @@ func TestMeetingCloseRetriesAFailedJob(t *testing.T) {
 	decode[map[string]any](t, e.call(t, "DELETE", meetID, "", signOpts{}))
 	if len(e.rooms.changes) != 2 {
 		t.Fatalf("closes: %v", e.rooms.changes)
+	}
+}
+
+// A transfer that set the power levels but failed before it was recorded is undone by the next
+// PUT naming the recorded organizer.
+func TestMeetingRepairsAnInterruptedOrganizerTransfer(t *testing.T) {
+	e := setupMeetings(t, true)
+	decode[map[string]any](t, e.call(t, "PUT", meetID, putBody("sub-a", "Sync", "sub-e"), signOpts{}))
+	e.rooms.failFor[erinMX] = true // erin, the new organizer, is not yet in the room: her invite fails
+	e.rooms.member[meetRoomID][erinMX] = "leave"
+	wantCode(t, e.call(t, "PUT", meetID, putBody("sub-e", "Sync", "sub-a"), signOpts{}), 503, "unavailable")
+	if e.rooms.orgs[meetRoomID] != erinMX {
+		t.Fatalf("transfer applied: %v", e.rooms.orgs)
+	}
+	e.rooms.failFor = map[string]bool{}
+	decode[map[string]any](t, e.call(t, "PUT", meetID, putBody("sub-a", "Sync", "sub-e"), signOpts{}))
+	if e.rooms.orgs[meetRoomID] != aliceMX {
+		t.Fatalf("organizer after restoring: %v", e.rooms.orgs)
 	}
 }
