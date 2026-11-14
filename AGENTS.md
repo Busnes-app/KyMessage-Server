@@ -360,6 +360,17 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   in a `pg_dump`; the console has no device keys; a title change renames, an exact replay is
   `duplicate`, a PUT without bob kicks him (sender the console), DELETE blocks the room and
   empties it, and a PUT after is 409 `closed`.
+  Stage `suite-meetings` (instead of `meetings`, only with `KYCALENDAR_SRC`; workflow
+  `.github/workflows/suite-meetings.yml`, nightly, on dispatch and on pull requests touching the
+  meeting code or harness, never in `ci.yml` because it builds KyCalendar and KyIdentity from
+  their unpinned main branches): a real KyCalendar (`overrides/kycalendar.yml`) and the console
+  get their own KyIdentity clients `kycalendar` and `kymessage` and pair only through
+  `/api/suite/peer` (`KY_KYCALENDAR_*` empty). alice's KyCalendar event with bob and carol
+  makes the room (`e2e.mjs calendar`; the stored event's CONFERENCE and `Join:` line read by
+  `kycal-event.py`), Join opens it in Element, `e2e.mjs meeting` runs on it; after carol signs
+  in, a rename invites her, removing her kicks her, the switch off and a deleted event block
+  their rooms; a PUT under any other secret is 401. Screenshots: artifact
+  `suite-meetings-evidence`.
   Stage `notes` (before `agents`, owner `owen` signs in here; `docs/MEETING-NOTES.md`): the bot
   image built from `notes/` runs as shipped (`docker-compose.notes.yml`) on the project network;
   off by default, it waits, the console turns it on (audited) and it gets its session; bob's
