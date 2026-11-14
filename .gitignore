@@ -1,5 +1,6 @@
 # Binaries
 ky_server_base
+/server
 *.exe
 *.dll
 *.so
