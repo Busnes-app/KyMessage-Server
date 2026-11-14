@@ -1,7 +1,11 @@
 # Meeting rooms for KyCalendar, with a guest waiting room
 
-Date: 2026-10-18. Status: draft, awaiting review; not scheduled for the early-November 2026
-release. Caller: KyCalendar, `docs/superpowers/specs/2026-10-17-kycalendar-v1b-invitations-design.md`
+Date: 2026-10-18. Status: the member half is built (2026-11-14, `docs/KYCALENDAR.md`): signed
+`PUT`/`DELETE /api/meetings/{id}`, an encrypted invite-only room per meeting, members invited and
+removed, closing. Pairing is the KyIdentity suite pair `kycalendar`↔`kymessage`, not the
+pairing code below, and the join rule is `invite` with `invite` at 50, not `knock`. Still
+unbuilt: guests, windows, `/meet/<token>`, the guest grant rule and the Synapse confinement
+module (spikes S1 to S3). Caller: KyCalendar, `docs/superpowers/specs/2026-10-17-kycalendar-v1b-invitations-design.md`
 in Busnes-app/KyCalendar ("Meeting rooms", "Backend credentials").
 
 ## Intent

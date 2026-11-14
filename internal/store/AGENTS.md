@@ -4,7 +4,7 @@
 Provides the unified Database Abstraction Layer (DAL) supporting pluggable backends (SQLite zero-CGO default and PostgreSQL enterprise) with automated dialect-aware migrations.
 
 ## Ownership
-Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`, `AgentStore`), dialect translations, and schema migrations.
+Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`, `AgentStore`, `MeetingStore`), dialect translations, and schema migrations.
 
 ## Local Contracts
 - `AuditStore.ListAuditRecords(offset, limit, prefixes...)` pages newest first by `id`; prefixes match the
@@ -41,6 +41,11 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   device ID each unique (`ErrAlreadyExists`), owner subject, current MAS personal session ID and
   `token_state` (`active` with a session ID; `revoked` or `expired` with none, enforced on every
   write). It never holds a token. `SetAgentToken` and `DeleteAgent` answer `ErrNotFound` for no row.
+- Migration 24 adds `meetings` (`MeetingStore`): KyCalendar meeting ID → room ID (unique),
+  organizer subject, `members` (the Matrix IDs the meeting listed, newline-separated) and
+  `state` `open`/`closed` (`CloseMeeting` is final; `UpdateMeeting` touches only open rows),
+  and `meeting_events`, the replay guard: `RememberMeetingEvent` drops expired IDs, then inserts
+  (`ErrAlreadyExists` while held); `ForgetMeetingEvent` releases one. Times are Unix seconds.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
   `migrations.Run` refuses with `ErrNewerSchema` a database whose `schema_migrations` holds a
   version above this build's newest (image rollback, or a capsule from a newer build), before

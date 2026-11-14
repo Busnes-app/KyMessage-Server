@@ -57,6 +57,13 @@ encrypt.
    (`IdentityClaims.AssertedRole`). Role changes atomically revoke grants and fence old
    snapshots (`ApplySignInRole`). Installer and SCIM role ownership remain separate.
    [Upgrade the role source before the receiver](RUNNING.md#kyidentity-administrator-upgrade).
+2a. **KyCalendar → KyMessages.** `PUT`/`DELETE /api/meetings/{id}` take no session: each request
+   is verified by `ky-primitives/syncauth` under the KyIdentity pair secret (or
+   `KY_KYCALENDAR_SECRET_FILE`), for the route's own event type, against a replay table that
+   survives restarts, before its body is read. The organizer must be an active everyday account
+   at this server's issuer; members are resolved through their MAS links, never from an address.
+   Only the console account acts in Synapse, and it never reads messages (`internal/api/meeting_handlers.go`,
+   [KYCALENDAR.md](KYCALENDAR.md)).
 3. **KyMessages → MAS and Synapse.** Admin API clients that follow no redirects
    (`internal/matrixsync/mas.go`, `internal/synapseadmin`); the offboarding sweep locks, ends
    sessions or deactivates, and fails closed for an ambiguous or missing link.
@@ -107,6 +114,7 @@ encrypt.
 | Cross-site scripting | CSP `script-src 'self'` and `frame-ancestors 'none'`, `X-Frame-Options: DENY`; no `dangerouslySetInnerHTML` in `web/src`; logos must be PNG and are re-encoded so no ancillary chunk survives (SVG refused) | `internal/api/server.go`, `internal/branding/branding.go` |
 | SQL injection | `database/sql` with `?` parameters; the audit filter builds only placeholder clauses | `internal/store/sqlstore.go` |
 | Forged directory events | `syncauth` signature and five-minute window before parsing; a payload cannot merge into another account (`username_conflict`) | `internal/sso/kyidentity.go` |
+| Forged or replayed meeting requests | `syncauth` under the KyCalendar pair secret, event type bound to the route, 64 KiB cap, event IDs kept in `meeting_events` through their window (a restart forgets none); administrators cannot organize; 120 requests an hour per organizer; the meeting ID in the path is not signed (wave 2 puts it in the body) | `internal/kycalendar`, `internal/api/meeting_handlers.go`, `internal/api/meetings_test.go` |
 | Server-side request forgery | Federation lookups dial only public addresses after DNS resolution, https only; Matrix admin clients follow no redirects; the recovery URL is validated | `internal/api/federation_calls.go`, `internal/matrixsync/mas.go`, `internal/synapseadmin`, `internal/api/backup_handlers.go` |
 | Offboarding gaps | A lock alone leaves MAS sessions alive, so every locked person also gets every session finished | `internal/matrixsync` |
 | Vulnerable dependencies | `govulncheck` and `npm audit --audit-level=high` in CI; Dependabot; OSV ignore list with reasons; dependency releases ship daily | `.github/workflows/ci.yml`, `osv-scanner.toml` |
