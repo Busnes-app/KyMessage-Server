@@ -53,7 +53,8 @@ func TestCreateMeetingRoom(t *testing.T) {
 			"invite": 50, "kick": 50, "ban": 50, "redact": 50,
 			"events": {"m.room.name": 50, "m.room.power_levels": 100, "m.room.history_visibility": 100,
 				"m.room.canonical_alias": 50, "m.room.avatar": 50, "m.room.tombstone": 150,
-				"m.room.server_acl": 100, "m.room.encryption": 100, "org.matrix.msc3401.call.member": 0}
+				"m.room.server_acl": 100, "m.room.encryption": 100, "org.matrix.msc3401.call.member": 0,
+				"im.vector.modular.widgets": 100}
 		}
 	}`), &want)
 	if got := bodies["POST /_matrix/client/v3/createRoom"]; !reflect.DeepEqual(got, want) {

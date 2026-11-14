@@ -10,15 +10,14 @@ This is KyMessages' copy of section B of the suite wire contract
 (`ky-redesign/integrations/suite-integrations-contracts.md`, wave 1, 2026-11-14) and is the
 durable one. KyCalendar implements the other side; both sides change together.
 
-## Calls: not startable in Element yet (owner decision needed)
+## Calls
 
 Element v1.12.30 hides its call buttons in any room with more than two joined members while
-`UIFeature.widgets` is off (`useRoomCall`: `memberCount > 2 && !widgets` hides both), and
-`matrix-init` ships it off. The console stays joined to manage the room, so even a two-person
-meeting has three members: members can meet and talk in the room, but nobody can start a call
-from Element there. The same rule already hides calls in every ordinary group room of three or
-more people. Turning `UIFeature.widgets` on in Element's `config.json` (integrations stay off)
-would lift it; that is an owner decision on the widgets UI, not made here. Evidence:
+`UIFeature.widgets` is off (`useRoomCall.ts:346`), and the console stays joined, so a meeting
+room always has three. `matrix-init` turns `UIFeature.widgets` on while calls are on (owner
+decision 2026-11-14; integrations stay off), and members start Element Call from the room. A
+room widget needs level 100 in meeting rooms, so only the console (which adds none) may add
+one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
 [2026-11-meeting-rooms.md](evidence/2026-11-meeting-rooms.md).
 
 ## Deviations from the suite contract

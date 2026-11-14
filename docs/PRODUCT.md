@@ -15,7 +15,9 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 **Private team conversations, on infrastructure you control.**
 
 - Small business teams first: one organization per deployment, self-hosted.
-- Encrypted chat, with voice and video calls enabled by default. Widgets and integrations are off.
+- Encrypted chat, with voice and video calls enabled by default, in DMs and rooms of any size.
+  Integrations are off; Element's widgets UI is on only because Element needs it for calls in
+  rooms of three or more, and adding a room widget needs the room's moderator level.
 - Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
   guests (approved, not shipped: KyCalendar meeting rooms admit external attendees through a
   waiting room for the time of the meeting; see "Later or out of scope").
@@ -23,8 +25,7 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
   paired KyCalendar asks for an encrypted, invite-only video room per meeting; the console's
   service account creates it, invites the attendees who have chat accounts, keeps its name and
   members in step with the event and closes it when the meeting is cancelled. People outside
-  the organisation cannot join yet, and Element does not offer a call in these rooms until
-  `UIFeature.widgets` is turned on (see "Known risks").
+  the organisation cannot join yet. Members start Element Call from the room.
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
 - Not offered: Slack or Teams parity, compliance archiving, open federation.
 
@@ -192,7 +193,7 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 - A lighter homeserver (Tuwunel) trial.
 - Open federation (no allow-list), an inbound "request to federate" queue, room-level server
   ACL editing, moderation bots, LAN-only peers, automatic Synapse restart.
-- Widgets and integrations: disabled in Element's config.
+- Integrations (managers, sticker packs, bots added through one): unset in Element's config.
 - Console: room creation, membership editing, message moderation, colour editing, health
   history and alerting.
 - KyCalendar meeting rooms, guest half (approved 2026-10-18, not scheduled; the member half
@@ -202,10 +203,12 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 
 ## Known risks
 
-- Group calls: Element v1.12.30 hides call buttons in rooms of more than two joined members
-  while `UIFeature.widgets` is off, as `matrix-init` ships it, so calls start only in rooms of
-  two. KyCalendar meeting rooms always count the console as a member. Turning the setting on
-  is an open owner decision (`docs/KYCALENDAR.md`, "Calls").
+- Widgets: Element's widgets UI is on for group calls (owner decision 2026-11-14). A room's
+  admins and moderators (power level 50 in Element's group rooms, 100 and so nobody but the
+  console in meeting rooms) can add a web page to the room. It loads for another member only
+  after they accept it; once accepted it may use the camera and microphone without a new prompt
+  if that member let Element remember them. Same reach as before through Element's Extensions
+  panel. Details: [evidence/2026-11-group-calls.md](evidence/2026-11-group-calls.md).
 
 - MFA relies on KyIdentity's per-app policy; MAS ignores `acr`. Untested.
 - A public deployment through cloudflared is untested; acceptance runs the shipped configs

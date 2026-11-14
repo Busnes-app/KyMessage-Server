@@ -534,91 +534,94 @@ async function title() {
   console.log(`  ok: Element's title is "${await page.title()}"`);
 }
 
+// Element Call helpers: alice and bob are the two participants' pages.
+// Inspect all embedded call frames; Element ships its own call app.
+async function joinCall(page, initiate, room, video = true) {
+  await openRoom(page, room, false);
+  if (initiate) await page.getByRole('button', { name: video ? /Video call|Start video call/i : /Voice call|Start voice call|Audio call/i }).first().click();
+  else await page.getByRole('button', { name: /Join call|Join video call|Video call|Voice call|Audio call/i }).first().click();
+  // Element replaces its call iframe during startup; resolve it again on each action.
+  const call = page.frameLocator('iframe[title="Element Call"]');
+  for (let i = 0; i < 30; i++) {
+    if (await call.getByRole('button', { name: 'End call', exact: true }).isVisible()) return;
+    // An incoming call can ask for confirmation in Element before creating its iframe.
+    const confirm = page.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
+    const join = call.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
+    if (await confirm.isVisible()) await confirm.click();
+    else if (await join.isVisible()) await join.click();
+    await page.waitForTimeout(1000);
+  }
+  const diagnostics = [];
+  for (const frame of page.frames()) diagnostics.push(await frame.evaluate(() => (window.kyCallPeers ?? []).map(pc => ({state:pc.connectionState,ice:pc.iceConnectionState,errors:pc.kyIceErrors,config:pc.getConfiguration().iceTransportPolicy,remote:pc.remoteDescription?.sdp.split('\r\n').filter(line=>line.startsWith('a=candidate:'))}))));
+  throw new Error(`Call never reached its connected view: ${JSON.stringify(diagnostics)}`);
+}
+async function received(page) {
+  const stats = [];
+  for (const frame of page.frames()) {
+    stats.push(...await frame.evaluate(async () => {
+      const all = [];
+      for (const pc of window.kyCallPeers ?? []) {
+        const report = await pc.getStats();
+        for (const v of report.values()) {
+          if (v.type === 'candidate-pair' && v.state === 'succeeded' && v.nominated) all.push({kind:'transport', policy:pc.getConfiguration().iceTransportPolicy, local:report.get(v.localCandidateId)?.candidateType, relayProtocol:report.get(v.localCandidateId)?.relayProtocol});
+          if (v.type === 'inbound-rtp') all.push({kind:v.kind, bytes:v.bytesReceived, frames:v.framesDecoded, samples:v.totalSamplesReceived});
+        }
+      }
+      return all;
+    }));
+  }
+  return stats;
+}
+async function proveMedia(alice, bob, video) {
+  let a, b;
+  for (let i = 0; i < 60; i++) {
+    a = await received(alice); b = await received(bob);
+    const media = (stats) => stats.some(s => s.kind==='audio' && s.bytes>0 && s.samples>0) && (!video || stats.some(s => s.kind==='video' && s.frames>0));
+    // Chromium can label the selected TURN candidate prflx after peer discovery.
+    const relay = stats => stats.some(s => s.kind==='transport' && s.policy==='relay' && s.relayProtocol==='tls');
+    if (media(a) && media(b) && (process.env.KYMATRIX_ACCEPT_FORCE_TURN !== '1' || (relay(a) && relay(b)))) return {alice:a, bob:b};
+    await alice.waitForTimeout(1000);
+  }
+  throw new Error(`Both users must receive ${video ? 'audio and decoded video' : 'audio'}: ${JSON.stringify({a,b})}`);
+}
+async function hangup(...pages) {
+  for (const page of pages) {
+    // Controls can briefly hide while the other participant leaves; always hang up.
+    const end = page.frameLocator('iframe[title="Element Call"]').getByRole('button', {name:'End call', exact:true});
+    await end.click({timeout:5000}).catch(async err => {
+      // Ending a DM can also close the other participant's iframe during this click.
+      if (await page.locator('iframe[title="Element Call"]').count()) throw err;
+    });
+    // Leaving is asynchronous; changing rooms early can retain the group-call view.
+    await end.waitFor({state:'hidden'});
+    for (const frame of page.frames()) await frame.evaluate(() => {window.kyCallPeers = []});
+  }
+}
+
 async function calls(restored = false) {
   const alice = await resume('alice', restored ? 'restored-alice' : 'prove-alice');
   const force = process.env.KYMATRIX_ACCEPT_FORCE_TURN === '1';
   const bob = restored && !force ? await launch('bob', 'restored-bob') : await resume('bob', restored ? 'restored-bob' : 'prove-bob');
   if (restored && !force) await recoveredSignIn(bob, 'bob', `@bob:${SERVER}`);
   const { rooms } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
-  // Inspect all embedded call frames; Element ships its own call app.
-  async function join(page, initiate, room = rooms.group, video = true) {
-    await openRoom(page, room, false);
-    if (initiate) await page.getByRole('button', { name: video ? /Video call|Start video call/i : /Voice call|Start voice call|Audio call/i }).first().click();
-    else await page.getByRole('button', { name: /Join call|Join video call|Video call|Voice call|Audio call/i }).first().click();
-    // Element replaces its call iframe during startup; resolve it again on each action.
-    const call = page.frameLocator('iframe[title="Element Call"]');
-    for (let i = 0; i < 30; i++) {
-      if (await call.getByRole('button', { name: 'End call', exact: true }).isVisible()) return;
-      // An incoming call can ask for confirmation in Element before creating its iframe.
-      const confirm = page.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
-      const join = call.getByRole('button', { name: /^(Join call|Join|Start call|Start)$/i }).first();
-      if (await confirm.isVisible()) await confirm.click();
-      else if (await join.isVisible()) await join.click();
-      await page.waitForTimeout(1000);
-    }
-    const diagnostics = [];
-    for (const frame of page.frames()) diagnostics.push(await frame.evaluate(() => (window.kyCallPeers ?? []).map(pc => ({state:pc.connectionState,ice:pc.iceConnectionState,errors:pc.kyIceErrors,config:pc.getConfiguration().iceTransportPolicy,remote:pc.remoteDescription?.sdp.split('\r\n').filter(line=>line.startsWith('a=candidate:'))}))));
-    throw new Error(`Call never reached its connected view: ${JSON.stringify(diagnostics)}`);
-  }
-  await join(alice, true);
-  await join(bob, false);
-  async function received(page) {
-    const stats = [];
-    for (const frame of page.frames()) {
-      stats.push(...await frame.evaluate(async () => {
-        const all = [];
-        for (const pc of window.kyCallPeers ?? []) {
-          const report = await pc.getStats();
-          for (const v of report.values()) {
-            if (v.type === 'candidate-pair' && v.state === 'succeeded' && v.nominated) all.push({kind:'transport', policy:pc.getConfiguration().iceTransportPolicy, local:report.get(v.localCandidateId)?.candidateType, relayProtocol:report.get(v.localCandidateId)?.relayProtocol});
-            if (v.type === 'inbound-rtp') all.push({kind:v.kind, bytes:v.bytesReceived, frames:v.framesDecoded, samples:v.totalSamplesReceived});
-          }
-        }
-        return all;
-      }));
-    }
-    return stats;
-  }
-  async function proveMedia(video) {
-    let a, b;
-    for (let i = 0; i < 60; i++) {
-      a = await received(alice); b = await received(bob);
-      const media = (stats) => stats.some(s => s.kind==='audio' && s.bytes>0 && s.samples>0) && (!video || stats.some(s => s.kind==='video' && s.frames>0));
-      // Chromium can label the selected TURN candidate prflx after peer discovery.
-      const relay = stats => stats.some(s => s.kind==='transport' && s.policy==='relay' && s.relayProtocol==='tls');
-      if (media(a) && media(b) && (process.env.KYMATRIX_ACCEPT_FORCE_TURN !== '1' || (relay(a) && relay(b)))) return {alice:a, bob:b};
-      await alice.waitForTimeout(1000);
-    }
-    throw new Error(`Both users must receive ${video ? 'audio and decoded video' : 'audio'}: ${JSON.stringify({a,b})}`);
-  }
-  const video = await proveMedia(true);
+  await joinCall(alice, true, rooms.group);
+  await joinCall(bob, false, rooms.group);
+  const video = await proveMedia(alice, bob, true);
   check(true, 'both Element clients receive audio and decode group video');
-  async function hangup() {
-    for (const page of [alice, bob]) {
-      // Controls can briefly hide while the other participant leaves; always hang up.
-      const end = page.frameLocator('iframe[title="Element Call"]').getByRole('button', {name:'End call', exact:true});
-      await end.click({timeout:5000}).catch(async err => {
-        // Ending a DM can also close the other participant's iframe during this click.
-        if (await page.locator('iframe[title="Element Call"]').count()) throw err;
-      });
-      // Leaving is asynchronous; changing rooms early can retain the group-call view.
-      await end.waitFor({state:'hidden'});
-      for (const frame of page.frames()) await frame.evaluate(() => {window.kyCallPeers = []});
-    }
-  }
-  await hangup();
-  await join(alice, true, rooms.dm, false);
-  await join(bob, false, rooms.dm, false);
-  const voice = await proveMedia(false);
+  await hangup(alice, bob);
+  await joinCall(alice, true, rooms.dm, false);
+  await joinCall(bob, false, rooms.dm, false);
+  const voice = await proveMedia(alice, bob, false);
   check(!voice.alice.some(s => s.kind==='video' && s.frames>0) && !voice.bob.some(s => s.kind==='video' && s.frames>0), 'DM voice call sends audio without video');
   check(true, 'both Element clients receive DM voice audio');
   // The next scenario reuses these profiles; leave no active call for it to resume.
-  await hangup();
+  await hangup(alice, bob);
   out({group:rooms.group, dm:rooms.dm, video, voice});
 }
 
 // A KyCalendar meeting room the console created (step meetings, MEETING_ROOM): alice and bob
-// accept its invites and read each other's encrypted messages.
+// accept its invites, read each other's encrypted messages, cannot add a room widget, and
+// hold a video call in it (three joined members, counting the console).
 async function meeting() {
   const id = process.env.MEETING_ROOM;
   const msgs = { a: text('alice'), b: text('bob') };
@@ -635,7 +638,44 @@ async function meeting() {
   await sees(bob, msgs.a);
   await send(bob, msgs.b);
   await sees(alice, msgs.b);
-  out({ room: id, messages: Object.values(msgs) });
+
+  // Widgets UI is on so Element shows calls in rooms of three or more; adding a room widget
+  // still needs power level 100 here (the organizer has 50), whichever client sends it.
+  const { rooms } = JSON.parse(fs.readFileSync(`${dir}/state/prove.json`, 'utf8'));
+  const addWidget = (page, room) => page.evaluate(async (room) => {
+    const url = 'https://widget.kymatrix.test/w';
+    try {
+      await window.mxMatrixClientPeg.get().sendStateEvent(room, 'im.vector.modular.widgets', { type: 'm.custom', url, name: 'w', data: {} }, 'kymatrix-widget');
+      return 'sent';
+    } catch (e) { return e.errcode ?? String(e); }
+  }, room);
+  for (const [name, page] of [['alice', alice], ['bob', bob]]) {
+    check(await addWidget(page, id) === 'M_FORBIDDEN', `Synapse refuses ${name}'s room widget in the meeting room`);
+  }
+  check(await addWidget(bob, rooms.group) === 'M_FORBIDDEN', 'Synapse refuses a power level 0 member\'s room widget in an Element group room');
+  await openRoom(bob, id, false);
+  await composer(bob).fill('/addwidget https://widget.kymatrix.test/w');
+  await composer(bob).press('Enter');
+  await bob.getByRole('dialog').getByText('You cannot modify widgets in this room.').waitFor();
+  check(true, "Element's /addwidget is refused for bob in the meeting room");
+  await closeDialogs(bob);
+  await composer(bob).fill('');
+
+  check(await alice.evaluate((id) => window.mxMatrixClientPeg.get().getRoom(id).getJoinedMemberCount(), id) === 3, 'the meeting room has three joined members (alice, bob, the console)');
+  await openRoom(alice, id, false);
+  const button = alice.getByRole('button', { name: /Video call|Start video call/i }).first();
+  await button.waitFor();
+  fs.mkdirSync(`${artifacts}/evidence`, { recursive: true });
+  await alice.screenshot({ path: `${artifacts}/evidence/meeting-call-button-alice.png` });
+  await joinCall(alice, true, id);
+  await joinCall(bob, false, id);
+  const video = await proveMedia(alice, bob, true);
+  check(true, 'both Element clients receive audio and decode video in the three-member meeting room');
+  await alice.screenshot({ path: `${artifacts}/evidence/meeting-call-alice.png` });
+  await bob.screenshot({ path: `${artifacts}/evidence/meeting-call-bob.png` });
+  // Later steps reuse these profiles; leave no active call for them to resume.
+  await hangup(alice, bob);
+  out({ room: id, messages: Object.values(msgs), video });
 }
 
 // Meeting notes (scripts/matrix-acceptance.sh, step notes). USER owns the rooms.

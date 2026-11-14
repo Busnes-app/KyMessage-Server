@@ -15,7 +15,8 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   (`private_chat` preset; initial state join rule `invite`, history `joined`, guest access
   `forbidden`, Megolm encryption; power levels organizer `OrganizerLevel` 50, default 0,
   `invite`/`kick` 50, room version 12 defaults plus `org.matrix.msc3401.call.member` 0, as stock
-  Element sets with Element Call; the console is the creator and is never listed),
+  Element sets with Element Call, and `im.vector.modular.widgets` 100, so nobody but the console
+  may add a room widget; the console is the creator and is never listed),
   `Memberships` (admin state API, `m.room.member` only), `Invite`, `Kick`, `SetRoomName`,
   `SetOrganizer` (only the organizer stays at 50; everything else kept; no write when that
   already holds, so `internal/api` calls it on every PUT) and

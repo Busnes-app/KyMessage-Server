@@ -300,6 +300,14 @@ jobs:
           MATRIX_ACCEPT_STOP_AFTER: ${{ matrix.stop-after }}
           MATRIX_ACCEPT_ARTIFACTS: ${{ runner.temp }}/matrix-acceptance
         run: bash scripts/matrix-acceptance.sh
+      # Screenshots the harness takes on purpose (meeting-room call), pass or fail.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: matrix-acceptance-evidence-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/matrix-acceptance/*/evidence/
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
