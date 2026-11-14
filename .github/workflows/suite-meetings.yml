@@ -4,18 +4,12 @@ name: Suite meetings
 # KYCALENDAR_SRC, step suite-meetings (docs/KYCALENDAR.md). KyCalendar and KyIdentity are built
 # from their main branches, unpinned, so this is not part of ci.yml: a change in either repo
 # must not fail this repo's pull requests or block a release. It runs nightly, on demand, and on
-# pull requests that touch the meeting code or the harness.
+# pull requests that touch the meeting code or the harness. The peers' refs are fixed and their
+# builds write no cache, so nothing another repository's branch builds is reused here.
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
-    inputs:
-      kycalendar_ref:
-        description: KyCalendar branch, tag or commit
-        default: main
-      kyidentity_ref:
-        description: KyIdentity branch, tag or commit
-        default: master
   pull_request:
     paths:
       - .github/workflows/suite-meetings.yml
@@ -49,13 +43,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Busnes-app/KyIdentity-server
-          ref: ${{ inputs.kyidentity_ref || 'master' }}
+          ref: master
           path: kyidentity-src
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Busnes-app/KyCalendar
-          ref: ${{ inputs.kycalendar_ref || 'fix/meeting-issuer-url' }}
+          ref: fix/meeting-issuer-url
           path: kycalendar-src
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -87,15 +81,12 @@ jobs:
           context: kyidentity-src
           load: true
           tags: kymatrix-accept-kyidentity:ci
-          cache-from: type=gha,scope=kyidentity-main
-          cache-to: type=gha,scope=kyidentity-main,mode=max
+          cache-from: type=gha,scope=kyidentity
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: kycalendar-src
           load: true
           tags: kymatrix-accept-kycalendar:ci
-          cache-from: type=gha,scope=kycalendar-main
-          cache-to: type=gha,scope=kycalendar-main,mode=max
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: notes
