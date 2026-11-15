@@ -706,13 +706,14 @@ async function calSignIn(page) {
   await page.goto(`${CAL}/api/sso/kysignon/login`);
   const newEvent = page.getByRole('button', { name: 'New event' });
   // KyIdentity's form, unless alice's KyIdentity session from Element still holds; then any consent.
+  const atKyIdentity = () => new URL(page.url()).origin === 'https://id.kymatrix.test';
   for (let i = 0; i < 10 && !(await newEvent.isVisible()); i++) {
-    if (page.url().startsWith('https://id.kymatrix.test/login') && (await page.locator('#username').isVisible())) {
+    if (atKyIdentity() && (await page.locator('#username').isVisible())) {
       await fillLogin(page, 'AQuinn');
       await page.getByRole('button', { name: 'Sign in' }).click();
     } else {
       const consent = page.getByRole('button', { name: /^(Allow|Approve|Authorize|Continue)$/ }).first();
-      if (page.url().startsWith('https://id.kymatrix.test') && (await consent.isVisible())) await consent.click();
+      if (atKyIdentity() && (await consent.isVisible())) await consent.click();
     }
     await page.waitForTimeout(1000);
   }
