@@ -141,7 +141,7 @@ func Verify(r *http.Request, secret []byte, want string, replay syncauth.Replay)
 
 // Where a Peer came from.
 const (
-	SourceEnvironment = "environment" // KY_KYCALENDAR_URL and _SECRET_FILE
+	SourceEnvironment = "environment" // KY_<PEER>_URL and _SECRET_FILE
 	SourceKyIdentity  = "kyidentity"  // KyIdentity's suite directory
 )
 

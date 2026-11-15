@@ -9,7 +9,13 @@ import (
 	"github.com/Busnes-app/ky_server_base/internal/config"
 )
 
-func TestKyCalendarPairFromEnv(t *testing.T) {
+func TestSuitePairsFromEnv(t *testing.T) {
+	for _, prefix := range []string{"KY_KYCALENDAR", "KY_KYPOST"} {
+		t.Run(prefix, func(t *testing.T) { testPairFromEnv(t, prefix) })
+	}
+}
+
+func testPairFromEnv(t *testing.T, prefix string) {
 	dir := t.TempDir()
 	file := func(name, v string) string {
 		p := filepath.Join(dir, name)
@@ -43,16 +49,16 @@ func TestKyCalendarPairFromEnv(t *testing.T) {
 		{"url only", "https://cal.example.com", "", true, "set together"},
 		{"file only", "", long, true, "set together"},
 		{"no matrix", "https://cal.example.com", long, false, "needs the Matrix stack"},
-		{"plain http", "http://cal.example.com", long, true, "KY_KYCALENDAR_URL"},
-		{"path", "https://cal.example.com/cal", long, true, "KY_KYCALENDAR_URL"},
+		{"plain http", "http://cal.example.com", long, true, prefix + "_URL"},
+		{"path", "https://cal.example.com/cal", long, true, prefix + "_URL"},
 		{"short secret", "https://cal.example.com", short, true, "at least 32 bytes"},
 		{"missing file", "https://cal.example.com", filepath.Join(dir, "none"), true, "at least 32 bytes"},
 		{"ok", "https://cal.example.com/", long, true, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			matrix(c.matrix)
-			t.Setenv("KY_KYCALENDAR_URL", c.url)
-			t.Setenv("KY_KYCALENDAR_SECRET_FILE", c.secret)
+			t.Setenv(prefix+"_URL", c.url)
+			t.Setenv(prefix+"_SECRET_FILE", c.secret)
 			cfg, err := config.LoadFromEnv()
 			if c.err != "" {
 				if err == nil || !strings.Contains(err.Error(), c.err) || strings.Contains(err.Error(), "kkkk") {
@@ -63,11 +69,18 @@ func TestKyCalendarPairFromEnv(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.url == "" && (cfg.KyCalendar.URL != "" || cfg.KyCalendar.Secret != nil) {
-				t.Fatalf("unset: %+v", cfg.KyCalendar)
+			got, other := cfg.KyCalendar, cfg.KyPost
+			if prefix == "KY_KYPOST" {
+				got, other = other, got
 			}
-			if c.url != "" && (cfg.KyCalendar.URL != "https://cal.example.com" || string(cfg.KyCalendar.Secret) != strings.Repeat("k", 32)) {
-				t.Fatalf("pair: %+v", cfg.KyCalendar)
+			if other.URL != "" || other.Secret != nil {
+				t.Fatalf("the other pair: %+v", other)
+			}
+			if c.url == "" && (got.URL != "" || got.Secret != nil) {
+				t.Fatalf("unset: %+v", got)
+			}
+			if c.url != "" && (got.URL != "https://cal.example.com" || string(got.Secret) != strings.Repeat("k", 32)) {
+				t.Fatalf("pair: %+v", got)
 			}
 		})
 	}

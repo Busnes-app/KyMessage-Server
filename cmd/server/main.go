@@ -121,7 +121,7 @@ func runServer() {
 		syncer.AdoptSCIM = cfg.SCIM.Enabled
 		srv.OnDirectoryChange(syncer.Wake)
 		go syncer.Run(ctx, 5*time.Minute, matrixDone)
-		srv.StartKyCalendar(ctx)
+		srv.StartSuitePairs(ctx)
 	} else {
 		close(matrixDone)
 	}

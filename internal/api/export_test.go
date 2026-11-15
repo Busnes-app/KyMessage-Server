@@ -140,3 +140,6 @@ func ExpireGuestSessionsForTest(t interface{ Fatal(...any) }, st store.Store) {
 		}
 	}
 }
+
+// ResolveKyPostForTest runs one KyIdentity lookup of the KyPost pair. Test-only.
+func ResolveKyPostForTest(s *Server, ctx context.Context) bool { return s.resolvePair(ctx, s.kypost) }
