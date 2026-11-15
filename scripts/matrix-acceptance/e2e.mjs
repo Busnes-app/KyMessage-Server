@@ -770,7 +770,9 @@ async function calendar() {
       await dlg.getByRole('button', { name: 'Invite', exact: true }).click();
     }
     check(await sw.isChecked(), 'the switch turns on by default once the event has guests');
-    check(await dlg.getByText('People outside your organisation cannot join yet.').isVisible(), 'the editor says people outside the organisation cannot join yet');
+    // KyCalendar's line for an event without outside attendees (contract L, KyCalendar #146).
+    check(await dlg.getByText('People outside your organisation get their own guest link in their invitation when KyMessages lets guests join.').isVisible(),
+      'the editor says how people outside the organisation would join');
     if (join) await shot(page, 'kycalendar-editor-video-meeting');
     await save(dlg);
   } else if (action === 'delete') {
