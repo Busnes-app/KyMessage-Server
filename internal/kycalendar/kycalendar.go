@@ -49,6 +49,18 @@ var (
 	ErrGuests  = errors.New("kycalendar: guests are not supported")
 )
 
+// SameID reports whether body names no meeting or meeting id. The path is not signed and the
+// body is, so a request redirected to another meeting's path is refused. A body without "id"
+// (KyCalendar before it sent one, or an empty DELETE body) names none.
+func SameID(body []byte, id string) bool {
+	var b map[string]json.RawMessage
+	if json.Unmarshal(body, &b) != nil || b["id"] == nil {
+		return true
+	}
+	var named string
+	return json.Unmarshal(b["id"], &named) == nil && named == id
+}
+
 // DecodePut parses and checks a PUT body.
 func DecodePut(body []byte) (PutRequest, error) {
 	var p PutRequest

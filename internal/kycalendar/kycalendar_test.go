@@ -44,6 +44,23 @@ func TestDecodePut(t *testing.T) {
 	}
 }
 
+func TestSameID(t *testing.T) {
+	const id = "mtg_0123456789abcdef"
+	for body, want := range map[string]bool{
+		``:                               true,
+		`{"sub":"s"}`:                    true,
+		`{"id":"mtg_0123456789abcdef"}`:  true,
+		`{"id":"mtg_another0123456789"}`: false,
+		`{"id":5}`:                       false,
+		`{"id":null}`:                    false,
+		`{"id":"MTG_0123456789ABCDEF"}`:  false,
+	} {
+		if got := SameID([]byte(body), id); got != want {
+			t.Errorf("%s: %v, want %v", body, got, want)
+		}
+	}
+}
+
 func TestVerify(t *testing.T) {
 	secret := []byte(strings.Repeat("s", 32))
 	replay := syncauth.NewMemoryReplay(syncauth.DefaultWindow, 100)
