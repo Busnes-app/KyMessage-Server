@@ -186,8 +186,9 @@ PUT body gains, beside section B's fields:
      held in memory for 2 minutes. Audited `guest.knock`.
    Outside a window: 409 `not_open`, and nothing is created.
 4. **Bootstrap page** (spike S1): `kymessages-guest.html`, rendered by `matrix-init` and
-   mounted read-only into Element beside `config.json`, runs only its own script (pinned by
-   hash in its CSP; `connect-src` is the console only). It drops the code from the address bar,
+   mounted read-only into Element beside `config.json`, runs only its own constant script (pinned by
+   hash in its CSP; it reads the console's origin from its `data-admin` attribute; `connect-src` is
+   the console only). It drops the code from the address bar,
    trades it at `POST /api/meet/session` (body: the code as text; only Element's origin may
    read the answer, no credentials, answered once), writes the session where Element restores
    sessions from (`mx_hs_url`, `mx_user_id`, `mx_device_id`, `mx_access_token`) and opens the

@@ -361,7 +361,7 @@ func Run(in Input, dir string) (Result, error) {
 	if !in.CallsOff {
 		data["TurnDeny"] = turnPeerDeny(in.MediaIP)
 	}
-	data["GuestScript"], data["GuestScriptHash"] = guestScript(in.AdminHost)
+	data["GuestScript"], data["GuestScriptHash"] = guestScript()
 	s["kyidentity_client_secret"] = clientSecret
 	for _, r := range []struct {
 		tmpl, rel string

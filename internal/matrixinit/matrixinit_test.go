@@ -1072,12 +1072,12 @@ func TestGuestPageRunsOnlyItsScript(t *testing.T) {
 	}
 	b, _ := os.ReadFile(p)
 	page := string(b)
-	script, hash := guestScript("https://admin.example.com")
+	script, hash := guestScript()
 	csp := `default-src 'none'; script-src 'sha256-` + hash + `'; connect-src https://admin.example.com; base-uri 'none'; form-action 'none'`
-	if !strings.Contains(page, `content="`+csp+`"`) || !strings.Contains(page, "<script>"+script+"</script>") || strings.Count(page, "<script") != 1 {
+	if !strings.Contains(page, `content="`+csp+`"`) || !strings.Contains(page, `<script data-admin="https://admin.example.com">`+script+"</script>") || strings.Count(page, "<script") != 1 {
 		t.Fatalf("page:\n%s", page)
 	}
-	if !strings.Contains(script, `fetch("https://admin.example.com" + '/api/meet/session'`) || !strings.Contains(script, "history.replaceState") {
+	if !strings.Contains(script, `fetch(admin + '/api/meet/session'`) || strings.Contains(script, "admin.example.com") || !strings.Contains(script, "history.replaceState") {
 		t.Fatalf("script:\n%s", script)
 	}
 }

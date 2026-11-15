@@ -12,6 +12,6 @@
 </head>
 <body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5">
 <p id="m" role="status">Joining the meeting…</p>
-<script>{{ .GuestScript }}</script>
+<script data-admin="{{ .In.AdminHost }}">{{ .GuestScript }}</script>
 </body>
 </html>
