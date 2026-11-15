@@ -195,6 +195,36 @@ Each ends in a recorded pass or fail under `docs/evidence/`.
 
 ## Evidence
 
+### Spike results (2026-11-14, GitHub runners, `make matrix-acceptance` step `guest-spikes`)
+
+Scripts: `scripts/matrix-acceptance/spikes/` (`s3-confinement.sh`, `s1-signin.sh`,
+`s2-knock.sh`), run in CI's guests leg on the pinned stack (Synapse v1.162.0, MAS 1.26.0,
+Element Web v1.12.30).
+
+- **S3, confinement: PASS** (PR #133, run 43659168987, job 132644398315).
+  - Synapse loads the module from its read-only `/config` (`PYTHONPATH=/config`): `Loaded module
+    <ky_guests.GuestConfinement …>`, no traceback.
+  - An unlinked, passwordless `guest-` MAS user with a MAS personal session works on Synapse on its
+    own device: the mechanism agents use, with `expires_in`.
+  - The guest was refused: room creation, a DM, knocking on another meeting's room, knocking where
+    alice (not the console) set the marker, joining its meeting uninvited, inviting, a third-party
+    invite, room state, a membership without the " (guest)" suffix, an alias, publishing, and media
+    upload (413). Its directory search found nobody, alice in its own room included. Members could
+    not start a DM with it or invite it into another meeting.
+  - The guest was allowed: knocking on its own meeting (the knock carries the suffixed name),
+    joining once a member admitted it, talking there. A profile rename did not reach the room.
+  - Members are unaffected: alice still finds bob in the directory and creates rooms.
+  - A 30-second personal session was refused 31 s after the check began, Synapse's token cache
+    included. Deactivating the account parted it from the room at once and its token was refused.
+  - Left open (documented risk): a guest can read any local user's profile by Matrix ID
+    (`limit_profile_requests_to_users_who_share_rooms` is off; it would change members' invite
+    flow) and can send to-device messages, which no module callback covers and encryption needs.
+- **S1, signing in:** pending this PR's re-run (the first run stopped in the harness before it).
+- **S2, approving:** pending likewise.
+- **Desk claim corrected:** the call grant's member list (`/_synapse/admin/v1/rooms/{id}/members`,
+  `get_users_in_room`) holds joined members only, so "membership exactly join" already holds for
+  everyone; no new check was needed.
+
 From origin/master `aae4dc5`:
 
 - **Guests are off everywhere today:**
