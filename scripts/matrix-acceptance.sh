@@ -546,7 +546,11 @@ room_state() { sql synapse "SELECT e.json::json->'content'->>'$2' FROM current_s
 blocked() { sql synapse "SELECT count(*) FROM blocked_rooms WHERE room_id = '$room'"; }
 alice_mx=@alice.q_ky:$KY_MATRIX_SERVER_NAME bob_mx=@bob:$KY_MATRIX_SERVER_NAME carol_mx=@carol:$KY_MATRIX_SERVER_NAME
 console_mx=@kymessages-console:$KY_MATRIX_SERVER_NAME
+# The bootstrap password must be replaced before the console answers (as step console does).
 app_login "$KY_ADMIN_PASSWORD"
+admin_pass=$(openssl rand -hex 16)
+app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
+app_login "$admin_pass"
 expect "$(app_api GET /api/admin/kycalendar | jq -c '[.connected, .source, .url]')" '[true,"kyidentity","https://cal.kymatrix.test"]' \
 	"KyMessages paired KyCalendar through KyIdentity, no environment pair"
 dc up -d kycalendar >/dev/null
