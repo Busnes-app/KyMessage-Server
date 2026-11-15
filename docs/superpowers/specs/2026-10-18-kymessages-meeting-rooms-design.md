@@ -219,8 +219,23 @@ Element Web v1.12.30).
   - Left open (documented risk): a guest can read any local user's profile by Matrix ID
     (`limit_profile_requests_to_users_who_share_rooms` is off; it would change members' invite
     flow) and can send to-device messages, which no module callback covers and encryption needs.
-- **S1, signing in:** pending this PR's re-run (the first run stopped in the harness before it).
-- **S2, approving:** pending likewise.
+- **S1, signing in: PASS** (PR #133, run 43668202702). A plain document on Element's origin
+  (`/config.json`) wrote `mx_hs_url`, `mx_user_id`, `mx_device_id`, `mx_access_token` and
+  `mx_is_guest=false` from a MAS personal session, and stock Element v1.12.30 restored it: it ran
+  as the guest on its `KYGUEST…` device, not as a Matrix guest, with crypto set up. Element then
+  moved the token out of localStorage (into its own store) and kept no OIDC keys. Nothing blocked:
+  no dialog; one dismissible "Verify this device" toast (the new user has no cross-signing).
+  Risk kept: Element's storage layout is internal, so every Element bump must re-run this.
+- **S2, approving: PASS** (same run). With `features.feature_ask_to_join: true`, alice, inside an
+  Element Call in the meeting room, saw "Second visitor (guest) (@guest-…) Asking to join" in the
+  room header and approved it without leaving the call (her End call button stayed visible); the
+  guest accepted the invite and joined. The invite's sender is alice. How the guest gets there in
+  stock Element: a room it cannot preview offers only "Join the discussion"; Synapse refuses that
+  join (403, the confinement module), and Element then offers "Ask to join"
+  (`RoomViewStore` `PromptAskToJoin`). The built feature knocks for the guest server-side, so
+  the guest never needs that step the first time.
+- **Fallback not needed:** S1 and S2 pass, so the KyMessages guest page joining LiveKit directly
+  stays unbuilt; guests use Element and Element Call with Matrix-keyed media encryption.
 - **Desk claim corrected:** the call grant's member list (`/_synapse/admin/v1/rooms/{id}/members`,
   `get_users_in_room`) holds joined members only, so "membership exactly join" already holds for
   everyone; no new check was needed.
