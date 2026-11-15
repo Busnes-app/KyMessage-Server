@@ -149,6 +149,11 @@ func TestSuiteChatOpensUserView(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("audit:\n%s", strings.Join(got, "\n"))
 	}
+	// The console's Matrix filter lists them.
+	w := adminDo(t, e.srv, loginAs(t, e.srv, e.st, "root", "admin"), "GET", "/api/admin/audit?kind=matrix", nil)
+	if n := strings.Count(w.Body.String(), `"action":"chat.open"`); w.Code != 200 || n != 3 {
+		t.Fatalf("matrix audit kind: %d, %d chat.open rows", w.Code, n)
+	}
 }
 
 // Each event type verifies only under its own pair's secret, and no other event type is
