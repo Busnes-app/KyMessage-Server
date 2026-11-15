@@ -4,6 +4,7 @@
 //        node e2e.mjs title BRAND
 //        MEETING_ROOM=... node e2e.mjs meeting
 //        GUEST_MXID=... MEETING_ROOM=... node e2e.mjs guestsignin|guestknock (spikes S1, S2)
+//        KYCAL_ACTION=... node e2e.mjs calendar; node e2e.mjs signin USER
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
 // database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
@@ -317,11 +318,17 @@ async function resume(name, profile) {
   const page = await launch(name, profile);
   // Element would otherwise reopen the room prove left open.
   await page.goto(`${CHAT}/#/home`);
+  await takeOver(page, page.getByRole('button', { name: 'New conversation' }));
+  return page;
+}
+
+// Waits for READY on an Element page that may first show the session lock or a dialog.
+async function takeOver(page, ready) {
   // Element's session lock outlives the closed browser: "open in another window", whose Continue
   // takes the session over. The lock can also clear on its own between looking and clicking,
   // and then the only Continue left is the "Back up your chats" toast's, which opens settings:
   // click the Continue beside the lock text only, and close any dialog that opened anyway.
-  const start = page.getByRole('button', { name: 'New conversation' });
+  const start = ready;
   const locked = page.getByText(/is open in another window/);
   const continueBtn = page.getByRole('button', { name: 'Continue', exact: true });
   const takeOver = page.locator('div').filter({ has: locked }).filter({ has: continueBtn }).last().getByRole('button', { name: 'Continue', exact: true });
@@ -331,7 +338,6 @@ async function resume(name, profile) {
     await closeDialogs(page);
   }
   await start.waitFor();
-  return page;
 }
 
 // Closes any dialog left open (a settings dialog would take a file upload's place).
@@ -691,6 +697,126 @@ async function meeting() {
   out({ room: id, messages: Object.values(msgs), video });
 }
 
+// A real KyCalendar (step suite-meetings): alice, in her Element profile, drives the event
+// editor. KYCAL_ACTION is create (KYCAL_TITLE, KYCAL_PEOPLE: comma-separated usernames,
+// KYCAL_JOIN=1 to open Join), rename (KYCAL_TITLE to KYCAL_NEW), remove (KYCAL_PEOPLE from
+// KYCAL_TITLE), off (its video meeting switch) or delete (KYCAL_TITLE). Writes the event's uid,
+// calendar and meeting_url.
+const CAL = 'https://cal.kymatrix.test';
+async function calSignIn(page) {
+  await page.goto(`${CAL}/api/sso/kysignon/login`);
+  const newEvent = page.getByRole('button', { name: 'New event' });
+  // KyIdentity's form, unless alice's KyIdentity session from Element still holds; then any consent.
+  const atKyIdentity = () => new URL(page.url()).origin === 'https://id.kymatrix.test';
+  for (let i = 0; i < 10 && !(await newEvent.isVisible()); i++) {
+    if (atKyIdentity() && (await page.locator('#username').isVisible())) {
+      await fillLogin(page, 'AQuinn');
+      await page.getByRole('button', { name: 'Sign in' }).click();
+    } else {
+      const consent = page.getByRole('button', { name: /^(Allow|Approve|Authorize|Continue)$/ }).first();
+      if (atKyIdentity() && (await consent.isVisible())) await consent.click();
+    }
+    await page.waitForTimeout(1000);
+  }
+  await newEvent.waitFor();
+}
+const listEvents = (page) => page.evaluate(async () => {
+  const day = 864e5, now = Date.now();
+  const q = new URLSearchParams({ start: new Date(now - 2 * day).toISOString(), end: new Date(now + 2 * day).toISOString() });
+  const r = await fetch(`/api/events?${q}`);
+  return r.ok ? r.json() : [];
+});
+async function findEvent(page, title, ready = () => true) {
+  for (let i = 0; i < 90; i++) {
+    const ev = (await listEvents(page)).find((e) => e.title === title);
+    if (ev && ready(ev)) return ev;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error(`no event "${title}" in the state wanted within 90s`);
+}
+// From the List view: events sharing a slot in the week view are too narrow to click.
+async function openEvent(page, title) {
+  await page.locator('.fc-listWeek-button').click();
+  await page.locator('.fc-list-event', { hasText: title }).first().click();
+  const dlg = page.locator('dialog.kc-dialog[open]');
+  await dlg.waitFor();
+  return dlg;
+}
+const shot = async (page, name) => {
+  fs.mkdirSync(`${artifacts}/evidence`, { recursive: true });
+  await page.screenshot({ path: `${artifacts}/evidence/${name}.png` });
+};
+async function calendar() {
+  const { KYCAL_ACTION: action, KYCAL_TITLE: title, KYCAL_NEW: renamed, KYCAL_PEOPLE: people = '', KYCAL_JOIN: join } = process.env;
+  const page = await launch('alice', 'prove-alice');
+  await calSignIn(page);
+  const save = async (dlg) => {
+    await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+    await dlg.waitFor({ state: 'detached' });
+  };
+  if (action === 'create') {
+    await page.getByRole('button', { name: 'New event' }).click();
+    const dlg = page.locator('dialog.kc-dialog[open]');
+    await dlg.locator('#kc-title').fill(title);
+    // Today at noon, local time: the calendar opens on today.
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await dlg.locator('#kc-start').fill(`${day}T12:00`);
+    await dlg.locator('#kc-end').fill(`${day}T13:00`);
+    const sw = dlg.getByRole('switch', { name: 'Video meeting' });
+    check(!(await sw.isChecked()), 'the Video meeting switch is shown, off for an event without guests');
+    for (const who of people.split(',').filter(Boolean)) {
+      await dlg.locator('#kc-invite').fill(`${who}@kymatrix.test`);
+      await dlg.getByRole('button', { name: 'Invite', exact: true }).click();
+    }
+    check(await sw.isChecked(), 'the switch turns on by default once the event has guests');
+    check(await dlg.getByText('People outside your organisation cannot join yet.').isVisible(), 'the editor says people outside the organisation cannot join yet');
+    if (join) await shot(page, 'kycalendar-editor-video-meeting');
+    await save(dlg);
+  } else if (action === 'delete') {
+    const dlg = await openEvent(page, title);
+    page.once('dialog', (d) => d.accept());
+    await dlg.getByRole('button', { name: 'Delete', exact: true }).click();
+    await dlg.waitFor({ state: 'detached' });
+    out({ deleted: title });
+    return;
+  } else {
+    const dlg = await openEvent(page, title);
+    if (action === 'rename') await dlg.locator('#kc-title').fill(renamed);
+    if (action === 'off') await dlg.getByRole('switch', { name: 'Video meeting' }).uncheck();
+    if (action === 'remove') {
+      for (const who of people.split(',').filter(Boolean)) await dlg.getByRole('button', { name: `Remove ${who}@kymatrix.test` }).click();
+    }
+    await save(dlg);
+  }
+  const want = action === 'rename' ? renamed : title;
+  const ev = await findEvent(page, want, (e) => action === 'off' ? !e.meeting : action !== 'create' || !!e.meeting_url);
+  if (join) {
+    // Join from the event view opens the room in Element, in alice's own Element session. The
+    // page loaded the event before KyCalendar wrote the link into it: load it again.
+    await page.reload();
+    await page.getByRole('button', { name: 'New event' }).waitFor();
+    const dlg = await openEvent(page, want);
+    const button = dlg.getByRole('button', { name: 'Join video meeting' });
+    await button.waitFor();
+    await shot(page, 'kycalendar-event-join');
+    const [tab] = await Promise.all([page.waitForEvent('popup'), button.click()]);
+    await tab.waitForURL((u) => u.href.startsWith(`${CHAT}/#/room/`));
+    const id = ev.meeting_url.split('#/room/')[1];
+    check(decodeURIComponent(tab.url().split('#/room/')[1]) === decodeURIComponent(id), 'Join opened the meeting room in Element');
+    // alice is invited: Element shows the room's invite, which step meeting accepts.
+    await takeOver(tab, tab.getByRole('button', { name: 'Accept' }));
+    await shot(tab, 'kycalendar-join-opens-element');
+  }
+  out({ title: ev.title, uid: ev.uid, calendar: ev.calendar_id, meeting: !!ev.meeting, meeting_url: ev.meeting_url ?? '' });
+}
+
+// Element sign-in for USER, who has none yet: MAS creates the account.
+async function signin() {
+  const page = await launch(user);
+  await nativeSignIn(page, user, mxid());
+}
+
 // Meeting notes (scripts/matrix-acceptance.sh, step notes). USER owns the rooms.
 const NOTES = `@kymessages-notes:${SERVER}`;
 const memberOf = (page, id, who, membership) => page.waitForFunction(({ id, who, membership }) =>
@@ -943,7 +1069,7 @@ async function guestknock() {
   out({ barText: barText.slice(0, 200), stillInCall });
 }
 
-const scenarios = { guestsignin, guestknock, calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
+const scenarios = { guestsignin, guestknock, calendar, signin, calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

@@ -1,0 +1,34 @@
+# Acceptance harness only (scripts/matrix-acceptance.sh with KYCALENDAR_SRC); never part of a
+# deployment. A real KyCalendar, built from its own Dockerfile, paired with KyMessages through
+# KyIdentity's /api/suite/peer: neither side gets a pairing variable.
+services:
+  kycalendar:
+    image: ${KYMATRIX_ACCEPT_KYCAL_IMAGE:?}
+    pull_policy: never
+    # As the harness user on a scratch bind, so the harness can read the stored events.
+    user: "${KY_MATRIX_UID:?}:${KY_MATRIX_GID:?}"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      KY_ENV: production
+      KY_APP_URL: https://cal.kymatrix.test
+      KY_SESSION_SECRET: ${KYMATRIX_ACCEPT_KYCAL_SESSION:?}
+      KY_CAPTCHA_PROVIDER: none
+      KY_KYSIGNON_ISSUER: https://id.kymatrix.test
+      KY_KYSIGNON_CLIENT_ID: kycalendar
+      KY_KYSIGNON_SECRET: ${KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET:?}
+      # Attendees and the People field need server-side scheduling; no KyPost runs, so no mail.
+      KYCALENDAR_SCHEDULING: "true"
+      # KyMessages' console is the harness proxy on the private Docker network.
+      KYCALENDAR_KYMESSAGES_ALLOW_PRIVATE: "true"
+      KYCALENDAR_BACKUP_DIR: ""
+    volumes:
+      - ./kycalendar-data:/app/data
+      - ./tls/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  # The console asks KyIdentity for its pair with its own sign-in client (kymessage).
+  app:
+    volumes:
+      - ./tls/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro
