@@ -168,7 +168,7 @@ func (s *Server) handleMeetingPut(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	req, err := kycalendar.DecodePut(body)
 	switch {
-	case !kycalendar.ValidID(id):
+	case !kycalendar.ValidID(id) || !kycalendar.SameID(body, id):
 		s.auditMeeting(r, "", "meeting.put", "", "refused: bad_body")
 		s.meetingRefusal(w, http.StatusBadRequest, "bad_body", "Invalid meeting ID")
 		return
@@ -371,12 +371,12 @@ func (s *Server) reconcileMeeting(ctx context.Context, tok, id string, m *store.
 // handleMeetingDelete closes a meeting's room the way the console's Close does: blocked,
 // members out, history kept. Unknown and closed meetings answer closed too.
 func (s *Server) handleMeetingDelete(w http.ResponseWriter, r *http.Request) {
-	_, ev, ok := s.meetingRequest(w, r, kycalendar.EventClose)
+	body, ev, ok := s.meetingRequest(w, r, kycalendar.EventClose)
 	if !ok {
 		return
 	}
 	id := r.PathValue("id")
-	if !kycalendar.ValidID(id) {
+	if !kycalendar.ValidID(id) || !kycalendar.SameID(body, id) {
 		s.auditMeeting(r, "", "meeting.close", "", "refused: bad_body")
 		s.meetingRefusal(w, http.StatusBadRequest, "bad_body", "Invalid meeting ID")
 		return
