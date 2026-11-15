@@ -338,6 +338,8 @@ func TestMeetingRefusals(t *testing.T) {
 		{"short id", "PUT", "mtg_short", ok, signOpts{}, 400, "bad_body"},
 		{"id with dot", "PUT", "mtg_0123456789abc.ef", ok, signOpts{}, 400, "bad_body"},
 		{"bad id on DELETE", "DELETE", "x", "", signOpts{}, 400, "bad_body"},
+		{"body names another meeting", "PUT", meetID, strings.Replace(ok, "{", `{"id":"mtg_another0123456789",`, 1), signOpts{}, 400, "bad_body"},
+		{"DELETE body names another meeting", "DELETE", meetID, `{"id":"mtg_another0123456789","sub":"sub-a","issuer":"` + calIssuer + `"}`, signOpts{}, 400, "bad_body"},
 		{"not JSON", "PUT", meetID, "{", signOpts{}, 400, "bad_body"},
 		{"empty title", "PUT", meetID, putBody("sub-a", ""), signOpts{}, 400, "bad_body"},
 		{"control in title", "PUT", meetID, putBody("sub-a", "a\u0007b"), signOpts{}, 400, "bad_body"},
@@ -351,9 +353,11 @@ func TestMeetingRefusals(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) { wantCode(t, e.call(t, c.method, c.id, c.body, c.o), c.status, c.code) })
 	}
+	// A body naming its own meeting is fine.
+	decode[map[string]any](t, e.call(t, "PUT", meetID, strings.Replace(ok, "{", `{"id":"`+meetID+`",`, 1), signOpts{}))
 	// Empty guests and windows are fine.
 	decode[map[string]any](t, e.call(t, "PUT", meetID, `{"sub":"sub-a","issuer":"`+calIssuer+`","title":"Sync","guests":[],"windows":[{"start":"x"}]}`, signOpts{}))
-	if audits := strings.Join(e.audits(t), "\n"); strings.Count(audits, "refused: bad_body") != 8 || !strings.Contains(audits, "refused: no_user") {
+	if audits := strings.Join(e.audits(t), "\n"); strings.Count(audits, "refused: bad_body") != 10 || !strings.Contains(audits, "refused: no_user") {
 		t.Errorf("refusals audited:\n%s", audits)
 	}
 }

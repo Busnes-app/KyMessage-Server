@@ -16,6 +16,9 @@ KyCalendar implements the other side.
   control characters, at most `MaxMembers` (100) `member_subs`, each one the same rule. A
   non-empty `guests` is `ErrGuests`; unknown fields (`windows`) are ignored.
 - **`ValidID`**: `[A-Za-z0-9_-]{16,64}`.
+- **`SameID`**: a body's `"id"`, when present (null and non-strings included), must equal the
+  path's ID; a body without one (or not a JSON object) passes. Both routes answer 400 `bad_body`
+  otherwise, because the path is not signed.
 - **`Link`** holds a `Peer` (https origin, secret, source `environment` or `kyidentity`) swapped
   atomically, nil while unpaired. The secret lives only there.
 

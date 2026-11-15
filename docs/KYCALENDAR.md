@@ -30,10 +30,12 @@ one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
   room version 12 rooms, in which the creator outranks every power level and may not appear in
   `users` (MSC4289). The console therefore holds creator power; the organizer is listed at 50,
   everyone else defaults to 0, `invite` and `kick` are 50, exactly as the contract says.
-- **The meeting ID in the path is not signed.** syncauth signs the event type, event ID,
-  timestamp and body, not the URL. The replay guard keys on the event ID across both routes,
-  so a captured request cannot be sent again to another meeting, but a request intercepted
-  before it arrives could be redirected to another ID. Wave 2 should put `"id"` in the body.
+- **The meeting ID is also in the body.** syncauth signs the event type, event ID, timestamp
+  and body, not the URL, so a request intercepted before it arrives could be sent to another
+  meeting's path. Both bodies may carry `"id"`, the path's meeting ID; a body naming another ID
+  is 400 `bad_body` (`kycalendar.SameID`). A body without `"id"` is still accepted, so a
+  KyCalendar from before it sent one keeps working; once every KyCalendar sends it, it can
+  become required.
 
 ## Pairing
 
@@ -81,7 +83,7 @@ one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
 ## PUT (idempotent)
 
 ```json
-{"sub":"<organizer>","issuer":"https://id.example","title":"Weekly sync",
+{"id":"<the path's {id}>","sub":"<organizer>","issuer":"https://id.example","title":"Weekly sync",
  "member_subs":["…","…"]}
 ```
 
@@ -112,7 +114,7 @@ one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
 |---|---|---|
 | 404 | `kycalendar_off` | Not paired. |
 | 401 | `bad_signature` | |
-| 400 | `bad_body` | Malformed, bad `{id}`, title empty, over 255 bytes or with control characters, more than 100 members. |
+| 400 | `bad_body` | Malformed, bad `{id}`, a body `id` other than `{id}`, title empty, over 255 bytes or with control characters, more than 100 members. |
 | 404 | `no_user` | Organizer has no active KyMessages account linked to that subject. |
 | 409 | `closed` | The meeting was closed; a closed ID is never reopened. |
 | 422 | `guests_unsupported` | A non-empty `guests`. |
@@ -122,7 +124,8 @@ one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
 ## DELETE
 
 Closes the room as the console's Close does (blocked, members out, history kept). The body is
-not read beyond its signature. 200 `{"outcome":"closed"}`; an unknown or already closed ID is
+read only for its signature and an `"id"` (KyCalendar sends `{"id","sub","issuer"}`); an `id`
+other than the path's is 400 `bad_body`. 200 `{"outcome":"closed"}`; an unknown or already closed ID is
 also 200. A closed meeting's room is checked again on every DELETE, so a Close job that failed
 is retried. A close still running, or an unreachable Matrix stack, is 503 `unavailable`.
 
