@@ -383,8 +383,21 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   makes the room (`e2e.mjs calendar`; the stored event's CONFERENCE and `Join:` line read by
   `kycal-event.py`), Join opens it in Element, `e2e.mjs meeting` runs on it; after carol signs
   in, a rename invites her, removing her kicks her, the switch off and a deleted event block
-  their rooms; a PUT under any other secret is 401. Screenshots: artifact
-  `suite-meetings-evidence`.
+  their rooms; a PUT under any other secret is 401. Then stage `suite-chat` (contract H):
+  KyCalendar's Chat on bob opens Element's `#/user/` view of him, dave (no chat account) reads
+  "not on KyMessages", an outside attendee and alice herself get no action; signed under the
+  KyIdentity-issued secrets, self and administrator targets are `no_target`, an administrator
+  caller `no_user`, the wrong type or key 401, a replay `duplicate`, and `kypost.chat.open` works
+  under the KyPost pair; audit rows hold no subject, link or secret. Stage `suite-guests`
+  (contract L): KyPost is a stand-in on the harness proxy (`post.kymatrix.test`, client
+  `kypost` in KyIdentity, paired with KyCalendar through `/api/suite/peer`) that logs each
+  `kycalendar.itip.send` (`kypost-sink.py` verifies every signature); with guests on, an event
+  with an outside attendee gets a guest key, that attendee's invitation alone carries the link,
+  KyCalendar stores it nowhere in the clear, and the guest opens it (`/meet`), knocks, is
+  admitted and shares alice's call (`e2e.mjs guestmeeting` with `GUEST_LINK`); with guests off
+  the next event keeps bob's room and the editor names the attendee who cannot join. Element is
+  registered as KyIdentity client `kymessage-chat` (the suite app the Chat action looks for).
+  Screenshots: artifact `suite-meetings-evidence`.
   Stage `notes` (before `agents`, owner `owen` signs in here; `docs/MEETING-NOTES.md`): the bot
   image built from `notes/` runs as shipped (`docker-compose.notes.yml`) on the project network;
   off by default, it waits, the console turns it on (audited) and it gets its session; bob's

@@ -5,6 +5,7 @@
 //        MEETING_ROOM=... node e2e.mjs meeting
 //        GUEST_MXID=... MEETING_ROOM=... node e2e.mjs guestsignin|guestknock (spikes S1, S2)
 //        GUEST_NEXT=... MEETING_ROOM=... node e2e.mjs guestmeeting
+//        GUEST_LINK=... MEETING_ROOM=... node e2e.mjs guestmeeting (the guest opens its invitation's link)
 //        KYCAL_ACTION=... node e2e.mjs calendar; node e2e.mjs signin USER
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
@@ -698,11 +699,14 @@ async function meeting() {
   out({ room: id, messages: Object.values(msgs), video });
 }
 
-// A real KyCalendar (step suite-meetings): alice, in her Element profile, drives the event
-// editor. KYCAL_ACTION is create (KYCAL_TITLE, KYCAL_PEOPLE: comma-separated usernames,
-// KYCAL_JOIN=1 to open Join), rename (KYCAL_TITLE to KYCAL_NEW), remove (KYCAL_PEOPLE from
-// KYCAL_TITLE), off (its video meeting switch) or delete (KYCAL_TITLE). Writes the event's uid,
-// calendar and meeting_url.
+// A real KyCalendar (steps suite-*): alice, in her Element profile, drives the event
+// editor. KYCAL_ACTION is create (KYCAL_TITLE, KYCAL_PEOPLE: comma-separated usernames or
+// addresses, KYCAL_JOIN=1 to open Join, KYCAL_NOW=1 to start it now rather than at noon), rename
+// (KYCAL_TITLE to KYCAL_NEW), remove (KYCAL_PEOPLE from KYCAL_TITLE), off (its video meeting
+// switch), delete (KYCAL_TITLE), view (KYCAL_TITLE: the editor's guests line, as hint) or chat
+// (KYCAL_TITLE; KYCAL_PEOPLE: whose Chat action opens their Element user view; KYCAL_NOCHAT: who
+// has no Chat action; KYCAL_NOTONKY: whose Chat says they are not on KyMessages). Writes the
+// event's uid, calendar, meeting_url, guests and guests_error.
 const CAL = 'https://cal.kymatrix.test';
 async function calSignIn(page) {
   await page.goto(`${CAL}/api/sso/kysignon/login`);
@@ -743,12 +747,14 @@ async function openEvent(page, title) {
   await dlg.waitFor();
   return dlg;
 }
+const address = (who) => who.includes('@') ? who : `${who}@kymatrix.test`;
+const list = (v = '') => v.split(',').filter(Boolean).map(address);
 const shot = async (page, name) => {
   fs.mkdirSync(`${artifacts}/evidence`, { recursive: true });
   await page.screenshot({ path: `${artifacts}/evidence/${name}.png` });
 };
 async function calendar() {
-  const { KYCAL_ACTION: action, KYCAL_TITLE: title, KYCAL_NEW: renamed, KYCAL_PEOPLE: people = '', KYCAL_JOIN: join } = process.env;
+  const { KYCAL_ACTION: action, KYCAL_TITLE: title, KYCAL_NEW: renamed, KYCAL_PEOPLE: people = '', KYCAL_JOIN: join, KYCAL_NOW: now } = process.env;
   const page = await launch('alice', 'prove-alice');
   await calSignIn(page);
   const save = async (dlg) => {
@@ -759,15 +765,17 @@ async function calendar() {
     await page.getByRole('button', { name: 'New event' }).click();
     const dlg = page.locator('dialog.kc-dialog[open]');
     await dlg.locator('#kc-title').fill(title);
-    // Today at noon, local time: the calendar opens on today.
+    // Today at noon, local time: the calendar opens on today. KYCAL_NOW: from this minute for an
+    // hour, so guests are inside their window (10 minutes before the start to the end).
+    const local = (d) => new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
     const d = new Date();
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    await dlg.locator('#kc-start').fill(`${day}T12:00`);
-    await dlg.locator('#kc-end').fill(`${day}T13:00`);
+    const start = now ? d : new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12);
+    await dlg.locator('#kc-start').fill(local(start));
+    await dlg.locator('#kc-end').fill(local(new Date(start.getTime() + 36e5)));
     const sw = dlg.getByRole('switch', { name: 'Video meeting' });
     check(!(await sw.isChecked()), 'the Video meeting switch is shown, off for an event without guests');
-    for (const who of people.split(',').filter(Boolean)) {
-      await dlg.locator('#kc-invite').fill(`${who}@kymatrix.test`);
+    for (const who of list(people)) {
+      await dlg.locator('#kc-invite').fill(who);
       await dlg.getByRole('button', { name: 'Invite', exact: true }).click();
     }
     check(await sw.isChecked(), 'the switch turns on by default once the event has guests');
@@ -783,12 +791,20 @@ async function calendar() {
     await dlg.waitFor({ state: 'detached' });
     out({ deleted: title });
     return;
+  } else if (action === 'view') {
+    const hint = await (await openEvent(page, title)).locator('.kc-hint', { hasText: /join/ }).last().innerText();
+    await shot(page, process.env.KYCAL_SHOT || 'kycalendar-guests-line');
+    out({ hint });
+    return;
+  } else if (action === 'chat') {
+    await chat(page, title);
+    return;
   } else {
     const dlg = await openEvent(page, title);
     if (action === 'rename') await dlg.locator('#kc-title').fill(renamed);
     if (action === 'off') await dlg.getByRole('switch', { name: 'Video meeting' }).uncheck();
     if (action === 'remove') {
-      for (const who of people.split(',').filter(Boolean)) await dlg.getByRole('button', { name: `Remove ${who}@kymatrix.test` }).click();
+      for (const who of list(people)) await dlg.getByRole('button', { name: `Remove ${who}` }).click();
     }
     await save(dlg);
   }
@@ -811,7 +827,37 @@ async function calendar() {
     await takeOver(tab, tab.getByRole('button', { name: 'Accept' }));
     await shot(tab, 'kycalendar-join-opens-element');
   }
-  out({ title: ev.title, uid: ev.uid, calendar: ev.calendar_id, meeting: !!ev.meeting, meeting_url: ev.meeting_url ?? '' });
+  out({ title: ev.title, uid: ev.uid, calendar: ev.calendar_id, meeting: !!ev.meeting, meeting_url: ev.meeting_url ?? '', guests: ev.guests ?? [], guests_error: ev.guests_error ?? '' });
+}
+
+// Chat (contract H) from KyCalendar's event: the action opens Element's user view in a new tab.
+async function chat(page, title) {
+  const { KYCAL_PEOPLE: people, KYCAL_NOCHAT: none, KYCAL_NOTONKY: notOnKy } = process.env;
+  const dlg = await openEvent(page, title);
+  const action = (who) => dlg.getByRole('button', { name: `Chat with ${who}`, exact: true });
+  await action(list(people)[0]).waitFor();
+  for (const who of list(none)) check(!(await action(who).count()), `no Chat action for ${who}`);
+  check(!(await dlg.getByRole('button', { name: /^Chat with alice/i }).count()), 'no Chat action for alice herself');
+  await shot(page, 'kycalendar-chat-actions');
+  for (const who of list(notOnKy)) {
+    await action(who).click();
+    const alert = dlg.getByRole('alert');
+    await alert.waitFor();
+    check((await alert.innerText()).trim() === "This person isn't on KyMessages yet.", `Chat with ${who}, who has no chat account, says so`);
+    await shot(page, 'kycalendar-chat-not-on-kymessages');
+  }
+  const urls = {};
+  for (const who of list(people)) {
+    const [tab] = await Promise.all([page.context().waitForEvent('page'), action(who).click()]);
+    await tab.waitForURL((u) => u.href.startsWith(`${CHAT}/#/user/`));
+    urls[who] = tab.url();
+    const mxid = `@${who.split('@')[0]}:${SERVER}`;
+    check(decodeURIComponent(urls[who].split('#/user/')[1]) === mxid, `Chat with ${who} opened Element's user view of ${mxid}`);
+    await takeOver(tab, tab.getByRole('button', { name: /^(Message|Send message)$/ }).first());
+    await shot(tab, `kycalendar-chat-element-${who.split('@')[0]}`);
+    await tab.close();
+  }
+  out({ urls });
 }
 
 // Element sign-in for USER, who has none yet: MAS creates the account.
@@ -1079,12 +1125,21 @@ async function guestknock() {
 // hangs up and stays in the room, so the reconciler must remove it. Writes the guest's token
 // (harness only) for the step's grant and confinement checks.
 async function guestmeeting() {
-  const { GUEST_NEXT: next, MEETING_ROOM: room } = process.env;
+  const { GUEST_NEXT: next, GUEST_LINK: link, MEETING_ROOM: room } = process.env;
   const alice = await resume('alice', 'prove-alice');
   await openRoom(alice, room, true);
   await joinCall(alice, true, room);
-  const guest = await launch('guest', 'guest-meeting');
-  await guest.goto(next);
+  const guest = await launch('guest', link ? 'guest-invited' : 'guest-meeting');
+  if (link) {
+    // The link from the guest's own invitation: the console's join page, as a browser opens it.
+    await guest.goto(link);
+    await guest.locator('#meet-name').fill('Visitor');
+    fs.mkdirSync(`${artifacts}/evidence`, { recursive: true });
+    await guest.screenshot({ path: `${artifacts}/evidence/guests-invited-join-page.png` });
+    await guest.getByRole('button', { name: 'Ask to join' }).click();
+  } else {
+    await guest.goto(next);
+  }
   await guest.waitForURL((u) => u.href.startsWith(`${CHAT}/#/room/`), { timeout: 30000 });
   await synced(guest);
   const mxid = await guest.evaluate(() => window.mxMatrixClientPeg.get().getUserId());

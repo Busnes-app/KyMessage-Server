@@ -265,5 +265,11 @@ PUT body gains, beside section B's fields:
   the stored event carries `CONFERENCE;VALUE=URI;FEATURE=VIDEO;LABEL=KyMessages:<url>` and ends
   with `Join: <url>`; Join opens the room in Element; both accept and hold a video call there;
   carol (no chat account) is skipped, and after she signs in a rename invites her; removing her
-  removes her; switching the meeting off, and deleting another event, close their rooms. Not in
-  `ci.yml`: an unpinned peer must not fail this repo's pull requests.
+  removes her; switching the meeting off, and deleting another event, close their rooms. Step
+  `suite-guests` drives guests from KyCalendar, with a KyPost stand-in on the harness proxy that
+  records what KyCalendar hands KyPost to mail: with Meeting guests on, an outside attendee's
+  invitation, and only theirs, carries a guest link; the guest opens it, knocks, alice admits
+  them from her call and both decode media; with it off, the next event keeps its member room
+  and the editor names the attendee who cannot join. Evidence:
+  `docs/evidence/2026-11-suite-wave2.md`. Not in `ci.yml`: an unpinned peer must not fail this
+  repo's pull requests.

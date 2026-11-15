@@ -19,10 +19,13 @@ services:
       KY_KYSIGNON_ISSUER: https://id.kymatrix.test
       KY_KYSIGNON_CLIENT_ID: kycalendar
       KY_KYSIGNON_SECRET: ${KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET:?}
-      # Attendees and the People field need server-side scheduling; no KyPost runs, so no mail.
+      # Attendees and the People field need server-side scheduling. KyPost is the harness's
+      # stand-in (overrides/nginx.conf), paired through KyIdentity like KyMessages: it records
+      # what KyCalendar would have mailed.
       KYCALENDAR_SCHEDULING: "true"
-      # KyMessages' console is the harness proxy on the private Docker network.
+      # KyMessages' console and the KyPost stand-in are the harness proxy on the private Docker network.
       KYCALENDAR_KYMESSAGES_ALLOW_PRIVATE: "true"
+      KYCALENDAR_KYPOST_ALLOW_PRIVATE: "true"
       KYCALENDAR_BACKUP_DIR: ""
     volumes:
       - ./kycalendar-data:/app/data

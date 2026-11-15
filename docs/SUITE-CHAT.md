@@ -80,3 +80,14 @@ against the KyPost pair, so it is `kypost_off` or `bad_signature`.
 - `internal/api/suite_chat.go`: the route.
 - `internal/config`: `pairFromEnv` reads `KY_KYCALENDAR_*` and `KY_KYPOST_*`.
 - `web/src/components/SuitePairPanel.tsx`: the console's KyCalendar and KyPost rows.
+
+## Verification
+
+- `internal/api/suite_chat_test.go`: every refusal in the table.
+- `.github/workflows/suite-meetings.yml`, step `suite-chat`, with a real KyCalendar and
+  KyIdentity: KyCalendar's Chat action on an attendee opens Element's user view of that person;
+  people without a chat account read KyCalendar's "not on KyMessages" line; signed under the
+  secrets KyIdentity issues, self and administrator targets and an administrator caller are
+  refused, and `kypost.chat.open` works under the KyPost pair. KyPost's own Chat action is not
+  exercised there (no KyPost runs; the harness signs as it). Evidence:
+  `docs/evidence/2026-11-suite-wave2.md`.

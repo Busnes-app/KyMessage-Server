@@ -1,7 +1,9 @@
 name: Suite meetings
 
-# KyCalendar video meetings against a real KyMessages stack: scripts/matrix-acceptance.sh with
-# KYCALENDAR_SRC, step suite-meetings (docs/KYCALENDAR.md). KyCalendar and KyIdentity are built
+# KyCalendar video meetings, chat and meeting guests against a real KyMessages stack:
+# scripts/matrix-acceptance.sh with KYCALENDAR_SRC, steps suite-meetings, suite-chat and
+# suite-guests (docs/KYCALENDAR.md, docs/SUITE-CHAT.md). KyPost is a stand-in on the harness
+# proxy that records what KyCalendar hands it to mail. KyCalendar and KyIdentity are built
 # from their main branches, unpinned, so this is not part of ci.yml: a change in either repo
 # must not fail this repo's pull requests or block a release. It runs nightly, on demand, and on
 # pull requests that touch the meeting code or the harness. The peers' refs are fixed and their
@@ -18,6 +20,10 @@ on:
       - internal/kycalendar/**
       - internal/api/meeting_handlers*.go
       - internal/api/kycalendar_link*.go
+      - internal/api/suite_chat*.go
+      - internal/api/suite_pair*.go
+      - internal/api/guest_handlers*.go
+      - web/src/pages/Meet.tsx
       - internal/synapseadmin/meetings*.go
 
 permissions:
@@ -34,7 +40,7 @@ jobs:
   suite-meetings:
     name: KyCalendar meetings on a real KyMessages stack
     runs-on: ubuntu-latest
-    # Stack set-up and prove take about 8 minutes, the step itself about 5.
+    # Stack set-up and prove take about 8 minutes, the suite steps about 10.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,7 +106,7 @@ jobs:
           KYIDENTITY_SRC: ${{ github.workspace }}/kyidentity-src
           KYCALENDAR_SRC: ${{ github.workspace }}/kycalendar-src
           MATRIX_ACCEPT_PREBUILT: "1"
-          MATRIX_ACCEPT_STOP_AFTER: suite-meetings
+          MATRIX_ACCEPT_STOP_AFTER: suite-guests
           # The guest steps run in ci.yml's meeting-guests leg.
           MATRIX_ACCEPT_SKIP: guest-spikes guests
           MATRIX_ACCEPT_ARTIFACTS: ${{ runner.temp }}/matrix-acceptance
