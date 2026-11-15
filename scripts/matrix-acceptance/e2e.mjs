@@ -1107,6 +1107,9 @@ async function guestmeeting() {
   check(true, 'alice and the guest receive audio and decode each other\'s video');
   await guest.screenshot({ path: `${artifacts}/evidence/guests-guest-in-call.png` });
   fs.writeFileSync(`${dir}/state/guest.token`, await guest.evaluate(() => window.mxMatrixClientPeg.get().getAccessToken()), { mode: 0o600 });
+  // Stay through two 5 s guest sweeps: one that never sees the guest in the call gives it the
+  // 2-minute first-call grace, not the 20 s departure guests.sh waits for.
+  await guest.waitForTimeout(11000);
   await hangup(guest);
   await hangup(alice);
   out({ guest: mxid, media });
