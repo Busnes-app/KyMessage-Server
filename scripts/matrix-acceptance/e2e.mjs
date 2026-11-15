@@ -792,7 +792,7 @@ async function calendar() {
     out({ deleted: title });
     return;
   } else if (action === 'view') {
-    const hint = await (await openEvent(page, title)).locator('.kc-hint', { hasText: /guest/ }).last().innerText();
+    const hint = await (await openEvent(page, title)).locator('.kc-hint', { hasText: /join/ }).last().innerText();
     await shot(page, process.env.KYCAL_SHOT || 'kycalendar-guests-line');
     out({ hint });
     return;
