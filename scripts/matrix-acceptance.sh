@@ -40,7 +40,7 @@
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
 # MATRIX_ACCEPT_ARTIFACTS (traces and logs on failure, default scripts/matrix-acceptance/artifacts),
 # MATRIX_ACCEPT_STOP_AFTER (a step name: stop there, for iterating on one step),
-# MATRIX_ACCEPT_SKIP (space-separated step names to skip: meetings, closed, offboard-*,
+# MATRIX_ACCEPT_SKIP (space-separated step names to skip: meetings, guest-spikes, closed, offboard-*,
 # admin-isolation, notes, agents; CI splits the run in two this way),
 # MATRIX_ACCEPT_PREBUILT=1 (use kymatrix-accept-{app,kyidentity,notes}:ci, already built from the
 # same sources, instead of building the three images; CI builds them with a layer cache).
@@ -474,6 +474,20 @@ code=$(meeting_call PUT "$mid" "$mid-put-4" "$(meeting_body 'again' "${kid[bob]}
 expect "$code $(reply .code)" "409 closed" "a closed meeting is never reopened"
 code=$(meeting_call DELETE "$mid" "$mid-close-2" "")
 expect "$code" 200 "closing it again succeeds"
+pass
+fi
+
+# ---------------------------------------------------------------------------------------
+# Meeting-guest spikes S1 to S3 (docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md,
+# "Spikes"), right after prove while alice's Element session is live. Evidence lines go to the
+# summary; CI runs them in their own leg, which stops here.
+if wanted guest-spikes; then
+step guest-spikes
+element_cfg=$scratch/matrix/element/config.json
+for s in guests-lib s3-confinement s1-signin s2-knock; do
+	# shellcheck source=/dev/null
+	. "$here/spikes/$s.sh"
+done
 pass
 fi
 

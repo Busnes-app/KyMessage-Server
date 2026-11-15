@@ -3,6 +3,7 @@
 //        AGENT_MXID=... AGENT_MSG=... AGENT_REPLY=... node e2e.mjs agent USER
 //        node e2e.mjs title BRAND
 //        MEETING_ROOM=... node e2e.mjs meeting
+//        GUEST_MXID=... MEETING_ROOM=... node e2e.mjs guestsignin|guestknock (spikes S1, S2)
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
 // database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
@@ -875,7 +876,70 @@ async function notesscreens() {
   out({ room: id, shots });
 }
 
-const scenarios = { calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
+// Meeting-guest spikes S1 and S2 (scripts/matrix-acceptance/spikes/). The guest's session is a
+// MAS personal session the harness minted; a page on Element's origin writes it where Element
+// restores sessions from, as the bootstrap page would. The token is never in a URL.
+async function guestsignin() {
+  const { GUEST_MXID: mxid, GUEST_DEVICE: device, GUEST_TOKEN_FILE: tokenFile, MEETING_ROOM: room } = process.env;
+  const token = fs.readFileSync(tokenFile, 'utf8').trim();
+  const page = await launch('guest', 'spike-guest');
+  // A plain document on Element's origin that runs none of Element's code.
+  await page.goto(`${CHAT}/config.json`);
+  await page.evaluate(({ hs, mxid, device, token }) => {
+    localStorage.clear();
+    localStorage.setItem('mx_hs_url', hs);
+    localStorage.setItem('mx_user_id', mxid);
+    localStorage.setItem('mx_device_id', device);
+    localStorage.setItem('mx_access_token', token);
+    localStorage.setItem('mx_is_guest', 'false');
+  }, { hs: MATRIX, mxid, device, token });
+  await page.goto(`${CHAT}/#/room/${room}`);
+  await synced(page);
+  const client = await page.evaluate(() => {
+    const c = window.mxMatrixClientPeg.get();
+    return { user: c.getUserId(), device: c.getDeviceId(), guest: c.isGuest(), crypto: !!c.getCrypto() };
+  });
+  check(client.user === mxid && client.device === device, `Element restored the minted session as ${mxid} on ${device}`);
+  check(!client.guest, 'Element does not treat it as a Matrix guest (guest access stays off)');
+  const stored = await page.evaluate(() => ({ tokenInLocalStorage: localStorage.getItem('mx_access_token') !== null, oidc: Object.keys(localStorage).filter((k) => k.startsWith('mx_oidc')) }));
+  await page.waitForTimeout(5000);
+  const dialogs = await page.getByRole('dialog').allInnerTexts();
+  const toasts = await page.locator('.mx_Toast_toast').allInnerTexts();
+  fs.mkdirSync(`${artifacts}/evidence`, { recursive: true });
+  await page.screenshot({ path: `${artifacts}/evidence/spike-s1-guest-restored.png` });
+  out({ client, stored, dialogs: dialogs.map((d) => d.slice(0, 120)), toasts: toasts.map((t) => t.slice(0, 120)) });
+}
+
+async function guestknock() {
+  const { GUEST_MXID: mxid, MEETING_ROOM: room } = process.env;
+  const alice = await resume('alice', 'prove-alice');
+  await joinCall(alice, true, room);
+  const guest = await launch('guest', 'spike-guest');
+  await guest.goto(`${CHAT}/#/room/${room}`);
+  await synced(guest);
+  const ask = guest.getByRole('button', { name: /Request access|Ask to join/i });
+  await ask.waitFor({ timeout: 60000 });
+  await guest.screenshot({ path: `${artifacts}/evidence/spike-s2-guest-ask.png` });
+  await ask.click();
+  await memberOf(guest, room, mxid, 'knock');
+  const bar = alice.locator('.mx_RoomKnocksBar');
+  await bar.waitFor({ timeout: 60000 });
+  const barText = await bar.innerText();
+  await alice.screenshot({ path: `${artifacts}/evidence/spike-s2-alice-knock-in-call.png` });
+  await bar.getByRole('button', { name: /^Approve$/i }).click();
+  const end = alice.frameLocator('iframe[title="Element Call"]').getByRole('button', { name: 'End call', exact: true });
+  const stillInCall = await end.isVisible();
+  check(stillInCall, 'alice admitted the guest without leaving the call');
+  await memberOf(guest, room, mxid, 'invite');
+  await guest.getByRole('button', { name: /^(Accept|Join)$/ }).first().click();
+  await memberOf(guest, room, mxid, 'join');
+  check(true, 'the guest accepted and joined');
+  await guest.screenshot({ path: `${artifacts}/evidence/spike-s2-guest-joined.png` });
+  await hangup(alice);
+  out({ barText: barText.slice(0, 200), stillInCall });
+}
+
+const scenarios = { guestsignin, guestknock, calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

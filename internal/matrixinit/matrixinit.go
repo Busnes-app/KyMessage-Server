@@ -368,6 +368,8 @@ func Run(in Input, dir string) (Result, error) {
 		inPlace   bool
 	}{
 		{"homeserver.yaml.tmpl", "synapse/homeserver.yaml", 0o600, false},
+		// The meeting-guest confinement module homeserver.yaml loads (PYTHONPATH=/config).
+		{"ky_guests.py.tmpl", "synapse/ky_guests.py", 0o600, false},
 		{"livekit.yaml.tmpl", "livekit/config.yaml", 0o600, false},
 		{"mas.yaml.tmpl", "mas/config.yaml", 0o600, false},
 		{"pg-init.sql.tmpl", "postgres/init.sql", 0o600, false},

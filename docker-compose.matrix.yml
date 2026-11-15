@@ -143,6 +143,9 @@ services:
     # The stock start.py passes these through; Synapse merges the files in order, so the
     # console-owned federation file sets listeners and the allow-list.
     command: ["run", "--config-path", "/config/homeserver.yaml", "--config-path", "/federation.yaml"]
+    # homeserver.yaml loads the meeting-guest confinement module, ky_guests.py in /config.
+    environment:
+      PYTHONPATH: /config
     networks: [default, matrix-db]
     volumes:
       - ./matrix/synapse:/config:ro
