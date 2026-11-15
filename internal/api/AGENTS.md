@@ -255,13 +255,24 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `meeting.close` (resource the meeting ID; outcome, room ID, counts) for verified requests
   only. `MeetingRooms` (`*synapseadmin.Client`) is separate from `RoomAdmin` so room fakes stay small
   (`meetings_test.go`).
-- The KyCalendar pair (`kycalendar_link.go`): `newKyCalendar` takes `cfg.KyCalendar` when set;
-  otherwise `StartKyCalendar` (from `cmd/server`, Matrix only) asks `suitedir.Peer(ctx,
-  "kycalendar")` with the sign-in client (5 s first wait, hourly refresh, retry from 1 minute
+- Suite pairs (`suite_pair.go`): `s.kycal` and `s.kypost` are `suitePair`s. `newSuitePair` takes
+  `cfg.KyCalendar`/`cfg.KyPost` when set; otherwise `StartSuitePairs` (from `cmd/server`, Matrix
+  only, both lookups in parallel) asks `suitedir.Peer(ctx, "kycalendar")` or `"kypost"` with the sign-in client (5 s first wait, hourly refresh, retry from 1 minute
   doubling, a refused signature kicks a lookup no sooner than a minute after the last). An
   unreachable KyIdentity keeps the pair; `no_peer`, `unauthorized`, `invalid_peer` (not an https
-  origin) and `no_credentials` unpair. `GET /api/admin/kycalendar` (admin, `no-store`) answers
-  `{connected, source, url, reason, checked_at}`, never the secret; `matrix_off` is a reason.
+  origin) and `no_credentials` unpair. `GET /api/admin/kycalendar` and `/api/admin/kypost` (admin,
+  `no-store`, `handlePairStatus`) answer `{connected, source, url, reason, checked_at}`, never
+  the secret; `matrix_off` is a reason.
+- Chat from KyPost and KyCalendar ([docs/SUITE-CHAT.md](../../docs/SUITE-CHAT.md), contract H):
+  `POST /api/suite/chat` (`suite_chat.go`, `tracked`, no session) picks the pair by the signed
+  event type (`kycalendar.chat.open` → KyCalendar, anything else → KyPost) and verifies with
+  `kycalendar.Verify` and `meetingReplay`, so each type is accepted only under its own pair's
+  secret; 404 `<peer>_off`, 401 `bad_signature`, 200 `duplicate` as meetings. Caller and target
+  are each `meetingOrganizer` plus an entry in `meetingPeople`; else `no_user`/`no_target`
+  (also for target = caller). 60 per caller subject an hour across both pairs. Answers
+  `{"url": ChatHost + "/#/user/" + mxid}`, creates nothing; audits `chat.open` (verified only:
+  user ID, target user ID, outcome, `via`). Keep it out of `meeting_handlers.go`: it calls
+  that file's helpers unchanged (`suite_chat_test.go`).
 - `POST /api/installer/directory` and the managed suite sync alias verify the protected
   HMAC credential before owned, revision-fenced authority updates and wake the MAS sweep.
   A subject setup does not own goes to `sso.ApplyMemberEvent` as an ordinary member: 204,

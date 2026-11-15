@@ -64,6 +64,11 @@ encrypt.
    at this server's issuer; members are resolved through their MAS links, never from an address.
    Only the console account acts in Synapse, and it never reads messages (`internal/api/meeting_handlers.go`,
    [KYCALENDAR.md](KYCALENDAR.md)).
+2b. **KyPost, KyCalendar → KyMessages chat.** `POST /api/suite/chat` takes no session: each
+   event type (`kypost.chat.open`, `kycalendar.chat.open`) verifies only under its own pair's
+   secret, with the same replay table, before its body is read. Caller and target must be
+   active everyday accounts with unlocked MAS links; it answers an Element link and changes
+   nothing (`internal/api/suite_chat.go`, [SUITE-CHAT.md](SUITE-CHAT.md)).
 3. **KyMessages → MAS and Synapse.** Admin API clients that follow no redirects
    (`internal/matrixsync/mas.go`, `internal/synapseadmin`); the offboarding sweep locks, ends
    sessions or deactivates, and fails closed for an ambiguous or missing link.

@@ -129,7 +129,8 @@ is retried. A close still running, or an unreachable Matrix stack, is 503 `unava
 ## How it works
 
 - `internal/kycalendar`: event types, body checks, `Verify`, the in-memory pair (`Link`).
-- `internal/api/kycalendar_link.go`: the pair's lookup and the console status route.
+- `internal/api/suite_pair.go`: the pair's lookup and the console status route, shared with
+  the KyPost pair ([SUITE-CHAT.md](SUITE-CHAT.md)).
 - `internal/api/meeting_handlers.go`: the two routes. Changes run one at a time under the
   console account (`matrixsync.Client.AsConsole`), on a context detached from the request so a
   dropped connection cannot leave a change unaudited. People are resolved as call grants
