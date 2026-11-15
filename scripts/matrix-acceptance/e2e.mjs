@@ -918,6 +918,9 @@ async function guestknock() {
   const guest = await resume('guest', 'spike-guest');
   await guest.goto(`${CHAT}/#/room/${room}`);
   await synced(guest);
+  // Element cannot preview the room, so it offers a plain join; Synapse refuses it (403, the
+  // confinement module), and Element then asks to join (RoomViewStore, PromptAskToJoin).
+  await guest.getByRole('button', { name: /Join the discussion/i }).click();
   const ask = guest.getByRole('button', { name: /Request access|Ask to join/i });
   await ask.waitFor({ timeout: 60000 });
   await guest.screenshot({ path: `${artifacts}/evidence/spike-s2-guest-ask.png` });
