@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- Synapse loads a guest confinement module, `ky_guests.py`, which `matrix-init` writes beside
+  `homeserver.yaml`; `docker-compose.matrix.yml` sets `PYTHONPATH=/config` on Synapse for it.
+  Rerun `matrix-init` and update the Compose files together: a `homeserver.yaml` naming the
+  module with an old Compose file stops Synapse at start. The module confines local accounts
+  named `guest-…` (the coming meeting guests; none exist yet) to the meeting room the console
+  marks for them: no room creation, invites, DMs, aliases, publishing, uploads or directory
+  results, and no dropping the " (guest)" name suffix. Everyone else is untouched. Local
+  part `guest-` is reserved for these accounts.
 - Calls in rooms of three or more people, KyCalendar meeting rooms included: Element now
   shows its call buttons there. Element v1.12.30 shows them only with its widgets UI on, so
   `matrix-init` turns `UIFeature.widgets` on while calls are on (rerun it and restart Element).

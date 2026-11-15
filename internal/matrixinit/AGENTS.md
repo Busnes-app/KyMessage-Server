@@ -22,7 +22,7 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
 - Hosts are https origins (no path, query, fragment or credentials); the issuer is https and
   kept byte for byte. Never add an http escape hatch: loopback overrides belong to the
   acceptance harness's scratch copy. Everything is validated before `dir` is created.
-- Layout: `secrets/<name>` (write-once), `synapse/{homeserver.yaml,signing.key}`,
+- Layout: `secrets/<name>` (write-once), `synapse/{homeserver.yaml,signing.key,ky_guests.py}`,
   `federation/federation.yaml` (created closed when absent, then kept: the console owns it),
   `livekit/config.yaml`, `mas/config.yaml`, `element/config.json`, `postgres/init.sql`, `postgres/kybackup-role.sql`, `postgres/role-passwords.sql`. Directories 0700; files
   0600 except `element/config.json` (0644, no secrets). Only directories it creates are
@@ -93,6 +93,21 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   A mapped localpart starting with `_` (e.g. a name beginning with a non-ASCII letter) is
   refused by Synapse's `check_username`, which MAS calls through `is_localpart_available`:
   sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.
+- Meeting-guest confinement (spec `docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`,
+  spike S3): `templates/ky_guests.py.tmpl` is rendered byte for byte to `synapse/ky_guests.py`
+  (0600, beside `homeserver.yaml`; Synapse imports it from `/config` through Compose's
+  `PYTHONPATH=/config`), and `homeserver.yaml` loads `ky_guests.GuestConfinement` with
+  `console: @kymessages-console:<server name>`. A local `guest-*` user may send events only in a
+  room whose current state holds `app.kymessages.guest` with its localpart as state key, sent by
+  the console (leaving is always allowed); only `m.room.member` and
+  `org.matrix.msc3401.call.member` state; a join must carry a display name ending " (guest)" (a
+  knock may carry none). It may not create rooms, aliases or publish, invite or 3pid-invite,
+  join uninvited or join an unmarked room, upload media, or see anyone in a directory search;
+  members may not invite a guest into a room that does not mark it. Every other user is
+  untouched. `TestGuestConfinementRules` runs `testdata/ky_guests_test.py` (`python3 -I -B`,
+  stand-ins for Synapse's module API) on the rules; the live proof is the acceptance step
+  `guest-spikes`. Module callback signatures are Synapse v1.162.0's
+  (`synapse/module_api/callbacks/`); re-check them on every Synapse bump.
 - Synapse sets `push.include_content: false`: push gateways (Element's or self-hosted) receive
   event and room IDs only. Never re-enable content; clients fetch it after the push.
 - Calls default on: `element_call.disable: false`, `use_exclusively: true`, `UIFeature.voip: true`,
