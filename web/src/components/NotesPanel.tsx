@@ -31,7 +31,7 @@ const when = (t: string) => new Date(t).toLocaleString();
 interface SwitchProps { on: boolean; busy: boolean; warnings: string[]; onChange: (on: boolean) => void; retry?: boolean }
 
 /** Off is one click; on first shows the warnings with Turn on/Cancel (Cancel sends nothing). */
-const Switch: React.FC<SwitchProps> = ({ on, busy, warnings, onChange, retry }) => {
+export const Switch: React.FC<SwitchProps> = ({ on, busy, warnings, onChange, retry }) => {
   const [confirming, setConfirming] = useState(false);
   if (on || retry) return <button type="button" className="btn-secondary" disabled={busy} onClick={() => onChange(false)}>Turn off</button>;
   if (!confirming) return <button type="button" className="btn-secondary" onClick={() => setConfirming(true)}>Turn on…</button>;

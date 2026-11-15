@@ -52,7 +52,7 @@ export const KyCalendarPanel: React.FC = () => {
       {error && <div className="dr-alert dr-alert-error" role="alert">{error}</div>}
       {status && (
         <>
-          <p className="dr-hint">KyCalendar meetings with attendees get an encrypted video room here. People outside the organisation cannot join yet.</p>
+          <p className="dr-hint">KyCalendar meetings with attendees get an encrypted video room here. People outside the organisation can join only while Meeting guests is on.</p>
           <div className="dr-facts">
             {status.connected && (
               <>

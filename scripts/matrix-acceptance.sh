@@ -40,7 +40,7 @@
 # MATRIX_ACCEPT_REPRODUCE=1 (also reproduce the spike's compatibility-login sign-in; CI sets it),
 # MATRIX_ACCEPT_ARTIFACTS (traces and logs on failure, default scripts/matrix-acceptance/artifacts),
 # MATRIX_ACCEPT_STOP_AFTER (a step name: stop there, for iterating on one step),
-# MATRIX_ACCEPT_SKIP (space-separated step names to skip: meetings, guest-spikes, closed, offboard-*,
+# MATRIX_ACCEPT_SKIP (space-separated step names to skip: meetings, guest-spikes, guests, closed, offboard-*,
 # admin-isolation, notes, agents; CI splits the run in two this way),
 # MATRIX_ACCEPT_PREBUILT=1 (use kymatrix-accept-{app,kyidentity,notes}:ci, already built from the
 # same sources, instead of building the three images; CI builds them with a layer cache).
@@ -478,20 +478,6 @@ pass
 fi
 
 # ---------------------------------------------------------------------------------------
-# Meeting-guest spikes S1 to S3 (docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md,
-# "Spikes"), right after prove while alice's Element session is live. Evidence lines go to the
-# summary; CI runs them in their own leg, which stops here.
-if wanted guest-spikes; then
-step guest-spikes
-element_cfg=$scratch/matrix/element/config.json
-for s in guests-lib s3-confinement s1-signin s2-knock; do
-	# shellcheck source=/dev/null
-	. "$here/spikes/$s.sh"
-done
-pass
-fi
-
-# ---------------------------------------------------------------------------------------
 if wanted closed; then
 step closed
 for q in '' '?kind=guest'; do
@@ -834,6 +820,30 @@ expect "$(status POST "$KY_APP_URL/api/sso/kyidentity/sync" -H 'Content-Type: ap
 	-H 'X-KySignOn-Event-ID: kymatrix-bad-signature' -d '{"id":"nobody"}')" 401 "a badly signed delivery is refused"
 expect "$(sync_status '"\(.rejected.count) \(.rejected.last_reason)"')" "$((rejected + 1)) bad_signature" "sync status counts it as a bad signature"
 pass
+
+# ---------------------------------------------------------------------------------------
+# Meeting-guest spikes S1 to S3 (docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md,
+# "Spikes"), after console (whose checks expect no personal session left open) while alice's
+# prove session is live. Evidence lines go to the summary; CI runs them in the guests leg.
+if wanted guest-spikes; then
+step guest-spikes
+element_cfg=$scratch/matrix/element/config.json
+for s in guests-lib s3-confinement s1-signin s2-knock; do
+	# shellcheck source=/dev/null
+	. "$here/spikes/$s.sh"
+done
+pass
+fi
+
+# ---------------------------------------------------------------------------------------
+# Meeting guests (docs/KYCALENDAR.md "Guests"), signed as KyCalendar like step meetings, with
+# the console signed in from step console. CI runs it in the guests leg, which stops here.
+if wanted guests; then
+step guests
+# shellcheck source=/dev/null
+. "$here/guests.sh"
+pass
+fi
 
 # ---------------------------------------------------------------------------------------
 # Meeting notes (docs/MEETING-NOTES.md). The bot runs as shipped (docker-compose.notes.yml) in

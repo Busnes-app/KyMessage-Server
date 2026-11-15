@@ -2,6 +2,7 @@ import './theme';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { Meet } from './pages/Meet';
 import { watchForUpdate } from './ky-ui/update.js';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -17,7 +18,7 @@ watchForUpdate({ name: 'KyMessages' });
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      {window.location.pathname === '/meet' ? <Meet /> : <App />}
     </ErrorBoundary>
   </React.StrictMode>
 );

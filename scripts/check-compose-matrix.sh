@@ -87,7 +87,9 @@ done
 # Element stays stock: exactly its config.json at /app/config.json, read-only. No mask of its
 # start script and no bind where nginx serves its copy (owner decision 2026-10-02).
 [ "$(jq -r '.services.element.volumes[] | "\(.type) \(.source) \(.target) \(.read_only // false)"' <<<"$out")" = \
-  "bind $root/matrix/element/config.json /app/config.json true" ] || bad "element does not mount exactly ./matrix/element/config.json at /app/config.json read-only"
+  "bind $root/matrix/element/config.json /app/config.json true
+bind $root/matrix/element/kymessages-guest.html /app/kymessages-guest.html true" ] ||
+  bad "element does not mount exactly ./matrix/element/config.json and kymessages-guest.html at /app read-only"
 jq -e '[.services.element.volumes[] | select(.source == "/dev/null" or (.target | startswith("/tmp/element-web-config")) or (.target | startswith("/docker-entrypoint")))] | length == 0' <<<"$out" >/dev/null \
   || bad "element's start-up is altered: a /dev/null, /tmp/element-web-config or /docker-entrypoint mount"
 for s in postgres synapse mas element livekit; do

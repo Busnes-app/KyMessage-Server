@@ -2,13 +2,14 @@
 
 KyCalendar asks KyMessages for a video room for a meeting; the console's service account makes
 an encrypted, invite-only Matrix room and keeps its name and members in step with the event.
-Members only: people outside the organisation cannot join yet (guests, guest windows,
-`/meet/<token>` and the Synapse confinement module stay unbuilt; see
+People outside the organisation join only while an administrator has turned **Meeting
+guests** on (default off; see "Guests" and
 [the design](superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md)).
 
 This is KyMessages' copy of section B of the suite wire contract
-(`ky-redesign/integrations/suite-integrations-contracts.md`, wave 1, 2026-11-14) and is the
-durable one. KyCalendar implements the other side; both sides change together.
+(`ky-redesign/integrations/suite-integrations-contracts.md`, wave 1, 2026-11-14) and of
+section L (`suite-integrations-wave2.md`, wave 2, 2026-11-14), and is the durable one.
+KyCalendar implements the other side; both sides change together.
 
 ## Calls
 
@@ -95,8 +96,9 @@ one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
 - `member_subs` holds KyIdentity subjects. A subject with no KyMessages chat account (no
   unlocked Matrix account linked to it, or not active in the directory), or one banned from the
   room, is skipped, not refused, and reported in `skipped_subs`; a later PUT picks it up.
-- A `guests` field that is present and non-empty: 422 `guests_unsupported`. `windows` is
-  ignored.
+- `guests` and `windows`: see "Guests". With Meeting guests off, a non-empty `guests` is 422
+  `guests_off` (KyMessages before guests answered `guests_unsupported`); `windows` is still
+  stored.
 - History is visible from joining: a member never sees what was said before they joined.
 - Room state: join rule `invite`, history visibility `joined`, guest access `forbidden`,
   encryption `m.megolm.v1.aes-sha2`. Power levels: the console is the creator (see the
@@ -107,17 +109,17 @@ one. Evidence: [2026-11-group-calls.md](evidence/2026-11-group-calls.md),
 - A room closed from the console's Rooms page closes the meeting: the PUT answers 409 `closed`.
 
 ```json
-{"member_url":"https://chat.example/#/room/!abc:example","skipped_subs":["…"]}
+{"member_url":"https://chat.example/#/room/!abc:example","skipped_subs":["…"],"guest_urls":{}}
 ```
 
 | Status | Code | When |
 |---|---|---|
 | 404 | `kycalendar_off` | Not paired. |
 | 401 | `bad_signature` | |
-| 400 | `bad_body` | Malformed, bad `{id}`, a body `id` other than `{id}`, title empty, over 255 bytes or with control characters, more than 100 members. |
+| 400 | `bad_body` | Malformed, bad `{id}`, a body `id` other than `{id}`, title empty, over 255 bytes or with control characters, more than 100 members; a guest key that is not `[A-Za-z0-9_-]{16,64}` or repeats, more than 100 guests, more than 400 windows, a window not RFC 3339 UTC, not ending after it starts, or ending more than 91 days ahead. |
 | 404 | `no_user` | Organizer has no active KyMessages account linked to that subject. |
 | 409 | `closed` | The meeting was closed; a closed ID is never reopened. |
-| 422 | `guests_unsupported` | A non-empty `guests`. |
+| 422 | `guests_off` | A non-empty `guests` while Meeting guests is off. |
 | 429 | `rate_limited` | `Retry-After` set. |
 | 503 | `unavailable` | Matrix stack unreachable; retry. |
 
@@ -128,6 +130,91 @@ read only for its signature and an `"id"` (KyCalendar sends `{"id","sub","issuer
 other than the path's is 400 `bad_body`. 200 `{"outcome":"closed"}`; an unknown or already closed ID is
 also 200. A closed meeting's room is checked again on every DELETE, so a Close job that failed
 is retried. A close still running, or an unreachable Matrix stack, is 503 `unavailable`.
+Closing revokes every guest link of the meeting and drops its windows; the reconciler ends any
+live guest within 5 seconds.
+
+## Guests
+
+Owner decisions 2026-10-18 (the design) and 2026-11-14 (wave 2): outsiders join meeting rooms
+only, from a waiting room, during the meeting, behind the administrator switch **Settings →
+Server → Meeting guests** ("Let people outside the organisation join meetings"), off by
+default. Turning it on needs a sign-in from the last 10 minutes (`POST
+/api/admin/meeting-guests/enable`); off is one click (`…/disable`) and ends every live guest
+before it answers. `GET /api/admin/meeting-guests` is `{"enabled","live"}`. Audited
+`guests.enable` / `guests.disable`.
+
+### Wire (contract L)
+
+PUT body gains, beside section B's fields:
+
+```json
+{"guests":[{"key":"<opaque per-attendee key>"}],
+ "windows":[{"start":"2026-11-15T08:50:00Z","end":"2026-11-15T10:00:00Z"}]}
+```
+
+- `key`: `[A-Za-z0-9_-]{16,64}`, at most 100, never a name or address. Stored only as its
+  SHA-256.
+- `windows`: at most 400, RFC 3339 UTC, start before end, ending at most 91 days ahead
+  (KyCalendar sends 90 and refreshes daily). KyCalendar sends each occurrence as
+  `[start - 10 min, end]`; KyMessages enforces exactly what it is given. Each PUT replaces them.
+- The answer gains `guest_urls: {key: url}`, only for keys new in this call (a key dropped and
+  listed again is new). A key dropped from the list revokes its link at once. A URL is shown
+  once: KyMessages keeps only its hash, and an exact replay answers `duplicate`, so if
+  KyCalendar loses an answer it sends that attendee under a new key.
+- A PUT naming guests makes the room a waiting room: join rule `knock`, `invite` at 0, so any
+  member may admit a knock (decision 6). It stays so.
+
+### The guest's way in
+
+1. **Link:** `https://<admin host>/meet#<token>`, 256 random bits, bound to one meeting and
+   one key. The token is in the fragment, so no server or proxy log ever sees it (a small
+   change from the design's `/meet/<token>`; KyCalendar treats the URL as opaque).
+2. **Page:** the console's app at `/meet` asks `POST /api/meet/status {"token"}`: `open`
+   (with `closes_at`), `waiting` (`opens_at`), `ended`, or 404 `not_found` for an unknown,
+   revoked or malformed token, a closed meeting and guests off alike. 60 a minute per address.
+3. **Join:** inside a window, `POST /api/meet/join {"token","name","captcha"}`: a name of 1–64
+   characters with no control, format (bidi, zero-width), line-separator or private-use
+   characters, and a solved proof-of-work challenge (always, whatever `KY_CAPTCHA_PROVIDER`
+   says). 10 attempts per address per 15 minutes and 10 per link. KyMessages then:
+   - ends the link's earlier account, if any (one seat per link: a forwarded link cannot seat
+     two people);
+   - creates an unlinked, passwordless MAS user `guest-<20 hex>` (as agents are made) and a
+     personal session on device `KYGUEST…`, expiring at the window's end;
+   - records it, sets its name to `<name> (guest)`, sets the console's
+     `app.kymessages.guest` marker for it in the room, and knocks with its token;
+   - answers `{"next":"https://<chat host>/kymessages-guest.html#<code>"}`, a one-time code
+     held in memory for 2 minutes. Audited `guest.knock`.
+   Outside a window: 409 `not_open`, and nothing is created.
+4. **Bootstrap page** (spike S1): `kymessages-guest.html`, rendered by `matrix-init` and
+   mounted read-only into Element beside `config.json`, runs only its own script (pinned by
+   hash in its CSP; `connect-src` is the console only). It drops the code from the address bar,
+   trades it at `POST /api/meet/session` (body: the code as text; only Element's origin may
+   read the answer, no credentials, answered once), writes the session where Element restores
+   sessions from (`mx_hs_url`, `mx_user_id`, `mx_device_id`, `mx_access_token`) and opens the
+   room. A browser signed in to chat as a member is left alone ("open your meeting link in a
+   private window"); an earlier guest's session and stores are replaced.
+5. **Admission** (spike S2): members see "asks to join" in Element's room header
+   (`features.feature_ask_to_join`, set by `matrix-init`), also during a call, and any member
+   approves it (an invite, audited `guest.admit` with the member). The guest accepts and joins.
+
+### While in the meeting
+
+- **Call grant:** a guest gets one only for its own meeting's room, while its account is live,
+  its link stands, guests are on, the meeting is open, now is inside one of its windows, and its
+  membership is `join` (the admin member list holds joined members only). A guest only joins a
+  call a member started. The call reconciler removes a guest from any other room's call.
+- **Leaving means knocking again:** a joined guest out of the call for 20 seconds after being in
+  it (2 minutes if it never joined it) is removed from the room (audited `guest.leave`) and must
+  knock again. Not with calls off.
+- **End:** at its window's end, when its link is revoked, when the meeting closes, or when
+  guests are turned off, the reconciler (every 5 seconds) removes the guest from the call and
+  the room, revokes its session and deactivates the account (audited `guest.expire` with the
+  reason). The MAS sweep leaves a live guest's account alone and locks any other `guest-` one.
+- **Confinement:** Synapse's `ky_guests` module (`internal/matrixinit/AGENTS.md`) holds every
+  `guest-` account to the room the console marks for it.
+- **Audit and logs:** IDs only: meeting ID, the first 16 hex digits of the key's hash, the
+  guest's Matrix ID and, for an admission, the admitting member. Never a name, title, token or
+  code.
 
 ## How it works
 
@@ -148,6 +235,19 @@ is retried. A close still running, or an unreachable Matrix stack, is 503 `unava
   shared with it (`docs/evidence/2026-11-meeting-rooms.md`).
 
 ## Verification
+
+- `go test ./internal/api/ -run Guest`, `./internal/kycalendar/`, `./internal/store/`,
+  `./internal/matrixsync/ -run Guest`, `./internal/matrixinit/ -run Guest` (the confinement rules
+  and the bootstrap page).
+- `make matrix-acceptance`, step `guests` (after `console`; CI's meeting-guests leg): off
+  refuses; on, two links; a link outside its window shows when it opens and joining makes
+  nothing; inside, the guest follows its link through the bootstrap page, alice admits its
+  knock from inside her call, it joins the call and both decode audio and video; out of the call
+  it is removed by the console and gets no grant there or elsewhere; its token cannot create a
+  room, DM, find anyone, knock elsewhere or invite; a dropped key's link is refused; a second
+  join ends the first account; at the window end the account is deactivated; turning guests off
+  ends the live guest and refuses guests; closing revokes the links; every guest action is
+  audited with IDs only.
 
 - `go test ./internal/kycalendar/ ./internal/synapseadmin/ ./internal/store/ ./internal/config/ ./internal/api/ -run 'Meeting|KyCalendar|DecodePut|Verify|ValidID|SetOrganizer|PathGuard'`
 - `make matrix-acceptance`, step `meetings` (after `prove`): a signed PUT makes the room for

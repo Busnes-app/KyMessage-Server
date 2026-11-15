@@ -1057,3 +1057,27 @@ func TestGuestConfinementRules(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
+
+// The guest bootstrap page runs exactly its one script (pinned by hash) and talks only to the
+// console.
+func TestGuestPageRunsOnlyItsScript(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "element/kymessages-guest.html")
+	fi, err := os.Stat(p)
+	if err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("%v %v", fi, err)
+	}
+	b, _ := os.ReadFile(p)
+	page := string(b)
+	script, hash := guestScript("https://admin.example.com")
+	csp := `default-src 'none'; script-src 'sha256-` + hash + `'; connect-src https://admin.example.com; base-uri 'none'; form-action 'none'`
+	if !strings.Contains(page, `content="`+csp+`"`) || !strings.Contains(page, "<script>"+script+"</script>") || strings.Count(page, "<script") != 1 {
+		t.Fatalf("page:\n%s", page)
+	}
+	if !strings.Contains(script, `fetch("https://admin.example.com" + '/api/meet/session'`) || !strings.Contains(script, "history.replaceState") {
+		t.Fatalf("script:\n%s", script)
+	}
+}

@@ -68,7 +68,8 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   4 KiB, no redirects except up to three https ones for the well-known (the spec says to
   follow them; mozilla.org answers 301). Any other server is refused before any network call; the token's
   `sub` must belong to the server that verified it. A local caller must be active in the
-  directory and MAS (or be the meeting-notes bot, below), and gets the LiveKit room created; a remote caller only joins a room that
+  directory and MAS (or be the meeting-notes bot, below), and gets the LiveKit room created; a meeting guest (`guest-`, below)
+  must pass `guestCallers` for that room and only joins; a remote caller only joins a room that
   already exists (a local user started the call; 403 otherwise, never `Create`). Both need
   Matrix room membership in a room that is not closed (`RoomAdmin.Blocked`: a closed room
   keeps its remote members) before a scoped 15-second grant. These two exact paths alone use CORS `*`, no credentials,
@@ -254,7 +255,31 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   an hour (`accountAttempts`, `Retry-After` from `resetIn`). Audits `meeting.put` and
   `meeting.close` (resource the meeting ID; outcome, room ID, counts) for verified requests
   only. `MeetingRooms` (`*synapseadmin.Client`) is separate from `RoomAdmin` so room fakes stay small
-  (`meetings_test.go`).
+  (`meetings_test.go`). Meeting `id` in the body must equal the path's (`kycalendar.SameID`).
+- Meeting guests (`guest_handlers.go`, `docs/KYCALENDAR.md` "Guests", `guests_test.go`): setting
+  `meeting_guests_enabled` (`guestsOn`, off unless `true`); `GET /api/admin/meeting-guests`,
+  `POST …/enable` (`requireFreshAdmin`), `POST …/disable` (runs `ReconcileGuests` before
+  answering). A PUT with non-empty `guests` while off is 422 `guests_off` before anything else;
+  otherwise `reconcileGuests` runs after `reconcileMeeting` under the same console session:
+  windows replaced, dropped keys revoked, `AllowKnocks` when any guest is listed, new keys get a
+  random 256-bit link (hash stored, added last and removed again on failure) returned once in
+  `guest_urls`. DELETE `revokeGuests`. Public routes, no session (CSRF only if a console cookie is
+  sent): `POST /api/meet/status` (60/min/address), `POST /api/meet/join` (10 per 15 min per
+  address and per link, PoW always via `s.pow`, `guestName`, inside `openWindow` only;
+  `seatGuest` records the account before naming, marking and knocking, and ends it on failure;
+  a second join ends the first through `finishGuest`), and `POST /api/meet/session`
+  (`meetSessionPath`, special-cased in `ServeHTTP`: CORS for exactly `KY_MATRIX_CHAT_HOST`,
+  no credentials; the Origin must equal it; text body; the one-time code, in memory only for
+  `guestCodeTTL`, is deleted on first use). Unknown, revoked, closed and switched-off links all
+  read 404 `not_found`. `ReconcileGuests` runs with `ReconcileCalls` every 5 seconds
+  (`cmd/server`), under `meetingMu` and one console session: it ends (LiveKit, kick, revoke,
+  `Deactivate`) every guest whose link was revoked, meeting closed or session ended, or all of
+  them while off; audits `guest.knock`/`guest.admit` (by the invite's sender, or
+  `AdminInvite` when it jumped to join)/`guest.leave`/`guest.expire`; removes a joined guest out
+  of its call for `guestDeparture` (20 s) after being in it, `guestFirstCall` (2 min) if never
+  (only with calls on). `ReconcileCalls` keeps a guest only in its own meeting's call. Audit
+  rows carry the key hash's first 16 hex digits and the guest's Matrix ID; never a name, token or
+  code. Audit kind `matrix` also lists `meeting.`, `guest.` and `guests.`.
 - The KyCalendar pair (`kycalendar_link.go`): `newKyCalendar` takes `cfg.KyCalendar` when set;
   otherwise `StartKyCalendar` (from `cmd/server`, Matrix only) asks `suitedir.Peer(ctx,
   "kycalendar")` with the sign-in client (5 s first wait, hourly refresh, retry from 1 minute

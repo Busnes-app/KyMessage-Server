@@ -119,9 +119,20 @@ test('production CSP, worker, themes, keyboard and responsive shell', async ({ p
   // Local two-factor is removed: KyIdentity is the second factor.
   await expect(page.getByRole('region', { name: 'Account security' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Password' })).toBeVisible();
+  // Matrix is off here: the Meeting guests panel's route is stubbed with the server's shape,
+  // only while it loads (routing bypasses the service worker the offline check below needs).
+  await page.route('**/api/admin/meeting-guests', (r) => r.fulfill({ json: { enabled: false, live: 0 } }));
   await tabs.getByRole('link', { name: 'Server' }).click();
   await expect(page).toHaveURL(/#\/settings\/server$/);
   await fits(page);
+  const guests = page.getByRole('region', { name: 'Meeting guests' });
+  await expect(guests.getByText('Off', { exact: true })).toBeVisible();
+  await guests.getByRole('button', { name: 'Turn on…' }).click();
+  await expect(guests.getByRole('button', { name: 'Turn on', exact: true })).toBeVisible();
+  await fits(page);
+  await guests.screenshot({ path: testInfo.outputPath('settings-guests.png') });
+  await guests.getByRole('button', { name: 'Cancel' }).click();
+  await page.unrouteAll();
   await expect(page.getByRole('button', { name: 'Pair Device' })).toHaveCount(0);
   expect(pairingRequests).toEqual([]);
   await page.evaluate(() => fetch('/browser-regression-uncached'));

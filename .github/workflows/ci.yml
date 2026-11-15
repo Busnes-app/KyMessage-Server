@@ -231,15 +231,15 @@ jobs:
       matrix:
         include:
           - part: offboarding, backup and restore
-            skip: guest-spikes notes agents
+            skip: guest-spikes guests notes agents
             stop-after: ""
           - part: notes and agents
-            skip: meetings guest-spikes closed offboard-cut offboard-reactivate offboard-delete offboard-delete-locked offboard-unassign offboard-sweep offboard-missed admin-isolation
+            skip: meetings guest-spikes guests closed offboard-cut offboard-reactivate offboard-delete offboard-delete-locked offboard-unassign offboard-sweep offboard-missed admin-isolation
             stop-after: agents
-          # Meeting-guest spikes S1-S3: prove, then the spikes alone.
-          - part: guest spikes
-            skip: meetings
-            stop-after: guest-spikes
+          # Meeting guests: prove, the spikes S1-S3, console, then guests on the shipped path.
+          - part: meeting guests
+            skip: meetings closed offboard-cut offboard-reactivate offboard-delete offboard-delete-locked offboard-unassign offboard-sweep offboard-missed admin-isolation
+            stop-after: guests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

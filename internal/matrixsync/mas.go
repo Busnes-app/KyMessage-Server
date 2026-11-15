@@ -401,6 +401,10 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 // password and no upstream link; the sweep leaves it alone (Plan).
 const ConsoleUsername = "kymessages-console"
 
+// GuestPrefix starts every meeting guest's username; Synapse's confinement module
+// (matrixinit ky_guests.py) keys on it.
+const GuestPrefix = "guest-"
+
 // NotesUsername is the meeting-notes bot's MAS account, the console's twin: no password, no
 // upstream link, left alone by the sweep. Its sessions are client-API tokens on one device.
 const NotesUsername = "kymessages-notes"

@@ -164,3 +164,15 @@ func TestRotateAgentToken(t *testing.T) {
 		t.Fatalf("reissue %q %v %v", id, err, f.bodies)
 	}
 }
+
+func TestMintGuestTokenExpiresAtWindowEnd(t *testing.T) {
+	f, c := newAgentFake(t)
+	if _, tok, err := c.MintGuestToken(context.Background(), "01USER", "KYGUESTDEV", 90*time.Minute); err != nil || tok != "mpt_secret" {
+		t.Fatalf("%q %v", tok, err)
+	}
+	want := map[string]any{"actor_user_id": "01USER", "human_name": "KyMessages meeting guest",
+		"scope": "urn:matrix:client:api:* urn:matrix:client:device:KYGUESTDEV", "expires_in": 5400.0}
+	if !reflect.DeepEqual(f.bodies[0], want) {
+		t.Fatalf("mint body %v", f.bodies[0])
+	}
+}

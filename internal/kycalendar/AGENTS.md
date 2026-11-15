@@ -12,9 +12,12 @@ KyCalendar implements the other side.
 - **`Verify`** reads at most `MaxBody` (64 KiB), then `syncauth.Verify` with the caller's replay
   guard. A verified replay is `replayed` with no error; an error from the guard itself is
   returned as the guard wrapped it, so the caller can answer 503 rather than 401.
-- **`DecodePut`**: `sub`, `issuer` and `title` are 1 to 255 (issuer 512) bytes of UTF-8 without
-  control characters, at most `MaxMembers` (100) `member_subs`, each one the same rule. A
-  non-empty `guests` is `ErrGuests`; unknown fields (`windows`) are ignored.
+- **`DecodePut(body, now)`**: `sub`, `issuer` and `title` are 1 to 255 (issuer 512) bytes of
+  UTF-8 without control characters, at most `MaxMembers` (100) `member_subs`, each one the same
+  rule; at most `MaxGuests` (100) `guests`, each `key` a `ValidID` and none repeated; at most
+  `MaxWindows` (400) `windows`, each RFC 3339 at offset zero, start before end, end no later than
+  `now + MaxAhead` (91 days). Anything else is `ErrBadBody`; unknown fields are ignored. Whether
+  guests are allowed is `internal/api`'s (the switch).
 - **`ValidID`**: `[A-Za-z0-9_-]{16,64}`.
 - **`SameID`**: a body's `"id"`, when present (null and non-strings included), must equal the
   path's ID; a body without one (or not a JSON object) passes. Both routes answer 400 `bad_body`

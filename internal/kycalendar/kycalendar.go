@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -26,6 +27,11 @@ const (
 	MaxBody    = 64 << 10
 	MaxMembers = 100
 	MaxTitle   = 255
+	MaxGuests  = 100
+	MaxWindows = 400
+	// MaxAhead bounds how far ahead a window may end: KyCalendar sends at most 90 days and
+	// refreshes daily, so a day of slack.
+	MaxAhead = 91 * 24 * time.Hour
 )
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
@@ -33,21 +39,21 @@ var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
 // ValidID reports whether id is a KyCalendar meeting ID.
 func ValidID(id string) bool { return idPattern.MatchString(id) }
 
-// PutRequest creates or reconciles a meeting room. Guests belong to the unbuilt guest half:
-// a non-empty list is refused. Other fields (windows) are ignored.
+// PutRequest creates or reconciles a meeting room. Guests are opaque per-attendee keys, never
+// names or addresses; Windows are when they may join.
 type PutRequest struct {
-	Sub        string            `json:"sub"`
-	Issuer     string            `json:"issuer"`
-	Title      string            `json:"title"`
-	MemberSubs []string          `json:"member_subs"`
-	Guests     []json.RawMessage `json:"guests"`
+	Sub        string   `json:"sub"`
+	Issuer     string   `json:"issuer"`
+	Title      string   `json:"title"`
+	MemberSubs []string `json:"member_subs"`
+	Guests     []Guest  `json:"guests"`
+	Windows    []Window `json:"windows"`
 }
 
-// ErrBadBody is a malformed request; ErrGuests one that names guests.
-var (
-	ErrBadBody = errors.New("kycalendar: bad body")
-	ErrGuests  = errors.New("kycalendar: guests are not supported")
-)
+// Guest is one outside attendee's key.
+type Guest struct {
+	Key string `json:"key"`
+}
 
 // SameID reports whether body names no meeting or meeting id. The path is not signed and the
 // body is, so a request redirected to another meeting's path is refused. A body without "id"
@@ -61,16 +67,23 @@ func SameID(body []byte, id string) bool {
 	return json.Unmarshal(b["id"], &named) == nil && named == id
 }
 
-// DecodePut parses and checks a PUT body.
-func DecodePut(body []byte) (PutRequest, error) {
+// Window is one occurrence's guest window, RFC 3339 UTC, [Start, End).
+type Window struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// ErrBadBody is a malformed request.
+var ErrBadBody = errors.New("kycalendar: bad body")
+
+// DecodePut parses and checks a PUT body; now bounds the windows.
+func DecodePut(body []byte, now time.Time) (PutRequest, error) {
 	var p PutRequest
 	if err := json.Unmarshal(body, &p); err != nil {
 		return p, ErrBadBody
 	}
-	if len(p.Guests) > 0 {
-		return p, ErrGuests
-	}
-	if !validText(p.Sub, 255) || !validText(p.Issuer, 512) || !validText(p.Title, MaxTitle) || len(p.MemberSubs) > MaxMembers {
+	if !validText(p.Sub, 255) || !validText(p.Issuer, 512) || !validText(p.Title, MaxTitle) || len(p.MemberSubs) > MaxMembers ||
+		len(p.Guests) > MaxGuests || len(p.Windows) > MaxWindows {
 		return p, ErrBadBody
 	}
 	for _, s := range p.MemberSubs {
@@ -78,7 +91,24 @@ func DecodePut(body []byte) (PutRequest, error) {
 			return p, ErrBadBody
 		}
 	}
+	seen := map[string]bool{}
+	for _, g := range p.Guests {
+		if !ValidID(g.Key) || seen[g.Key] {
+			return p, ErrBadBody
+		}
+		seen[g.Key] = true
+	}
+	for _, w := range p.Windows {
+		if !utc(w.Start) || !utc(w.End) || !w.Start.Before(w.End) || w.End.After(now.Add(MaxAhead)) {
+			return p, ErrBadBody
+		}
+	}
 	return p, nil
+}
+
+func utc(t time.Time) bool {
+	_, offset := t.Zone()
+	return offset == 0
 }
 
 // validText is 1 to max bytes of UTF-8 without control characters.

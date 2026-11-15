@@ -18,14 +18,20 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 - Encrypted chat, with voice and video calls enabled by default, in DMs and rooms of any size.
   Integrations are off; Element's widgets UI is on only because Element needs it for calls in
   rooms of three or more, and adding a room widget needs the room's moderator level.
-- Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up, no
-  guests (approved, not shipped: KyCalendar meeting rooms admit external attendees through a
-  waiting room for the time of the meeting; see "Later or out of scope").
+- Invite-only: only users assigned to the app in KyIdentity get in. No public sign-up and no
+  guests, except meeting guests (below), off unless an administrator turns them on.
 - KyCalendar meeting rooms for members (shipped 2026-11, [KYCALENDAR.md](KYCALENDAR.md)): a
   paired KyCalendar asks for an encrypted, invite-only video room per meeting; the console's
   service account creates it, invites the attendees who have chat accounts, keeps its name and
-  members in step with the event and closes it when the meeting is cancelled. People outside
-  the organisation cannot join yet. Members start Element Call from the room.
+  members in step with the event and closes it when the meeting is cancelled. Members start
+  Element Call from the room.
+- Meeting guests (owner decisions 2026-10-18 and 2026-11-14; off by default, **Settings →
+  Server → Meeting guests**, [KYCALENDAR.md](KYCALENDAR.md) "Guests"): an attendee outside the
+  organisation gets a personal link from KyCalendar that works from 10 minutes before each
+  occurrence until it ends. They enter a name, wait until someone in the room lets them in,
+  and join the call; leaving the call means waiting again. A guest is a temporary chat account
+  for that one room, removed at the end; Synapse's confinement module keeps it from creating
+  rooms, inviting, finding people or messaging anyone outside the room.
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
 - Not offered: Slack or Teams parity, compliance archiving, open federation.
 
@@ -62,7 +68,7 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 - Direct media needs TCP 7881/UDP 7882 (or the configured `KY_MATRIX_MEDIA_TCP_PORT`/`_UDP_PORT`) and an advertised reachable IPv4; HTTPS/WebSocket
   signalling can use cloudflared. Optional embedded TURN/TLS uses external TCP 443 and
   UDP 3478 and 30000–30100, a DNS-only hostname and a trusted certificate. No server-side call
-  recording, guests or third-party call service; the optional meeting-notes bot (below) is an
+  recording or third-party call service, and guests only as meeting guests; the optional meeting-notes bot (below) is an
   invited participant.
 - Every 5 seconds the control plane removes offboarded participants and removed room members;
   each pass uses a 5-second context; detached admin-session minting and cleanup can extend it. A cached LiveKit token may reconnect between passes, and
@@ -196,12 +202,15 @@ stays Element-branded. Any Matrix client can connect; the encryption label cover
 - Integrations (managers, sticker packs, bots added through one): unset in Element's config.
 - Console: room creation, membership editing, message moderation, colour editing, health
   history and alerting.
-- KyCalendar meeting rooms, guest half (approved 2026-10-18, not scheduled; the member half
-  ships): external guests during the meeting only, admitted from a waiting room by someone in
-  the room: guest windows, `/meet/<token>` links, guest accounts and the Synapse confinement
-  module. Design: `docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`.
 
 ## Known risks
+
+- Meeting guests (when on): a guest sees and hears the meeting and reads its chat from joining.
+  It can still read any local user's profile name and avatar by Matrix ID, and send to-device
+  messages (encryption needs them; a verification request from a guest shows its `guest-` ID).
+  The guest sign-in page on Element's origin writes Element's session storage, whose layout is
+  Element's own: every Element bump must re-run the acceptance step `guests`. A link forwarded
+  by its guest lets someone else take the seat (only one at a time).
 
 - Widgets: Element's widgets UI is on for group calls (owner decision 2026-11-14). A room's
   admins and moderators (power level 50 in Element's group rooms, 100 and so nobody but the

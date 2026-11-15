@@ -109,6 +109,21 @@ const (
 // Meeting is a KyCalendar meeting's Matrix room. ID is KyCalendar's opaque meeting ID;
 // OrganizerSubject the organizer's KyIdentity subject; Members the Matrix user IDs the
 // meeting last listed (organizer included), so only those are ever removed.
+// MeetingWindow is one occurrence's guest window, [Start, End).
+type MeetingWindow struct{ Start, End time.Time }
+
+// MeetingGuest is one guest key of a meeting: its link (by hash) and, while MXID is set, the
+// live guest account and its MAS session ending at SessionEnd. Membership is the account's
+// last seen membership in the room.
+type MeetingGuest struct {
+	MeetingID, KeyHash, LinkHash string
+	Revoked                      bool
+	MXID, MASUserID, SessionID   string
+	SessionEnd                   time.Time
+	Membership                   string
+	CreatedAt                    time.Time
+}
+
 type Meeting struct {
 	ID               string
 	RoomID           string

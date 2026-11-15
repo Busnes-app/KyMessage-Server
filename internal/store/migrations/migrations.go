@@ -254,7 +254,34 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 23, Name: "directory_adopted_status", SQLite: adoptedStatus, Postgres: adoptedStatus},
 	// KyCalendar meeting rooms and the replay guard for their signed requests.
 	{Version: 24, Name: "meetings", SQLite: meetingsSchema, Postgres: meetingsSchema},
+	// Meeting guests: each occurrence's window and each guest key's link and live session.
+	{Version: 25, Name: "meeting_guests", SQLite: meetingGuestsSchema, Postgres: meetingGuestsSchema},
 }
+
+// Hashes are hex SHA-256: the guest key and the link token are never stored. A row with an
+// mxid has a live guest account.
+const meetingGuestsSchema = `
+CREATE TABLE meeting_windows (
+    meeting_id VARCHAR(64) NOT NULL REFERENCES meetings(id),
+    start_at BIGINT NOT NULL,
+    end_at BIGINT NOT NULL,
+    PRIMARY KEY (meeting_id, start_at, end_at)
+);
+CREATE TABLE meeting_guests (
+    meeting_id VARCHAR(64) NOT NULL REFERENCES meetings(id),
+    key_hash VARCHAR(64) NOT NULL,
+    link_hash VARCHAR(64) NOT NULL UNIQUE,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    mxid VARCHAR(255) NOT NULL DEFAULT '',
+    mas_user_id VARCHAR(64) NOT NULL DEFAULT '',
+    session_id VARCHAR(64) NOT NULL DEFAULT '',
+    session_end BIGINT NOT NULL DEFAULT 0,
+    membership VARCHAR(16) NOT NULL DEFAULT '',
+    created_at BIGINT NOT NULL,
+    PRIMARY KEY (meeting_id, key_hash)
+);
+CREATE INDEX idx_meeting_guests_mxid ON meeting_guests(mxid);
+`
 
 // Times are Unix seconds, the same on both engines.
 const meetingsSchema = `

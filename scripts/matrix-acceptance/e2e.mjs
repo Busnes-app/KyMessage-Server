@@ -4,6 +4,7 @@
 //        node e2e.mjs title BRAND
 //        MEETING_ROOM=... node e2e.mjs meeting
 //        GUEST_MXID=... MEETING_ROOM=... node e2e.mjs guestsignin|guestknock (spikes S1, S2)
+//        GUEST_NEXT=... MEETING_ROOM=... node e2e.mjs guestmeeting
 // Drives Element for scripts/matrix-acceptance.sh. Every hostname maps to the harness TLS
 // proxy on loopback; the harness temporarily trusts its throwaway CA in Chromium's NSS
 // database and removes it on exit. Persistent contexts retain test sessions. Writes findings to
@@ -943,7 +944,47 @@ async function guestknock() {
   out({ barText: barText.slice(0, 200), stillInCall });
 }
 
-const scenarios = { guestsignin, guestknock, calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
+// Meeting guests on the shipped path (step guests): the guest's browser follows the console's
+// answer to Element's bootstrap page, which restores the session; the server already knocked.
+// alice, in a call in the meeting room, admits the knock from Element's knocks bar; the guest
+// accepts and joins the call, and both decode each other's audio and video. The guest then
+// hangs up and stays in the room, so the reconciler must remove it. Writes the guest's token
+// (harness only) for the step's grant and confinement checks.
+async function guestmeeting() {
+  const { GUEST_NEXT: next, MEETING_ROOM: room } = process.env;
+  const alice = await resume('alice', 'prove-alice');
+  await openRoom(alice, room, true);
+  await joinCall(alice, true, room);
+  const guest = await launch('guest', 'guest-meeting');
+  await guest.goto(next);
+  await guest.waitForURL((u) => u.href.startsWith(`${CHAT}/#/room/`), { timeout: 30000 });
+  await synced(guest);
+  const mxid = await guest.evaluate(() => window.mxMatrixClientPeg.get().getUserId());
+  check(mxid.startsWith('@guest-'), `the bootstrap page signed the guest in as ${mxid}`);
+  const history = await guest.evaluate(() => [location.href, document.referrer]);
+  check(!history.some((u) => u.includes('kymessages-guest.html#')), 'the one-time code is gone from the address bar');
+  await memberOf(guest, room, mxid, 'knock');
+  fs.mkdirSync(`${artifacts}/evidence`, { recursive: true });
+  await guest.screenshot({ path: `${artifacts}/evidence/guests-guest-waiting.png` });
+  const bar = alice.locator('.mx_RoomKnocksBar');
+  await bar.waitFor({ timeout: 60000 });
+  check((await bar.innerText()).includes('(guest)'), 'members see the knock with the (guest) suffix');
+  await alice.screenshot({ path: `${artifacts}/evidence/guests-alice-knock.png` });
+  await bar.getByRole('button', { name: /^Approve$/i }).click();
+  await memberOf(guest, room, mxid, 'invite');
+  await guest.getByRole('button', { name: /^(Accept|Join)$/ }).first().click();
+  await memberOf(guest, room, mxid, 'join');
+  await joinCall(guest, false, room);
+  const media = await proveMedia(alice, guest, true);
+  check(true, 'alice and the guest receive audio and decode each other\'s video');
+  await guest.screenshot({ path: `${artifacts}/evidence/guests-guest-in-call.png` });
+  fs.writeFileSync(`${dir}/state/guest.token`, await guest.evaluate(() => window.mxMatrixClientPeg.get().getAccessToken()), { mode: 0o600 });
+  await hangup(guest);
+  await hangup(alice);
+  out({ guest: mxid, media });
+}
+
+const scenarios = { guestsignin, guestknock, guestmeeting, calls, restoredcalls: () => calls(true), meeting, prove, refused, compat, noclaim, room, token, fedtoken: token, sweeptoken: token, rejoined: token, disabled, reread, reads, media, restored, title, owner, agent, notesinvite, notesmeeting, notesscreens };
 let failed = false;
 try {
   if (!scenarios[scenario]) throw new Error(`unknown scenario ${scenario}`);

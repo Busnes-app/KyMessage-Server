@@ -1,11 +1,16 @@
 # Meeting rooms for KyCalendar, with a guest waiting room
 
-Date: 2026-10-18. Status: the member half is built (2026-11-14, `docs/KYCALENDAR.md`): signed
-`PUT`/`DELETE /api/meetings/{id}`, an encrypted invite-only room per meeting, members invited and
-removed, closing. Pairing is the KyIdentity suite pair `kycalendar`↔`kymessage`, not the
-pairing code below, and the join rule is `invite` with `invite` at 50, not `knock`. Still
-unbuilt: guests, windows, `/meet/<token>`, the guest grant rule and the Synapse confinement
-module (spikes S1 to S3). Caller: KyCalendar, `docs/superpowers/specs/2026-10-17-kycalendar-v1b-invitations-design.md`
+Date: 2026-10-18. Status: built. The member half shipped 2026-11-14 (`docs/KYCALENDAR.md`):
+signed `PUT`/`DELETE /api/meetings/{id}`, an encrypted room per meeting, members invited and
+removed, closing; pairing is the KyIdentity suite pair `kycalendar`↔`kymessage`, not the
+pairing code below. The guest half (wave 2, contract L) is built behind the administrator switch
+Meeting guests, off by default (`docs/KYCALENDAR.md` "Guests"); where this design and contract
+B differ, contract B's wire shape wins (`sub`/`issuer`, not `organizer_sub`). Changes from this
+design: the link is `/meet#<token>` (fragment, never logged), a guest's directory search finds
+nobody, a link's second join ends the first seat, and a guest admitted but never in the call
+gets 2 minutes before it is removed. Spike results are under "Evidence".
+
+Caller: KyCalendar, `docs/superpowers/specs/2026-10-17-kycalendar-v1b-invitations-design.md`
 in Busnes-app/KyCalendar ("Meeting rooms", "Backend credentials").
 
 ## Intent

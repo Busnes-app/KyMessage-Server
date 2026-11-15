@@ -20,12 +20,13 @@ import (
 
 const (
 	prefix       = "/_synapse/admin/"
-	clientPrefix = "/_matrix/client/v3/" // meeting rooms only (meetings.go): createRoom and rooms/
+	clientPrefix = "/_matrix/client/v3/" // meeting rooms only (meetings.go, guests.go)
 )
 
-// allowedPath: the admin API, or the two client API routes meeting rooms use.
+// allowedPath: the admin API, or the client API routes meeting rooms and their guests use.
 func allowedPath(p string) bool {
-	return strings.HasPrefix(p, prefix) || p == clientPrefix+"createRoom" || strings.HasPrefix(p, clientPrefix+"rooms/")
+	return strings.HasPrefix(p, prefix) || p == clientPrefix+"createRoom" || strings.HasPrefix(p, clientPrefix+"rooms/") ||
+		strings.HasPrefix(p, clientPrefix+"knock/") || strings.HasPrefix(p, clientPrefix+"profile/")
 }
 
 // Error is a non-2xx answer with Synapse's errcode and message (clipped).

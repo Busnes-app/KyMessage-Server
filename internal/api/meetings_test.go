@@ -43,6 +43,8 @@ type fakeMeetingRooms struct {
 	banned  map[string]bool
 	failFor map[string]bool // invites that fail with a network-like error
 	callErr error
+	// Meeting guests (guests_test.go): each guest's token, and who sent a membership.
+	guestToken, sender map[string]string
 }
 
 func (f *fakeMeetingRooms) record(call string) error {
@@ -345,7 +347,8 @@ func TestMeetingRefusals(t *testing.T) {
 		{"control in title", "PUT", meetID, putBody("sub-a", "a\u0007b"), signOpts{}, 400, "bad_body"},
 		{"long title", "PUT", meetID, putBody("sub-a", strings.Repeat("é", 128)), signOpts{}, 400, "bad_body"},
 		{"101 members", "PUT", meetID, putBody("sub-a", "Sync", slices.Repeat([]string{"sub-e"}, 101)...), signOpts{}, 400, "bad_body"},
-		{"guests", "PUT", meetID, `{"sub":"sub-a","issuer":"` + calIssuer + `","title":"Sync","guests":[{"key":"g1"}]}`, signOpts{}, 422, "guests_unsupported"},
+		{"guests", "PUT", meetID, `{"sub":"sub-a","issuer":"` + calIssuer + `","title":"Sync","guests":[{"key":"guestkey_000000000001"}]}`, signOpts{}, 422, "guests_off"},
+		{"bad guest key", "PUT", meetID, `{"sub":"sub-a","issuer":"` + calIssuer + `","title":"Sync","guests":[{"key":"g1"}]}`, signOpts{}, 400, "bad_body"},
 		{"unknown organizer", "PUT", meetID, putBody("sub-x", "Sync"), signOpts{}, 404, "no_user"},
 		{"administrator", "PUT", meetID, putBody("sub-r", "Sync"), signOpts{}, 404, "no_user"},
 		{"locked chat account", "PUT", meetID, putBody("sub-b", "Sync"), signOpts{}, 404, "no_user"},
@@ -356,8 +359,8 @@ func TestMeetingRefusals(t *testing.T) {
 	// A body naming its own meeting is fine.
 	decode[map[string]any](t, e.call(t, "PUT", meetID, strings.Replace(ok, "{", `{"id":"`+meetID+`",`, 1), signOpts{}))
 	// Empty guests and windows are fine.
-	decode[map[string]any](t, e.call(t, "PUT", meetID, `{"sub":"sub-a","issuer":"`+calIssuer+`","title":"Sync","guests":[],"windows":[{"start":"x"}]}`, signOpts{}))
-	if audits := strings.Join(e.audits(t), "\n"); strings.Count(audits, "refused: bad_body") != 10 || !strings.Contains(audits, "refused: no_user") {
+	decode[map[string]any](t, e.call(t, "PUT", meetID, `{"sub":"sub-a","issuer":"`+calIssuer+`","title":"Sync","guests":[],"windows":[]}`, signOpts{}))
+	if audits := strings.Join(e.audits(t), "\n"); strings.Count(audits, "refused: bad_body") != 11 || !strings.Contains(audits, "refused: no_user") {
 		t.Errorf("refusals audited:\n%s", audits)
 	}
 }

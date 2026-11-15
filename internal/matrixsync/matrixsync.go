@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/Busnes-app/ky_server_base/internal/store"
@@ -186,6 +188,21 @@ func (s *Syncer) sweep(ctx context.Context) (applied, failed int, err error) {
 	for _, a := range registered {
 		agents[a.MASUserID] = a.OwnerSubject
 	}
+	// A live meeting guest (an unlinked guest- account KyMessages made for a window) is
+	// KyMessages' own to end; any other guest- account is swept like every unlinked user.
+	guests, err := s.st.Meetings().ActiveGuests(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	live := map[string]bool{}
+	for _, g := range guests {
+		if g.MASUserID != "" {
+			live[g.MASUserID] = true
+		}
+	}
+	users = slices.DeleteFunc(users, func(u User) bool {
+		return live[u.ID] && u.Subject == "" && strings.HasPrefix(u.Username, GuestPrefix)
+	})
 	var errs []error
 	for _, a := range Plan(users, dir, agents) {
 		if err := ctx.Err(); err != nil {
