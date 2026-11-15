@@ -914,7 +914,8 @@ async function guestknock() {
   const { GUEST_MXID: mxid, MEETING_ROOM: room } = process.env;
   const alice = await resume('alice', 'prove-alice');
   await joinCall(alice, true, room);
-  const guest = await launch('guest', 'spike-guest');
+  // S1's session, reopened: Element's lock from that window is taken over as a person would.
+  const guest = await resume('guest', 'spike-guest');
   await guest.goto(`${CHAT}/#/room/${room}`);
   await synced(guest);
   const ask = guest.getByRole('button', { name: /Request access|Ask to join/i });
