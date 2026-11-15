@@ -8,7 +8,8 @@
 jq '.features = ((.features // {}) + {feature_ask_to_join: true})' "$element_cfg" >"$state/element.json"
 cat "$state/element.json" >"$element_cfg"
 dc restart element >/dev/null
-eventually 90 true "Element serves feature_ask_to_join" sh -c "hcurl -fsS https://chat.kymatrix.test/config.json | jq -r '.features.feature_ask_to_join'"
+ask_to_join() { hcurl -fsS https://chat.kymatrix.test/config.json 2>/dev/null | jq -r '.features.feature_ask_to_join'; }
+eventually 90 true "Element serves feature_ask_to_join" ask_to_join
 g=$(cat "$state/spike-guest")
 GUEST_MXID=@$g:$KY_MATRIX_SERVER_NAME GUEST_DEVICE=$(cat "$state/$g.device") GUEST_TOKEN_FILE=$state/$g.token MEETING_ROOM=$(cat "$state/spike-room") \
 	e2e guestsignin
