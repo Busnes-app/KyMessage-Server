@@ -273,7 +273,8 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `guestCodeTTL`, is deleted on first use). Unknown, revoked, closed and switched-off links all
   read 404 `not_found`. `ReconcileGuests` runs with `ReconcileCalls` every 5 seconds
   (`cmd/server`), under `meetingMu` and one console session: it ends (LiveKit, kick, revoke,
-  `Deactivate`) every guest whose link was revoked, meeting closed or session ended, or all of
+  `Deactivate`) every guest whose link was revoked, meeting closed, session ended or meeting has
+  no open window now (a PUT may shorten it), or all of
   them while off; audits `guest.knock`/`guest.admit` (by the invite's sender, or
   `AdminInvite` when it jumped to join)/`guest.leave`/`guest.expire`; removes a joined guest out
   of its call for `guestDeparture` (20 s) after being in it, `guestFirstCall` (2 min) if never

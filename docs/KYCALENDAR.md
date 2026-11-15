@@ -206,7 +206,7 @@ PUT body gains, beside section B's fields:
 - **Leaving means knocking again:** a joined guest out of the call for 20 seconds after being in
   it (2 minutes if it never joined it) is removed from the room (audited `guest.leave`) and must
   knock again. Not with calls off.
-- **End:** at its window's end, when its link is revoked, when the meeting closes, or when
+- **End:** at its window's end (also when a PUT shortens or drops the window it is in), when its link is revoked, when the meeting closes, or when
   guests are turned off, the reconciler (every 5 seconds) removes the guest from the call and
   the room, revokes its session and deactivates the account (audited `guest.expire` with the
   reason). The MAS sweep leaves a live guest's account alone and locks any other `guest-` one.
@@ -256,3 +256,12 @@ PUT body gains, beside section B's fields:
   `pg_dump`; the console has no device keys; a title change renames the room; an exact replay
   is `duplicate`; a PUT without bob removes him; DELETE closes and blocks the room; a PUT after
   is 409 `closed`.
+- `.github/workflows/suite-meetings.yml` (nightly, on dispatch, and on pull requests touching
+  the meeting code or the harness): the same harness with a real KyCalendar and KyIdentity built
+  from their main branches, step `suite-meetings`. Both apps pair only through KyIdentity's
+  `/api/suite/peer`. alice's event in KyCalendar's editor, with bob and carol, makes the room;
+  the stored event carries `CONFERENCE;VALUE=URI;FEATURE=VIDEO;LABEL=KyMessages:<url>` and ends
+  with `Join: <url>`; Join opens the room in Element; both accept and hold a video call there;
+  carol (no chat account) is skipped, and after she signs in a rename invites her; removing her
+  removes her; switching the meeting off, and deleting another event, close their rooms. Not in
+  `ci.yml`: an unpinned peer must not fail this repo's pull requests.

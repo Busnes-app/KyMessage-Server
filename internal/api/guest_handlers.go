@@ -580,7 +580,8 @@ func (s *Server) endGuestAccount(ctx context.Context, tok string, g store.Meetin
 }
 
 // ReconcileGuests runs every 5 seconds with the call reconciler. It ends guests whose link was
-// revoked, whose meeting closed, whose window ended, or every guest while guests are off; it
+// revoked, whose meeting closed, whose session ended or none of whose meeting's current windows
+// is open (a PUT may have shortened it), or every guest while guests are off; it
 // audits knocks and admissions; and it removes a joined guest who left the call, so they must
 // knock again. One guest's failure does not stop the others.
 func (s *Server) ReconcileGuests(ctx context.Context) error {
@@ -613,6 +614,7 @@ func (s *Server) ReconcileGuests(ctx context.Context) error {
 	var errs []error
 	err = s.mas.AsConsole(ctx, func(ctx context.Context, tok string) error {
 		meetings := map[string]*store.Meeting{}
+		windows := map[string][]store.MeetingWindow{}
 		members := map[string]map[string]synapseadmin.Member{}
 		for _, g := range rows {
 			m, ok := meetings[g.MeetingID]
@@ -622,6 +624,11 @@ func (s *Server) ReconcileGuests(ctx context.Context) error {
 					continue
 				}
 				meetings[g.MeetingID] = m
+				if windows[g.MeetingID], err = s.store.Meetings().Windows(ctx, g.MeetingID); err != nil {
+					errs = append(errs, err)
+					delete(meetings, g.MeetingID)
+					continue
+				}
 			}
 			reason := ""
 			switch {
@@ -631,8 +638,13 @@ func (s *Server) ReconcileGuests(ctx context.Context) error {
 				reason = "guests_off"
 			case m.State != store.MeetingOpen:
 				reason = "closed"
+			case g.MXID == "":
 			case !now.Before(g.SessionEnd):
 				reason = "window_ended"
+			default: // a PUT may have shortened or dropped the window it joined in
+				if _, open := openWindow(windows[g.MeetingID], now); !open {
+					reason = "window_ended"
+				}
 			}
 			if reason != "" {
 				errs = append(errs, s.finishGuest(ctx, tok, g, m.RoomID, reason))

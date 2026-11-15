@@ -572,3 +572,46 @@ func TestGuestDeparture(t *testing.T) {
 		t.Fatalf("removed %v", got)
 	}
 }
+
+// A PUT that shortens or drops the window an admitted guest joined in ends that guest at the
+// next pass, though its session would run longer (review finding P2 on #135).
+func TestShortenedWindowEndsTheGuest(t *testing.T) {
+	e := setupGuests(t)
+	e.on(t)
+	k := "guestkey_000000000001"
+	tok := token(t, e.put(t, meetID, guestPut("Sync", []string{k}, nowWindow()))[k])
+	e.rooms.take()
+	if code, _ := e.join(t, tok, "Visitor", "192.0.2.7:1"); code != 200 {
+		t.Fatal(code)
+	}
+	var guest string
+	for _, c := range e.rooms.take() {
+		if l, ok := strings.CutPrefix(c, "mark "); ok {
+			guest = "@" + l + ":example.com"
+		}
+	}
+	e.rooms.mu.Lock()
+	e.rooms.member[meetRoomID][guest] = "join"
+	e.rooms.mu.Unlock()
+	if err := e.srv.ReconcileGuests(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.mas.ag.deactivated) != 0 {
+		t.Fatal("ended inside its window")
+	}
+	// The window now ended a minute ago; the session's own end is untouched (50 minutes away).
+	e.put(t, meetID, guestPut("Sync", []string{k}, [2]time.Time{time.Now().Add(-time.Hour), time.Now().Add(-time.Minute)}))
+	if err := e.srv.ReconcileGuests(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.rooms.take(); !slices.Contains(got, "kick "+guest) {
+		t.Fatalf("not removed: %v", got)
+	}
+	if len(e.mas.ag.deactivated) != 1 || len(e.mas.ag.revoked) != 1 {
+		t.Fatalf("deactivated %v revoked %v", e.mas.ag.deactivated, e.mas.ag.revoked)
+	}
+	// Dropping every window ends a guest just the same.
+	if code, _ := e.join(t, tok, "Visitor", "192.0.2.8:1"); code != 409 {
+		t.Fatalf("join after the window: %d", code)
+	}
+}
