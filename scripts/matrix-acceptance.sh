@@ -698,6 +698,7 @@ title="kymatrix suite guests $(openssl rand -hex 3)"
 KYCAL_ACTION=create KYCAL_TITLE=$title KYCAL_PEOPLE=bob,visitor@outside.test KYCAL_NOW=1 cal
 room=$(jq -re '.meeting_url | capture("#/room/(?<r>![^/]+)$").r' "$state/calendar.json")
 expect "$(jq -c '[.guests, .guests_error]' "$state/calendar.json")" '[["visitor@outside.test"],""]' "KyCalendar made the outside attendee a guest; KyMessages took it"
+{ read -r conference; read -r join; } < <(cal_event) # before view rewrites calendar.json
 KYCAL_ACTION=view KYCAL_TITLE=$title KYCAL_SHOT=kycalendar-guests-on cal
 expect "$(jq -r .hint "$state/calendar.json")" "visitor@outside.test can join as guests, each with their own link sent only in their invitation." "the editor says the visitor joins with their own link"
 linked() { [[ -n $(link_of) ]] && echo yes; }
@@ -709,7 +710,6 @@ eventually 60 - "bob's invitation went out, without a guest link" invited bob@ky
 sent >/dev/null
 expect "$(grep -cF "$link" "$state/sent.tsv")" "$(awk -F'\t' '$2 == "visitor@outside.test"' "$state/sent.tsv" | grep -cF "$link")" \
 	"the link is in the visitor's own copies only; every message was signed under KyIdentity's KyCalendar-KyPost secret"
-{ read -r conference; read -r join; } < <(cal_event)
 [[ $conference == "https://chat.kymatrix.test/#/room/"* && $join == "Join: $conference" ]] || { echo "  FAILED: stored event $conference / $join" >&2; false; }
 token=${link#*#}
 for f in "$scratch"/kycalendar-data/kycalendar.db*; do
