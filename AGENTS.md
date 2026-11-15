@@ -360,6 +360,15 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   in a `pg_dump`; the console has no device keys; a title change renames, an exact replay is
   `duplicate`, a PUT without bob kicks him (sender the console), DELETE blocks the room and
   empties it, and a PUT after is 409 `closed`.
+  Stage `guest-spikes` (after `prove`; CI's third leg only, which stops after it; scripts in
+  `scripts/matrix-acceptance/spikes/`, results in the meeting-rooms spec's Evidence): S3 mints
+  passwordless `guest-*` MAS users and personal sessions through MAS's admin API (a throwaway
+  container on `matrix-admin`) and proves the confinement module on the pinned Synapse (no room,
+  DM, knock elsewhere, uninvited join, invite, 3pid invite, state, suffix drop, alias, publish,
+  directory result or upload; members still create rooms and find each other; expiry and
+  deactivation end the session); S1 restores such a session in stock Element from a page on its
+  origin; S2 (with `feature_ask_to_join` set in the scratch Element config) has alice, in an
+  Element Call, admit a guest's knock from the room header.
   Stage `suite-meetings` (instead of `meetings`, only with `KYCALENDAR_SRC`; workflow
   `.github/workflows/suite-meetings.yml`, nightly, on dispatch and on pull requests touching the
   meeting code or harness, never in `ci.yml` because it builds KyCalendar and KyIdentity from

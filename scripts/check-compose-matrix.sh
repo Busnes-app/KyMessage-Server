@@ -110,6 +110,8 @@ owner=$(jq -c '.services["synapse-media-owner"]' <<<"$out")
 # Synapse loads the console's federation file after its own config; nothing else sets listeners.
 [ "$(jq -c '.services.synapse.command' <<<"$out")" = '["run","--config-path","/config/homeserver.yaml","--config-path","/federation.yaml"]' ] \
   || bad "synapse does not load homeserver.yaml then /federation.yaml: $(jq -c '.services.synapse.command' <<<"$out")"
+# Synapse imports the meeting-guest confinement module from its own read-only config dir.
+[ "$(jq -r '.services.synapse.environment.PYTHONPATH' <<<"$out")" = /config ] || bad "synapse does not load modules from /config only"
 [ "$(jq -c '.services.mas.networks | keys' <<<"$out")" = '["default","matrix-admin","matrix-db"]' ] || bad "mas is not on default, matrix-admin and matrix-db"
 # MAS is probed through its public discovery resource; it has no internal port to reach.
 jq -e '.services.synapse.healthcheck.test | index("--fail-early") and index("http://mas:8080/.well-known/openid-configuration")' <<<"$out" >/dev/null \

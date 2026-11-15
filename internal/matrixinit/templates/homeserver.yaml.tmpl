@@ -35,6 +35,12 @@ encryption_enabled_by_default_for_room_type: all
 # Push gateways (Element's, or a self-hosted ntfy) get event and room IDs only, never content.
 push:
   include_content: false
+# Confines meeting guests (local users guest-*) to their meeting room: ky_guests.py, beside
+# this file; Compose sets PYTHONPATH=/config.
+modules:
+  - module: ky_guests.GuestConfinement
+    config:
+      console: {{ q (print "@kymessages-console:" .In.ServerName) }}
 matrix_authentication_service:
   enabled: true
   endpoint: http://mas:8080/

@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- Synapse loads a guest confinement module, `ky_guests.py`, which `matrix-init` writes beside
+  `homeserver.yaml`; `docker-compose.matrix.yml` sets `PYTHONPATH=/config` on Synapse for it.
+  Rerun `matrix-init` and update the Compose files together: a `homeserver.yaml` naming the
+  module with an old Compose file stops Synapse at start. The module confines local accounts
+  named `guest-…` (the coming meeting guests; none exist yet) to the meeting room the console
+  marks for them: no room creation, invites, DMs, aliases, publishing, uploads or directory
+  results, and no dropping the " (guest)" name suffix. Everyone else is untouched. Local
+  part `guest-` is reserved for these accounts.
 - Chat from KyPost and KyCalendar. A paired KyPost (a message's sender or a contact) or
   KyCalendar (an attendee) can ask `POST /api/suite/chat` for a link to that person in Element,
   which offers "Message" and reuses an existing direct chat; KyMessages creates nothing. Both

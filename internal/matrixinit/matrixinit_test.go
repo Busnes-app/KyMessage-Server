@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1011,5 +1012,48 @@ func TestInitKeepsTheConsolesFederationFile(t *testing.T) {
 	os.Mkdir(path, 0o700)
 	if _, err := Run(goodInput(), dir); err == nil {
 		t.Error("a directory at the federation path was accepted")
+	}
+}
+
+// Synapse loads the guest confinement module from its own config dir, naming the console as
+// the only sender whose markers it trusts.
+func TestSynapseLoadsGuestConfinement(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	var hs map[string]any
+	b, _ := os.ReadFile(filepath.Join(dir, "synapse/homeserver.yaml"))
+	if err := yaml.Unmarshal(b, &hs); err != nil {
+		t.Fatal(err)
+	}
+	mods, _ := hs["modules"].([]any)
+	if len(mods) != 1 {
+		t.Fatalf("modules: %v", hs["modules"])
+	}
+	m := mods[0].(map[string]any)
+	if m["module"] != "ky_guests.GuestConfinement" || m["config"].(map[string]any)["console"] != "@kymessages-console:"+goodInput().ServerName /* matrixsync.ConsoleUsername; importing it here is a cycle */ {
+		t.Fatalf("module: %v", m)
+	}
+	fi, err := os.Stat(filepath.Join(dir, "synapse/ky_guests.py"))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("ky_guests.py: %v %v", fi, err)
+	}
+	py, _ := os.ReadFile(filepath.Join(dir, "synapse/ky_guests.py"))
+	src, _ := templateFS.ReadFile("templates/ky_guests.py.tmpl")
+	if !bytes.Equal(py, src) {
+		t.Fatal("ky_guests.py is not the module byte for byte")
+	}
+}
+
+// The confinement rules against stand-ins for Synapse's module API (testdata/ky_guests_test.py).
+func TestGuestConfinementRules(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not installed")
+	}
+	out, err := exec.Command(py, "-I", "-B", "testdata/ky_guests_test.py", "templates/ky_guests.py.tmpl").CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }
