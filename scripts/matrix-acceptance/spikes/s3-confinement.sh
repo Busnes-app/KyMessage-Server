@@ -58,16 +58,16 @@ mx "$g1_tok" PUT "profile/$(uri "$g1_mx")/displayname" '{"displayname":"The boss
 expect "$(sql synapse "SELECT e.json::json->'content'->>'displayname' FROM current_state_events c JOIN event_json e USING (event_id) WHERE c.room_id = '$meet' AND c.type = 'm.room.member' AND c.state_key = '$g1_mx'")" \
 	"Visitor (guest)" "a profile rename does not reach the meeting room"
 expect "$(mx "$g1_tok" PUT "directory/room/$(uri "#$g1:$KY_MATRIX_SERVER_NAME")" "$(jq -nc --arg r "$meet" '{room_id: $r}')")" "403 M_FORBIDDEN" "a guest cannot create a room alias"
-expect "$(mx "$g1_tok" PUT "directory/list/room/$(uri "$meet")" '{"visibility":"public"}' | cut -d' ' -f1)" 403 "a guest cannot publish a room"
+expect "$(mx "$g1_tok" PUT "directory/list/room/$(uri "$meet")" '{"visibility":"public"}' | command cut -d' ' -f1)" 403 "a guest cannot publish a room"
 expect "$(mx "$g1_tok" POST user_directory/search '{"search_term":"alice"}') $(mxr '.results | length')" "200 - 0" \
 	"a guest's directory search finds nobody, not even alice in its room"
 expect "$(mx "$g1_tok" POST user_directory/search '{"search_term":"bob"}') $(mxr '.results | length')" "200 - 0" "nor bob"
-expect "$(mx "$alice_tok" POST user_directory/search '{"search_term":"bob"}' | cut -d' ' -f1) $(mxr '.results | length > 0')" "200 true" "control: alice still finds bob"
+expect "$(mx "$alice_tok" POST user_directory/search '{"search_term":"bob"}' | command cut -d' ' -f1) $(mxr '.results | length > 0')" "200 true" "control: alice still finds bob"
 up=$(hcurl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $g1_tok" -H 'Content-Type: text/plain' --data-binary 'x' \
 	"https://matrix.kymatrix.test/_matrix/media/v3/upload?filename=x.txt")
 [[ $up == 4* ]] || { echo "  FAILED: a guest's media upload got $up" >&2; false; }
 ok "a guest cannot upload media ($up)"
-expect "$(mx "$alice_tok" POST createRoom '{}' | cut -d' ' -f1)" 200 "control: members still create rooms"
+expect "$(mx "$alice_tok" POST createRoom '{}' | command cut -d' ' -f1)" 200 "control: members still create rooms"
 spike_note "S3 profile: a guest can still read any local user's profile by Matrix ID: $(mx "$g1_tok" GET "profile/$(uri "$bob_mx")") (limit_profile_requests_to_users_who_share_rooms is off)"
 
 # The session ends at its expiry, and deactivating the account parts it from the room.
