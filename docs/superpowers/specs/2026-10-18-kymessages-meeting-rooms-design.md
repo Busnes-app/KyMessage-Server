@@ -234,6 +234,10 @@ Element Web v1.12.30).
   join (403, the confinement module), and Element then offers "Ask to join"
   (`RoomViewStore` `PromptAskToJoin`). The built feature knocks for the guest server-side, so
   the guest never needs that step the first time.
+- Screenshots (CI artifact `matrix-acceptance-evidence-2` of run 43668202702):
+  `docs/evidence/2026-11-meeting-guests/spike-s1-guest-restored.png`, `spike-s2-guest-ask.png`,
+  `spike-s2-alice-knock-in-call.png` (the knock bar's approve and deny above alice's running call),
+  `spike-s2-guest-joined.png`.
 - **Fallback not needed:** S1 and S2 pass, so the KyMessages guest page joining LiveKit directly
   stays unbuilt; guests use Element and Element Call with Matrix-keyed media encryption.
 - **Desk claim corrected:** the call grant's member list (`/_synapse/admin/v1/rooms/{id}/members`,
