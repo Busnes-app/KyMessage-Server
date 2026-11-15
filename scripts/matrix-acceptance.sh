@@ -46,7 +46,8 @@
 # same sources, instead of building the three images; CI builds them with a layer cache),
 # KYCALENDAR_SRC (a KyCalendar checkout: run it, paired with KyMessages through KyIdentity's
 # /api/suite/peer instead of the meetings step's environment pair, and run step suite-meetings
-# instead of meetings; with MATRIX_ACCEPT_PREBUILT=1 its image is kymatrix-accept-kycalendar:ci).
+# instead of meetings, then suite-chat and suite-guests; with MATRIX_ACCEPT_PREBUILT=1 its image
+# is kymatrix-accept-kycalendar:ci).
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -80,7 +81,7 @@ summary=$scratch/summary
 
 umask 077
 # ./data and ./backups belong to this user before the app (which runs as it) starts.
-mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data" "$scratch/kycalendar" "$scratch/kycalendar-data"
+mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data" "$scratch/kycalendar" "$scratch/kycalendar-data" "$scratch/kypost-sink"
 # The KyCalendar pair secret step meetings signs with (overrides/app.yml mounts it). With a real
 # KyCalendar the environment names no pair.
 openssl rand -hex 32 >"$scratch/kycalendar/secret"
@@ -388,9 +389,15 @@ if [[ -n $kycal_src ]]; then
 	KY_KYIDENTITY_SECRET=$(suite_client kymessage KyMessages "$KY_APP_URL/api/sso/kyidentity/callback")
 	KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET=$(suite_client kycalendar KyCalendar https://cal.kymatrix.test/api/sso/kysignon/callback)
 	export KY_KYIDENTITY_CLIENT_ID KY_KYIDENTITY_SECRET KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET
-	suite_apps=$(kyid GET /api/admin/app-registry | jq -r '.records[] | select(.clientId == "kymessage" or .clientId == "kycalendar") | .id')
-	expect "$(wc -w <<<"$suite_apps")" 2 "KyIdentity lists the kymessage and kycalendar clients as apps"
-	ok "suite clients kymessage and kycalendar registered; no pairing variable on either side"
+	# The KyPost stand-in's client (overrides/nginx.conf): KyIdentity pairs it with KyCalendar and
+	# KyMessages. Nobody is assigned to it; the harness signs as it.
+	suite_client kypost KyPost https://post.kymatrix.test/api/sso/kysignon/callback >"$state/kypost.client"
+	# Element as a suite app (kymessage-chat): where KyCalendar's Chat action opens.
+	kyid POST /api/admin/clients "$(jq -n '{clientId: "kymessage-chat", clientName: "KyMessages", clientType: "public",
+		redirectUris: ["https://chat.kymatrix.test/"], launchUrl: "https://chat.kymatrix.test/", allowedScopes: ["openid"]}')" >/dev/null
+	suite_apps=$(kyid GET /api/admin/app-registry | jq -r '.records[] | select(.clientId == "kymessage" or .clientId == "kycalendar" or .clientId == "kymessage-chat") | .id')
+	expect "$(wc -w <<<"$suite_apps")" 3 "KyIdentity lists the kymessage, kycalendar and kymessage-chat clients as apps"
+	ok "suite clients kymessage, kycalendar and kypost registered; no pairing variable on any side"
 fi
 # KyMessages first, so it is listening when the assignments below are delivered.
 dc up -d app >/dev/null
@@ -596,6 +603,138 @@ room=$(jq -re '.meeting_url | capture("#/room/(?<r>![^/]+)$").r' "$state/calenda
 expect "$(membership "$bob_mx")" invite "a second event's room invites bob"
 KYCAL_ACTION=delete KYCAL_TITLE=$title2 cal
 eventually 60 1 "deleting the event closed its room" blocked
+pass
+fi
+
+# ---------------------------------------------------------------------------------------
+# Suite steps after suite-meetings share these. suite_secret ME PEER: the pair secret KyIdentity
+# issues to suite client ME for PEER, as hex. signed SECRET TYPE ID BODY METHOD URL: a syncauth v1
+# request; prints the status, the reply in $state/signed.reply.
+suite_secret() {
+	local pw=$KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET
+	[[ $1 == kypost ]] && pw=$(cat "$state/kypost.client")
+	hcurl -fsS -u "$1:$pw" "https://id.kymatrix.test/api/suite/peer?client=$2" | jq -re .secret | base64 -d | od -An -tx1 | tr -d ' \n'
+}
+signed() {
+	local ts sig
+	ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	sig=$(printf 'ky-sync-v1\n%s\n%s\n%s\n%s' "$ts" "$2" "$3" "$(printf '%s' "$4" | sha256sum | cut -d' ' -f1)" |
+		openssl dgst -sha256 -mac HMAC -macopt "hexkey:$1" | awk '{print $NF}')
+	hcurl -o "$state/signed.reply" -w '%{http_code}' -X "$5" -H 'Content-Type: application/json' -H "X-KySignOn-Signature: v1=$sig" \
+		-H "X-KySignOn-Timestamp: $ts" -H "X-KySignOn-Event-Type: $2" -H "X-KySignOn-Event-ID: $3" --data-binary "$4" "$6"
+}
+alice_mx=@alice.q_ky:$KY_MATRIX_SERVER_NAME bob_mx=@bob:$KY_MATRIX_SERVER_NAME
+
+# ---------------------------------------------------------------------------------------
+# Chat from KyCalendar (docs/SUITE-CHAT.md, contract H). alice's event view offers Chat on bob and
+# dave (organisation people) and on nobody else; bob's opens Element's view of him; dave, never
+# signed in to chat, gets "not on KyMessages". At the console, signed under the KyIdentity pair
+# secrets: self, an administrator identity, a wrong event type, a wrong key are refused; a replay
+# is a duplicate; KyPost's event type works under KyPost's pair.
+if [[ -n $kycal_src ]] && wanted suite-chat; then
+step suite-chat
+cal() { node "$here/e2e.mjs" calendar; }
+title="kymatrix suite chat $(openssl rand -hex 3)"
+KYCAL_ACTION=create KYCAL_TITLE=$title KYCAL_PEOPLE=bob,dave,outsider@elsewhere.test cal
+KYCAL_ACTION=chat KYCAL_TITLE=$title KYCAL_PEOPLE=bob KYCAL_NOTONKY=dave KYCAL_NOCHAT=outsider@elsewhere.test cal
+expect "$(jq -r '.urls["bob@kymatrix.test"]' "$state/calendar.json")" "https://chat.kymatrix.test/#/user/@bob:$KY_MATRIX_SERVER_NAME" \
+	"KyCalendar's Chat on bob returned Element's user view of bob"
+calsecret=$(suite_secret kycalendar kymessage) postsecret=$(suite_secret kypost kymessage)
+admin_sub=$(kyid GET /api/admin/users | jq -re '.users[] | select(.username == "admin") | .id')
+chat() { jq -nc --arg s "$1" --arg i "$KY_KYIDENTITY_ISSUER" --arg t "$2" '{sub: $s, issuer: $i, target_sub: $t}'; }
+open_chat() { # open_chat SECRET TYPE BODY [EVENT_ID]: "<status> <url or code>"
+	echo "$(signed "$1" "$2" "${4:-evt_$(openssl rand -hex 16)}" "$3" POST "$KY_APP_URL/api/suite/chat") $(jq -r '.url // .code // .outcome' "$state/signed.reply")"
+}
+bob_url="https://chat.kymatrix.test/#/user/@bob:$KY_MATRIX_SERVER_NAME"
+expect "$(open_chat "$calsecret" kycalendar.chat.open "$(chat "${kid[AQuinn]}" "${kid[bob]}")")" "200 $bob_url" "signed as KyCalendar, alice to bob is Element's view of bob"
+expect "$(open_chat "$calsecret" kycalendar.chat.open "$(chat "${kid[AQuinn]}" "${kid[AQuinn]}")")" "404 no_target" "alice to herself is refused"
+expect "$(open_chat "$calsecret" kycalendar.chat.open "$(chat "${kid[AQuinn]}" "$admin_sub")")" "404 no_target" "a target that is KyIdentity's administrator identity is refused"
+expect "$(open_chat "$calsecret" kycalendar.chat.open "$(chat "$admin_sub" "${kid[bob]}")")" "404 no_user" "the administrator identity as the caller is refused"
+expect "$(open_chat "$calsecret" kycalendar.chat.open "$(chat "${kid[AQuinn]}" "${kid[dave]}")")" "404 no_target" "a target with no chat account is refused"
+expect "$(open_chat "$calsecret" kycalendar.chat.open '{"sub":"x"}')" "400 bad_body" "a body without target_sub is refused"
+expect "$(open_chat "$calsecret" kypost.chat.open "$(chat "${kid[AQuinn]}" "${kid[bob]}")")" "401 bad_signature" "KyPost's event type under KyCalendar's secret is refused"
+expect "$(open_chat "$(openssl rand -hex 32)" kycalendar.chat.open "$(chat "${kid[AQuinn]}" "${kid[bob]}")")" "401 bad_signature" "a request under another key is refused"
+replay=evt_$(openssl rand -hex 16) chat_body=$(chat "${kid[AQuinn]}" "${kid[bob]}")
+expect "$(open_chat "$calsecret" kycalendar.chat.open "$chat_body" "$replay") $(open_chat "$calsecret" kycalendar.chat.open "$chat_body" "$replay")" \
+	"200 $bob_url 200 duplicate" "an exact replay answers duplicate"
+expect "$(open_chat "$postsecret" kypost.chat.open "$(chat "${kid[bob]}" "${kid[AQuinn]}")")" "200 https://chat.kymatrix.test/#/user/@alice.q_ky:$KY_MATRIX_SERVER_NAME" \
+	"signed as KyPost (paired through KyIdentity), bob to alice is Element's view of alice"
+audit=$(app_api GET '/api/admin/audit?limit=200' | jq -c '[.records[] | select(.action == "chat.open")]')
+(($(jq length <<<"$audit") >= 8)) || { echo "  FAILED: chat.open audit rows: $audit" >&2; false; }
+for secret in "${kid[AQuinn]}" "${kid[bob]}" "$admin_sub" "$bob_url" "$calsecret" "$postsecret"; do
+	if grep -qF "$secret" <<<"$audit"; then echo "  FAILED: a chat.open audit row holds '$secret'" >&2; false; fi
+done
+ok "chat.open audited for every verified request, with IDs only: no subject, link or secret"
+pass
+fi
+
+# ---------------------------------------------------------------------------------------
+# Meeting guests from KyCalendar (docs/KYCALENDAR.md "Guests", contract L). With the console's
+# switch on, alice's event with bob and visitor@outside.test (no KyIdentity account) gives the
+# visitor a guest key; KyCalendar hands KyPost the visitor's invitation with its own link and
+# bob's without, and stores none; the visitor opens it, knocks, alice admits them and they share
+# a call. With the switch off, the next event's room is still made for bob and the editor names
+# the visitor who cannot join; their invitation has no link.
+if [[ -n $kycal_src ]] && wanted suite-guests; then
+step suite-guests
+cal() { node "$here/e2e.mjs" calendar; }
+cal_event() { python3 -I "$here/kycal-event.py" "$scratch/kycalendar-data/kycalendar.db" "$(jq -r .calendar "$state/calendar.json")" "$(jq -r .uid "$state/calendar.json")"; }
+suite_secret kycalendar kypost >"$state/kypost-kycalendar.secret"
+# sent: what KyCalendar handed the KyPost stand-in, each message's signature verified
+# (kypost-sink.py fails on any other), also kept in $state/sent.tsv.
+sent() { python3 -I "$here/kypost-sink.py" "$scratch/kypost-sink/sent.jsonl" "$state/kypost-kycalendar.secret" | tee "$state/sent.tsv"; }
+seats() { sql mas "SELECT coalesce(string_agg(username, ' '), '') FROM users WHERE username ~ '^guest-[0-9a-f]{20}$' AND deactivated_at IS NULL"; }
+# invited WHO: the distinct guest-link fields of the REQUESTs KyCalendar handed KyPost for WHO
+# alone ("-" for a copy without one).
+invited() {
+	sent >/dev/null || return
+	awk -F'\t' -v w="$1" '$1 == "REQUEST" && $2 == w { print $3 }' "$state/sent.tsv" | sort -u | paste -sd' '
+}
+link_of() { invited visitor@outside.test | grep -oE 'https://[^ ]+' | head -1; }
+
+app_api POST /api/admin/meeting-guests/enable >/dev/null
+expect "$(app_api GET /api/admin/meeting-guests | jq -r .enabled)" true "the administrator turned meeting guests on"
+title="kymatrix suite guests $(openssl rand -hex 3)"
+KYCAL_ACTION=create KYCAL_TITLE=$title KYCAL_PEOPLE=bob,visitor@outside.test KYCAL_NOW=1 cal
+room=$(jq -re '.meeting_url | capture("#/room/(?<r>![^/]+)$").r' "$state/calendar.json")
+expect "$(jq -c '[.guests, .guests_error]' "$state/calendar.json")" '[["visitor@outside.test"],""]' "KyCalendar made the outside attendee a guest; KyMessages took it"
+KYCAL_ACTION=view KYCAL_TITLE=$title KYCAL_SHOT=kycalendar-guests-on cal
+expect "$(jq -r .hint "$state/calendar.json")" "visitor@outside.test can join as guests, each with their own link sent only in their invitation." "the editor says the visitor joins with their own link"
+linked() { [[ -n $(link_of) ]] && echo yes; }
+eventually 180 yes "KyCalendar handed KyPost the visitor's invitation with a guest link" linked
+link=$(link_of)
+[[ $link =~ ^https://admin\.kymatrix\.test/meet#[A-Za-z0-9_-]{43}$ ]] || { echo "  FAILED: guest link $link" >&2; false; }
+expect "$(invited visitor@outside.test)" "$link" "every invitation to the visitor carries that one link"
+eventually 60 - "bob's invitation went out, without a guest link" invited bob@kymatrix.test
+sent >/dev/null
+expect "$(grep -cF "$link" "$state/sent.tsv")" "$(awk -F'\t' '$2 == "visitor@outside.test"' "$state/sent.tsv" | grep -cF "$link")" \
+	"the link is in the visitor's own copies only; every message was signed under KyIdentity's KyCalendar-KyPost secret"
+{ read -r conference; read -r join; } < <(cal_event)
+[[ $conference == "https://chat.kymatrix.test/#/room/"* && $join == "Join: $conference" ]] || { echo "  FAILED: stored event $conference / $join" >&2; false; }
+token=${link#*#}
+for f in "$scratch"/kycalendar-data/kycalendar.db*; do
+	if grep -qaF "$token" "$f"; then echo "  FAILED: the guest link is stored in the clear in ${f##*/}" >&2; false; fi
+done
+ok "the stored event keeps the member room and Join line; the guest link is nowhere in KyCalendar's database in the clear"
+GUEST_LINK=$link MEETING_ROOM=$room e2e guestmeeting
+guest=$(jq -r .guest "$state/guestmeeting.json")
+expect "$(sql synapse "SELECT e.json::json->'content'->>'displayname' FROM current_state_events c JOIN event_json e USING (event_id) WHERE c.room_id = '$room' AND c.type = 'm.room.member' AND c.state_key = '$guest'")" \
+	"Visitor (guest)" "the visitor joined from their invitation's link; members see the guest suffix"
+expect "$(sql synapse "SELECT m.sender FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '$guest' AND m.room_id = '$room' AND m.membership = 'invite' ORDER BY e.stream_ordering DESC LIMIT 1")" \
+	"$alice_mx" "alice admitted the visitor"
+
+app_api POST /api/admin/meeting-guests/disable >/dev/null
+eventually 30 "" "turning guests off ended every live guest account" seats
+title2="kymatrix suite no guests $(openssl rand -hex 3)"
+KYCAL_ACTION=create KYCAL_TITLE=$title2 KYCAL_PEOPLE=bob,visitor2@outside.test KYCAL_NOW=1 cal
+room=$(jq -re '.meeting_url | capture("#/room/(?<r>![^/]+)$").r' "$state/calendar.json")
+expect "$(sql synapse "SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '$bob_mx' AND m.room_id = '$room' ORDER BY e.stream_ordering DESC LIMIT 1")" \
+	invite "with guests off KyCalendar still made the member room and invited bob"
+expect "$(jq -c '[.guests, .guests_error]' "$state/calendar.json")" '[["visitor2@outside.test"],"guests_off"]' "KyMessages refused the guest (guests_off) and KyCalendar kept the room without it"
+KYCAL_ACTION=view KYCAL_TITLE=$title2 KYCAL_SHOT=kycalendar-guests-off cal
+expect "$(jq -r .hint "$state/calendar.json")" "visitor2@outside.test cannot join: KyMessages does not let people outside the organisation join meetings." \
+	"the editor names the attendee who cannot join and why"
+eventually 180 - "the visitor's invitation went out without a guest link" invited visitor2@outside.test
 pass
 fi
 
