@@ -43,7 +43,10 @@
 # MATRIX_ACCEPT_SKIP (space-separated step names to skip: meetings, closed, offboard-*,
 # admin-isolation, notes, agents; CI splits the run in two this way),
 # MATRIX_ACCEPT_PREBUILT=1 (use kymatrix-accept-{app,kyidentity,notes}:ci, already built from the
-# same sources, instead of building the three images; CI builds them with a layer cache).
+# same sources, instead of building the three images; CI builds them with a layer cache),
+# KYCALENDAR_SRC (a KyCalendar checkout: run it, paired with KyMessages through KyIdentity's
+# /api/suite/peer instead of the meetings step's environment pair, and run step suite-meetings
+# instead of meetings; with MATRIX_ACCEPT_PREBUILT=1 its image is kymatrix-accept-kycalendar:ci).
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -55,15 +58,19 @@ project=kymatrix-accept-$$
 kyid_image=$project-kyidentity:local
 app_image=kymatrix-accept-app:$$
 notes_image=kymatrix-accept-notes:$$
+kycal_src=${KYCALENDAR_SRC:-}
+kycal_image=kymatrix-accept-kycalendar:$$
 prebuilt=${MATRIX_ACCEPT_PREBUILT:-0}
 if [[ $prebuilt == 1 ]]; then
 	app_image=kymatrix-accept-app:ci kyid_image=kymatrix-accept-kyidentity:ci notes_image=kymatrix-accept-notes:ci
+	kycal_image=kymatrix-accept-kycalendar:ci
 fi
 
 for tool in docker go node npm openssl curl jq certutil python3; do
 	command -v "$tool" >/dev/null || { echo "matrix-acceptance: $tool is required" >&2; exit 2; }
 done
 [[ -f $kyid_src/Dockerfile ]] || { echo "matrix-acceptance: no KyIdentity checkout at $kyid_src (set KYIDENTITY_SRC)" >&2; exit 2; }
+[[ -z $kycal_src || -f $kycal_src/Dockerfile ]] || { echo "matrix-acceptance: no KyCalendar checkout at $kycal_src" >&2; exit 2; }
 
 scratch=$(mktemp -d -t kymatrix-accept.XXXXXX)
 # Until cleanup is defined below, an early exit still removes the scratch dir.
@@ -73,9 +80,16 @@ summary=$scratch/summary
 
 umask 077
 # ./data and ./backups belong to this user before the app (which runs as it) starts.
-mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data" "$scratch/kycalendar"
-# The KyCalendar pair secret step meetings signs with (overrides/app.yml mounts it).
+mkdir -p "$state" "$scratch/tls" "$scratch/nginx-extra" "$scratch/data" "$scratch/backups" "$scratch/kyidentity-data" "$scratch/kycalendar" "$scratch/kycalendar-data"
+# The KyCalendar pair secret step meetings signs with (overrides/app.yml mounts it). With a real
+# KyCalendar the environment names no pair.
 openssl rand -hex 32 >"$scratch/kycalendar/secret"
+if [[ -z $kycal_src ]]; then
+	export KYMATRIX_ACCEPT_KYCAL_PAIR_URL=https://cal.kymatrix.test KYMATRIX_ACCEPT_KYCAL_PAIR_SECRET=/run/kycalendar/secret
+else
+	KYMATRIX_ACCEPT_KYCAL_SESSION=$(openssl rand -hex 32) KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET=pending-kyidentity
+	export KYMATRIX_ACCEPT_KYCAL_SESSION KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET KYMATRIX_ACCEPT_KYCAL_IMAGE=$kycal_image
+fi
 cp -r "$here/overrides" "$scratch/overrides"
 # docker-compose.matrix.yml includes compose/calls-*.yml, resolved in the project directory.
 cp -r "$repo/compose" "$scratch/compose"
@@ -107,10 +121,12 @@ KYMATRIX_ACCEPT_ADMIN_PASS=$(openssl rand -hex 16)
 export KYMATRIX_ACCEPT_ADMIN_PASS
 export KYMATRIX_ACCEPT_KYID_IMAGE=$kyid_image KYMATRIX_ACCEPT_APP_IMAGE=$app_image KY_NOTES_IMAGE=$notes_image
 
+suite_files=()
+[[ -n $kycal_src ]] && suite_files=(-f "$scratch/overrides/kycalendar.yml")
 dc() {
 	docker compose --progress quiet -p "$project" --project-directory "$scratch" \
 		-f "$repo/docker-compose.yml" -f "$repo/docker-compose.matrix.yml" -f "$repo/docker-compose.notes.yml" \
-		-f "$scratch/overrides/compose.yml" -f "$scratch/overrides/app.yml" "$@"
+		-f "$scratch/overrides/compose.yml" -f "$scratch/overrides/app.yml" "${suite_files[@]}" "$@"
 }
 
 current=setup t0=$SECONDS started=$SECONDS
@@ -139,7 +155,7 @@ cleanup() {
 		echo "matrix-acceptance: logs and traces in $artifacts" >&2
 	fi
 	dc down -v --timeout 10 >/dev/null 2>&1 || echo "matrix-acceptance: down -v failed for project $project" >&2
-	docker image rm "$kyid_image" "$app_image" "$notes_image" >/dev/null 2>&1 || true
+	docker image rm "$kyid_image" "$app_image" "$notes_image" ${kycal_src:+"$kycal_image"} >/dev/null 2>&1 || true
 	echo "== summary (total $((SECONDS - started))s)"
 	[[ -f $summary ]] && cat "$summary"
 	rm -rf "$scratch"
@@ -199,14 +215,16 @@ matrix_init() {
 step build
 go build -C "$repo" -o "$scratch/kymessages" ./cmd/server
 if [[ $prebuilt == 1 ]]; then
-	docker image inspect "$app_image" "$kyid_image" "$notes_image" >/dev/null
+	docker image inspect "$app_image" "$kyid_image" "$notes_image" ${kycal_src:+"$kycal_image"} >/dev/null
 else
 	docker build -q -t "$app_image" "$repo" >/dev/null
 	docker build -q -t "$kyid_image" "$kyid_src" >/dev/null
 	docker build -q -t "$notes_image" "$repo/notes" >/dev/null
+	[[ -z $kycal_src ]] || docker build -q -t "$kycal_image" "$kycal_src" >/dev/null
 fi
 npm ci --prefix "$here" --no-audit --no-fund --silent
 ok "kymessages (binary and image), the notes bot, KyIdentity ($(git -C "$kyid_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) and Playwright built"
+[[ -z $kycal_src ]] || ok "KyCalendar ($(git -C "$kycal_src" rev-parse --short HEAD 2>/dev/null || echo unknown)) built"
 pass
 
 # ---------------------------------------------------------------------------------------
@@ -305,6 +323,11 @@ step kyidentity
 # The MXID localpart is the verified email's local part, not the username: AQuinn's mixed-case
 # email with a "+" maps to alice.q_ky. Everyone else's email is <username>@kymatrix.test.
 # olga's email stays unverified.
+# KyIdentity's main branch makes a given password good only for choosing a new one.
+if [[ -n $kycal_src ]]; then
+	printf '%s\n' "$KYMATRIX_ACCEPT_ADMIN_PASS" >"$state/admin.pass"
+	kyid first-password admin "$state/admin.pass" >/dev/null
+fi
 users=(AQuinn bob mallory nadia carol dave erin frank owen olga)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
@@ -320,6 +343,10 @@ dc stop kyidentity >/dev/null
 expect "$(python3 -I "$here/verify-emails.py" "$scratch/kyidentity-data/kyidentity.db" olga)" "$((${#users[@]} - 1))" "every email but olga's verified"
 dc start kyidentity >/dev/null
 ready https://id.kymatrix.test/healthz
+if [[ -n $kycal_src ]]; then
+	for u in "${users[@]}"; do kyid first-password "$u" "$state/$u.pass" >/dev/null; done
+	ok "every user chose a new password at first sign-in, where KyIdentity asks for it"
+fi
 kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg b "$backchannel_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
 	'{clientId: $c, clientName: "KyMessages chat", clientType: "confidential", redirectUris: [$r], backchannelLogoutUri: $b, allowedScopes: ["openid", "profile", "email"]}')" >"$state/client.json"
 expect "$(kyid GET /api/admin/clients | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.clients[] | select(.id == $c) | .backchannelLogoutUri')" \
@@ -350,13 +377,28 @@ grep -q 'rendered  mas/config.yaml' "$state/init2.out"
 expect "$(grep -cF "client_secret: \"$(cat "$client_secret_file")\"" "$scratch/matrix/mas/config.yaml")" 1 \
 	"matrix-init re-run: secrets kept, the saved client secret rendered into MAS"
 no_insecure "re-rendered configs" "${rendered[@]}"
+# With a real KyCalendar: both apps' own sign-in clients, under the client IDs KyIdentity pairs
+# (kycalendar and kymessage). KyMessages' console asks for its pair with its client at start-up.
+if [[ -n $kycal_src ]]; then
+	suite_client() {
+		kyid POST /api/admin/clients "$(jq -n --arg c "$1" --arg n "$2" --arg r "$3" \
+			'{clientId: $c, clientName: $n, clientType: "confidential", redirectUris: [$r], allowedScopes: ["openid", "profile", "email"]}')" | jq -re .clientSecret
+	}
+	KY_KYIDENTITY_CLIENT_ID=kymessage
+	KY_KYIDENTITY_SECRET=$(suite_client kymessage KyMessages "$KY_APP_URL/api/sso/kyidentity/callback")
+	KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET=$(suite_client kycalendar KyCalendar https://cal.kymatrix.test/api/sso/kysignon/callback)
+	export KY_KYIDENTITY_CLIENT_ID KY_KYIDENTITY_SECRET KYMATRIX_ACCEPT_KYCAL_CLIENT_SECRET
+	suite_apps=$(kyid GET /api/admin/app-registry | jq -r '.records[] | select(.clientId == "kymessage" or .clientId == "kycalendar") | .id')
+	expect "$(wc -w <<<"$suite_apps")" 2 "KyIdentity lists the kymessage and kycalendar clients as apps"
+	ok "suite clients kymessage and kycalendar registered; no pairing variable on either side"
+fi
 # KyMessages first, so it is listening when the assignments below are delivered.
 dc up -d app >/dev/null
 ready "$KY_APP_URL/.well-known/matrix/client"
 ok "KyMessages up behind $KY_APP_URL with the webhook secret and MAS admin access"
 for u in "${users[@]}"; do
 	[[ $u == mallory ]] && continue
-	kyid PUT "/api/admin/app-registry/$app/assignments/users/${kid[$u]}" >/dev/null
+	for a in "$app" ${suite_apps:-}; do kyid PUT "/api/admin/app-registry/$a/assignments/users/${kid[$u]}" >/dev/null; done
 done
 ok "confidential client $KY_MATRIX_MAS_CLIENT_ID registered; everyone but mallory assigned"
 # Every assigned user is in KyMessages' directory before anyone signs in: the sweep locks a
@@ -406,13 +448,24 @@ expect "$(sql mas "SELECT string_agg(username, ',' ORDER BY username) FROM users
 	"MAS accounts from verified email local parts: AQuinn (Alice.Q+Ky@kymatrix.test) mapped to alice.q_ky, unverified olga refused"
 pass
 
+jar=$state/app.cookies
+# app_api METHOD PATH [JSON]: the KyMessages admin API as the browser calls it (CSRF header from the cookie).
+app_api() {
+	local csrf body=()
+	csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
+	[[ $# -ge 3 ]] && body=(-d "$3")
+	hcurl -fsS -b "$jar" -c "$jar" -X "$1" -H "Origin: $KY_APP_URL" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" "${body[@]}" "$KY_APP_URL$2"
+}
+# app_login PASSWORD: a fresh password sign-in as the bootstrap admin.
+app_login() { app_api POST /api/auth/login "$(jq -n --arg p "$1" '{username: "admin", password: $p}')" >/dev/null; }
+
 # ---------------------------------------------------------------------------------------
 # KyCalendar meeting rooms (docs/KYCALENDAR.md), signed as KyCalendar with the pair secret
 # overrides/app.yml gives the app. alice organizes; bob is invited; carol, assigned but never
 # signed in to chat, is skipped. The console creates the room encrypted and invite-only; both
 # accept in Element, read each other's messages and decode each other's video; a title change,
 # bob's removal and DELETE follow; an exact replay is a duplicate and a closed meeting stays closed.
-if wanted meetings; then
+if [[ -z $kycal_src ]] && wanted meetings; then
 step meetings
 # meeting_call METHOD ID EVENT_ID BODY [TIMESTAMP]: prints the status; the reply is in $state/meeting.reply.
 meeting_call() {
@@ -474,6 +527,75 @@ code=$(meeting_call PUT "$mid" "$mid-put-4" "$(meeting_body 'again' "${kid[bob]}
 expect "$code $(reply .code)" "409 closed" "a closed meeting is never reopened"
 code=$(meeting_call DELETE "$mid" "$mid-close-2" "")
 expect "$code" 200 "closing it again succeeds"
+pass
+fi
+
+# ---------------------------------------------------------------------------------------
+# The same meetings end to end with a real KyCalendar (KYCALENDAR_SRC), paired through
+# KyIdentity's /api/suite/peer only. alice organizes in KyCalendar's editor with bob and carol
+# (carol, never signed in to chat, is skipped); the event carries CONFERENCE and the Join line;
+# Join opens the room in Element; both accept and hold a call. carol signs in, and the rename
+# that follows invites her; removing her removes her; the switch off and an event's deletion
+# close their rooms.
+if [[ -n $kycal_src ]] && wanted suite-meetings; then
+step suite-meetings
+cal() { node "$here/e2e.mjs" calendar; }
+cal_event() { python3 -I "$here/kycal-event.py" "$scratch/kycalendar-data/kycalendar.db" "$(jq -r .calendar "$state/calendar.json")" "$(jq -r .uid "$state/calendar.json")"; }
+membership() { sql synapse "SELECT membership FROM room_memberships m JOIN events e USING (event_id) WHERE m.user_id = '$1' AND m.room_id = '$room' ORDER BY e.stream_ordering DESC LIMIT 1"; }
+room_state() { sql synapse "SELECT e.json::json->'content'->>'$2' FROM current_state_events c JOIN event_json e USING (event_id) WHERE c.room_id = '$room' AND c.type = '$1'"; }
+blocked() { sql synapse "SELECT count(*) FROM blocked_rooms WHERE room_id = '$room'"; }
+alice_mx=@alice.q_ky:$KY_MATRIX_SERVER_NAME bob_mx=@bob:$KY_MATRIX_SERVER_NAME carol_mx=@carol:$KY_MATRIX_SERVER_NAME
+console_mx=@kymessages-console:$KY_MATRIX_SERVER_NAME
+# The bootstrap password must be replaced before the console answers (as step console does).
+app_login "$KY_ADMIN_PASSWORD"
+admin_pass=$(openssl rand -hex 16)
+app_api POST /api/auth/change-password "$(jq -n --arg c "$KY_ADMIN_PASSWORD" --arg n "$admin_pass" '{current_password: $c, new_password: $n}')" >/dev/null
+app_login "$admin_pass"
+expect "$(app_api GET /api/admin/kycalendar | jq -c '[.connected, .source, .url]')" '[true,"kyidentity","https://cal.kymatrix.test"]' \
+	"KyMessages paired KyCalendar through KyIdentity, no environment pair"
+dc up -d kycalendar >/dev/null
+ready https://cal.kymatrix.test/healthz
+linked() { dc logs kycalendar 2>&1 | grep -c '\[KYMESSAGES\] linked through KyIdentity: https://admin.kymatrix.test$' || true; }
+eventually 60 1 "KyCalendar linked KyMessages through KyIdentity" linked
+# A request under any other secret is refused: the pair secret is KyIdentity's, never the environment's.
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) forged='{"sub":"x","issuer":"x","title":"x","member_subs":[]}'
+sig=$(printf 'ky-sync-v1\n%s\n%s\n%s\n%s' "$ts" kycalendar.meeting.put evt-forged "$(printf '%s' "$forged" | sha256sum | cut -d' ' -f1)" |
+	openssl dgst -sha256 -hmac "$(cat "$scratch/kycalendar/secret")" | awk '{print $NF}')
+expect "$(hcurl -o "$state/forged.json" -w '%{http_code}' -X PUT -H "X-KySignOn-Signature: v1=$sig" -H "X-KySignOn-Timestamp: $ts" \
+	-H 'X-KySignOn-Event-Type: kycalendar.meeting.put' -H 'X-KySignOn-Event-ID: evt-forged' --data-binary "$forged" \
+	"$KY_APP_URL/api/meetings/kymatrix-forged-0001") $(jq -r .code "$state/forged.json")" "401 bad_signature" "a PUT under another secret is refused"
+
+title="kymatrix suite meeting $(openssl rand -hex 3)"
+KYCAL_ACTION=create KYCAL_TITLE=$title KYCAL_PEOPLE=bob,carol KYCAL_JOIN=1 cal
+room=$(jq -re '.meeting_url | capture("^https://chat\\.kymatrix\\.test/#/room/(?<r>![^/]+)$").r' "$state/calendar.json")
+ok "KyCalendar's event has its room $room"
+{ read -r conference; read -r join; } < <(cal_event)
+expect "$conference" "$(jq -r .meeting_url "$state/calendar.json")" "the stored event carries CONFERENCE;VALUE=URI;FEATURE=VIDEO;LABEL=KyMessages with the room"
+expect "$join" "Join: $conference" "its description ends with the Join line"
+expect "$(sql synapse "SELECT sender FROM current_state_events c JOIN events e USING (event_id) WHERE c.room_id = '$room' AND c.type = 'm.room.create'")" "$console_mx" "the console created it"
+expect "$(room_state m.room.encryption algorithm) $(room_state m.room.join_rules join_rule) $(room_state m.room.history_visibility history_visibility) $(room_state m.room.name name)" \
+	"m.megolm.v1.aes-sha2 invite joined $title" "encrypted, invite only, history from joining, named after the event"
+expect "$(membership "$alice_mx") $(membership "$bob_mx") $(membership "$carol_mx")" "invite invite " "alice and bob invited; carol, with no chat account yet, skipped"
+MEETING_ROOM=$room e2e meeting
+expect "$(membership "$alice_mx") $(membership "$bob_mx")" "join join" "both accepted in Element and held a call there"
+
+e2e signin carol
+KYCAL_ACTION=rename KYCAL_TITLE=$title KYCAL_NEW="$title (moved)" cal
+eventually 60 "$title (moved)" "the rename renamed the room" room_state m.room.name name
+eventually 60 invite "the change after carol signed in to chat invited her" membership "$carol_mx"
+KYCAL_ACTION=remove KYCAL_TITLE="$title (moved)" KYCAL_PEOPLE=carol cal
+eventually 60 leave "removing carol from the event removed her from the room" membership "$carol_mx"
+expect "$(sql synapse "SELECT sender FROM room_memberships WHERE user_id = '$carol_mx' AND room_id = '$room' AND membership = 'leave' ORDER BY event_stream_ordering DESC LIMIT 1")" "$console_mx" "the console removed her"
+KYCAL_ACTION=off KYCAL_TITLE="$title (moved)" cal
+eventually 60 1 "switching the meeting off closed the room" blocked
+eventually 60 leave "alice is out of the closed room" membership "$alice_mx"
+
+title2="kymatrix suite deleted $(openssl rand -hex 3)"
+KYCAL_ACTION=create KYCAL_TITLE=$title2 KYCAL_PEOPLE=bob cal
+room=$(jq -re '.meeting_url | capture("#/room/(?<r>![^/]+)$").r' "$state/calendar.json")
+expect "$(membership "$bob_mx")" invite "a second event's room invites bob"
+KYCAL_ACTION=delete KYCAL_TITLE=$title2 cal
+eventually 60 1 "deleting the event closed its room" blocked
 pass
 fi
 
@@ -734,18 +856,6 @@ dc run --rm --no-deps --entrypoint curl synapse -sS -m 5 -o /dev/null http://mas
 expect "$rc" 6 "mas-admin does not resolve for synapse"
 pass
 fi
-
-# ---------------------------------------------------------------------------------------
-jar=$state/app.cookies
-# app_api METHOD PATH [JSON]: the KyMessages admin API as the browser calls it (CSRF header from the cookie).
-app_api() {
-	local csrf body=()
-	csrf=$(awk '$6 == "ky_csrf" || $6 == "__Host-ky_csrf" { print $7 }' "$jar" 2>/dev/null || true)
-	[[ $# -ge 3 ]] && body=(-d "$3")
-	hcurl -fsS -b "$jar" -c "$jar" -X "$1" -H "Origin: $KY_APP_URL" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" "${body[@]}" "$KY_APP_URL$2"
-}
-# app_login PASSWORD: a fresh password sign-in as the bootstrap admin.
-app_login() { app_api POST /api/auth/login "$(jq -n --arg p "$1" '{username: "admin", password: $p}')" >/dev/null; }
 
 # ---------------------------------------------------------------------------------------
 # The operator console: Health reports every component on its pinned version, and ending a
