@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -o kymessages ./cmd/server
 
 # Stage 3: Minimal Production Container
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # postgresql17-client: pg_dump/pg_restore for Matrix backups; its major must equal the
 # postgres service's (scripts/check-compose-matrix.sh).
 RUN apk --no-cache add ca-certificates tzdata postgresql17-client
