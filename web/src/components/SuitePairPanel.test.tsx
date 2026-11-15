@@ -43,7 +43,7 @@ describe('KyCalendarPanel', () => {
 
 describe('KyPostPanel', () => {
   it('reads its own route and names its environment variable', async () => {
-    const f = vi.fn(async () => json({ connected: true, source: 'environment', url: 'https://mail.example.com' }));
+    const f = vi.fn(async (_url: string) => json({ connected: true, source: 'environment', url: 'https://mail.example.com' }));
     vi.stubGlobal('fetch', f);
     render(<KyPostPanel />);
     expect(await screen.findByText('KY_KYPOST_URL')).toBeTruthy();
