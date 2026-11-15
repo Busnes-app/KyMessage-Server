@@ -659,7 +659,7 @@ expect "$(open_chat "$calsecret" kycalendar.chat.open "$chat_body" "$replay") $(
 	"200 $bob_url 200 duplicate" "an exact replay answers duplicate"
 expect "$(open_chat "$postsecret" kypost.chat.open "$(chat "${kid[bob]}" "${kid[AQuinn]}")")" "200 https://chat.kymatrix.test/#/user/@alice.q_ky:$KY_MATRIX_SERVER_NAME" \
 	"signed as KyPost (paired through KyIdentity), bob to alice is Element's view of alice"
-audit=$(app_api GET '/api/admin/audit?limit=200' | jq -c '[.records[] | select(.action == "chat.open")]')
+audit=$(app_api GET '/api/admin/audit?limit=100' | jq -c '[.records[] | select(.action == "chat.open")]')
 (($(jq length <<<"$audit") >= 8)) || { echo "  FAILED: chat.open audit rows: $audit" >&2; false; }
 for secret in "${kid[AQuinn]}" "${kid[bob]}" "$admin_sub" "$bob_url" "$calsecret" "$postsecret"; do
 	if grep -qF "$secret" <<<"$audit"; then echo "  FAILED: a chat.open audit row holds '$secret'" >&2; false; fi
