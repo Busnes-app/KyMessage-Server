@@ -113,3 +113,6 @@ func SetMeetingRoomsForTest(s *Server, m MeetingRooms) { s.meetingRooms = m }
 
 // ResolveKyCalendarForTest runs one KyIdentity lookup of the KyCalendar pair. Test-only.
 func ResolveKyCalendarForTest(s *Server, ctx context.Context) bool { return s.resolveKyCalendar(ctx) }
+
+// ResolveKyPostForTest runs one KyIdentity lookup of the KyPost pair. Test-only.
+func ResolveKyPostForTest(s *Server, ctx context.Context) bool { return s.resolvePair(ctx, s.kypost) }

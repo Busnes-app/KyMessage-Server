@@ -26,6 +26,9 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
   service account creates it, invites the attendees who have chat accounts, keeps its name and
   members in step with the event and closes it when the meeting is cancelled. People outside
   the organisation cannot join yet. Members start Element Call from the room.
+- Chat from mail and calendar (shipped 2026-11, [SUITE-CHAT.md](SUITE-CHAT.md)): a paired
+  KyPost or KyCalendar asks for a link that opens Element's view of a colleague, from which the
+  user starts or reopens a direct chat. Members only; the console creates nothing.
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
 - Not offered: Slack or Teams parity, compliance archiving, open federation.
 

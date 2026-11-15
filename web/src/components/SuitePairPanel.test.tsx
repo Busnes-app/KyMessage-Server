@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { KyCalendarPanel, parseKyCalendar } from './KyCalendarPanel';
+import { KyCalendarPanel, KyPostPanel, parsePair } from './SuitePairPanel';
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -35,8 +35,24 @@ describe('KyCalendarPanel', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('boom');
   });
   it('refuses a malformed reply', () => {
-    expect(() => parseKyCalendar({ connected: 'yes' })).toThrow();
-    expect(() => parseKyCalendar({ connected: true, url: 7 })).toThrow();
-    expect(parseKyCalendar({ connected: false, reason: 'no_peer' })).toEqual({ connected: false, source: '', url: '', reason: 'no_peer', checked_at: '' });
+    expect(() => parsePair({ connected: 'yes' })).toThrow();
+    expect(() => parsePair({ connected: true, url: 7 })).toThrow();
+    expect(parsePair({ connected: false, reason: 'no_peer' })).toEqual({ connected: false, source: '', url: '', reason: 'no_peer', checked_at: '' });
+  });
+});
+
+describe('KyPostPanel', () => {
+  it('reads its own route and names its environment variable', async () => {
+    const f = vi.fn(async (_url: string) => json({ connected: true, source: 'environment', url: 'https://mail.example.com' }));
+    vi.stubGlobal('fetch', f);
+    render(<KyPostPanel />);
+    expect(await screen.findByText('KY_KYPOST_URL')).toBeTruthy();
+    expect(f.mock.calls[0][0]).toBe('/api/admin/kypost');
+    expect(screen.getByRole('region', { name: 'KyPost' })).toBeTruthy();
+  });
+  it('names KyPost in its reasons', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ connected: false, reason: 'invalid_peer' })));
+    render(<KyPostPanel />);
+    expect(await screen.findByText("KyIdentity's KyPost address is not an https origin.")).toBeTruthy();
   });
 });

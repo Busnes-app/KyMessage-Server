@@ -23,24 +23,28 @@ import (
 
 // Config encapsulates all runtime configuration for KyMessages.
 type Config struct {
-	InstallerSSO *applysetup.SSO  `json:"-"`
-	Server       ServerConfig     `json:"server"`
-	Database     DatabaseConfig   `json:"database"`
-	Security     SecurityConfig   `json:"security"`
-	SSO          SSOConfig        `json:"sso"`
-	SCIM         SCIMConfig       `json:"scim"`
-	Backup       BackupConfig     `json:"backup"`
-	Captcha      CaptchaConfig    `json:"captcha"`
-	Matrix       MatrixConfig     `json:"matrix"`
-	KyCalendar   KyCalendarConfig `json:"kycalendar"`
+	InstallerSSO *applysetup.SSO `json:"-"`
+	Server       ServerConfig    `json:"server"`
+	Database     DatabaseConfig  `json:"database"`
+	Security     SecurityConfig  `json:"security"`
+	SSO          SSOConfig       `json:"sso"`
+	SCIM         SCIMConfig      `json:"scim"`
+	Backup       BackupConfig    `json:"backup"`
+	Captcha      CaptchaConfig   `json:"captcha"`
+	Matrix       MatrixConfig    `json:"matrix"`
+	KyCalendar   PairConfig      `json:"kycalendar"`
+	KyPost       PairConfig      `json:"kypost"`
 }
 
-// KyCalendarConfig is an explicit KyCalendar pair (KY_KYCALENDAR_URL and _SECRET_FILE). Unset,
-// the pair comes from KyIdentity's suite directory.
-type KyCalendarConfig struct {
+// PairConfig is an explicit suite pair (KY_<PEER>_URL and _SECRET_FILE). Unset, the pair
+// comes from KyIdentity's suite directory.
+type PairConfig struct {
 	URL    string `json:"url"`
 	Secret []byte `json:"-"`
 }
+
+// KyCalendarConfig is the KyCalendar pair's PairConfig.
+type KyCalendarConfig = PairConfig
 
 // MatrixConfig locates the optional Matrix stack: all set, or none. Hosts are https origins
 // with no trailing slash. AdminURL reaches MAS's admin API on the internal network.
@@ -262,7 +266,11 @@ func LoadFromEnv() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	kycalendar, err := kycalendarFromEnv(matrix.Enabled())
+	kycalendar, err := pairFromEnv("KY_KYCALENDAR", "meetings are Matrix rooms", matrix.Enabled())
+	if err != nil {
+		return nil, err
+	}
+	kypost, err := pairFromEnv("KY_KYPOST", "chats are Matrix rooms", matrix.Enabled())
 	if err != nil {
 		return nil, err
 	}
@@ -327,6 +335,7 @@ func LoadFromEnv() (*Config, error) {
 		},
 		Matrix:     matrix,
 		KyCalendar: kycalendar,
+		KyPost:     kypost,
 	}
 	// Unsigned directory webhooks are refused, so without the secret a KyIdentity disable or
 	// delete would never reach MAS.
@@ -568,27 +577,28 @@ func unmapPrefix(p netip.Prefix) netip.Prefix {
 	return netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
 }
 
-// kycalendarFromEnv reads the explicit KyCalendar pair: both variables or neither, only with
-// the Matrix stack (meetings are Matrix rooms). The secret is at least 32 bytes, never echoed.
-func kycalendarFromEnv(matrix bool) (KyCalendarConfig, error) {
-	raw, file := getEnv("KY_KYCALENDAR_URL", ""), getEnv("KY_KYCALENDAR_SECRET_FILE", "")
+// pairFromEnv reads an explicit suite pair, <prefix>_URL and <prefix>_SECRET_FILE: both or
+// neither, only with the Matrix stack (why says what needs it). The secret is at least 32
+// bytes, never echoed.
+func pairFromEnv(prefix, why string, matrix bool) (PairConfig, error) {
+	raw, file := getEnv(prefix+"_URL", ""), getEnv(prefix+"_SECRET_FILE", "")
 	if raw == "" && file == "" {
-		return KyCalendarConfig{}, nil
+		return PairConfig{}, nil
 	}
 	if raw == "" || file == "" {
-		return KyCalendarConfig{}, errors.New("KY_KYCALENDAR_URL and KY_KYCALENDAR_SECRET_FILE are set together or not at all")
+		return PairConfig{}, fmt.Errorf("%s_URL and %s_SECRET_FILE are set together or not at all", prefix, prefix)
 	}
 	if !matrix {
-		return KyCalendarConfig{}, errors.New("KY_KYCALENDAR_URL needs the Matrix stack: meetings are Matrix rooms")
+		return PairConfig{}, fmt.Errorf("%s_URL needs the Matrix stack: %s", prefix, why)
 	}
 	u, err := matrixinit.Origin(raw)
 	if err != nil {
-		return KyCalendarConfig{}, fmt.Errorf("KY_KYCALENDAR_URL: %w", err)
+		return PairConfig{}, fmt.Errorf("%s_URL: %w", prefix, err)
 	}
 	b, err := os.ReadFile(file)
 	secret := []byte(strings.TrimSpace(string(b)))
 	if err != nil || len(secret) < 32 {
-		return KyCalendarConfig{}, fmt.Errorf("KY_KYCALENDAR_SECRET_FILE %q must name a readable file of at least 32 bytes", file)
+		return PairConfig{}, fmt.Errorf("%s_SECRET_FILE %q must name a readable file of at least 32 bytes", prefix, file)
 	}
-	return KyCalendarConfig{URL: u, Secret: secret}, nil
+	return PairConfig{URL: u, Secret: secret}, nil
 }
