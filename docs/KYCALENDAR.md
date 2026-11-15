@@ -157,3 +157,12 @@ is retried. A close still running, or an unreachable Matrix stack, is 503 `unava
   `pg_dump`; the console has no device keys; a title change renames the room; an exact replay
   is `duplicate`; a PUT without bob removes him; DELETE closes and blocks the room; a PUT after
   is 409 `closed`.
+- `.github/workflows/suite-meetings.yml` (nightly, on dispatch, and on pull requests touching
+  the meeting code or the harness): the same harness with a real KyCalendar and KyIdentity built
+  from their main branches, step `suite-meetings`. Both apps pair only through KyIdentity's
+  `/api/suite/peer`. alice's event in KyCalendar's editor, with bob and carol, makes the room;
+  the stored event carries `CONFERENCE;VALUE=URI;FEATURE=VIDEO;LABEL=KyMessages:<url>` and ends
+  with `Join: <url>`; Join opens the room in Element; both accept and hold a video call there;
+  carol (no chat account) is skipped, and after she signs in a rename invites her; removing her
+  removes her; switching the meeting off, and deleting another event, close their rooms. Not in
+  `ci.yml`: an unpinned peer must not fail this repo's pull requests.
