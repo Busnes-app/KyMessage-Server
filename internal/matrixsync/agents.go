@@ -82,8 +82,23 @@ func (c *Client) MintNotesToken(ctx context.Context, userID, deviceID string) (s
 	return c.mintDeviceToken(ctx, userID, deviceID, "KyMessages meeting notes")
 }
 
+// MintGuestToken is a meeting guest's session: the same scope, ending after ttl (the end of
+// its window; MAS refuses the token after it).
+func (c *Client) MintGuestToken(ctx context.Context, userID, deviceID string, ttl time.Duration) (string, string, error) {
+	return c.mintDeviceTokenFor(ctx, userID, deviceID, "KyMessages meeting guest", ttl)
+}
+
 func (c *Client) mintDeviceToken(ctx context.Context, userID, deviceID, name string) (string, string, error) {
-	body, err := json.Marshal(map[string]any{"actor_user_id": userID, "human_name": name, "scope": agentScope(deviceID)})
+	return c.mintDeviceTokenFor(ctx, userID, deviceID, name, 0)
+}
+
+// mintDeviceTokenFor mints a personal session; ttl 0 never expires.
+func (c *Client) mintDeviceTokenFor(ctx context.Context, userID, deviceID, name string, ttl time.Duration) (string, string, error) {
+	req := map[string]any{"actor_user_id": userID, "human_name": name, "scope": agentScope(deviceID)}
+	if ttl > 0 {
+		req["expires_in"] = int(ttl / time.Second)
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return "", "", err
 	}

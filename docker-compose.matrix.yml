@@ -197,6 +197,9 @@ services:
       # a copy made at start, so a console rename shows after `docker compose restart element`
       # (the restart keeps this bind's inode, which both writers update in place).
       - ./matrix/element/config.json:/app/config.json:ro
+      # The meeting-guest bootstrap page matrix-init renders (docs/KYCALENDAR.md "Guests"), served
+      # from Element's origin, where Element restores sessions from. Static; its CSP is its own.
+      - ./matrix/element/kymessages-guest.html:/app/kymessages-guest.html:ro
     depends_on:
       synapse: {condition: service_healthy}
     healthcheck:

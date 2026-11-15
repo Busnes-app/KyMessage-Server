@@ -183,4 +183,17 @@ type MeetingStore interface {
 	// RememberMeetingEvent records eventID until expires; ErrAlreadyExists while it is held.
 	RememberMeetingEvent(ctx context.Context, eventID string, expires time.Time) error
 	ForgetMeetingEvent(ctx context.Context, eventID string) error
+	// ReplaceWindows sets a meeting's guest windows; Windows reads them, oldest first.
+	ReplaceWindows(ctx context.Context, id string, windows []MeetingWindow) error
+	Windows(ctx context.Context, id string) ([]MeetingWindow, error)
+	// Guests lists a meeting's guest keys; AddGuest returns ErrAlreadyExists for a known key.
+	Guests(ctx context.Context, id string) ([]MeetingGuest, error)
+	AddGuest(ctx context.Context, g *MeetingGuest) error
+	// GuestByLink finds a key's row by its link hash (ErrNotFound).
+	GuestByLink(ctx context.Context, linkHash string) (*MeetingGuest, error)
+	// UpdateGuest writes a row's revoked flag, session and membership (ErrNotFound).
+	UpdateGuest(ctx context.Context, g *MeetingGuest) error
+	DeleteGuest(ctx context.Context, meetingID, keyHash string) error
+	// ActiveGuests lists every row with a live account or a revocation still to finish.
+	ActiveGuests(ctx context.Context) ([]MeetingGuest, error)
 }

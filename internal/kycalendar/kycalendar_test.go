@@ -2,6 +2,7 @@ package kycalendar
 
 import (
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -23,23 +24,54 @@ func TestValidID(t *testing.T) {
 }
 
 func TestDecodePut(t *testing.T) {
-	ok := `{"sub":"s","issuer":"https://id","title":"T","member_subs":["a"],"windows":[{"x":1}],"guests":[]}`
-	if p, err := DecodePut([]byte(ok)); err != nil || p.Title != "T" || len(p.MemberSubs) != 1 {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	ok := `{"sub":"s","issuer":"https://id","title":"T","member_subs":["a"],"guests":[{"key":"gkey_0123456789ab"}],
+		"windows":[{"start":"2026-11-14T11:50:00Z","end":"2026-11-14T13:00:00Z"},{"start":"2027-02-12T09:00:00+00:00","end":"2027-02-12T10:00:00Z"}]}`
+	p, err := DecodePut([]byte(ok), now)
+	if err != nil || p.Title != "T" || len(p.MemberSubs) != 1 || len(p.Guests) != 1 || len(p.Windows) != 2 || !p.Windows[0].End.Equal(now.Add(time.Hour)) {
 		t.Fatalf("%+v %v", p, err)
 	}
+	if p, err := DecodePut([]byte(`{"sub":"s","issuer":"i","title":"T","id":"ignored"}`), now); err != nil || p.Guests != nil {
+		t.Fatalf("without guests: %+v %v", p, err)
+	}
 	many := `["` + strings.Repeat(`a","`, MaxMembers) + `a"]`
+	guests := func(n int, key string) string {
+		return `{"sub":"s","issuer":"i","title":"T","guests":[` + strings.TrimSuffix(strings.Repeat(`{"key":"`+key+`"},`, n), ",") + `]}`
+	}
+	window := func(start, end string) string {
+		return `{"sub":"s","issuer":"i","title":"T","windows":[{"start":"` + start + `","end":"` + end + `"}]}`
+	}
+	var keys []string
+	for i := range MaxGuests + 1 {
+		keys = append(keys, fmt.Sprintf(`{"key":"guestkey%08d"}`, i))
+	}
+	var windows []string
+	for range MaxWindows + 1 {
+		windows = append(windows, `{"start":"2026-11-14T13:00:00Z","end":"2026-11-14T14:00:00Z"}`)
+	}
 	for body, want := range map[string]error{
-		`{"sub":"s","issuer":"i","title":"T","guests":[{"key":"k"}]}`:         ErrGuests,
 		`{"sub":"","issuer":"i","title":"T"}`:                                 ErrBadBody,
 		`{"sub":"s","issuer":"","title":"T"}`:                                 ErrBadBody,
 		`{"sub":"s","issuer":"i","title":"\u0000"}`:                           ErrBadBody,
 		`{"sub":"s","issuer":"i","title":"` + strings.Repeat("x", 256) + `"}`: ErrBadBody,
 		`{"sub":"s","issuer":"i","title":"T","member_subs":[""]}`:             ErrBadBody,
 		`{"sub":"s","issuer":"i","title":"T","member_subs":` + many + `}`:     ErrBadBody,
+		guests(1, "short"):               ErrBadBody,
+		guests(1, "alice@example.com_x"): ErrBadBody,
+		guests(2, "gkey_0123456789ab"):   ErrBadBody, // duplicate
+		`{"sub":"s","issuer":"i","title":"T","guests":[` + strings.Join(keys, ",") + `]}`:     ErrBadBody,
+		`{"sub":"s","issuer":"i","title":"T","guests":["gkey_0123456789ab"]}`:                 ErrBadBody,
+		`{"sub":"s","issuer":"i","title":"T","windows":[` + strings.Join(windows, ",") + `]}`: ErrBadBody,
+		window("2026-11-14T13:00:00+01:00", "2026-11-14T14:00:00Z"):                           ErrBadBody, // not UTC
+		window("2026-11-14T14:00:00Z", "2026-11-14T13:00:00Z"):                                ErrBadBody, // ends before it starts
+		window("2026-11-14T13:00:00Z", "2026-11-14T13:00:00Z"):                                ErrBadBody, // empty
+		window("2027-02-14T13:00:00Z", "2027-02-14T14:00:00Z"):                                ErrBadBody, // past 91 days
+		window("tomorrow", "2026-11-14T14:00:00Z"):                                            ErrBadBody,
+		`{"sub":"s","issuer":"i","title":"T","windows":[{"start":null,"end":null}]}`:          ErrBadBody,
 		`[]`: ErrBadBody,
 	} {
-		if _, err := DecodePut([]byte(body)); !errors.Is(err, want) {
-			t.Errorf("%.60s: %v, want %v", body, err, want)
+		if _, err := DecodePut([]byte(body), now); !errors.Is(err, want) {
+			t.Errorf("%.80s: %v, want %v", body, err, want)
 		}
 	}
 }

@@ -118,7 +118,20 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 		s.rtcError(w, 403, "Call identity does not match")
 		return
 	}
-	if local {
+	// A meeting guest calls only in its own meeting's room, inside a window, and only joins a
+	// call someone here started.
+	guest := local && isGuest(sub)
+	if guest {
+		callers, err := s.guestCallers(ctx)
+		if err != nil {
+			s.rtcError(w, 502, "Unable to verify access")
+			return
+		}
+		if callers[sub] != in.RoomID {
+			s.rtcError(w, 403, "Guests may join only their own meeting's call, while it is on")
+			return
+		}
+	} else if local {
 		active, err := s.activeCallUsers(ctx)
 		if err != nil {
 			s.rtcError(w, 502, "Unable to verify access")
@@ -166,14 +179,14 @@ func (s *Server) handleRTCToken(w http.ResponseWriter, r *http.Request) {
 	if legacy {
 		identity = sub + ":" + in.DeviceID
 	}
-	if local && !notes {
+	if local && !notes && !guest {
 		if err := s.rtc.Create(ctx, room, in.RoomID); err != nil {
 			s.rtcError(w, 502, "Call service is unavailable")
 			return
 		}
 	} else {
-		// Remote users and the notes bot only join: the call must already exist, started by
-		// someone here.
+		// Remote users, guests and the notes bot only join: the call must already exist,
+		// started by someone here.
 		rooms, err := s.rtc.Rooms(ctx)
 		if err != nil {
 			s.rtcError(w, 502, "Call service is unavailable")
@@ -236,6 +249,7 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 	// Fail closed: a local user MAS and the directory cannot confirm leaves, and with unreadable
 	// federation settings no remote caller stays.
 	active, activeErr := s.activeCallUsers(ctx)
+	guests, guestErr := s.guestCallers(ctx)
 	st, fedErr := s.fedState(ctx)
 	var allowed []string
 	if fedErr == nil {
@@ -245,9 +259,9 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 		if server := mxidServer(mxid); server != s.config.Matrix.ServerName {
 			return slices.Contains(allowed, server)
 		}
-		return active[mxid]
+		return active[mxid] && !isGuest(mxid)
 	}
-	result := errors.Join(activeErr, fedErr)
+	result := errors.Join(activeErr, guestErr, fedErr)
 	remove := func(room string, p matrixrtc.Participant) {
 		if err := s.rtc.Remove(ctx, room, p.Identity); err != nil {
 			result = errors.Join(result, err)
@@ -275,7 +289,8 @@ func (s *Server) ReconcileCalls(ctx context.Context) error {
 		}
 		c := call{room: room.Name, id: room.Metadata}
 		for _, p := range participants {
-			if valid && mayCall(p.Metadata) {
+			// A guest stays only in its own meeting's call (guests is nil on error: none stays).
+			if valid && (mayCall(p.Metadata) || isGuest(p.Metadata) && guests[p.Metadata] == room.Metadata) {
 				c.stay = append(c.stay, p)
 			} else {
 				remove(room.Name, p)

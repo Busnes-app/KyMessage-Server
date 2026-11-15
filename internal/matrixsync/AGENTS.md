@@ -37,6 +37,12 @@ supplies subject → status.
   `Plan` skips exactly that username while it has no link and is not `Ambiguous`, so the sweep
   never locks or unlocks it; linked, it is judged as a person. Locking it in MAS cuts the
   console's Synapse admin access.
+- Meeting guests (`internal/api` `guest_handlers.go`): `GuestPrefix` `guest-` starts their
+  usernames. The sweep drops from `Plan`'s input an unlinked `guest-` user whose MAS ID a
+  `meeting_guests` row holds (`ActiveGuests`): KyMessages ends it itself at its window's end. Any
+  other `guest-` user is swept like every unlinked user (locked, sessions ended).
+  `MintGuestToken` is the agent scope with `expires_in` (the window's end) and session name
+  `KyMessages meeting guest`.
 - The meeting-notes bot is MAS user `kymessages-notes` (`NotesUsername`), ensured by
   `EnsureNotesUser` under the console account's rules and exempt from `Plan` on the same terms
   (unlinked, not ambiguous). `MintNotesToken` is `MintAgentToken` with its own session name;

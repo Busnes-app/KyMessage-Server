@@ -382,3 +382,33 @@ func TestRunSweepsAtStartOnWakeAndClosesDone(t *testing.T) {
 		t.Fatal("done not closed")
 	}
 }
+
+// A live meeting guest is KyMessages' to end; a stale guest- account is swept like any other.
+func TestSweepLeavesLiveGuestsAlone(t *testing.T) {
+	f := &fakeMAS{}
+	s, st := newSyncer(t, f)
+	ctx := context.Background()
+	f.users = []User{{ID: "G1", Username: "guest-live"}, {ID: "G2", Username: "guest-stale"}, {ID: "G3", Username: "notaguest"}}
+	if err := st.Meetings().CreateMeeting(ctx, &store.Meeting{ID: "mtg_sweep_000001", RoomID: "!r:example.com", OrganizerSubject: "sub-a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []store.MeetingGuest{{MeetingID: "mtg_sweep_000001", KeyHash: "k1", LinkHash: "l1"}, {MeetingID: "mtg_sweep_000001", KeyHash: "k3", LinkHash: "l3"}} {
+		if err := st.Meetings().AddGuest(ctx, &g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// G3 has a guest row but no guest- name: still swept.
+	for key, mas := range map[string]string{"k1": "G1", "k3": "G3"} {
+		g, _ := st.Meetings().GuestByLink(ctx, "l"+key[1:])
+		g.MXID, g.MASUserID = "@x:example.com", mas
+		if err := st.Meetings().UpdateGuest(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"lock G2", "sessions G2", "lock G3", "sessions G3"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls %v", f.calls)
+	}
+}

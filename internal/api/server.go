@@ -58,6 +58,9 @@ type MatrixAdmin interface {
 	// The meeting-notes bot (notes_handlers.go).
 	EnsureNotesUser(ctx context.Context) (string, error)
 	MintNotesToken(ctx context.Context, userID, deviceID string) (sessionID, token string, err error)
+
+	// Meeting guests (guest_handlers.go): a session ending with the guest's window.
+	MintGuestToken(ctx context.Context, userID, deviceID string, ttl time.Duration) (sessionID, token string, err error)
 }
 
 // RoomAdmin is the Synapse admin surface the console uses; *synapseadmin.Client implements it.
@@ -124,6 +127,7 @@ type Server struct {
 	// One meeting change at a time.
 	meetingMu    sync.Mutex
 	meetingRooms MeetingRooms
+	guests       guestState
 }
 
 // detachedCounter is a WaitGroup that tolerates a registration arriving while the wait is
@@ -438,6 +442,13 @@ func (s *Server) routes() {
 	// KyCalendar meeting rooms: signed server-to-server, no session or CSRF.
 	s.mux.HandleFunc("PUT /api/meetings/{id}", s.tracked(s.handleMeetingPut))
 	s.mux.HandleFunc("DELETE /api/meetings/{id}", s.tracked(s.handleMeetingDelete))
+	// Meeting guests: the administrator switch (on needs step-up) and the guest's page's calls.
+	s.mux.HandleFunc("GET /api/admin/meeting-guests", s.requireAdmin(s.handleGuests))
+	s.mux.HandleFunc("POST /api/admin/meeting-guests/enable", s.tracked(s.requireFreshAdmin(s.handleGuestsSwitch(true))))
+	s.mux.HandleFunc("POST /api/admin/meeting-guests/disable", s.tracked(s.requireAdmin(s.handleGuestsSwitch(false))))
+	s.mux.HandleFunc("POST /api/meet/status", s.handleMeetStatus)
+	s.mux.HandleFunc("POST /api/meet/join", s.tracked(s.handleMeetJoin))
+	s.mux.HandleFunc("POST "+meetSessionPath, s.handleMeetSession)
 	// Chat from KyPost and KyCalendar (docs/SUITE-CHAT.md): signed, no session or CSRF.
 	s.mux.HandleFunc("POST /api/suite/chat", s.tracked(s.handleSuiteChat))
 
@@ -595,6 +606,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	// The guest bootstrap page on Element's origin trades its code here: no cookie, no CSRF.
+	if r.URL.Path == meetSessionPath {
+		if s.meetSessionCORS(w, r) {
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 		s.mux.ServeHTTP(w, r)
 		return
 	}

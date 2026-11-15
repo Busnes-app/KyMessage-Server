@@ -46,6 +46,12 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   `state` `open`/`closed` (`CloseMeeting` is final; `UpdateMeeting` touches only open rows),
   and `meeting_events`, the replay guard: `RememberMeetingEvent` drops expired IDs, then inserts
   (`ErrAlreadyExists` while held); `ForgetMeetingEvent` releases one. Times are Unix seconds.
+- Migration 25 adds `meeting_windows` (meeting ID, start, end; `ReplaceWindows` replaces a
+  meeting's set in one transaction, `Windows` oldest first) and `meeting_guests` (meeting ID +
+  key hash primary key, `link_hash` unique, `revoked`, and while `mxid` is set the live guest
+  account: MAS user and session IDs, `session_end`, last seen `membership`). Hashes are hex
+  SHA-256; no key, link token or access token is stored. `ActiveGuests` is every row with an
+  account or a revocation still to finish.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
   `migrations.Run` refuses with `ErrNewerSchema` a database whose `schema_migrations` holds a
   version above this build's newest (image rollback, or a capsule from a newer build), before

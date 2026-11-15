@@ -27,6 +27,12 @@ type MeetingRooms interface {
 	SetRoomName(ctx context.Context, token, room, name string) error
 	SetOrganizer(ctx context.Context, token, room, organizer string) error
 	ExemptFromRatelimit(ctx context.Context, token, user string) error
+	// Meeting guests (guest_handlers.go).
+	AllowKnocks(ctx context.Context, token, room string) error
+	MarkGuest(ctx context.Context, token, room, localpart string) error
+	SetDisplayName(ctx context.Context, token, user, name string) error
+	Knock(ctx context.Context, token, room string) error
+	MemberStates(ctx context.Context, token, room string) (map[string]synapseadmin.Member, error)
 }
 
 // Signed KyCalendar requests: 120 per organizer per hour, PUT and DELETE together.
@@ -166,20 +172,29 @@ func (s *Server) handleMeetingPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	req, err := kycalendar.DecodePut(body)
+	req, err := kycalendar.DecodePut(body, time.Now())
 	switch {
 	case !kycalendar.ValidID(id) || !kycalendar.SameID(body, id):
 		s.auditMeeting(r, "", "meeting.put", "", "refused: bad_body")
 		s.meetingRefusal(w, http.StatusBadRequest, "bad_body", "Invalid meeting ID")
 		return
-	case errors.Is(err, kycalendar.ErrGuests):
-		s.auditMeeting(r, "", "meeting.put", id, "refused: guests_unsupported")
-		s.meetingRefusal(w, http.StatusUnprocessableEntity, "guests_unsupported", "Guests cannot join meetings yet")
-		return
 	case err != nil:
 		s.auditMeeting(r, "", "meeting.put", id, "refused: bad_body")
 		s.meetingRefusal(w, http.StatusBadRequest, "bad_body", "Invalid meeting")
 		return
+	}
+	if len(req.Guests) > 0 {
+		on, err := s.guestsOn(r.Context())
+		if err != nil {
+			s.forgetMeetingEvent(ev)
+			s.meetingRefusal(w, http.StatusServiceUnavailable, "unavailable", "Try again later")
+			return
+		}
+		if !on {
+			s.auditMeeting(r, "", "meeting.put", id, "refused: guests_off")
+			s.meetingRefusal(w, http.StatusUnprocessableEntity, "guests_off", "People outside the organisation cannot join meetings on this server")
+			return
+		}
 	}
 	organizer := s.meetingOrganizer(r.Context(), req.Sub, req.Issuer)
 	if organizer == nil {
@@ -195,6 +210,7 @@ func (s *Server) handleMeetingPut(w http.ResponseWriter, r *http.Request) {
 	var res meetingResult
 	skipped := []string{}
 	roomID := ""
+	var guestURLs map[string]string
 	err = s.meetingChange(w, r, func(ctx context.Context) error {
 		people, err := s.meetingPeople(ctx)
 		if err != nil {
@@ -236,10 +252,15 @@ func (s *Server) handleMeetingPut(w http.ResponseWriter, r *http.Request) {
 			for _, mxid := range res.refused {
 				skipped = append(skipped, subOf[mxid])
 			}
+			if err != nil {
+				return err
+			}
+			guestURLs, err = s.reconcileGuests(ctx, tok, m, req)
 			return err
 		})
 	})
-	kv := []string{"room", roomID, "invited", strconv.Itoa(res.invited), "removed", strconv.Itoa(res.removed), "skipped", strconv.Itoa(len(skipped))}
+	kv := []string{"room", roomID, "invited", strconv.Itoa(res.invited), "removed", strconv.Itoa(res.removed), "skipped", strconv.Itoa(len(skipped)),
+		"guests", strconv.Itoa(len(req.Guests)), "guest_links", strconv.Itoa(len(guestURLs))}
 	switch {
 	case errors.Is(err, errMeetingNoUser):
 		s.auditMeeting(r, organizer.ID, "meeting.put", id, "refused: no_user")
@@ -253,7 +274,10 @@ func (s *Server) handleMeetingPut(w http.ResponseWriter, r *http.Request) {
 		s.meetingRefusal(w, http.StatusServiceUnavailable, "unavailable", "Chat is unavailable; try again")
 	default:
 		s.auditMeeting(r, organizer.ID, "meeting.put", id, res.outcome, kv...)
-		s.writeJSON(w, http.StatusOK, map[string]any{"member_url": s.config.Matrix.ChatHost + "/#/room/" + roomID, "skipped_subs": skipped})
+		if guestURLs == nil {
+			guestURLs = map[string]string{}
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"member_url": s.config.Matrix.ChatHost + "/#/room/" + roomID, "skipped_subs": skipped, "guest_urls": guestURLs})
 	}
 }
 
@@ -421,7 +445,11 @@ func (s *Server) handleMeetingDelete(w http.ResponseWriter, r *http.Request) {
 			}
 			return s.startJob(ctx, tok, m.RoomID, seen, &res, s.rooms.Close)
 		})
-		if err != nil || m.State == store.MeetingClosed {
+		if err != nil {
+			return err
+		}
+		// Every guest link goes with the meeting; the reconciler ends the sessions.
+		if err := s.revokeGuests(ctx, id); err != nil || m.State == store.MeetingClosed {
 			return err
 		}
 		return s.store.Meetings().CloseMeeting(ctx, id)

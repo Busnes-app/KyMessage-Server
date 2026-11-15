@@ -72,3 +72,119 @@ func (s *meetingStore) ForgetMeetingEvent(ctx context.Context, eventID string) e
 	_, err := s.store.db.ExecContext(ctx, s.store.rebind(`DELETE FROM meeting_events WHERE event_id = ?`), eventID)
 	return err
 }
+
+func (s *meetingStore) ReplaceWindows(ctx context.Context, id string, windows []MeetingWindow) error {
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, s.store.rebind(`DELETE FROM meeting_windows WHERE meeting_id = ?`), id); err != nil {
+		return err
+	}
+	for _, w := range windows {
+		if _, err := tx.ExecContext(ctx, s.store.rebind(`INSERT INTO meeting_windows (meeting_id, start_at, end_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`), id, w.Start.Unix(), w.End.Unix()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *meetingStore) Windows(ctx context.Context, id string) ([]MeetingWindow, error) {
+	rows, err := s.store.db.QueryContext(ctx, s.store.rebind(`SELECT start_at, end_at FROM meeting_windows WHERE meeting_id = ? ORDER BY start_at, end_at`), id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MeetingWindow
+	for rows.Next() {
+		var start, end int64
+		if err := rows.Scan(&start, &end); err != nil {
+			return nil, err
+		}
+		out = append(out, MeetingWindow{time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()})
+	}
+	return out, rows.Err()
+}
+
+const guestColumns = `meeting_id, key_hash, link_hash, revoked, mxid, mas_user_id, session_id, session_end, membership, created_at`
+
+func (s *meetingStore) guests(ctx context.Context, where string, args ...any) ([]MeetingGuest, error) {
+	rows, err := s.store.db.QueryContext(ctx, s.store.rebind(`SELECT `+guestColumns+` FROM meeting_guests WHERE `+where+` ORDER BY meeting_id, key_hash`), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MeetingGuest
+	for rows.Next() {
+		var g MeetingGuest
+		var revoked int
+		var end, created int64
+		if err := rows.Scan(&g.MeetingID, &g.KeyHash, &g.LinkHash, &revoked, &g.MXID, &g.MASUserID, &g.SessionID, &end, &g.Membership, &created); err != nil {
+			return nil, err
+		}
+		g.Revoked = revoked != 0
+		g.SessionEnd, g.CreatedAt = unixOrZero(end), time.Unix(created, 0).UTC()
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func unixOrZero(v int64) time.Time {
+	if v == 0 {
+		return time.Time{}
+	}
+	return time.Unix(v, 0).UTC()
+}
+
+func zeroOrUnix(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
+func (s *meetingStore) one(ctx context.Context, where string, args ...any) (*MeetingGuest, error) {
+	gs, err := s.guests(ctx, where, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(gs) != 1 {
+		return nil, ErrNotFound
+	}
+	return &gs[0], nil
+}
+
+func (s *meetingStore) Guests(ctx context.Context, id string) ([]MeetingGuest, error) {
+	return s.guests(ctx, `meeting_id = ?`, id)
+}
+
+func (s *meetingStore) AddGuest(ctx context.Context, g *MeetingGuest) error {
+	g.CreatedAt = time.Now().UTC().Truncate(time.Second)
+	_, err := s.store.db.ExecContext(ctx, s.store.rebind(`INSERT INTO meeting_guests (meeting_id, key_hash, link_hash, created_at) VALUES (?, ?, ?, ?)`),
+		g.MeetingID, g.KeyHash, g.LinkHash, g.CreatedAt.Unix())
+	return uniqueError(err)
+}
+
+func (s *meetingStore) GuestByLink(ctx context.Context, linkHash string) (*MeetingGuest, error) {
+	return s.one(ctx, `link_hash = ?`, linkHash)
+}
+
+func (s *meetingStore) UpdateGuest(ctx context.Context, g *MeetingGuest) error {
+	revoked := 0
+	if g.Revoked {
+		revoked = 1
+	}
+	res, err := s.store.db.ExecContext(ctx, s.store.rebind(`UPDATE meeting_guests SET revoked = ?, mxid = ?, mas_user_id = ?, session_id = ?, session_end = ?, membership = ? WHERE meeting_id = ? AND key_hash = ?`),
+		revoked, g.MXID, g.MASUserID, g.SessionID, zeroOrUnix(g.SessionEnd), g.Membership, g.MeetingID, g.KeyHash)
+	return oneRow(res, err)
+}
+
+func (s *meetingStore) DeleteGuest(ctx context.Context, meetingID, keyHash string) error {
+	_, err := s.store.db.ExecContext(ctx, s.store.rebind(`DELETE FROM meeting_guests WHERE meeting_id = ? AND key_hash = ?`), meetingID, keyHash)
+	return err
+}
+
+func (s *meetingStore) ActiveGuests(ctx context.Context) ([]MeetingGuest, error) {
+	return s.guests(ctx, `mxid <> '' OR revoked <> 0`)
+}

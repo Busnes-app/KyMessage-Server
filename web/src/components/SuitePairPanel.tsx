@@ -79,7 +79,7 @@ const SuitePairPanel: React.FC<Props> = ({ app, route, env, icon: Icon, hint }) 
 /** Whether KyCalendar meetings get rooms and attendees can open a chat. */
 export const KyCalendarPanel: React.FC = () => (
   <SuitePairPanel app="KyCalendar" route="/api/admin/kycalendar" env="KY_KYCALENDAR_URL" icon={CalendarDays}
-    hint="KyCalendar meetings with attendees get an encrypted video room here, and attendees can open a chat. People outside the organisation cannot join yet." />
+    hint="KyCalendar meetings with attendees get an encrypted video room here, and attendees can open a chat. People outside the organisation can join only while Meeting guests is on." />
 );
 
 /** Whether KyPost can open a chat with a sender or contact. */

@@ -127,7 +127,7 @@ func runServer() {
 	}
 	go func() {
 		callsDone := make(chan struct{})
-		go callMaintenanceLoop(ctx, srv.ReconcileCalls, callsDone)
+		go callMaintenanceLoop(ctx, func(ctx context.Context) error { return errors.Join(srv.ReconcileCalls(ctx), srv.ReconcileGuests(ctx)) }, callsDone)
 		agentsDone := make(chan struct{})
 		go agentExpiryLoop(ctx, srv.ExpireIdleAgents, agentsDone)
 		brandDone := make(chan struct{})

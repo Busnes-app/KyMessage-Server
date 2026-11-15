@@ -3,11 +3,24 @@
 ## Unreleased
 
 ### Added
+- Meeting guests, off by default (**Settings → Server → Meeting guests**; turning it on needs a
+  recent sign-in). While on, KyCalendar may list outside attendees of a video meeting as opaque
+  guest keys with the meeting's windows, and KyMessages answers a personal link per new key
+  (`guest_urls`). From 10 minutes before each occurrence until it ends, the guest opens the link,
+  enters a name and solves the usual browser check; KyMessages makes a temporary `guest-` chat
+  account, signs it in to Element through a small page on Element's origin and knocks. Anyone in
+  the meeting lets them in from Element's room header, also during a call; the guest then joins
+  the call. A guest out of the call is removed and must knock again; at the window's end, on a
+  dropped key, when the meeting closes or when guests are turned off, the account is removed and
+  deactivated. Audited `guest.knock`, `guest.admit`, `guest.leave`, `guest.expire`,
+  `guests.enable` and `guests.disable`, with IDs only. Rerun `matrix-init` and update the Compose
+  files: Element now mounts `kymessages-guest.html` and turns on its "ask to join" feature.
+  Store migration 25. Contract: `docs/KYCALENDAR.md` "Guests".
 - Synapse loads a guest confinement module, `ky_guests.py`, which `matrix-init` writes beside
   `homeserver.yaml`; `docker-compose.matrix.yml` sets `PYTHONPATH=/config` on Synapse for it.
   Rerun `matrix-init` and update the Compose files together: a `homeserver.yaml` naming the
   module with an old Compose file stops Synapse at start. The module confines local accounts
-  named `guest-…` (the coming meeting guests; none exist yet) to the meeting room the console
+  named `guest-…` (meeting guests) to the meeting room the console
   marks for them: no room creation, invites, DMs, aliases, publishing, uploads or directory
   results, and no dropping the " (guest)" name suffix. Everyone else is untouched. Local
   part `guest-` is reserved for these accounts.

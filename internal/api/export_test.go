@@ -114,5 +114,32 @@ func SetMeetingRoomsForTest(s *Server, m MeetingRooms) { s.meetingRooms = m }
 // ResolveKyCalendarForTest runs one KyIdentity lookup of the KyCalendar pair. Test-only.
 func ResolveKyCalendarForTest(s *Server, ctx context.Context) bool { return s.resolveKyCalendar(ctx) }
 
+// GuestCallersForTest is the guest call grant rule. Test-only.
+func GuestCallersForTest(s *Server, ctx context.Context) (map[string]string, error) {
+	return s.guestCallers(ctx)
+}
+
+// SetGuestSeenForTest says when a guest was last in its call (inCall) or first seen joined.
+func SetGuestSeenForTest(s *Server, mxid string, at time.Time, inCall bool) {
+	s.guests.mu.Lock()
+	defer s.guests.mu.Unlock()
+	s.guests.seen[mxid] = guestSeen{at, inCall}
+}
+
+// ExpireGuestSessionsForTest moves every live guest session's end into the past.
+func ExpireGuestSessionsForTest(t interface{ Fatal(...any) }, st store.Store) {
+	ctx := context.Background()
+	rows, err := st.Meetings().ActiveGuests(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range rows {
+		g.SessionEnd = time.Now().Add(-time.Second)
+		if err := st.Meetings().UpdateGuest(ctx, &g); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // ResolveKyPostForTest runs one KyIdentity lookup of the KyPost pair. Test-only.
 func ResolveKyPostForTest(s *Server, ctx context.Context) bool { return s.resolvePair(ctx, s.kypost) }

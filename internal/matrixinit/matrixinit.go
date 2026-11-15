@@ -361,6 +361,7 @@ func Run(in Input, dir string) (Result, error) {
 	if !in.CallsOff {
 		data["TurnDeny"] = turnPeerDeny(in.MediaIP)
 	}
+	data["GuestScript"], data["GuestScriptHash"] = guestScript()
 	s["kyidentity_client_secret"] = clientSecret
 	for _, r := range []struct {
 		tmpl, rel string
@@ -382,6 +383,9 @@ func Run(in Input, dir string) (Result, error) {
 		// binds this single file into Element and the app, and a running container keeps the
 		// inode it was given.
 		{"element.json.tmpl", "element/config.json", 0o644, true},
+		// The meeting-guest bootstrap page, served by Element beside config.json. In place, for
+		// the same reason.
+		{"guest-page.html.tmpl", "element/kymessages-guest.html", 0o644, true},
 	} {
 		if r.rel == "mas/config.yaml" && res.ClientSecretMissing || r.rel == "livekit/config.yaml" && in.CallsOff {
 			continue

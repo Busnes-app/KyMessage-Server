@@ -9,8 +9,13 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
 `api.RoomAdmin` and `api.MeetingRooms`; `matrixsync.Client.AsConsole` supplies the token.
 
 ## Local Contracts
-- Only paths under `/_synapse/admin/`, plus the client API's `createRoom` and `rooms/…` for
-  meeting rooms (`allowedPath`); anything else is refused before a request is made.
+- Only paths under `/_synapse/admin/`, plus the client API's `createRoom`, `rooms/…`, `knock/…`
+  and `profile/…` for meeting rooms and their guests (`allowedPath`); anything else is refused
+  before a request is made.
+- Meeting guests (`guests.go`): `AllowKnocks` (join rule `knock` and `invite` 0, nothing sent
+  for what holds), `MarkGuest` (state `app.kymessages.guest`, key the guest's localpart, the
+  marker the confinement module trusts from the console only), `SetDisplayName` and `Knock`
+  (with the guest's own token), `MemberStates` (membership and sender, admin state API).
 - Meeting rooms (`meetings.go`, used by `internal/api` `MeetingRooms`): `CreateMeetingRoom`
   (`private_chat` preset; initial state join rule `invite`, history `joined`, guest access
   `forbidden`, Megolm encryption; power levels organizer `OrganizerLevel` 50, default 0,

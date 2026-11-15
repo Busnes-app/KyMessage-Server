@@ -20,6 +20,13 @@ This directory owns test setup, disposable server launch and UI assertions. The 
   present. Check the persisted result and layout at both widths/themes.
 - Login allows 10 failed attempts per account and client per 15 minutes (successes do not count); only `dark-390` and `firefox-light-1280` try a wrong password. Do not relax the limiter; budget failures before adding projects.
 - The suite also covers Users, Agents and Rooms (Matrix off; Agents then Rooms by keyboard from Users), Health, the Audit kind filter with keyboard navigation and the Overview, at every project.
+- Meeting guests at every project: `ui.spec.mjs` stubs `/api/admin/meeting-guests` (Matrix is off
+  here) and checks the Settings panel's Off state and its Turn on warnings (Cancel sends nothing),
+  saving `settings-guests.png`; `guests.spec.mjs` loads `/meet#<token>` signed out with
+  `/api/meet/status` stubbed: the token never leaves the fragment except in the POST body, no
+  shell navigation, the name form when open and the opening time when waiting
+  (`meet-open.png`, `meet-waiting.png`), no CSP violation. It signs in nowhere: every sign-in
+  counts toward the server's 20-a-minute limit the projects share.
 - Settings Branding at every project: reset to defaults first (a failed project must not break the next on the shared server), a 64-character name typed by keyboard (the header wraps it), a PNG upload previewed by digest with `/app-icon.png` served `no-cache`, then both resets. With Matrix off there is no KyIdentity sync panel.
 - Settings Office networks at every project, after the Branding steps (the panel sits above Branding): `10.0.0.0/8` is refused as too broad, `203.0.113.9/24` is stored as `203.0.113.0/24`, then the list is cleared for the next project.
 - `appearance.spec.mjs` signs in as `admin` at every project and opens Settings → Appearance: six pair groups with Busnes Match system checked, arrow keys move the one native radio group's selection with a single focus ring on the segment and a ✓ on the selected one, Ocean Light (a light suite palette) keeps idle and hovered navigation text ≥ 4.5:1 (annotations) and survives a reload (the tab has its own URL), Busnes Dark clears the inline palette and colour scheme, and Match system follows the emulated OS again; no CSP violations.

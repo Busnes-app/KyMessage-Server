@@ -193,10 +193,11 @@ When the user requests a durable behavior change, record it here or in the relev
   KyIdentity directory/MAS checks and room membership checks. No public or guest callers;
   users of servers on the federation allow-list may join a call a local user started (owner
   decision 2026-10-11, `internal/api/AGENTS.md`).
-  Exception approved 2026-10-18, not yet built: KyCalendar meeting rooms admit external guests
-  during the meeting only, from a waiting room, admitted by someone in the room and again after
-  leaving (`docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`). Until it
-  ships, the rule above holds.
+  Exception (owner decisions 2026-10-18 and 2026-11-14), behind the administrator switch
+  Meeting guests, off by default: KyCalendar meeting rooms admit external guests during the
+  meeting only, from a waiting room, admitted by someone in the room and again after leaving
+  (`docs/KYCALENDAR.md` "Guests"). Guests are short-lived `guest-` accounts that Synapse's
+  confinement module holds to their room.
   Chat only is opt-in (issue #74): `KY_MATRIX_CALLS=off` plus `docker-compose.chat-only.yml`
   (LiveKit at `scale: 0`, not under a profile: Compose ignores a profiled service, so a calls-on
   LiveKit kept running and publishing with the call reconciler off, PR #118 review; `scale: 0`
@@ -360,14 +361,18 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   in a `pg_dump`; the console has no device keys; a title change renames, an exact replay is
   `duplicate`, a PUT without bob kicks him (sender the console), DELETE blocks the room and
   empties it, and a PUT after is 409 `closed`.
-  Stage `guest-spikes` (after `prove`; CI's third leg only, which stops after it; scripts in
+  Stage `guests` (after `guest-spikes`; the meeting-guests leg, which stops after it;
+  `scripts/matrix-acceptance/guests.sh`, `docs/KYCALENDAR.md` "Verification"): the shipped guest
+  path end to end, Element included, through the console's routes and the bootstrap page.
+  Stage `guest-spikes` (after `console`, whose checks expect no open personal session; CI's
+  meeting-guests leg; scripts in
   `scripts/matrix-acceptance/spikes/`, results in the meeting-rooms spec's Evidence): S3 mints
   passwordless `guest-*` MAS users and personal sessions through MAS's admin API (a throwaway
   container on `matrix-admin`) and proves the confinement module on the pinned Synapse (no room,
   DM, knock elsewhere, uninvited join, invite, 3pid invite, state, suffix drop, alias, publish,
   directory result or upload; members still create rooms and find each other; expiry and
   deactivation end the session); S1 restores such a session in stock Element from a page on its
-  origin; S2 (with `feature_ask_to_join` set in the scratch Element config) has alice, in an
+  origin; S2 (`feature_ask_to_join`, which `matrix-init` sets) has alice, in an
   Element Call, admit a guest's knock from the room header.
   Stage `suite-meetings` (instead of `meetings`, only with `KYCALENDAR_SRC`; workflow
   `.github/workflows/suite-meetings.yml`, nightly, on dispatch and on pull requests touching the
