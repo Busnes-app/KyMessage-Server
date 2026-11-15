@@ -6,7 +6,9 @@
 # Sourced by scripts/matrix-acceptance.sh step guest-spikes; guests-lib.sh first.
 expect "$(dc exec -T synapse sh -c 'echo "$PYTHONPATH"; ls /config/ky_guests.py')" "/config
 /config/ky_guests.py" "Synapse runs with the module on its path, from its read-only config dir"
-expect "$(dc logs --no-color synapse 2>&1 | grep -c 'ky_guests' || true)" 0 "Synapse logged no module error"
+synapse_log=$(dc logs --no-color synapse 2>&1)
+grep -qF 'Loaded module <ky_guests.GuestConfinement' <<<"$synapse_log" || { echo "  FAILED: Synapse did not load ky_guests.GuestConfinement" >&2; false; }
+expect "$(grep -c Traceback <<<"$synapse_log" || true)" 0 "Synapse loaded the confinement module with no error"
 
 console_tok=$(session "$(mas_id kymessages-console)" 'urn:matrix:client:api:*' 900)
 alice_tok=$(session "$(mas_id alice.q_ky)" 'urn:matrix:client:api:*' 900)
