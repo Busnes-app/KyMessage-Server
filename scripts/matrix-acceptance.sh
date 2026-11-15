@@ -323,6 +323,11 @@ step kyidentity
 # The MXID localpart is the verified email's local part, not the username: AQuinn's mixed-case
 # email with a "+" maps to alice.q_ky. Everyone else's email is <username>@kymatrix.test.
 # olga's email stays unverified.
+# KyIdentity's main branch makes a given password good only for choosing a new one.
+if [[ -n $kycal_src ]]; then
+	printf '%s\n' "$KYMATRIX_ACCEPT_ADMIN_PASS" >"$state/admin.pass"
+	kyid first-password admin "$state/admin.pass" >/dev/null
+fi
 users=(AQuinn bob mallory nadia carol dave erin frank owen olga)
 [[ $reproduce == 1 ]] && users+=(rita)
 declare -A kid
@@ -338,6 +343,10 @@ dc stop kyidentity >/dev/null
 expect "$(python3 -I "$here/verify-emails.py" "$scratch/kyidentity-data/kyidentity.db" olga)" "$((${#users[@]} - 1))" "every email but olga's verified"
 dc start kyidentity >/dev/null
 ready https://id.kymatrix.test/healthz
+if [[ -n $kycal_src ]]; then
+	for u in "${users[@]}"; do kyid first-password "$u" "$state/$u.pass" >/dev/null; done
+	ok "every user chose a new password at first sign-in, where KyIdentity asks for it"
+fi
 kyid POST /api/admin/clients "$(jq -n --arg r "$redirect_uri" --arg b "$backchannel_uri" --arg c "$KY_MATRIX_MAS_CLIENT_ID" \
 	'{clientId: $c, clientName: "KyMessages chat", clientType: "confidential", redirectUris: [$r], backchannelLogoutUri: $b, allowedScopes: ["openid", "profile", "email"]}')" >"$state/client.json"
 expect "$(kyid GET /api/admin/clients | jq -r --arg c "$KY_MATRIX_MAS_CLIENT_ID" '.clients[] | select(.id == $c) | .backchannelLogoutUri')" \
