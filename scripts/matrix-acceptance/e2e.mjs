@@ -735,7 +735,7 @@ async function findEvent(page, title, ready = () => true) {
 }
 // From the List view: events sharing a slot in the week view are too narrow to click.
 async function openEvent(page, title) {
-  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await page.locator('.fc-listWeek-button').click();
   await page.locator('.fc-list-event', { hasText: title }).first().click();
   const dlg = page.locator('dialog.kc-dialog[open]');
   await dlg.waitFor();
