@@ -789,7 +789,10 @@ async function calendar() {
   const want = action === 'rename' ? renamed : title;
   const ev = await findEvent(page, want, (e) => action === 'off' ? !e.meeting : action !== 'create' || !!e.meeting_url);
   if (join) {
-    // Join from the event view opens the room in Element, in alice's own Element session.
+    // Join from the event view opens the room in Element, in alice's own Element session. The
+    // page loaded the event before KyCalendar wrote the link into it: load it again.
+    await page.reload();
+    await page.getByRole('button', { name: 'New event' }).waitFor();
     const dlg = await openEvent(page, want);
     const button = dlg.getByRole('button', { name: 'Join video meeting' });
     await button.waitFor();

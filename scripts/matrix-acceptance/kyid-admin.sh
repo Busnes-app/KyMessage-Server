@@ -20,15 +20,15 @@ kcurl() {
 }
 csrf() { awk '$6 == "kyidentity_csrf" { v = $7 } END { print v }' "$jar"; }
 # call METHOD PATH [extra curl args...]: fails on HTTP >= 400 and shows the body. A 429 is
-# retried up to 5 times, 1s, 2s, 3s, 4s apart.
+# retried up to 8 times, 1s to 7s apart (KyIdentity refills a step-up or sign-in every 5s).
 call() {
 	local m=$1 p=$2 out code attempt
 	shift 2
-	for attempt in 1 2 3 4 5; do
+	for attempt in 1 2 3 4 5 6 7 8; do
 		out=$(kcurl -X "$m" -w '\n%{http_code}' -H "X-CSRF-Token: $(csrf)" -H 'Content-Type: application/json' "$@" "$KYID_URL$p")
 		code=${out##*$'\n'}
 		out=${out%$'\n'*}
-		((code == 429 && attempt < 5)) || break
+		((code == 429 && attempt < 8)) || break
 		echo "kyid-admin: $m $p -> HTTP 429, retry $attempt" >&2
 		sleep "$attempt"
 	done
