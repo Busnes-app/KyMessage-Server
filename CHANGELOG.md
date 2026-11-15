@@ -11,6 +11,12 @@
   marks for them: no room creation, invites, DMs, aliases, publishing, uploads or directory
   results, and no dropping the " (guest)" name suffix. Everyone else is untouched. Local
   part `guest-` is reserved for these accounts.
+- Chat from KyPost and KyCalendar. A paired KyPost (a message's sender or a contact) or
+  KyCalendar (an attendee) can ask `POST /api/suite/chat` for a link to that person in Element,
+  which offers "Message" and reuses an existing direct chat; KyMessages creates nothing. Both
+  people need an everyday KyMessages account; administrators are never offered. KyPost pairs
+  like KyCalendar: `KY_KYPOST_URL` and `KY_KYPOST_SECRET_FILE`, else KyIdentity's suite pair
+  `kypost`, shown under **Settings → Server → KyPost**. See `docs/SUITE-CHAT.md`.
 - Calls in rooms of three or more people, KyCalendar meeting rooms included: Element now
   shows its call buttons there. Element v1.12.30 shows them only with its widgets UI on, so
   `matrix-init` turns `UIFeature.widgets` on while calls are on (rerun it and restart Element).

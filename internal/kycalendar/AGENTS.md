@@ -21,6 +21,8 @@ KyCalendar implements the other side.
   otherwise, because the path is not signed.
 - **`Link`** holds a `Peer` (https origin, secret, source `environment` or `kyidentity`) swapped
   atomically, nil while unpaired. The secret lives only there.
+- `Verify`, `Peer` and `Link` are also the KyPost pair's and the chat route's
+  (`docs/SUITE-CHAT.md`, `internal/api/suite_chat.go`); keep them free of meeting specifics.
 
 ## Verification
 - `go test -race ./internal/kycalendar/`
