@@ -12,8 +12,8 @@ masapi() {
 	docker run --rm --network "${project}_matrix-admin" --user "$(id -u):$(id -g)" \
 		-e "CRED=$KY_MATRIX_ADMIN_CLIENT_ID:$(cat "$scratch/matrix/secrets/mas_admin_client_secret")" \
 		-e "M=$1" -e "P=$2" -e "B=${3:-}" --entrypoint sh "$img" -c '
-		t=$(curl -fsS -u "$CRED" -d grant_type=client_credentials -d scope=urn:mas:admin http://mas-admin:8081/oauth2/token |
-			python3 -c "import json,sys; print(json.load(sys.stdin)[\"access_token\"])") || exit 1
+		r=$(curl -fsS -u "$CRED" -d grant_type=client_credentials -d scope=urn:mas:admin http://mas-admin:8081/oauth2/token) || exit 1
+		t=$(printf %s "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"access_token\"])") || exit 1
 		if [ -n "$B" ]; then
 			curl -sS -X "$M" -H "Authorization: Bearer $t" -H "Content-Type: application/json" --data-binary "$B" "http://mas-admin:8081/api/admin/v1/$P"
 		else
