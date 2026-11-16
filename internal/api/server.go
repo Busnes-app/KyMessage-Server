@@ -451,6 +451,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST "+meetSessionPath, s.handleMeetSession)
 	// Chat from KyPost and KyCalendar (docs/SUITE-CHAT.md): signed, no session or CSRF.
 	s.mux.HandleFunc("POST /api/suite/chat", s.tracked(s.handleSuiteChat))
+	s.mux.HandleFunc("POST /api/suite/presence/calendar", s.tracked(s.handlePresenceCalendar))
+	s.mux.HandleFunc("POST /api/suite/presence/out-of-office", s.tracked(s.handlePresenceOOO))
+	s.mux.HandleFunc("POST /api/suite/presence/me", s.tracked(s.handlePresenceMe))
+	s.mux.HandleFunc("POST /api/suite/presence/lookup", s.tracked(s.handlePresenceLookup))
 
 	// Rooms act through a 5-minute console session on Synapse's admin API. Close and delete
 	// need a recent sign-in, run detached and are audited. Close is final: there is no reopen.

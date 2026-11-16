@@ -93,6 +93,11 @@ and `Origin` are also `internal/config`'s Matrix validators, so both refuse the 
   A mapped localpart starting with `_` (e.g. a name beginning with a non-ASCII letter) is
   refused by Synapse's `check_username`, which MAS calls through `is_localpart_available`:
   sign-in fails closed. Never set `allow_underscore_prefixed_localpart`.
+- Presence is off (`docs/PRESENCE.md`): `homeserver.yaml` sets `presence: {enabled: false}`
+  (Synapse's default is on and reaches every room member, meeting guests and federated users
+  included, with last-active times) and Element's config sets `enable_presence_by_hs_url` to
+  false for the homeserver (`TestPresenceIsOff`). Never turn it on without a design that keeps
+  it from guests and outsiders.
 - Meeting-guest confinement (spec `docs/superpowers/specs/2026-10-18-kymessages-meeting-rooms-design.md`,
   spike S3): `templates/ky_guests.py.tmpl` is rendered byte for byte to `synapse/ky_guests.py`
   (0600, beside `homeserver.yaml`; Synapse imports it from `/config` through Compose's

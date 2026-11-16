@@ -133,3 +133,23 @@ type Meeting struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
+
+// Presence is one subject's stored status inputs (docs/PRESENCE.md). Zero times are unset.
+type Presence struct {
+	ShareOff            bool
+	ManualState         string // available, busy, away or ""
+	ManualUntil         time.Time
+	OOOStart, OOOEnd    time.Time
+	CalendarAt          time.Time // when the last calendar push was stored
+	Busy                []MeetingWindow
+	CalendarRev, OOORev int64
+}
+
+// PresenceOutcome is what a calendar or out-of-office push did.
+type PresenceOutcome string
+
+const (
+	PresenceApplied    PresenceOutcome = "applied"
+	PresenceStale      PresenceOutcome = "stale"
+	PresenceSharingOff PresenceOutcome = "sharing_off"
+)
