@@ -52,3 +52,12 @@ KyMessages is released under the [MIT License](LICENSE.txt).
 - [Assurance case](docs/ASSURANCE-CASE.md) — Threat model, trust boundaries, and why the security requirements are met.
 - [Key strength](docs/STRONG-CRYPTO.md) — Key-size rules, the `GODEBUG=fips140=on` TLS profile and what it does not cover.
 - [Contributing](CONTRIBUTING.md) — How to report bugs, propose changes, the test policy and the coding standard.
+
+## User manual
+
+Read the [online manual](https://busnes.app/manuals/kymessage-server/) or browse its
+[Markdown sources](docs/src/introduction.md).
+
+Build and check it with `mdbook build docs` and `python3 docs/check-links.py`,
+then open `docs/book/index.html`. The documentation workflow also provides a
+downloadable `documentation-book` artifact.

@@ -45,3 +45,6 @@ scripts/matrix-acceptance/artifacts/
 # Meeting-notes bot
 notes/node_modules/
 notes/out/
+
+# Generated mdBook manual
+/docs/book/
