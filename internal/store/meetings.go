@@ -188,3 +188,39 @@ func (s *meetingStore) DeleteGuest(ctx context.Context, meetingID, keyHash strin
 func (s *meetingStore) ActiveGuests(ctx context.Context) ([]MeetingGuest, error) {
 	return s.guests(ctx, `mxid <> '' OR revoked <> 0`)
 }
+
+func (s *meetingStore) SuiteGroupRooms(ctx context.Context) (map[string]SuiteGroupRoom, error) {
+	rows, err := s.store.db.QueryContext(ctx, `SELECT group_id, room_id, members, state, created_at, updated_at FROM suite_group_rooms`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]SuiteGroupRoom{}
+	for rows.Next() {
+		var g SuiteGroupRoom
+		var room sql.NullString
+		var members string
+		var created, updated int64
+		if err := rows.Scan(&g.GroupID, &room, &members, &g.State, &created, &updated); err != nil {
+			return nil, err
+		}
+		g.RoomID, g.Members = room.String, splitMembers(members)
+		g.CreatedAt, g.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
+		out[g.GroupID] = g
+	}
+	return out, rows.Err()
+}
+
+func (s *meetingStore) CreateSuiteGroupRoom(ctx context.Context, groupID string) error {
+	now := time.Now().Unix()
+	_, err := s.store.db.ExecContext(ctx, s.store.rebind(`INSERT INTO suite_group_rooms (group_id, room_id, members, state, created_at, updated_at) VALUES (?, NULL, '', ?, ?, ?)`),
+		groupID, SuiteGroupPending, now, now)
+	return uniqueError(err)
+}
+
+func (s *meetingStore) UpdateSuiteGroupRoom(ctx context.Context, g *SuiteGroupRoom) error {
+	room := sql.NullString{String: g.RoomID, Valid: g.RoomID != ""}
+	res, err := s.store.db.ExecContext(ctx, s.store.rebind(`UPDATE suite_group_rooms SET room_id = ?, members = ?, state = ?, updated_at = ? WHERE group_id = ?`),
+		room, joinMembers(g.Members), g.State, time.Now().Unix(), g.GroupID)
+	return uniqueError(oneRow(res, err))
+}

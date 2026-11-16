@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- Suite group rooms. A KyIdentity group marked "Create shared resources for this group" gets
+  one encrypted, invite-only room, created by the console account and kept in step every
+  minute from KyIdentity's `GET /api/suite/groups` (ky-primitives `suitedir.Groups`): its name
+  follows the group's, and its members are the listed people with a chat account, at the
+  ordinary member level; nobody but the console can invite or remove. Someone who leaves is
+  not invited back until they leave the group and return. Turning the group off (or deleting
+  it) makes the room read-only and removes everyone; the room is kept and stays on the
+  console's Rooms page, and turning the group on again reuses it. A failed lookup changes
+  nothing, and a group missing from the list is left as it is. Removal takes at most one
+  minute plus the pass. Audited `suite_group.reconcile` with IDs and counts only. Store
+  migration 27.
 - Meeting guests, off by default (**Settings → Server → Meeting guests**; turning it on needs a
   recent sign-in). While on, KyCalendar may list outside attendees of a video meeting as opaque
   guest keys with the meeting's windows, and KyMessages answers a personal link per new key

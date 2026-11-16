@@ -212,4 +212,10 @@ type MeetingStore interface {
 	DeleteGuest(ctx context.Context, meetingID, keyHash string) error
 	// ActiveGuests lists every row with a live account or a revocation still to finish.
 	ActiveGuests(ctx context.Context) ([]MeetingGuest, error)
+	// SuiteGroupRooms reads every suite group room by group ID.
+	SuiteGroupRooms(ctx context.Context) (map[string]SuiteGroupRoom, error)
+	// CreateSuiteGroupRoom records a pending row with no room (ErrAlreadyExists for a known group).
+	CreateSuiteGroupRoom(ctx context.Context, groupID string) error
+	// UpdateSuiteGroupRoom writes a row's room, members and state (ErrNotFound).
+	UpdateSuiteGroupRoom(ctx context.Context, g *SuiteGroupRoom) error
 }

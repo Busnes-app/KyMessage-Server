@@ -258,7 +258,22 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 25, Name: "meeting_guests", SQLite: meetingGuestsSchema, Postgres: meetingGuestsSchema},
 	// Suite status (docs/PRESENCE.md): one row per KyIdentity subject.
 	{Version: 26, Name: "presence", SQLite: presenceSchema, Postgres: presenceSchema},
+	// Suite groups (KyIdentity GET /api/suite/groups): one room per group ID.
+	{Version: 27, Name: "suite_group_rooms", SQLite: suiteGroupRoomsSchema, Postgres: suiteGroupRoomsSchema},
 }
+
+// room_id is NULL while pending: the row is written before the room is created, so a crash
+// in between is seen on the next pass. Times are Unix seconds.
+const suiteGroupRoomsSchema = `
+CREATE TABLE suite_group_rooms (
+    group_id VARCHAR(255) PRIMARY KEY,
+    room_id VARCHAR(255) UNIQUE,
+    members TEXT NOT NULL DEFAULT '',
+    state VARCHAR(8) NOT NULL CHECK (state IN ('pending', 'active', 'archived')),
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+);
+`
 
 // Times are Unix seconds; busy holds "start-end" lines.
 const presenceSchema = `

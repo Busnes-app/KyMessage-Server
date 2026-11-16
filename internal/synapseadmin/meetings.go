@@ -33,8 +33,13 @@ func clientRoomPath(id string) string { return clientPrefix + "rooms/" + url.Pat
 
 // CreateMeetingRoom creates an encrypted, invite-only room named name in which organizer has
 // OrganizerLevel and everyone else 0; inviting and removing need OrganizerLevel. Nobody is
-// invited yet. History is visible from joining.
+// invited yet. History is visible from joining. With organizer "" (a suite group room) every
+// member stays at 0, so only the console may invite or remove.
 func (c *Client) CreateMeetingRoom(ctx context.Context, token, name, organizer string) (string, error) {
+	users := map[string]int{}
+	if organizer != "" {
+		users[organizer] = OrganizerLevel
+	}
 	state := func(typ string, content any) map[string]any {
 		return map[string]any{"type": typ, "state_key": "", "content": content}
 	}
@@ -48,7 +53,7 @@ func (c *Client) CreateMeetingRoom(ctx context.Context, token, name, organizer s
 			state("m.room.encryption", map[string]string{"algorithm": "m.megolm.v1.aes-sha2"}),
 		},
 		"power_level_content_override": map[string]any{
-			"users": map[string]int{organizer: OrganizerLevel}, "users_default": 0, "events_default": 0,
+			"users": users, "users_default": 0, "events_default": 0,
 			"state_default": 50, "invite": OrganizerLevel, "kick": OrganizerLevel, "ban": 50, "redact": 50,
 			"events": meetingEvents,
 		},
@@ -93,18 +98,31 @@ func (c *Client) SetRoomName(ctx context.Context, token, room, name string) erro
 	return c.do(ctx, token, http.MethodPut, clientRoomPath(room)+"/state/m.room.name/", map[string]string{"name": name}, nil)
 }
 
-// SetOrganizer makes organizer the only user at OrganizerLevel, keeping the rest of the
-// room's power levels as they are. Nothing is sent when that already holds.
-func (c *Client) SetOrganizer(ctx context.Context, token, room, organizer string) error {
+// powerLevels reads room's power levels content, to be written back by setPowerLevels.
+func (c *Client) powerLevels(ctx context.Context, token, room string) (map[string]json.RawMessage, error) {
 	levels, err := c.state(ctx, token, room, "m.room.power_levels")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(levels) != 1 {
-		return errors.New("room has no power levels")
+		return nil, errors.New("room has no power levels")
 	}
 	var content map[string]json.RawMessage
 	if err := json.Unmarshal(levels[0].Content, &content); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+func (c *Client) setPowerLevels(ctx context.Context, token, room string, content map[string]json.RawMessage) error {
+	return c.do(ctx, token, http.MethodPut, clientRoomPath(room)+"/state/m.room.power_levels/", content, nil)
+}
+
+// SetOrganizer makes organizer the only user at OrganizerLevel, keeping the rest of the
+// room's power levels as they are. Nothing is sent when that already holds.
+func (c *Client) SetOrganizer(ctx context.Context, token, room, organizer string) error {
+	content, err := c.powerLevels(ctx, token, room)
+	if err != nil {
 		return err
 	}
 	users := map[string]json.Number{}
@@ -130,7 +148,47 @@ func (c *Client) SetOrganizer(ctx context.Context, token, room, organizer string
 		return err
 	}
 	content["users"] = raw
-	return c.do(ctx, token, http.MethodPut, clientRoomPath(room)+"/state/m.room.power_levels/", content, nil)
+	return c.setPowerLevels(ctx, token, room, content)
+}
+
+// SetReadOnly archives a room (readOnly true): sending any event, joining a call and inviting
+// need 100, which only the console (the creator) holds; state stays readable. False restores a
+// meeting room's levels: events_default and calls 0, invite OrganizerLevel. Everything else is
+// kept, and nothing is sent when the levels already hold.
+func (c *Client) SetReadOnly(ctx context.Context, token, room string, readOnly bool) error {
+	content, err := c.powerLevels(ctx, token, room)
+	if err != nil {
+		return err
+	}
+	send, invite := 0, OrganizerLevel
+	if readOnly {
+		send, invite = 100, 100
+	}
+	events := map[string]json.RawMessage{}
+	if raw, ok := content["events"]; ok {
+		if err := json.Unmarshal(raw, &events); err != nil {
+			return err
+		}
+	}
+	changed := false
+	set := func(m map[string]json.RawMessage, key string, v int) {
+		want := json.RawMessage(strconv.Itoa(v))
+		if string(m[key]) != string(want) {
+			m[key], changed = want, true
+		}
+	}
+	set(content, "events_default", send)
+	set(content, "invite", invite)
+	set(events, callMemberType, send)
+	if !changed {
+		return nil
+	}
+	raw, err := json.Marshal(events)
+	if err != nil {
+		return err
+	}
+	content["events"] = raw
+	return c.setPowerLevels(ctx, token, room, content)
 }
 
 // ExemptFromRatelimit lifts Synapse's per-user rate limits (messages, invites) for user, so a

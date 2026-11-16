@@ -37,12 +37,13 @@ const (
 // fakeMeetingRooms is Synapse's client API for meeting rooms over fakeRooms' admin view.
 type fakeMeetingRooms struct {
 	*fakeRooms
-	member  map[string]map[string]string // room → user → membership
-	orgs    map[string]string            // room → the user at the organizer's level
-	calls   []string
-	banned  map[string]bool
-	failFor map[string]bool // invites that fail with a network-like error
-	callErr error
+	member   map[string]map[string]string // room → user → membership
+	orgs     map[string]string            // room → the user at the organizer's level
+	readOnly map[string]bool              // room → archived power levels (suite groups)
+	calls    []string
+	banned   map[string]bool
+	failFor  map[string]bool // invites that fail with a network-like error
+	callErr  error
 	// Meeting guests (guests_test.go): each guest's token, and who sent a membership.
 	guestToken, sender map[string]string
 }
@@ -58,10 +59,27 @@ func (f *fakeMeetingRooms) CreateMeetingRoom(_ context.Context, tok, name, organ
 	if err := f.record("create " + organizer); err != nil {
 		return "", err
 	}
-	f.rooms[meetRoomID] = &synapseadmin.Room{ID: meetRoomID, Name: name, Creator: consoleMX, Members: 1, LocalMembers: 1, Encryption: "m.megolm.v1.aes-sha2", JoinRule: "invite"}
-	f.member[meetRoomID] = map[string]string{consoleMX: "join"}
-	f.orgs[meetRoomID] = organizer
-	return meetRoomID, nil
+	id := meetRoomID
+	if _, taken := f.rooms[id]; taken { // a second room (suite groups)
+		id = fmt.Sprintf("!room%d:example.com", len(f.rooms))
+	}
+	f.rooms[id] = &synapseadmin.Room{ID: id, Name: name, Creator: consoleMX, Members: 1, LocalMembers: 1, Encryption: "m.megolm.v1.aes-sha2", JoinRule: "invite"}
+	f.member[id] = map[string]string{consoleMX: "join"}
+	f.orgs[id] = organizer
+	return id, nil
+}
+
+func (f *fakeMeetingRooms) SetReadOnly(_ context.Context, tok, room string, readOnly bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.readOnly[room] == readOnly {
+		return f.callErr
+	}
+	if err := f.record(fmt.Sprintf("readonly %v", readOnly)); err != nil {
+		return err
+	}
+	f.readOnly[room] = readOnly
+	return nil
 }
 
 func (f *fakeMeetingRooms) Memberships(_ context.Context, tok, room string) (map[string]string, error) {
@@ -150,11 +168,20 @@ type meetingEnv struct {
 // with a chat account, and nobody has subject sub-x.
 func setupMeetings(t *testing.T, paired bool) meetingEnv {
 	t.Helper()
+	return setupMeetingsAt(t, paired, calIssuer)
+}
+
+// setupMeetingsAt is setupMeetings with KyIdentity at issuer, as client kymessage.
+func setupMeetingsAt(t *testing.T, paired bool, issuer string) meetingEnv {
+	t.Helper()
 	_, st, cfg := setupTestServer(t)
 	cfg.Matrix.ServerName = "example.com"
 	cfg.Matrix.ChatHost = "https://chat.example.com"
 	cfg.SSO.Enabled = true
-	cfg.SSO.KyIdentityIssuer = calIssuer
+	cfg.SSO.KyIdentityIssuer = issuer
+	if issuer != calIssuer {
+		cfg.SSO.KyIdentityClientID, cfg.SSO.KyIdentitySecret = "kymessage", "client-secret"
+	}
 	if paired {
 		cfg.KyCalendar = config.KyCalendarConfig{URL: "https://cal.example.com", Secret: []byte(calSecret)}
 	}
@@ -167,7 +194,7 @@ func setupMeetings(t *testing.T, paired bool) meetingEnv {
 		{ID: "01J9ZK8V6N3W4X5Y6Z7A8BFRNK", Username: "frank", Subject: "sub-f"},
 	}}
 	srv.SetMatrixAdmin(mas)
-	rooms := &fakeMeetingRooms{fakeRooms: newFakeRooms(), member: map[string]map[string]string{}, banned: map[string]bool{}, failFor: map[string]bool{}, orgs: map[string]string{}}
+	rooms := &fakeMeetingRooms{fakeRooms: newFakeRooms(), member: map[string]map[string]string{}, banned: map[string]bool{}, failFor: map[string]bool{}, orgs: map[string]string{}, readOnly: map[string]bool{}}
 	api.SetRoomAdminForTest(srv, rooms.fakeRooms)
 	api.SetMeetingRoomsForTest(srv, rooms)
 	for _, u := range []store.User{

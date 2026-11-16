@@ -142,3 +142,45 @@ func TestSetOrganizerSendsNothingWhenSettled(t *testing.T) {
 		t.Fatalf("%v %v", err, *calls)
 	}
 }
+
+// A suite group room (no organizer) lists nobody in users: every member stays at 0.
+func TestCreateSuiteGroupRoomElevatesNobody(t *testing.T) {
+	c, _, bodies := meetingSynapse(t, map[string]string{"POST /_matrix/client/v3/createRoom": `{"room_id":"!g:example.com"}`})
+	if _, err := c.CreateMeetingRoom(context.Background(), "tok", "Sales", ""); err != nil {
+		t.Fatal(err)
+	}
+	pl := bodies["POST /_matrix/client/v3/createRoom"].(map[string]any)["power_level_content_override"].(map[string]any)
+	if !reflect.DeepEqual(pl["users"], map[string]any{}) || pl["users_default"] != 0.0 || pl["invite"] != 50.0 {
+		t.Fatalf("levels %v", pl)
+	}
+}
+
+// Archiving raises sending, calls and invites to 100 and keeps the rest; restoring puts the
+// meeting levels back; a settled room gets no write.
+func TestSetReadOnly(t *testing.T) {
+	get := "GET /_synapse/admin/v1/rooms/%21g:example.com/state?type=m.room.power_levels"
+	put := "PUT /_matrix/client/v3/rooms/%21g:example.com/state/m.room.power_levels/"
+	open := `{"state":[{"type":"m.room.power_levels","state_key":"","content":{"users":{},"events_default":0,"invite":50,"kick":50,
+		"events":{"m.room.name":50,"org.matrix.msc3401.call.member":0}}}]}`
+	c, _, bodies := meetingSynapse(t, map[string]string{get: open})
+	if err := c.SetReadOnly(context.Background(), "tok", "!g:example.com", true); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"users": map[string]any{}, "events_default": 100.0, "invite": 100.0, "kick": 50.0,
+		"events": map[string]any{"m.room.name": 50.0, "org.matrix.msc3401.call.member": 100.0}}
+	if got := bodies[put]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("archived %v", got)
+	}
+	c, calls, _ := meetingSynapse(t, map[string]string{get: open})
+	if err := c.SetReadOnly(context.Background(), "tok", "!g:example.com", false); err != nil || len(*calls) != 1 {
+		t.Fatalf("settled: %v %v", err, *calls)
+	}
+	archived, _ := json.Marshal(map[string]any{"state": []any{map[string]any{"type": "m.room.power_levels", "state_key": "", "content": want}}})
+	c, _, bodies = meetingSynapse(t, map[string]string{get: string(archived)})
+	if err := c.SetReadOnly(context.Background(), "tok", "!g:example.com", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := bodies[put].(map[string]any); got["events_default"] != 0.0 || got["invite"] != 50.0 || got["events"].(map[string]any)["org.matrix.msc3401.call.member"] != 0.0 {
+		t.Fatalf("restored %v", got)
+	}
+}

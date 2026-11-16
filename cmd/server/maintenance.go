@@ -73,6 +73,31 @@ func callMaintenanceLoop(ctx context.Context, reconcile func(context.Context) er
 	}
 }
 
+// suiteGroupsTimeout bounds one suite group pass: the list, then each group's Synapse reads and
+// changes under one console session.
+const suiteGroupsTimeout = 2 * time.Minute
+
+// suiteGroupsLoop reconciles suite group rooms (api.Server.ReconcileSuiteGroups) at its start
+// and every minute. The error names only group IDs and Synapse paths. done closes between runs.
+func suiteGroupsLoop(ctx context.Context, reconcile func(context.Context) error, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		run, cancel := context.WithTimeout(ctx, suiteGroupsTimeout)
+		err := reconcile(run)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.Printf("[SUITE GROUPS] reconciliation failed: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 // agentExpiryLoop revokes agent tokens unused for 90 days (api.Server.ExpireIdleAgents) at its
 // start and hourly. done closes between runs, so shutdown can wait before the store closes.
 func agentExpiryLoop(ctx context.Context, expire func(context.Context, time.Time) error, done chan<- struct{}) {
