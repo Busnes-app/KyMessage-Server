@@ -75,6 +75,8 @@ secret, no session. Every body names the user by `sub` and `issuer`, and is deco
 - The whole state on every save. `away:false` turns it off, with no period needed.
 - With `away:true`, both times are required, `start < end`, at most 366 days apart.
 - `revision` works as above. **Never the reply text**: `comment_*` is refused.
+- KyPost sends it on every out-of-office save (KyPost `docs/KYMESSAGES.md` "Status",
+  `syncOOOMessages`); out-of-office on without an end date is sent as `away:false`.
 
 ### The user's own settings (KyCalendar)
 
