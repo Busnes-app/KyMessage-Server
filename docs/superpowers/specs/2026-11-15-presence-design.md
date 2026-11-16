@@ -118,6 +118,12 @@ never as a stale meeting.
   members only, never outsiders.
 - Manual statuses expire after at most 7 days. One that never expires is refused.
 
+## Load
+
+A 50-user test (presence on against off) found no measurable difference in Synapse's CPU
+or memory ([docs/PRESENCE.md](../../PRESENCE.md) "Load"). Presence is off for privacy, not
+load.
+
 ## Not built, and why
 
 - **Presence inside Element** (see Decision). Owner question 1.
@@ -126,6 +132,4 @@ never as a stale meeting.
   question 2.
 - **The KyPost out-of-office hook.** It waits for `f-ooo` (MySlop `kypost-out-of-office`) to
   finish. The KyMessages route is built and tested.
-- **The 50-user load test** measured Synapse's presence cost with presence on, against the
-  `off` this design ships. See [docs/PRESENCE.md](../../PRESENCE.md) "Load".
 - **Busy/tentative distinctions, working hours and per-person sharing.** Not asked for.

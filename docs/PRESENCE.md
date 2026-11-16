@@ -131,6 +131,21 @@ Answer, in request order:
 - Storage: table `presence` (migration 26), one row per subject, Unix seconds. Nothing is
   kept in memory.
 
+## Load
+
+Measured 2026-11-15 on Major with the pinned Synapse v1.162.0 (SQLite, 2 CPUs), 50 users in one
+room, each syncing as Element does (`set_presence=online`, 30-second long poll) and five of them
+sending a message every 10 seconds, for 247 seconds:
+
+| Presence | Synapse CPU | Peak memory | Syncs | Presence events delivered |
+|---|---|---|---|---|
+| on (Synapse's default) | 29 s (12% of one core) | 150 MiB | 5,500 | 7,500 |
+| off (shipped) | 30 s (12%) | 149 MiB | 5,500 | 0 |
+
+At this size presence costs nothing measurable, so load is not why it is off: it is off because
+it would reach meeting guests and federated users with last-active times. Postgres and more
+rooms per user were not measured.
+
 ## How it works
 
 - `internal/presence`: event types, limits, strict decoding and `Status`.
