@@ -9,6 +9,8 @@ services:
     image: ${KYMATRIX_ACCEPT_KYID_IMAGE:?}
     pull_policy: never
     environment:
+      PUSH_RELAY_URL: ""
+      APNS_RELAY_URL: ""
       KYIDENTITY_ISSUER_URL: https://id.kymatrix.test
       KYIDENTITY_DATA_DIR: /data
       BOOTSTRAP_ADMIN_USER: admin

@@ -130,6 +130,4 @@ load.
 - **A manual status set in Element.** Element has no status setter, and Synapse presence is
   off. The manual status is set from KyCalendar's settings through `presence/me`. Owner
   question 2.
-- **The KyPost out-of-office hook.** It waits for `f-ooo` (MySlop `kypost-out-of-office`) to
-  finish. The KyMessages route is built and tested.
 - **Busy/tentative distinctions, working hours and per-person sharing.** Not asked for.
