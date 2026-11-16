@@ -243,7 +243,7 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Verification
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request:
+CI (`.github/workflows/ci.yml`) runs on every push and every non-draft pull request (drafts skip until marked ready):
 - `make lint` equivalent: gofmt, `go vet`, `go mod tidy`/`verify`, `scripts/check-compose-proxy.sh`, `scripts/check-compose-matrix.sh` and `scripts/check-compose-podman.sh`
 - `release binary is repeatable` (Go job): builds `./cmd/server` the way the Dockerfile does (`-trimpath`, from `git archive` copies, committed `web/dist`) in two directories and requires identical bytes. Keep the Dockerfile's `go build` and that step in step; `docs/VERIFYING-RELEASES.md` gives users the same command for both release images
 - `go test -race` with coverage on SQLite, and the same suite against PostgreSQL 17
