@@ -256,6 +256,21 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `meeting.close` (resource the meeting ID; outcome, room ID, counts) for verified requests
   only. `MeetingRooms` (`*synapseadmin.Client`) is separate from `RoomAdmin` so room fakes stay small
   (`meetings_test.go`). Meeting `id` in the body must equal the path's (`kycalendar.SameID`).
+- Suite group rooms (`suite_groups.go`, KyIdentity `docs/SUITE-DIRECTORY.md` "GET
+  /api/suite/groups"): `ReconcileSuiteGroups` (cmd/server `suiteGroupsLoop`, every minute,
+  Matrix on) reads `suitedir.Groups` through `kyidentity.SuiteDirectory()`; any error returns
+  before anything changes, and absence from the list never archives. Rooms key on the group ID
+  only (`suite_group_rooms`). Each group runs under `meetingMu`; only this loop writes the rows,
+  so they are read once a pass. Active: pending row before `CreateMeetingRoom(…, "")` (no
+  organizer: nobody above 0), room ID recorded at once; archived row `SetReadOnly(false)`;
+  rename from `Room`; members are `meetingPeople` of the listed subs (dedicated administrators
+  never), recorded before inviting; kicks only recorded IDs no longer listed; invites people
+  with no membership, or `leave` only when newly managed (a leaver is not re-invited every
+  pass); 403 is a skip. Archived: `SetReadOnly(true)`, kick recorded members, then row
+  `archived` with no members. Never `Close`/`Delete`; a console-closed (blocked) room is left
+  alone. Settled groups make no Matrix change or write (`ExemptFromRatelimit` only before a
+  create or invite). Audit `suite_group.reconcile` (group ID; outcome, room ID, counts) on a
+  change; logged errors carry Synapse's route and code only (`suite_groups_test.go`).
 - Meeting guests (`guest_handlers.go`, `docs/KYCALENDAR.md` "Guests", `guests_test.go`): setting
   `meeting_guests_enabled` (`guestsOn`, off unless `true`); `GET /api/admin/meeting-guests`,
   `POST …/enable` (`requireFreshAdmin`), `POST …/disable` (runs `ReconcileGuests` before

@@ -134,6 +134,25 @@ type Meeting struct {
 	UpdatedAt        time.Time
 }
 
+// Suite group room states.
+const (
+	SuiteGroupPending  = "pending"
+	SuiteGroupActive   = "active"
+	SuiteGroupArchived = "archived"
+)
+
+// SuiteGroupRoom is a KyIdentity suite group's Matrix room, keyed on the group ID only.
+// RoomID is empty while pending (the row is written before the room is created); Members are
+// the Matrix user IDs the console manages there, recorded before they are invited.
+type SuiteGroupRoom struct {
+	GroupID   string
+	RoomID    string
+	Members   []string
+	State     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // Presence is one subject's stored status inputs (docs/PRESENCE.md). Zero times are unset.
 type Presence struct {
 	ShareOff            bool

@@ -114,6 +114,7 @@ func runServer() {
 	go backupLoop(ctx, cfg, st, backupDone)
 	maintenanceDone := make(chan struct{})
 	matrixDone := make(chan struct{})
+	groupsDone := make(chan struct{})
 	if cfg.Matrix.Enabled() {
 		mas := matrixsync.NewClient(cfg.Matrix.AdminURL, cfg.Matrix.AdminClientID, cfg.Matrix.AdminSecret)
 		srv.SetMatrixAdmin(mas)
@@ -121,9 +122,11 @@ func runServer() {
 		syncer.AdoptSCIM = cfg.SCIM.Enabled
 		srv.OnDirectoryChange(syncer.Wake)
 		go syncer.Run(ctx, 5*time.Minute, matrixDone)
+		go suiteGroupsLoop(ctx, srv.ReconcileSuiteGroups, groupsDone)
 		srv.StartSuitePairs(ctx)
 	} else {
 		close(matrixDone)
+		close(groupsDone)
 	}
 	go func() {
 		callsDone := make(chan struct{})
@@ -141,7 +144,7 @@ func runServer() {
 		close(maintenanceDone)
 	}()
 	backgroundDone := make(chan struct{})
-	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone; <-matrixDone }()
+	go func() { defer close(backgroundDone); <-backupDone; <-maintenanceDone; <-matrixDone; <-groupsDone }()
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	httpServer := &http.Server{

@@ -58,6 +58,12 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   (`SetCalendar`, `SetOutOfOffice`) apply when sharing is on and the revision is not older
   (`PresenceApplied`/`PresenceStale`/`PresenceSharingOff`); `SetSharing(false)` clears every
   input but the revisions in one write; `SetManual` is `ErrSharingOff` while off.
+- Migration 27 adds `suite_group_rooms` (in `MeetingStore`): KyIdentity suite group ID →
+  room ID (unique; NULL while `pending`, so the row is written before the room exists),
+  `members` (managed Matrix IDs, newline-separated, recorded before inviting) and `state`
+  `pending`/`active`/`archived`. `CreateSuiteGroupRoom` inserts a pending row
+  (`ErrAlreadyExists`), `UpdateSuiteGroupRoom` writes room, members and state (`ErrNotFound`;
+  a taken room is `ErrAlreadyExists`), `SuiteGroupRooms` reads all. Rows are never deleted.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
   `migrations.Run` refuses with `ErrNewerSchema` a database whose `schema_migrations` holds a
   version above this build's newest (image rollback, or a capsule from a newer build), before
@@ -84,7 +90,7 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   `CreateDirectoryUser` (the signed directory's members); `CreateUser` (sign-in, admin) stays refused.
 
 ## Verification
-- `go test -v ./internal/store/...`
+- `go test -v ./internal/store/...` (`suite_groups_test.go` covers migration 27's rows)
 - `migrations/migrations_test.go` builds a v16 database through the test-only
   `RunThrough` seam (`export_test.go`) and checks migrations 17, 19, 20 and 21 on both engines,
   and the newer-schema refusal through `Run` and `store.Open`.

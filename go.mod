@@ -5,7 +5,7 @@ go 1.26.9
 toolchain go1.27.4
 
 require (
-	github.com/Busnes-app/ky-primitives v0.10.2-0.20261113220457-9f4bc5875e04
+	github.com/Busnes-app/ky-primitives v0.10.2-0.20261116015712-875f57b13976
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/elimity-com/scim v0.0.0-20260728105928-2641426a1539
 	github.com/go-jose/go-jose/v4 v4.1.9

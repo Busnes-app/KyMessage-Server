@@ -21,11 +21,14 @@ Owns `Client`, `Error` and the room types. `internal/api` builds requests from i
   `forbidden`, Megolm encryption; power levels organizer `OrganizerLevel` 50, default 0,
   `invite`/`kick` 50, room version 12 defaults plus `org.matrix.msc3401.call.member` 0, as stock
   Element sets with Element Call, and `im.vector.modular.widgets` 100, so nobody but the console
-  may add a room widget; the console is the creator and is never listed),
+  may add a room widget; the console is the creator and is never listed; organizer `""` is a
+  suite group room: `users` empty, so nobody but the console can invite or remove),
   `Memberships` (admin state API, `m.room.member` only), `Invite`, `Kick`, `SetRoomName`,
   `SetOrganizer` (only the organizer stays at 50; everything else kept; no write when that
   already holds, so `internal/api` calls it on every PUT) and
-  `ExemptFromRatelimit` (`override_ratelimit` 0/0 for the console account).
+  `ExemptFromRatelimit` (`override_ratelimit` 0/0 for the console account), and
+  `SetReadOnly` (suite group archive: `events_default`, `invite` and the call member event at
+  100, state still readable; false restores 0/`OrganizerLevel`/0; no write when settled).
 - The transport ignores proxy variables and follows no redirects: the token goes to the
   configured origin or nowhere. `api.NewServer` passes the Synapse origin its Health probes
   use (`health.ComposeTargets.Synapse`, `http://synapse:8008`).

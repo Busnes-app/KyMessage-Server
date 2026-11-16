@@ -75,6 +75,11 @@ encrypt.
    looked up must be active everyday accounts; anyone else reads `unknown`. Synapse presence
    is off, so no status or last-active time reaches meeting guests or federated users
    (`internal/api/presence_handlers.go`, [PRESENCE.md](PRESENCE.md)).
+2d. **KyMessages → KyIdentity suite groups.** `GET /api/suite/groups` under the app's own
+   client credentials (`ky-primitives/suitedir`). Members map to Matrix accounts only through
+   `meetingPeople` (active, unlocked MAS links; dedicated administrators never); a room never
+   grants more than the ordinary member level, and a failed or partial list changes nothing
+   (`internal/api/suite_groups.go`).
 3. **KyMessages → MAS and Synapse.** Admin API clients that follow no redirects
    (`internal/matrixsync/mas.go`, `internal/synapseadmin`); the offboarding sweep locks, ends
    sessions or deactivates, and fails closed for an ambiguous or missing link.

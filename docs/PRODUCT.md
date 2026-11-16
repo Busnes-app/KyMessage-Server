@@ -32,6 +32,11 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
   and join the call; leaving the call means waiting again. A guest is a temporary chat account
   for that one room, removed at the end; Synapse's confinement module keeps it from creating
   rooms, inviting, finding people or messaging anyone outside the room.
+- Suite group rooms (2026-11, KyIdentity's `docs/SUITE-DIRECTORY.md` "GET /api/suite/groups"):
+  each KyIdentity group an administrator marks for shared resources gets one encrypted,
+  invite-only room whose name and members follow the group within a minute. Members only, at
+  the ordinary level; the console alone invites and removes. A group turned off or deleted
+  leaves its room read-only and empty, kept for administrators on the Rooms page.
 - Chat from mail and calendar (shipped 2026-11, [SUITE-CHAT.md](SUITE-CHAT.md)): a paired
   KyPost or KyCalendar asks for a link that opens Element's view of a colleague, from which the
   user starts or reopens a direct chat. Members only; the console creates nothing.

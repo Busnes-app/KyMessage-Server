@@ -26,6 +26,8 @@ type MeetingRooms interface {
 	Kick(ctx context.Context, token, room, user string) error
 	SetRoomName(ctx context.Context, token, room, name string) error
 	SetOrganizer(ctx context.Context, token, room, organizer string) error
+	// SetReadOnly archives (true) or restores a suite group room's power levels.
+	SetReadOnly(ctx context.Context, token, room string, readOnly bool) error
 	ExemptFromRatelimit(ctx context.Context, token, user string) error
 	// Meeting guests (guest_handlers.go).
 	AllowKnocks(ctx context.Context, token, room string) error
