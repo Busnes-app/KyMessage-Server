@@ -13,6 +13,7 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/suite-meetings.yml
       - scripts/matrix-acceptance.sh
@@ -39,6 +40,7 @@ env:
 jobs:
   suite-meetings:
     name: KyCalendar meetings on a real KyMessages stack
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     # Stack set-up and prove take about 8 minutes, the suite steps about 10.
     timeout-minutes: 45
