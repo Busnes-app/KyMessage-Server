@@ -294,7 +294,9 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request:
   over https (scratch LiveKit media/TLS ports are randomized). Scratch LiveKit keeps native
   Docker bridge and loopback ICE addresses, rather than rewriting both to loopback; the Linux
   host reaches the private bridge directly and TURN's peer policy still permits only loopback.
-  Call checks resolve the current iframe, hang up both calls before reusing profiles, and
+  The throwaway KyIdentity has `PUSH_RELAY_URL` and `APNS_RELAY_URL` explicitly empty.
+  Call checks resolve the current iframe, hang up both calls and reload each page to discard
+  the retained call lobby before reusing profiles, and
   verify relay-only ICE policy plus TLS transport (Chromium may label that candidate `prflx`).
   The harness temporarily
   imports its own CA nickname into Chromium's NSS database for TURN/TLS verification and

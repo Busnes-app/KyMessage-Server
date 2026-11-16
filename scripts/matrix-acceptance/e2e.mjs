@@ -615,7 +615,9 @@ async function hangup(...pages) {
     });
     // Leaving is asynchronous; changing rooms early can retain the group-call view.
     await end.waitFor({state:'hidden'});
-    for (const frame of page.frames()) await frame.evaluate(() => {window.kyCallPeers = []});
+    // A hidden End call button can mean the iframe's lobby, which Element can retain across
+    // hash-only room navigation. Reload after leaving so the next room has its own view.
+    await page.reload();
   }
 }
 
