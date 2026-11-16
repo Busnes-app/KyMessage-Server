@@ -299,6 +299,15 @@ Owns HTTP routing, request parsing, session cookie validation, CORS headers, and
   `{"url": ChatHost + "/#/user/" + mxid}`, creates nothing; audits `chat.open` (verified only:
   user ID, target user ID, outcome, `via`). Keep it out of `meeting_handlers.go`: it calls
   that file's helpers unchanged (`suite_chat_test.go`).
+- Suite status ([docs/PRESENCE.md](../../docs/PRESENCE.md)): `presence_handlers.go`, four
+  `tracked` routes with no session. `calendar` and `me` verify only under the KyCalendar pair,
+  `out-of-office` only under KyPost's, `lookup` picks the pair by event type as chat does;
+  `presenceRequest` answers as `meetingRequest` (no MAS needed). The user is
+  `meetingOrganizer`; lookup targets must be active `user` rows at that issuer
+  (`presenceMember`), anyone else reads `unknown`. Per-user budgets an hour: calendar 120,
+  out-of-office 60, me 60, lookup 300 (keys `presence.<route>:<sub>`); a refusal past
+  verification forgets the event. Audits `presence.*` with user ID and outcome only
+  (`presence_test.go`).
 - `POST /api/installer/directory` and the managed suite sync alias verify the protected
   HMAC credential before owned, revision-fenced authority updates and wake the MAS sweep.
   A subject setup does not own goes to `sso.ApplyMemberEvent` as an ordinary member: 204,

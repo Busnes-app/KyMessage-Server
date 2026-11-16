@@ -256,7 +256,25 @@ ALTER TABLE mfa_challenges ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';`,
 	{Version: 24, Name: "meetings", SQLite: meetingsSchema, Postgres: meetingsSchema},
 	// Meeting guests: each occurrence's window and each guest key's link and live session.
 	{Version: 25, Name: "meeting_guests", SQLite: meetingGuestsSchema, Postgres: meetingGuestsSchema},
+	// Suite status (docs/PRESENCE.md): one row per KyIdentity subject.
+	{Version: 26, Name: "presence", SQLite: presenceSchema, Postgres: presenceSchema},
 }
+
+// Times are Unix seconds; busy holds "start-end" lines.
+const presenceSchema = `
+CREATE TABLE presence (
+    subject VARCHAR(255) PRIMARY KEY,
+    share_off INTEGER NOT NULL DEFAULT 0,
+    manual_state VARCHAR(16) NOT NULL DEFAULT '',
+    manual_until BIGINT NOT NULL DEFAULT 0,
+    ooo_revision BIGINT NOT NULL DEFAULT 0,
+    ooo_start BIGINT NOT NULL DEFAULT 0,
+    ooo_end BIGINT NOT NULL DEFAULT 0,
+    cal_revision BIGINT NOT NULL DEFAULT 0,
+    cal_at BIGINT NOT NULL DEFAULT 0,
+    busy TEXT NOT NULL DEFAULT ''
+);
+`
 
 // Hashes are hex SHA-256: the guest key and the link token are never stored. A row with an
 // mxid has a live guest account.

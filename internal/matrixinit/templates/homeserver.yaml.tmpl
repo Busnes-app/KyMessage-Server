@@ -31,6 +31,10 @@ signing_key_path: /config/signing.key
 trusted_key_servers: []
 enable_registration: false
 allow_guest_access: false
+# Off: Synapse would send presence and last-active times to everyone sharing a room, meeting
+# guests and federated users included. Status lives in KyMessages (docs/PRESENCE.md).
+presence:
+  enabled: false
 encryption_enabled_by_default_for_room_type: all
 # Push gateways (Element's, or a self-hosted ntfy) get event and room IDs only, never content.
 push:

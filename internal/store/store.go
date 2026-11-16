@@ -12,6 +12,7 @@ import (
 var (
 	ErrNotFound      = errors.New("record not found")
 	ErrAlreadyExists = errors.New("record already exists")
+	ErrSharingOff    = errors.New("status sharing is off")
 	// ErrUsernameTaken: another account holds the username (exact case, as the column is unique).
 	ErrUsernameTaken  = fmt.Errorf("username is taken: %w", ErrAlreadyExists)
 	ErrSessionExpired = errors.New("session expired")
@@ -33,6 +34,7 @@ type Store interface {
 	Settings() SettingsStore
 	Agents() AgentStore
 	Meetings() MeetingStore
+	Presence() PresenceStore
 
 	InvalidateRestoredGrants(context.Context) error
 	Driver() string
@@ -167,6 +169,20 @@ type AgentStore interface {
 	// session. It is ErrNotFound once anything else changed it: a revoke during the mint wins.
 	ActivateNewAgent(ctx context.Context, id, sessionID string) error
 	DeleteAgent(ctx context.Context, id string) error
+}
+
+// PresenceStore holds each subject's suite status inputs (docs/PRESENCE.md).
+type PresenceStore interface {
+	// Presence reads the rows of subjects; a subject without one is absent from the map.
+	Presence(ctx context.Context, subjects []string) (map[string]Presence, error)
+	// SetSharing turns sharing on or off; off clears every other input in the same write.
+	SetSharing(ctx context.Context, subject string, on bool) error
+	// SetManual sets a manual status, or clears it with state "". ErrSharingOff while off.
+	SetManual(ctx context.Context, subject, state string, until time.Time) error
+	// SetCalendar and SetOutOfOffice store a push unless an older revision than the stored
+	// one (PresenceStale) or sharing is off (PresenceSharingOff). A zero OOO period is off.
+	SetCalendar(ctx context.Context, subject string, revision int64, busy []MeetingWindow) (PresenceOutcome, error)
+	SetOutOfOffice(ctx context.Context, subject string, revision int64, start, end time.Time) (PresenceOutcome, error)
 }
 
 // MeetingStore holds KyCalendar meeting rooms and the replay guard for KyCalendar's requests.

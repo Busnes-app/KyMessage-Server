@@ -69,6 +69,12 @@ encrypt.
    secret, with the same replay table, before its body is read. Caller and target must be
    active everyday accounts with unlocked MAS links; it answers an Element link and changes
    nothing (`internal/api/suite_chat.go`, [SUITE-CHAT.md](SUITE-CHAT.md)).
+2c. **KyCalendar, KyPost → KyMessages status.** `/api/suite/presence/*` take no session: each
+   route verifies only its pair's event types with the same replay table before its body is
+   read, and decodes strictly, so a title or reply text is refused. Users and the people
+   looked up must be active everyday accounts; anyone else reads `unknown`. Synapse presence
+   is off, so no status or last-active time reaches meeting guests or federated users
+   (`internal/api/presence_handlers.go`, [PRESENCE.md](PRESENCE.md)).
 3. **KyMessages → MAS and Synapse.** Admin API clients that follow no redirects
    (`internal/matrixsync/mas.go`, `internal/synapseadmin`); the offboarding sweep locks, ends
    sessions or deactivates, and fails closed for an ambiguous or missing link.

@@ -35,6 +35,11 @@ publishes an attested image, `ghcr.io/busnes-app/kymessage-server` (README, "Con
 - Chat from mail and calendar (shipped 2026-11, [SUITE-CHAT.md](SUITE-CHAT.md)): a paired
   KyPost or KyCalendar asks for a link that opens Element's view of a colleague, from which the
   user starts or reopens a direct chat. Members only; the console creates nothing.
+- Status from calendar and out-of-office (2026-11, [PRESENCE.md](PRESENCE.md)): KyCalendar
+  and KyPost show a colleague as available, busy, in a meeting, away, out of office or
+  unknown, from their calendar's busy times and out-of-office. Members only, coarse states,
+  no last-active time; "Show my status to colleagues" is on by default. Element shows no
+  presence: Synapse's would reach meeting guests and federated users.
 - Ky-integrated: KyIdentity sign-in and offboarding, KyRecovery backups, Ky console.
 - Not offered: Slack or Teams parity, compliance archiving, open federation.
 

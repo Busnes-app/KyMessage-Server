@@ -1081,3 +1081,25 @@ func TestGuestPageRunsOnlyItsScript(t *testing.T) {
 		t.Fatalf("script:\n%s", script)
 	}
 }
+
+// Synapse's presence default is on, and it reaches every room member (meeting guests and
+// federated users included) with last-active times; Element must not draw it either.
+func TestPresenceIsOff(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "m")
+	if _, err := Run(goodInput(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := synapseConfig(t, dir)["presence"].(map[string]any); p == nil || p["enabled"] != false || len(p) != 1 {
+		t.Errorf("presence: %v", p)
+	}
+	var el struct {
+		Presence map[string]bool `json:"enable_presence_by_hs_url"`
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "element", "config.json"))
+	if err := json.Unmarshal(b, &el); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := el.Presence["https://matrix.example.com"]; !ok || v || len(el.Presence) != 1 {
+		t.Errorf("element presence: %v", el.Presence)
+	}
+}

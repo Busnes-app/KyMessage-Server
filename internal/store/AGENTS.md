@@ -4,7 +4,7 @@
 Provides the unified Database Abstraction Layer (DAL) supporting pluggable backends (SQLite zero-CGO default and PostgreSQL enterprise) with automated dialect-aware migrations.
 
 ## Ownership
-Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`, `AgentStore`, `MeetingStore`), dialect translations, and schema migrations.
+Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, `GroupStore`, `AuditStore`, `SettingsStore`, `AgentStore`, `MeetingStore`, `PresenceStore`), dialect translations, and schema migrations.
 
 ## Local Contracts
 - `AuditStore.ListAuditRecords(offset, limit, prefixes...)` pages newest first by `id`; prefixes match the
@@ -52,6 +52,12 @@ Owns data models, store interfaces (`UserStore`, `SessionStore`, `DeviceStore`, 
   account: MAS user and session IDs, `session_end`, last seen `membership`). Hashes are hex
   SHA-256; no key, link token or access token is stored. `ActiveGuests` is every row with an
   account or a revocation still to finish.
+- Migration 26 adds `presence` (`PresenceStore`, one row per KyIdentity subject, Unix
+  seconds): `share_off`, the manual status and expiry, KyPost's out-of-office revision and
+  period, KyCalendar's revision, arrival time and busy blocks (`start-end` lines). Pushes
+  (`SetCalendar`, `SetOutOfOffice`) apply when sharing is on and the revision is not older
+  (`PresenceApplied`/`PresenceStale`/`PresenceSharingOff`); `SetSharing(false)` clears every
+  input but the revisions in one write; `SetManual` is `ErrSharingOff` while off.
 - `store.Open(ctx, cfg)` initializes and auto-migrates the configured database backend.
   `migrations.Run` refuses with `ErrNewerSchema` a database whose `schema_migrations` holds a
   version above this build's newest (image rollback, or a capsule from a newer build), before
