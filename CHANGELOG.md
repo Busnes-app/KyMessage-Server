@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Refresh compatible dependency versions and lockfiles. Rebuild or install the updated application; no database, configuration, account or key migration is required.
+
 ### Added
 - Suite group rooms. A KyIdentity group marked "Create shared resources for this group" gets
   one encrypted, invite-only room, created by the console account and kept in step every
